@@ -5,14 +5,19 @@ import {
   getFreeSpawnCells,
   getTargetsInRange,
 } from "./engine";
-import type { BattleState, BoardUnit, Position } from "./types";
+import type { BattleAction, BattleState, BoardUnit, Position } from "./types";
 
 function getDistance(a: Position, b: Position): number {
   return Math.abs(a.row - b.row) + Math.abs(a.col - b.col);
 }
 
-function getEnemyUnitById(state: BattleState, unitId: string): BoardUnit | undefined {
-  return state.units.find((unit) => unit.instanceId === unitId && unit.ownerId === "player");
+function getEnemyUnitById(
+  state: BattleState,
+  unitId: string
+): BoardUnit | undefined {
+  return state.units.find(
+    (unit) => unit.instanceId === unitId && unit.ownerId === "player"
+  );
 }
 
 function chooseBestAttackTarget(
@@ -41,14 +46,18 @@ function chooseBestAttackTarget(
     let attackValue = 1;
 
     if (attackerType === "unit") {
-      const attackerUnit = state.units.find((unit) => unit.instanceId === attackerId);
+      const attackerUnit = state.units.find(
+        (unit) => unit.instanceId === attackerId
+      );
+
       if (!attackerUnit) return false;
+
       attackValue = getCard(attackerUnit.cardId).attack;
     }
 
-    const damage = Math.max(1, attackValue - enemyCard.armor);
+    const damage = attackValue;
 
-    return enemyUnit.currentHp <= damage;
+    return enemyUnit.currentHp <= Math.max(1, damage - enemyCard.armor);
   });
 
   if (killableTarget) {
@@ -74,59 +83,56 @@ function chooseBestAttackTarget(
   return unitTargets[0]?.target ?? targets[0];
 }
 
-function attackWithAvailableUnits(state: BattleState): BattleState {
-  let nextState = state;
-
-  const botUnits = [...nextState.units].filter((unit) => unit.ownerId === "bot");
+function getNextBotAttackAction(state: BattleState): BattleAction | null {
+  const botUnits = state.units.filter((unit) => unit.ownerId === "bot");
 
   for (const unit of botUnits) {
-    const bestTarget = chooseBestAttackTarget(nextState, unit.instanceId, "unit");
+    if (unit.alreadyAttacked) continue;
+
+    const bestTarget = chooseBestAttackTarget(state, unit.instanceId, "unit");
 
     if (!bestTarget) continue;
 
-    nextState = applyAction(nextState, {
+    return {
       type: "ATTACK",
       playerId: "bot",
       attackerType: "unit",
       attackerId: unit.instanceId,
       targetType: bestTarget.type,
       targetId: bestTarget.id,
-    });
+    };
+  }
 
-    if (nextState.status !== "active") {
-      return nextState;
+  if (!state.headquarters.bot.alreadyAttacked) {
+    const hqTarget = chooseBestAttackTarget(state, "bot_hq", "headquarters");
+
+    if (hqTarget) {
+      return {
+        type: "ATTACK",
+        playerId: "bot",
+        attackerType: "headquarters",
+        attackerId: "bot_hq",
+        targetType: hqTarget.type,
+        targetId: hqTarget.id,
+      };
     }
   }
 
-  const hqTarget = chooseBestAttackTarget(nextState, "bot_hq", "headquarters");
-
-  if (hqTarget) {
-    nextState = applyAction(nextState, {
-      type: "ATTACK",
-      playerId: "bot",
-      attackerType: "headquarters",
-      attackerId: "bot_hq",
-      targetType: hqTarget.type,
-      targetId: hqTarget.id,
-    });
-  }
-
-  return nextState;
+  return null;
 }
 
-function moveUnitsTowardPlayerHq(state: BattleState): BattleState {
-  let nextState = state;
-
-  const botUnits = [...nextState.units].filter(
+function getNextBotMoveAction(state: BattleState): BattleAction | null {
+  const botUnits = state.units.filter(
     (unit) => unit.ownerId === "bot" && !unit.alreadyMoved
   );
 
   for (const unit of botUnits) {
-    const moveCells = getAvailableMoveCells(nextState, "bot", unit.instanceId);
+    const moveCells = getAvailableMoveCells(state, "bot", unit.instanceId);
 
     if (moveCells.length === 0) continue;
 
-    const playerHq = nextState.headquarters.player.position;
+    const playerHq = state.headquarters.player.position;
+    const currentDistance = getDistance(unit.position, playerHq);
 
     const bestCell = moveCells
       .map((cell) => ({
@@ -137,30 +143,26 @@ function moveUnitsTowardPlayerHq(state: BattleState): BattleState {
 
     if (!bestCell) continue;
 
-    const currentDistance = getDistance(unit.position, playerHq);
-
     if (bestCell.distanceToPlayerHq >= currentDistance) {
       continue;
     }
 
-    nextState = applyAction(nextState, {
+    return {
       type: "MOVE_UNIT",
       playerId: "bot",
       unitId: unit.instanceId,
       position: bestCell.cell,
-    });
+    };
   }
 
-  return nextState;
+  return null;
 }
 
-function playBestAvailableCard(state: BattleState): BattleState {
-  let nextState = state;
+function getNextBotPlayCardAction(state: BattleState): BattleAction | null {
+  const bot = state.bot;
+  const freeSpawnCells = getFreeSpawnCells(state, "bot");
 
-  const bot = nextState.bot;
-  const freeSpawnCells = getFreeSpawnCells(nextState, "bot");
-
-  if (freeSpawnCells.length === 0) return nextState;
+  if (freeSpawnCells.length === 0) return null;
 
   const playableCards = bot.hand
     .map((cardInstance) => ({
@@ -176,9 +178,9 @@ function playBestAvailableCard(state: BattleState): BattleState {
       return b.card.attack - a.card.attack;
     });
 
-  if (playableCards.length === 0) return nextState;
+  if (playableCards.length === 0) return null;
 
-  const playerHq = nextState.headquarters.player.position;
+  const playerHq = state.headquarters.player.position;
 
   const bestSpawnCell = freeSpawnCells
     .map((cell) => ({
@@ -187,36 +189,52 @@ function playBestAvailableCard(state: BattleState): BattleState {
     }))
     .sort((a, b) => a.distanceToPlayerHq - b.distanceToPlayerHq)[0];
 
-  if (!bestSpawnCell) return nextState;
+  if (!bestSpawnCell) return null;
 
-  nextState = applyAction(nextState, {
+  return {
     type: "PLAY_CARD",
     playerId: "bot",
     cardInstanceId: playableCards[0].instance.instanceId,
     position: bestSpawnCell.cell,
-  });
+  };
+}
 
-  return nextState;
+export function getNextBotAction(state: BattleState): BattleAction | null {
+  if (state.status !== "active") return null;
+  if (state.activePlayer !== "bot") return null;
+
+  const attackAction = getNextBotAttackAction(state);
+
+  if (attackAction) return attackAction;
+
+  const moveAction = getNextBotMoveAction(state);
+
+  if (moveAction) return moveAction;
+
+  const playCardAction = getNextBotPlayCardAction(state);
+
+  if (playCardAction) return playCardAction;
+
+  return {
+    type: "END_TURN",
+    playerId: "bot",
+  };
 }
 
 export function runBotTurn(state: BattleState): BattleState {
   let nextState = state;
 
-  if (nextState.status !== "active") return nextState;
-  if (nextState.activePlayer !== "bot") return nextState;
+  while (nextState.status === "active" && nextState.activePlayer === "bot") {
+    const action = getNextBotAction(nextState);
 
-  nextState = attackWithAvailableUnits(nextState);
+    if (!action) break;
 
-  if (nextState.status !== "active") return nextState;
+    nextState = applyAction(nextState, action);
 
-  nextState = moveUnitsTowardPlayerHq(nextState);
-
-  nextState = playBestAvailableCard(nextState);
-
-  nextState = applyAction(nextState, {
-    type: "END_TURN",
-    playerId: "bot",
-  });
+    if (action.type === "END_TURN") {
+      break;
+    }
+  }
 
   return nextState;
 }

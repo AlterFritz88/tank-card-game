@@ -2,12 +2,13 @@ import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { getCard } from "../game/cards";
+import { getNextBotAction } from "../game/bot";
 import {
   PLAYER_SPAWN_CELLS,
   getAvailableMoveCells,
   getTargetsInRange,
 } from "../game/engine";
-import type { Position } from "../game/types";
+import type { BattleAction, Position } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
 import apShellImage from "../assets/ap-shell.png";
 import explosionFlashImage from "../assets/effects/explosion-flash.png";
@@ -70,14 +71,24 @@ function getElementCenterRelativeToBoard(
   };
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function waitForNextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
 export function BattleScreen() {
   const {
     battle,
     selectedCardInstanceId,
-    selectedMode,
     selectedAttacker,
     selectCard,
-    selectMode,
     selectAttacker,
     dispatch,
     reset,
@@ -96,6 +107,7 @@ export function BattleScreen() {
   const objectRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const projectileIdRef = useRef(0);
   const explosionIdRef = useRef(0);
+  const botTurnRunningRef = useRef(false);
 
   useEffect(() => {
     const currentHp = new Map<string, number>();
@@ -130,11 +142,136 @@ export function BattleScreen() {
     }
   }, [battle]);
 
+  async function playAttackAnimation(attackerId: string, targetId: string) {
+    await waitForNextFrame();
+    await delay(40);
+
+    const attackerElement = objectRefs.current.get(attackerId);
+    const targetElement = objectRefs.current.get(targetId);
+    const boardElement = boardRef.current;
+
+    let targetCenter: CellCenter | null = null;
+
+    setAttackingId(attackerId);
+
+    if (!attackerElement || !targetElement || !boardElement) {
+      console.warn("Attack animation skipped: missing element", {
+        attackerId,
+        targetId,
+        hasAttackerElement: Boolean(attackerElement),
+        hasTargetElement: Boolean(targetElement),
+        hasBoardElement: Boolean(boardElement),
+      });
+
+      await delay(260);
+      return;
+    }
+
+    const from = getElementCenterRelativeToBoard(boardElement, attackerElement);
+    const to = getElementCenterRelativeToBoard(boardElement, targetElement);
+
+    targetCenter = to;
+
+    projectileIdRef.current += 1;
+
+    setProjectileEffect({
+      id: projectileIdRef.current,
+      from,
+      to,
+    });
+
+    await delay(260);
+
+    setAttackEffectId(targetId);
+
+    if (targetCenter) {
+      explosionIdRef.current += 1;
+
+      setExplosionEffect({
+        id: explosionIdRef.current,
+        position: targetCenter,
+      });
+    }
+
+    window.setTimeout(() => {
+      setAttackingId(null);
+      setProjectileEffect(null);
+    }, 220);
+
+    window.setTimeout(() => {
+      setAttackEffectId(null);
+      setExplosionEffect(null);
+    }, 940);
+  }
+
+  useEffect(() => {
+    if (battle.status !== "active") return;
+    if (battle.activePlayer !== "bot") return;
+    if (botTurnRunningRef.current) return;
+
+    let cancelled = false;
+
+    async function runAnimatedBotTurn() {
+      botTurnRunningRef.current = true;
+
+      await delay(450);
+
+      while (!cancelled) {
+        const currentBattle = useBattleStore.getState().battle;
+
+        if (currentBattle.status !== "active") break;
+        if (currentBattle.activePlayer !== "bot") break;
+
+        const action: BattleAction | null = getNextBotAction(currentBattle);
+
+        if (!action) break;
+
+        if (action.type === "ATTACK") {
+          await delay(180);
+          await playAttackAnimation(action.attackerId, action.targetId);
+
+          if (cancelled) break;
+
+          useBattleStore.getState().dispatch(action);
+          await delay(700);
+          continue;
+        }
+
+        if (action.type === "MOVE_UNIT") {
+          useBattleStore.getState().dispatch(action);
+          await delay(450);
+          continue;
+        }
+
+        if (action.type === "PLAY_CARD") {
+          useBattleStore.getState().dispatch(action);
+          await delay(450);
+          continue;
+        }
+
+        if (action.type === "END_TURN") {
+          useBattleStore.getState().dispatch(action);
+          await delay(250);
+          break;
+        }
+      }
+
+      botTurnRunningRef.current = false;
+    }
+
+    void runAnimatedBotTurn();
+
+    return () => {
+      cancelled = true;
+      botTurnRunningRef.current = false;
+    };
+  }, [battle.activePlayer, battle.status]);
+
   const rows = [0, 1, 2] as const;
   const cols = [0, 1, 2, 3, 4] as const;
 
   const selectedTargets =
-    selectedAttacker && selectedMode === "attack"
+    selectedAttacker && battle.activePlayer === "player"
       ? getTargetsInRange(
           battle,
           "player",
@@ -146,7 +283,7 @@ export function BattleScreen() {
   const selectedMoveCells =
     selectedAttacker &&
     selectedAttacker.type === "unit" &&
-    selectedMode === "move"
+    battle.activePlayer === "player"
       ? getAvailableMoveCells(battle, "player", selectedAttacker.id)
       : [];
 
@@ -161,11 +298,20 @@ export function BattleScreen() {
   }
 
   function handleCellClick(position: Position) {
-    if (
-      selectedAttacker &&
-      selectedAttacker.type === "unit" &&
-      selectedMode === "move"
-    ) {
+    if (battle.activePlayer !== "player") return;
+
+    if (selectedCardInstanceId) {
+      dispatch({
+        type: "PLAY_CARD",
+        playerId: "player",
+        cardInstanceId: selectedCardInstanceId,
+        position,
+      });
+
+      return;
+    }
+
+    if (selectedAttacker && selectedAttacker.type === "unit") {
       if (!isMoveCell(position)) return;
 
       dispatch({
@@ -174,83 +320,26 @@ export function BattleScreen() {
         unitId: selectedAttacker.id,
         position,
       });
-
-      return;
     }
-
-    if (!selectedCardInstanceId) return;
-
-    dispatch({
-      type: "PLAY_CARD",
-      playerId: "player",
-      cardInstanceId: selectedCardInstanceId,
-      position,
-    });
   }
 
-  function handleAttackTarget(
+  async function handleAttackTarget(
     targetType: "unit" | "headquarters",
     targetId: string
   ) {
     if (!selectedAttacker) return;
+    if (battle.activePlayer !== "player") return;
 
-    const attackerElement = objectRefs.current.get(selectedAttacker.id);
-    const targetElement = objectRefs.current.get(targetId);
-    const boardElement = boardRef.current;
+    await playAttackAnimation(selectedAttacker.id, targetId);
 
-    let targetCenter: CellCenter | null = null;
-
-    setAttackingId(selectedAttacker.id);
-
-    if (attackerElement && targetElement && boardElement) {
-      const from = getElementCenterRelativeToBoard(
-        boardElement,
-        attackerElement
-      );
-      const to = getElementCenterRelativeToBoard(boardElement, targetElement);
-
-      targetCenter = to;
-
-      projectileIdRef.current += 1;
-
-      setProjectileEffect({
-        id: projectileIdRef.current,
-        from,
-        to,
-      });
-    }
-
-    window.setTimeout(() => {
-      dispatch({
-        type: "ATTACK",
-        playerId: "player",
-        attackerType: selectedAttacker.type,
-        attackerId: selectedAttacker.id,
-        targetType,
-        targetId,
-      });
-
-      setAttackEffectId(targetId);
-
-      if (targetCenter) {
-        explosionIdRef.current += 1;
-
-        setExplosionEffect({
-          id: explosionIdRef.current,
-          position: targetCenter,
-        });
-      }
-    }, 260);
-
-    window.setTimeout(() => {
-      setAttackingId(null);
-      setProjectileEffect(null);
-    }, 420);
-
-    window.setTimeout(() => {
-      setAttackEffectId(null);
-      setExplosionEffect(null);
-    }, 1200);
+    dispatch({
+      type: "ATTACK",
+      playerId: "player",
+      attackerType: selectedAttacker.type,
+      attackerId: selectedAttacker.id,
+      targetType,
+      targetId,
+    });
   }
 
   const statusText =
@@ -446,8 +535,10 @@ export function BattleScreen() {
                       whileHover={{ scale: 1.03 }}
                       whileTap={{ scale: 0.97 }}
                       onClick={() => {
+                        if (battle.activePlayer !== "player") return;
+
                         if (canBeTarget) {
-                          handleAttackTarget("unit", unit.instanceId);
+                          void handleAttackTarget("unit", unit.instanceId);
                           return;
                         }
 
@@ -525,8 +616,10 @@ export function BattleScreen() {
                       whileHover={{ scale: 1.03 }}
                       whileTap={{ scale: 0.97 }}
                       onClick={() => {
+                        if (battle.activePlayer !== "player") return;
+
                         if (canBeTarget) {
-                          handleAttackTarget("headquarters", hqId);
+                          void handleAttackTarget("headquarters", hqId);
                           return;
                         }
 
@@ -597,26 +690,6 @@ export function BattleScreen() {
 
           <div style={styles.actions}>
             <button
-              style={{
-                ...styles.button,
-                ...(selectedMode === "attack" ? styles.activeModeButton : {}),
-              }}
-              onClick={() => selectMode("attack")}
-            >
-              Атака
-            </button>
-
-            <button
-              style={{
-                ...styles.button,
-                ...(selectedMode === "move" ? styles.activeModeButton : {}),
-              }}
-              onClick={() => selectMode("move")}
-            >
-              Движение
-            </button>
-
-            <button
               style={styles.button}
               disabled={
                 battle.activePlayer !== "player" || battle.status !== "active"
@@ -637,12 +710,14 @@ export function BattleScreen() {
               </span>
             )}
 
-            {selectedAttacker && selectedMode === "attack" && (
-              <span>Выбран атакующий. Доступные цели подсвечены.</span>
+            {selectedAttacker && selectedAttacker.type === "unit" && (
+              <span>
+                Выбран юнит. Зеленые клетки — движение, желтые цели — атака.
+              </span>
             )}
 
-            {selectedAttacker && selectedMode === "move" && (
-              <span>Выбран юнит. Доступные клетки движения подсвечены.</span>
+            {selectedAttacker && selectedAttacker.type === "headquarters" && (
+              <span>Выбран штаб. Желтые цели доступны для атаки.</span>
             )}
           </div>
 
@@ -674,6 +749,7 @@ export function BattleScreen() {
                       }}
                       whileHover={{ y: -4, scale: 1.03 }}
                       whileTap={{ scale: 0.97 }}
+                      disabled={battle.activePlayer !== "player"}
                       onClick={() =>
                         selectCard(selected ? null : cardInstance.instanceId)
                       }
@@ -906,9 +982,6 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "10px 14px",
     fontWeight: 700,
     cursor: "pointer",
-  },
-  activeModeButton: {
-    outline: "3px solid #ffffff",
   },
   sectionTitle: {
     margin: "0 0 12px",
