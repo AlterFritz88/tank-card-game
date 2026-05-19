@@ -57,7 +57,7 @@ export function createInitialBattleState(): BattleState {
         position: { row: 2, col: 0 },
         hp: 20,
         attack: 1,
-        range: 1,
+        range: 99,
         alreadyAttacked: false,
       },
       bot: {
@@ -65,7 +65,7 @@ export function createInitialBattleState(): BattleState {
         position: { row: 0, col: 4 },
         hp: 20,
         attack: 1,
-        range: 1,
+        range: 99,
         alreadyAttacked: false,
       },
     },

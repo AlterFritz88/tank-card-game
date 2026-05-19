@@ -6,6 +6,7 @@ import type {
   BoardUnit,
   PlayerId,
   Position,
+  TankCard,
 } from "./types";
 
 export const PLAYER_SPAWN_CELLS: Position[] = [
@@ -29,12 +30,17 @@ function samePosition(a: Position, b: Position): boolean {
 }
 
 function isSpawnCell(playerId: PlayerId, position: Position): boolean {
-  const spawnCells = playerId === "player" ? PLAYER_SPAWN_CELLS : BOT_SPAWN_CELLS;
+  const spawnCells =
+    playerId === "player" ? PLAYER_SPAWN_CELLS : BOT_SPAWN_CELLS;
+
   return spawnCells.some((cell) => samePosition(cell, position));
 }
 
 function isCellOccupied(state: BattleState, position: Position): boolean {
-  const unitOnCell = state.units.some((unit) => samePosition(unit.position, position));
+  const unitOnCell = state.units.some((unit) =>
+    samePosition(unit.position, position)
+  );
+
   const playerHq = samePosition(state.headquarters.player.position, position);
   const botHq = samePosition(state.headquarters.bot.position, position);
 
@@ -45,8 +51,35 @@ function getOpponent(playerId: PlayerId): PlayerId {
   return playerId === "player" ? "bot" : "player";
 }
 
-function distance(a: Position, b: Position): number {
+function manhattanDistance(a: Position, b: Position): number {
   return Math.abs(a.row - b.row) + Math.abs(a.col - b.col);
+}
+
+function chebyshevDistance(a: Position, b: Position): number {
+  return Math.max(Math.abs(a.row - b.row), Math.abs(a.col - b.col));
+}
+
+function rowDiff(a: Position, b: Position): number {
+  return Math.abs(a.row - b.row);
+}
+
+function colDiff(a: Position, b: Position): number {
+  return Math.abs(a.col - b.col);
+}
+
+function isDiagonalMove(from: Position, to: Position): boolean {
+  return rowDiff(from, to) === 1 && colDiff(from, to) === 1;
+}
+
+function isStraightMove(from: Position, to: Position): boolean {
+  return (
+    (rowDiff(from, to) > 0 && colDiff(from, to) === 0) ||
+    (rowDiff(from, to) === 0 && colDiff(from, to) > 0)
+  );
+}
+
+function isAdjacentAnyDirection(from: Position, to: Position): boolean {
+  return chebyshevDistance(from, to) === 1;
 }
 
 function addLog(state: BattleState, message: string) {
@@ -68,23 +101,29 @@ function startTurn(state: BattleState, playerId: PlayerId) {
   }
 
   for (const unit of state.units) {
-  if (unit.ownerId === playerId) {
-    unit.alreadyAttacked = false;
-    unit.alreadyMoved = false;
+    if (unit.ownerId === playerId) {
+      unit.alreadyAttacked = false;
+      unit.alreadyMoved = false;
+    }
   }
-}
 
   state.headquarters[playerId].alreadyAttacked = false;
 }
 
-function playCard(state: BattleState, action: Extract<BattleAction, { type: "PLAY_CARD" }>) {
+function playCard(
+  state: BattleState,
+  action: Extract<BattleAction, { type: "PLAY_CARD" }>
+) {
   if (state.status !== "active") return;
   if (state.activePlayer !== action.playerId) return;
   if (!isSpawnCell(action.playerId, action.position)) return;
   if (isCellOccupied(state, action.position)) return;
 
   const player = state[action.playerId];
-  const cardInHand = player.hand.find((card) => card.instanceId === action.cardInstanceId);
+
+  const cardInHand = player.hand.find(
+    (card) => card.instanceId === action.cardInstanceId
+  );
 
   if (!cardInHand) return;
 
@@ -93,23 +132,36 @@ function playCard(state: BattleState, action: Extract<BattleAction, { type: "PLA
   if (player.resources < card.cost) return;
 
   player.resources -= card.cost;
-  player.hand = player.hand.filter((card) => card.instanceId !== action.cardInstanceId);
 
-const unit: BoardUnit = {
-  instanceId: action.cardInstanceId,
-  cardId: card.id,
-  ownerId: action.playerId,
-  position: action.position,
-  currentHp: card.hp,
-  alreadyAttacked: true,
-  alreadyMoved: true,
-};
+  player.hand = player.hand.filter(
+    (card) => card.instanceId !== action.cardInstanceId
+  );
+
+  const isLightTank = card.class === "light";
+
+  const unit: BoardUnit = {
+    instanceId: action.cardInstanceId,
+    cardId: card.id,
+    ownerId: action.playerId,
+    position: action.position,
+    currentHp: card.hp,
+
+    // Обычные юниты после спавна не могут атаковать.
+    // Легкий танк может сразу атаковать.
+    alreadyAttacked: !isLightTank,
+
+    // Обычные юниты после спавна не могут двигаться.
+    // Легкий танк может сделать шаг на 1 клетку.
+    alreadyMoved: !isLightTank,
+  };
 
   state.units.push(unit);
 
   addLog(
     state,
-    `${action.playerId === "player" ? "Игрок" : "Бот"} размещает ${card.name} на [${action.position.row},${action.position.col}].`
+    `${action.playerId === "player" ? "Игрок" : "Бот"} размещает ${
+      card.name
+    } на [${action.position.row},${action.position.col}].`
   );
 }
 
@@ -144,10 +196,65 @@ function getAttackRange(attacker: ReturnType<typeof getAttacker>): number {
   if (!attacker) return 0;
 
   if ("cardId" in attacker) {
-    return getCard(attacker.cardId).range;
+    const card = getCard(attacker.cardId);
+
+    if (card.class === "td") {
+      return 1;
+    }
+
+    return card.range;
   }
 
   return attacker.range;
+}
+
+function canUnitAttackTarget(
+  attackerCard: TankCard,
+  attackerPosition: Position,
+  targetPosition: Position
+): boolean {
+  const range = attackerCard.class === "td" ? 1 : attackerCard.range;
+
+  // ПТ-САУ атакует только соседние клетки, включая диагональ.
+  if (attackerCard.class === "td") {
+    return isAdjacentAnyDirection(attackerPosition, targetPosition);
+  }
+
+  // Все остальные юниты могут атаковать по диагонали,
+  // поэтому используем Chebyshev distance.
+  return chebyshevDistance(attackerPosition, targetPosition) <= range;
+}
+
+function canAttackTarget(
+  attacker: ReturnType<typeof getAttacker>,
+  target: ReturnType<typeof getTarget>
+): boolean {
+  if (!attacker || !target) return false;
+
+  // Штабы атакуют любые вражеские цели в пределах своей дальности.
+  // При range 99 они достают всю карту.
+  if (!("cardId" in attacker)) {
+    return manhattanDistance(attacker.position, target.position) <= attacker.range;
+  }
+
+  const attackerCard = getCard(attacker.cardId);
+
+  return canUnitAttackTarget(attackerCard, attacker.position, target.position);
+}
+
+function destroyUnit(state: BattleState, unit: BoardUnit, reason: string) {
+  const card = getCard(unit.cardId);
+
+  state.units = state.units.filter(
+    (item) => item.instanceId !== unit.instanceId
+  );
+
+  state[unit.ownerId].discard.push({
+    instanceId: unit.instanceId,
+    cardId: unit.cardId,
+  });
+
+  addLog(state, `${card.name} ${reason}`);
 }
 
 function attack(state: BattleState, action: AttackAction) {
@@ -161,51 +268,121 @@ function attack(state: BattleState, action: AttackAction) {
   if (attacker.ownerId !== action.playerId) return;
   if (target.ownerId === action.playerId) return;
   if (attacker.alreadyAttacked) return;
-
-  const attackRange = getAttackRange(attacker);
-  const attackDistance = distance(attacker.position, target.position);
-
-  if (attackDistance > attackRange) return;
+  if (!canAttackTarget(attacker, target)) return;
 
   const attackValue = getAttackValue(attacker);
 
-  if ("cardId" in target) {
-    const targetCard = getCard(target.cardId);
-    const damage = Math.max(1, attackValue - targetCard.armor);
+  const attackerIsUnit = "cardId" in attacker;
+  const targetIsUnit = "cardId" in target;
 
-    target.currentHp -= damage;
+  const attackerCard = attackerIsUnit ? getCard(attacker.cardId) : null;
+  const targetCard = targetIsUnit ? getCard(target.cardId) : null;
 
-    const attackerName = "cardId" in attacker ? getCard(attacker.cardId).name : "Штаб";
-    const targetName = getCard(target.cardId).name;
+  const attackerName = attackerCard ? attackerCard.name : "Штаб";
+  const targetName = targetCard ? targetCard.name : "штаб";
 
-    addLog(state, `${attackerName} атакует ${targetName} и наносит ${damage} урона.`);
+  if (targetIsUnit) {
+    target.currentHp -= attackValue;
 
-    if (target.currentHp <= 0) {
-      state.units = state.units.filter((unit) => unit.instanceId !== target.instanceId);
-      state[target.ownerId].discard.push({
-        instanceId: target.instanceId,
-        cardId: target.cardId,
-      });
-      addLog(state, `${targetName} уничтожен.`);
+    addLog(
+      state,
+      `${attackerName} атакует ${targetName} и наносит ${attackValue} урона.`
+    );
+
+    const targetDestroyed = target.currentHp <= 0;
+
+    // Ответный урон получает только атакующий юнит.
+    // Штаб и САУ ответный урон не получают.
+    const attackerCanReceiveCounterDamage =
+      attackerIsUnit && attackerCard?.class !== "spg";
+
+    // ПТ-САУ получает ответный урон только если не уничтожила цель.
+    const tdAvoidsCounterDamage =
+      attackerCard?.class === "td" && targetDestroyed;
+
+    if (
+      attackerCanReceiveCounterDamage &&
+      !tdAvoidsCounterDamage &&
+      targetCard
+    ) {
+      const counterDamage = targetCard.attack;
+
+      attacker.currentHp -= counterDamage;
+
+      addLog(
+        state,
+        `${targetName} отвечает огнем и наносит ${counterDamage} урона.`
+      );
+    }
+
+    if (targetDestroyed) {
+      destroyUnit(state, target, "уничтожен.");
+    }
+
+    if (attackerIsUnit && attacker.currentHp <= 0) {
+      destroyUnit(state, attacker, "уничтожен ответным огнем.");
     }
   } else {
-    const damage = attackValue;
+    target.hp -= attackValue;
 
-    target.hp -= damage;
-
-    const attackerName = "cardId" in attacker ? getCard(attacker.cardId).name : "Штаб";
-    addLog(state, `${attackerName} атакует штаб и наносит ${damage} урона.`);
+    addLog(
+      state,
+      `${attackerName} атакует штаб и наносит ${attackValue} урона.`
+    );
 
     if (target.hp <= 0) {
       state.status = target.ownerId === "player" ? "bot_won" : "player_won";
-      addLog(state, target.ownerId === "player" ? "Бот победил." : "Игрок победил.");
+
+      addLog(
+        state,
+        target.ownerId === "player" ? "Бот победил." : "Игрок победил."
+      );
     }
   }
 
   attacker.alreadyAttacked = true;
 }
 
-function moveUnit(state: BattleState, action: Extract<BattleAction, { type: "MOVE_UNIT" }>) {
+function canUnitMoveTo(
+  card: TankCard,
+  from: Position,
+  to: Position,
+  isSpawnBonusMove: boolean
+): boolean {
+  if (samePosition(from, to)) return false;
+
+  const diagonal = isDiagonalMove(from, to);
+  const straight = isStraightMove(from, to);
+  const manhattan = manhattanDistance(from, to);
+
+  // Бонусное движение легкого танка после спавна:
+  // 1 клетка в любом направлении.
+  if (isSpawnBonusMove && card.class === "light") {
+    return isAdjacentAnyDirection(from, to);
+  }
+
+  if (card.class === "light") {
+    // Легкий танк:
+    // - диагональ на 1;
+    // - прямо на 1 или 2.
+    return (diagonal && manhattan === 2) || (straight && manhattan <= 2);
+  }
+
+  if (card.class === "medium") {
+    // Средний танк:
+    // - 1 клетка в любом направлении.
+    return isAdjacentAnyDirection(from, to);
+  }
+
+  // Тяжелые, ПТ-САУ и САУ:
+  // - 1 клетка только прямо.
+  return straight && manhattan === 1;
+}
+
+function moveUnit(
+  state: BattleState,
+  action: Extract<BattleAction, { type: "MOVE_UNIT" }>
+) {
   if (state.status !== "active") return;
   if (state.activePlayer !== action.playerId) return;
 
@@ -217,21 +394,24 @@ function moveUnit(state: BattleState, action: Extract<BattleAction, { type: "MOV
   if (isCellOccupied(state, action.position)) return;
 
   const card = getCard(unit.cardId);
-  const moveDistance = distance(unit.position, action.position);
 
-  if (moveDistance < 1) return;
-  if (moveDistance > card.movement) return;
+  const isSpawnBonusMove =
+    card.class === "light" && !unit.alreadyMoved && !unit.alreadyAttacked;
+
+  if (!canUnitMoveTo(card, unit.position, action.position, isSpawnBonusMove)) {
+    return;
+  }
 
   unit.position = action.position;
   unit.alreadyMoved = true;
 
   addLog(
     state,
-    `${action.playerId === "player" ? "Игрок" : "Бот"} перемещает ${card.name} на [${action.position.row},${action.position.col}].`
+    `${action.playerId === "player" ? "Игрок" : "Бот"} перемещает ${
+      card.name
+    } на [${action.position.row},${action.position.col}].`
   );
 }
-
-
 
 function endTurn(state: BattleState, playerId: PlayerId) {
   if (state.status !== "active") return;
@@ -247,38 +427,49 @@ function endTurn(state: BattleState, playerId: PlayerId) {
 
   startTurn(state, nextPlayer);
 
-  addLog(state, `Ход переходит к ${nextPlayer === "player" ? "игроку" : "боту"}.`);
+  addLog(
+    state,
+    `Ход переходит к ${nextPlayer === "player" ? "игроку" : "боту"}.`
+  );
 }
 
-export function applyAction(state: BattleState, action: BattleAction): BattleState {
+export function applyAction(
+  state: BattleState,
+  action: BattleAction
+): BattleState {
   const nextState = cloneState(state);
 
   switch (action.type) {
-  case "PLAY_CARD":
-    playCard(nextState, action);
-    break;
+    case "PLAY_CARD":
+      playCard(nextState, action);
+      break;
 
-  case "MOVE_UNIT":
-    moveUnit(nextState, action);
-    break;
+    case "MOVE_UNIT":
+      moveUnit(nextState, action);
+      break;
 
-  case "ATTACK":
-    attack(nextState, action);
-    break;
+    case "ATTACK":
+      attack(nextState, action);
+      break;
 
-  case "END_TURN":
-    endTurn(nextState, action.playerId);
-    break;
+    case "END_TURN":
+      endTurn(nextState, action.playerId);
+      break;
 
-  default:
-    return nextState;
-}
+    default:
+      return nextState;
+  }
 
   return nextState;
 }
 
-export function getFreeSpawnCells(state: BattleState, playerId: PlayerId): Position[] {
-  const spawnCells = playerId === "player" ? PLAYER_SPAWN_CELLS : BOT_SPAWN_CELLS;
+export function getFreeSpawnCells(
+  state: BattleState,
+  playerId: PlayerId
+): Position[] {
+  const spawnCells =
+    playerId === "player" ? PLAYER_SPAWN_CELLS : BOT_SPAWN_CELLS;
+
   return spawnCells.filter((cell) => !isCellOccupied(state, cell));
 }
 
@@ -301,15 +492,14 @@ export function getTargetsInRange(
 
   if (!attacker || attacker.alreadyAttacked) return [];
 
-  const range = getAttackRange(attacker);
   const opponent = getOpponent(playerId);
 
   const enemyUnits = state.units.filter(
-    (unit) => unit.ownerId === opponent && distance(attacker.position, unit.position) <= range
+    (unit) => unit.ownerId === opponent && canAttackTarget(attacker, unit)
   );
 
   const enemyHq = state.headquarters[opponent];
-  const hqInRange = distance(attacker.position, enemyHq.position) <= range;
+  const hqInRange = canAttackTarget(attacker, enemyHq);
 
   return [
     ...enemyUnits.map((unit) => ({
@@ -344,14 +534,18 @@ export function getAvailableMoveCells(
   const rows = [0, 1, 2] as const;
   const cols = [0, 1, 2, 3, 4] as const;
 
+  const isSpawnBonusMove =
+    card.class === "light" && !unit.alreadyMoved && !unit.alreadyAttacked;
+
   for (const row of rows) {
     for (const col of cols) {
       const position: Position = { row, col };
-      const moveDistance = distance(unit.position, position);
 
-      if (moveDistance < 1) continue;
-      if (moveDistance > card.movement) continue;
       if (isCellOccupied(state, position)) continue;
+
+      if (!canUnitMoveTo(card, unit.position, position, isSpawnBonusMove)) {
+        continue;
+      }
 
       result.push(position);
     }
