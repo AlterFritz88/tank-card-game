@@ -86,11 +86,58 @@ function addLog(state: BattleState, message: string) {
   state.log = [message, ...state.log].slice(0, 12);
 }
 
+function calculateFuelGeneration(
+  state: BattleState,
+  playerId: PlayerId
+): number {
+  const headquartersFuel = state.headquarters[playerId].fuelGeneration;
+
+  const unitsFuel = state.units
+    .filter((unit) => unit.ownerId === playerId)
+    .reduce((total, unit) => {
+      const card = getCard(unit.cardId);
+      return total + card.fuelGeneration;
+    }, 0);
+
+  return headquartersFuel + unitsFuel;
+}
+
+function spendFuel(
+  state: BattleState,
+  playerId: PlayerId,
+  amount: number,
+  actionName: string
+): boolean {
+  const player = state[playerId];
+
+  if (player.resources < amount) {
+    addLog(
+      state,
+      `${
+        playerId === "player" ? "Игроку" : "Боту"
+      } не хватает топлива: ${actionName} стоит ${amount}.`
+    );
+
+    return false;
+  }
+
+  player.resources -= amount;
+
+  return true;
+}
+
 function startTurn(state: BattleState, playerId: PlayerId) {
   const player = state[playerId];
 
-  player.maxResources = Math.min(10, player.maxResources + 1);
-  player.resources = player.maxResources;
+  const generatedFuel = calculateFuelGeneration(state, playerId);
+
+  player.maxResources = generatedFuel;
+  player.resources = generatedFuel;
+
+  addLog(
+    state,
+    `${playerId === "player" ? "Игрок" : "Бот"} получает ${generatedFuel} топлива.`
+  );
 
   const drawnCard = player.deck[0];
 
@@ -129,12 +176,12 @@ function playCard(
 
   const card = getCard(cardInHand.cardId);
 
-  if (player.resources < card.cost) return;
-
-  player.resources -= card.cost;
+  if (!spendFuel(state, action.playerId, card.cost, "размещение юнита")) {
+    return;
+  }
 
   player.hand = player.hand.filter(
-    (card) => card.instanceId !== action.cardInstanceId
+    (item) => item.instanceId !== action.cardInstanceId
   );
 
   const isLightTank = card.class === "light";
@@ -146,12 +193,7 @@ function playCard(
     position: action.position,
     currentHp: card.hp,
 
-    // Обычные юниты после спавна не могут атаковать.
-    // Легкий танк может сразу атаковать.
     alreadyAttacked: !isLightTank,
-
-    // Обычные юниты после спавна не могут двигаться.
-    // Легкий танк может сделать шаг на 1 клетку.
     alreadyMoved: !isLightTank,
   };
 
@@ -161,7 +203,7 @@ function playCard(
     state,
     `${action.playerId === "player" ? "Игрок" : "Бот"} размещает ${
       card.name
-    } на [${action.position.row},${action.position.col}].`
+    } за ${card.cost} топлива на [${action.position.row},${action.position.col}].`
   );
 }
 
@@ -192,20 +234,14 @@ function getAttackValue(attacker: ReturnType<typeof getAttacker>): number {
   return attacker.attack;
 }
 
-function getAttackRange(attacker: ReturnType<typeof getAttacker>): number {
+function getActionFuelCost(attacker: ReturnType<typeof getAttacker>): number {
   if (!attacker) return 0;
 
   if ("cardId" in attacker) {
-    const card = getCard(attacker.cardId);
-
-    if (card.class === "td") {
-      return 1;
-    }
-
-    return card.range;
+    return getCard(attacker.cardId).actionFuelCost;
   }
 
-  return attacker.range;
+  return attacker.actionFuelCost;
 }
 
 function canUnitAttackTarget(
@@ -213,16 +249,19 @@ function canUnitAttackTarget(
   attackerPosition: Position,
   targetPosition: Position
 ): boolean {
-  const range = attackerCard.class === "td" ? 1 : attackerCard.range;
-
   // ПТ-САУ атакует только соседние клетки, включая диагональ.
   if (attackerCard.class === "td") {
     return isAdjacentAnyDirection(attackerPosition, targetPosition);
   }
 
-  // Все остальные юниты могут атаковать по диагонали,
-  // поэтому используем Chebyshev distance.
-  return chebyshevDistance(attackerPosition, targetPosition) <= range;
+  // САУ может стрелять по любой точке карты.
+  if (attackerCard.class === "spg") {
+    return true;
+  }
+
+  // Остальные юниты атакуют в пределах своей дальности,
+  // включая диагонали.
+  return chebyshevDistance(attackerPosition, targetPosition) <= attackerCard.range;
 }
 
 function canAttackTarget(
@@ -231,8 +270,6 @@ function canAttackTarget(
 ): boolean {
   if (!attacker || !target) return false;
 
-  // Штабы атакуют любые вражеские цели в пределах своей дальности.
-  // При range 99 они достают всю карту.
   if (!("cardId" in attacker)) {
     return manhattanDistance(attacker.position, target.position) <= attacker.range;
   }
@@ -270,6 +307,12 @@ function attack(state: BattleState, action: AttackAction) {
   if (attacker.alreadyAttacked) return;
   if (!canAttackTarget(attacker, target)) return;
 
+  const actionFuelCost = getActionFuelCost(attacker);
+
+  if (!spendFuel(state, action.playerId, actionFuelCost, "атака")) {
+    return;
+  }
+
   const attackValue = getAttackValue(attacker);
 
   const attackerIsUnit = "cardId" in attacker;
@@ -286,17 +329,14 @@ function attack(state: BattleState, action: AttackAction) {
 
     addLog(
       state,
-      `${attackerName} атакует ${targetName} и наносит ${attackValue} урона.`
+      `${attackerName} атакует ${targetName} за ${actionFuelCost} топлива и наносит ${attackValue} урона.`
     );
 
     const targetDestroyed = target.currentHp <= 0;
 
-    // Ответный урон получает только атакующий юнит.
-    // Штаб и САУ ответный урон не получают.
     const attackerCanReceiveCounterDamage =
       attackerIsUnit && attackerCard?.class !== "spg";
 
-    // ПТ-САУ получает ответный урон только если не уничтожила цель.
     const tdAvoidsCounterDamage =
       attackerCard?.class === "td" && targetDestroyed;
 
@@ -327,7 +367,7 @@ function attack(state: BattleState, action: AttackAction) {
 
     addLog(
       state,
-      `${attackerName} атакует штаб и наносит ${attackValue} урона.`
+      `${attackerName} атакует штаб за ${actionFuelCost} топлива и наносит ${attackValue} урона.`
     );
 
     if (target.hp <= 0) {
@@ -355,27 +395,18 @@ function canUnitMoveTo(
   const straight = isStraightMove(from, to);
   const manhattan = manhattanDistance(from, to);
 
-  // Бонусное движение легкого танка после спавна:
-  // 1 клетка в любом направлении.
   if (isSpawnBonusMove && card.class === "light") {
     return isAdjacentAnyDirection(from, to);
   }
 
   if (card.class === "light") {
-    // Легкий танк:
-    // - диагональ на 1;
-    // - прямо на 1 или 2.
     return (diagonal && manhattan === 2) || (straight && manhattan <= 2);
   }
 
   if (card.class === "medium") {
-    // Средний танк:
-    // - 1 клетка в любом направлении.
     return isAdjacentAnyDirection(from, to);
   }
 
-  // Тяжелые, ПТ-САУ и САУ:
-  // - 1 клетка только прямо.
   return straight && manhattan === 1;
 }
 
@@ -402,6 +433,10 @@ function moveUnit(
     return;
   }
 
+  if (!spendFuel(state, action.playerId, card.actionFuelCost, "движение")) {
+    return;
+  }
+
   unit.position = action.position;
   unit.alreadyMoved = true;
 
@@ -409,7 +444,7 @@ function moveUnit(
     state,
     `${action.playerId === "player" ? "Игрок" : "Бот"} перемещает ${
       card.name
-    } на [${action.position.row},${action.position.col}].`
+    } за ${card.actionFuelCost} топлива на [${action.position.row},${action.position.col}].`
   );
 }
 
@@ -492,6 +527,10 @@ export function getTargetsInRange(
 
   if (!attacker || attacker.alreadyAttacked) return [];
 
+  const actionFuelCost = getActionFuelCost(attacker);
+
+  if (state[playerId].resources < actionFuelCost) return [];
+
   const opponent = getOpponent(playerId);
 
   const enemyUnits = state.units.filter(
@@ -529,6 +568,9 @@ export function getAvailableMoveCells(
   if (unit.alreadyMoved) return [];
 
   const card = getCard(unit.cardId);
+
+  if (state[playerId].resources < card.actionFuelCost) return [];
+
   const result: Position[] = [];
 
   const rows = [0, 1, 2] as const;

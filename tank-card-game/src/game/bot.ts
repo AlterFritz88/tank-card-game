@@ -41,8 +41,6 @@ function chooseBestAttackTarget(
     const enemyUnit = getEnemyUnitById(state, target.id);
     if (!enemyUnit) return false;
 
-    const enemyCard = getCard(enemyUnit.cardId);
-
     let attackValue = 1;
 
     if (attackerType === "unit") {
@@ -53,11 +51,11 @@ function chooseBestAttackTarget(
       if (!attackerUnit) return false;
 
       attackValue = getCard(attackerUnit.cardId).attack;
+    } else {
+      attackValue = state.headquarters.bot.attack;
     }
 
-    const damage = attackValue;
-
-    return enemyUnit.currentHp <= Math.max(1, damage - enemyCard.armor);
+    return enemyUnit.currentHp <= attackValue;
   });
 
   if (killableTarget) {
@@ -89,6 +87,10 @@ function getNextBotAttackAction(state: BattleState): BattleAction | null {
   for (const unit of botUnits) {
     if (unit.alreadyAttacked) continue;
 
+    const card = getCard(unit.cardId);
+
+    if (state.bot.resources < card.actionFuelCost) continue;
+
     const bestTarget = chooseBestAttackTarget(state, unit.instanceId, "unit");
 
     if (!bestTarget) continue;
@@ -104,6 +106,10 @@ function getNextBotAttackAction(state: BattleState): BattleAction | null {
   }
 
   if (!state.headquarters.bot.alreadyAttacked) {
+    if (state.bot.resources < state.headquarters.bot.actionFuelCost) {
+      return null;
+    }
+
     const hqTarget = chooseBestAttackTarget(state, "bot_hq", "headquarters");
 
     if (hqTarget) {
@@ -127,6 +133,10 @@ function getNextBotMoveAction(state: BattleState): BattleAction | null {
   );
 
   for (const unit of botUnits) {
+    const card = getCard(unit.cardId);
+
+    if (state.bot.resources < card.actionFuelCost) continue;
+
     const moveCells = getAvailableMoveCells(state, "bot", unit.instanceId);
 
     if (moveCells.length === 0) continue;

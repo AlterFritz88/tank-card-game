@@ -45,6 +45,13 @@ type ExplosionEffect = {
   position: CellCenter;
 };
 
+type DamageTextEffect = {
+  id: number;
+  amount: number;
+  targetId?: string;
+  position?: CellCenter;
+};
+
 function setObjectRef(
   refs: React.MutableRefObject<Map<string, HTMLButtonElement>>,
   id: string
@@ -101,12 +108,17 @@ export function BattleScreen() {
     useState<ProjectileEffect | null>(null);
   const [explosionEffect, setExplosionEffect] =
     useState<ExplosionEffect | null>(null);
+  const [damageTextEffects, setDamageTextEffects] = useState<
+    DamageTextEffect[]
+  >([]);
 
   const previousHpRef = useRef<Map<string, number>>(new Map());
   const boardRef = useRef<HTMLDivElement | null>(null);
   const objectRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const projectileIdRef = useRef(0);
   const explosionIdRef = useRef(0);
+  const damageTextIdRef = useRef(0);
+  const lastObjectCentersRef = useRef<Map<string, CellCenter>>(new Map());
   const botTurnRunningRef = useRef(false);
 
   useEffect(() => {
@@ -120,16 +132,46 @@ export function BattleScreen() {
     currentHp.set("bot_hq", battle.headquarters.bot.hp);
 
     const damaged = new Set<string>();
+    const nextDamageTextEffects: DamageTextEffect[] = [];
 
     for (const [id, hp] of currentHp.entries()) {
       const previousHp = previousHpRef.current.get(id);
 
       if (previousHp !== undefined && hp < previousHp) {
+        const amount = previousHp - hp;
+
         damaged.add(id);
+
+        damageTextIdRef.current += 1;
+
+        nextDamageTextEffects.push({
+          id: damageTextIdRef.current,
+          targetId: id,
+          amount,
+        });
       }
     }
 
+    for (const [id, previousHp] of previousHpRef.current.entries()) {
+      const stillExists = currentHp.has(id);
+      const isHeadquarters = id === "player_hq" || id === "bot_hq";
+
+      if (stillExists || isHeadquarters) continue;
+
+      const lastCenter = lastObjectCentersRef.current.get(id);
+
+      damageTextIdRef.current += 1;
+
+      nextDamageTextEffects.push({
+        id: damageTextIdRef.current,
+        amount: previousHp,
+        position: lastCenter,
+      });
+    }
+
     previousHpRef.current = currentHp;
+
+    const timeouts: number[] = [];
 
     if (damaged.size > 0) {
       setDamagedIds(damaged);
@@ -138,8 +180,49 @@ export function BattleScreen() {
         setDamagedIds(new Set());
       }, 450);
 
-      return () => window.clearTimeout(timeout);
+      timeouts.push(timeout);
     }
+
+    if (nextDamageTextEffects.length > 0) {
+      setDamageTextEffects((current) => [
+        ...current,
+        ...nextDamageTextEffects,
+      ]);
+
+      const effectIds = nextDamageTextEffects.map((item) => item.id);
+
+      const timeout = window.setTimeout(() => {
+        setDamageTextEffects((current) =>
+          current.filter((item) => !effectIds.includes(item.id))
+        );
+      }, 900);
+
+      timeouts.push(timeout);
+    }
+
+    return () => {
+      for (const timeout of timeouts) {
+        window.clearTimeout(timeout);
+      }
+    };
+  }, [battle]);
+
+  function updateLastObjectCenters() {
+    const boardElement = boardRef.current;
+
+    if (!boardElement) return;
+
+    const nextCenters = new Map<string, CellCenter>();
+
+    for (const [id, element] of objectRefs.current.entries()) {
+      nextCenters.set(id, getElementCenterRelativeToBoard(boardElement, element));
+    }
+
+    lastObjectCentersRef.current = nextCenters;
+  }
+
+  useEffect(() => {
+    updateLastObjectCenters();
   }, [battle]);
 
   async function playAttackAnimation(attackerId: string, targetId: string) {
@@ -297,6 +380,60 @@ export function BattleScreen() {
     return selectedMoveCells.some((cell) => samePosition(cell, position));
   }
 
+  function renderDamageText(targetId: string) {
+    return (
+      <AnimatePresence>
+        {damageTextEffects
+          .filter((effect) => effect.targetId === targetId)
+          .map((effect) => (
+            <motion.span
+              key={effect.id}
+              style={styles.damageText}
+              initial={{ opacity: 0, y: 6, scale: 0.85 }}
+              animate={{
+                opacity: [0, 1, 1, 0],
+                y: [6, -8, -22, -34],
+                scale: [0.85, 1.25, 1.15, 1],
+              }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.9, ease: "easeOut" }}
+            >
+              -{effect.amount}
+            </motion.span>
+          ))}
+      </AnimatePresence>
+    );
+  }
+
+  function renderOverlayDamageText() {
+    return (
+      <AnimatePresence>
+        {damageTextEffects
+          .filter((effect) => effect.position)
+          .map((effect) => (
+            <motion.span
+              key={effect.id}
+              style={{
+                ...styles.overlayDamageText,
+                left: effect.position?.x,
+                top: effect.position?.y,
+              }}
+              initial={{ opacity: 0, y: 6, scale: 0.85 }}
+              animate={{
+                opacity: [0, 1, 1, 0],
+                y: [6, -8, -22, -38],
+                scale: [0.85, 1.35, 1.2, 1],
+              }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.9, ease: "easeOut" }}
+            >
+              -{effect.amount}
+            </motion.span>
+          ))}
+      </AnimatePresence>
+    );
+  }
+
   function handleCellClick(position: Position) {
     if (battle.activePlayer !== "player") return;
 
@@ -372,18 +509,26 @@ export function BattleScreen() {
               <strong>Штаб игрока</strong>
               <span>HP: {battle.headquarters.player.hp}</span>
               <span>Урон: {battle.headquarters.player.attack}</span>
+              <span>
+                FUEL +{battle.headquarters.player.fuelGeneration} / ACT{" "}
+                {battle.headquarters.player.actionFuelCost}
+              </span>
             </div>
 
             <div style={styles.infoCard}>
               <strong>Штаб противника</strong>
               <span>HP: {battle.headquarters.bot.hp}</span>
               <span>Урон: {battle.headquarters.bot.attack}</span>
+              <span>
+                FUEL +{battle.headquarters.bot.fuelGeneration} / ACT{" "}
+                {battle.headquarters.bot.actionFuelCost}
+              </span>
             </div>
 
             <div style={styles.infoCard}>
-              <strong>Ресурсы</strong>
+              <strong>Топливо</strong>
               <span>
-                {battle.player.resources}/{battle.player.maxResources}
+                {battle.player.resources}/{battle.player.maxResources} за ход
               </span>
             </div>
           </div>
@@ -480,6 +625,8 @@ export function BattleScreen() {
               )}
             </AnimatePresence>
 
+            {renderOverlayDamageText()}
+
             {rows.map((row) =>
               cols.map((col) => {
                 const position: Position = { row, col };
@@ -559,8 +706,14 @@ export function BattleScreen() {
                         ATK {card.attack} RNG {card.range}
                       </span>
                       <span>MOVE {card.movement}</span>
+                      <span>
+                        FUEL +{card.fuelGeneration} / ACT{" "}
+                        {card.actionFuelCost}
+                      </span>
                       {unit.alreadyAttacked && <small>Атаковал</small>}
                       {unit.alreadyMoved && <small>Двигался</small>}
+
+                      {renderDamageText(unit.instanceId)}
 
                       <AnimatePresence>
                         {attackEffectId === unit.instanceId && (
@@ -638,7 +791,12 @@ export function BattleScreen() {
                       <span>HP {hq.hp}</span>
                       <span>ATK {hq.attack}</span>
                       <span>RNG {hq.range}</span>
+                      <span>
+                        FUEL +{hq.fuelGeneration} / ACT {hq.actionFuelCost}
+                      </span>
                       {hq.alreadyAttacked && <small>Атаковал</small>}
+
+                      {renderDamageText(hqId)}
 
                       <AnimatePresence>
                         {attackEffectId === hqId && (
@@ -713,6 +871,7 @@ export function BattleScreen() {
             {selectedAttacker && selectedAttacker.type === "unit" && (
               <span>
                 Выбран юнит. Зеленые клетки — движение, желтые цели — атака.
+                Оба действия тратят топливо.
               </span>
             )}
 
@@ -758,7 +917,7 @@ export function BattleScreen() {
                       <small>
                         {card.nation} / {card.class}
                       </small>
-                      <span>Cost {card.cost}</span>
+                      <span>Spawn fuel {card.cost}</span>
                       <span>
                         ATK {card.attack} ARM {card.armor}
                       </span>
@@ -766,6 +925,10 @@ export function BattleScreen() {
                         HP {card.hp} RNG {card.range}
                       </span>
                       <span>MOVE {card.movement}</span>
+                      <span>
+                        FUEL +{card.fuelGeneration} / ACT{" "}
+                        {card.actionFuelCost}
+                      </span>
                       <small>{card.abilityText}</small>
                     </motion.button>
                   );
@@ -858,7 +1021,7 @@ const styles: Record<string, React.CSSProperties> = {
   cell: {
     minHeight: 120,
     position: "relative",
-    overflow: "hidden",
+    overflow: "visible",
     borderRadius: 12,
     border: "1px solid #2c3844",
     background: "#151b21",
@@ -883,6 +1046,32 @@ const styles: Record<string, React.CSSProperties> = {
   damageCell: {
     outline: "4px solid #ffdf6e",
     filter: "brightness(1.25)",
+  },
+  damageText: {
+    position: "absolute",
+    left: "50%",
+    top: -8,
+    transform: "translateX(-50%)",
+    color: "#ff4d4d",
+    fontSize: 28,
+    fontWeight: 900,
+    lineHeight: 1,
+    textShadow:
+      "0 2px 0 rgba(0, 0, 0, 0.85), 0 0 12px rgba(255, 0, 0, 0.75)",
+    zIndex: 45,
+    pointerEvents: "none",
+  },
+  overlayDamageText: {
+    position: "absolute",
+    transform: "translateX(-50%)",
+    color: "#ff4d4d",
+    fontSize: 30,
+    fontWeight: 900,
+    lineHeight: 1,
+    textShadow:
+      "0 2px 0 rgba(0, 0, 0, 0.9), 0 0 14px rgba(255, 0, 0, 0.85)",
+    zIndex: 60,
+    pointerEvents: "none",
   },
   projectileImage: {
     position: "absolute",
@@ -993,7 +1182,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 10,
   },
   card: {
-    minHeight: 170,
+    minHeight: 190,
     borderRadius: 12,
     border: "1px solid #3a4652",
     background: "#1b232b",

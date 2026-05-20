@@ -1,56 +1,89 @@
 import { cards } from "./cards";
-import type { BattleState, CardInstance } from "./types";
+import type { BattleState } from "./types";
 
-function createDeck(owner: "player" | "bot"): CardInstance[] {
-  const deck: CardInstance[] = [];
-
-  for (let copy = 0; copy < 2; copy += 1) {
-    for (const card of cards) {
-      deck.push({
-        instanceId: `${owner}_${card.id}_${copy}`,
-        cardId: card.id,
-      });
-    }
-  }
-
-  return deck.sort(() => Math.random() - 0.5);
+function createCardInstance(cardId: string, index: number) {
+  return {
+    instanceId: `${cardId}_${index}_${crypto.randomUUID()}`,
+    cardId,
+  };
 }
 
-function drawCards(deck: CardInstance[], count: number) {
+function createDeck(cardIds: string[]) {
+  return cardIds.map((cardId, index) => createCardInstance(cardId, index));
+}
+
+function createPlayerDeck() {
+  return createDeck([
+    "m5_stuart",
+    "t34_76",
+    "su76",
+    "kv1",
+    "m4_sherman",
+    "churchill",
+    "su_122",
+    "t34_76",
+    "m5_stuart",
+    "su76",
+  ]);
+}
+
+function createBotDeck() {
+  return createDeck([
+    "panzer_iv",
+    "marder_iii",
+    "stug_iii",
+    "tiger_i",
+    "wespe",
+    "panzer_iv",
+    "marder_iii",
+    "stug_iii",
+    "tiger_i",
+    "wespe",
+  ]);
+}
+
+function drawStartingHand(deck: ReturnType<typeof createDeck>, count: number) {
   return {
-    drawn: deck.slice(0, count),
+    hand: deck.slice(0, count),
     deck: deck.slice(count),
   };
 }
 
 export function createInitialBattleState(): BattleState {
-  const playerDeck = createDeck("player");
-  const botDeck = createDeck("bot");
+  const playerDeck = createPlayerDeck();
+  const botDeck = createBotDeck();
 
-  const playerDraw = drawCards(playerDeck, 5);
-  const botDraw = drawCards(botDeck, 5);
+  const playerStartingCards = drawStartingHand(playerDeck, 4);
+  const botStartingCards = drawStartingHand(botDeck, 4);
+
+  const playerHeadquartersFuel = 3;
+  const botHeadquartersFuel = 3;
 
   return {
-    activePlayer: "player",
     turn: 1,
+    activePlayer: "player",
     status: "active",
+
     player: {
       id: "player",
-      deck: playerDraw.deck,
-      hand: playerDraw.drawn,
+      deck: playerStartingCards.deck,
+      hand: playerStartingCards.hand,
       discard: [],
-      resources: 1,
-      maxResources: 1,
+      resources: playerHeadquartersFuel,
+      maxResources: playerHeadquartersFuel,
     },
+
     bot: {
       id: "bot",
-      deck: botDraw.deck,
-      hand: botDraw.drawn,
+      deck: botStartingCards.deck,
+      hand: botStartingCards.hand,
       discard: [],
-      resources: 1,
-      maxResources: 1,
+      resources: botHeadquartersFuel,
+      maxResources: botHeadquartersFuel,
     },
+
     units: [],
+
     headquarters: {
       player: {
         ownerId: "player",
@@ -58,17 +91,25 @@ export function createInitialBattleState(): BattleState {
         hp: 20,
         attack: 1,
         range: 99,
+        fuelGeneration: playerHeadquartersFuel,
+        actionFuelCost: 1,
         alreadyAttacked: false,
       },
+
       bot: {
         ownerId: "bot",
         position: { row: 0, col: 4 },
         hp: 20,
         attack: 1,
         range: 99,
+        fuelGeneration: botHeadquartersFuel,
+        actionFuelCost: 1,
         alreadyAttacked: false,
       },
     },
-    log: ["Бой начался."],
+
+    log: [
+      `Бой начался. Штаб игрока генерирует ${playerHeadquartersFuel} топлива.`,
+    ],
   };
 }

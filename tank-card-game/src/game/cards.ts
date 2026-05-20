@@ -13,8 +13,11 @@ export const cards: TankCard[] = [
     hp: 5,
     range: 1,
     movement: 1,
+    fuelGeneration: 2,
+    actionFuelCost: 2,
     initiative: 3,
-    abilityText: "Универсальный средний танк.",
+    abilityText:
+      "Средний танк. Генерирует 2 топлива. Может двигаться на диагональные клетки.",
   },
   {
     id: "kv1",
@@ -28,8 +31,11 @@ export const cards: TankCard[] = [
     hp: 7,
     range: 1,
     movement: 1,
+    fuelGeneration: 2,
+    actionFuelCost: 3,
     initiative: 1,
-    abilityText: "Тяжелая броня.",
+    abilityText:
+      "Тяжелый танк. Генерирует 2 топлива. Высокая живучесть, дорогие действия.",
   },
   {
     id: "su76",
@@ -43,8 +49,11 @@ export const cards: TankCard[] = [
     hp: 3,
     range: 1,
     movement: 1,
+    fuelGeneration: 1,
+    actionFuelCost: 2,
     initiative: 2,
-    abilityText: "ПТ-САУ: высокая дальность и урон.",
+    abilityText:
+      "ПТ-САУ. Генерирует 1 топливо. Атакует только соседние клетки. Не получает ответный урон, если уничтожила цель.",
   },
   {
     id: "panzer_iv",
@@ -58,8 +67,11 @@ export const cards: TankCard[] = [
     hp: 5,
     range: 1,
     movement: 1,
+    fuelGeneration: 2,
+    actionFuelCost: 2,
     initiative: 3,
-    abilityText: "Надежный средний танк.",
+    abilityText:
+      "Средний танк. Генерирует 2 топлива. Сбалансированная машина.",
   },
   {
     id: "tiger_i",
@@ -73,8 +85,11 @@ export const cards: TankCard[] = [
     hp: 8,
     range: 1,
     movement: 1,
+    fuelGeneration: 2,
+    actionFuelCost: 3,
     initiative: 1,
-    abilityText: "Мощный тяжелый танк.",
+    abilityText:
+      "Тяжелый танк. Генерирует 2 топлива. Мощная атака, высокая стоимость действий.",
   },
   {
     id: "stug_iii",
@@ -88,8 +103,11 @@ export const cards: TankCard[] = [
     hp: 4,
     range: 1,
     movement: 1,
+    fuelGeneration: 1,
+    actionFuelCost: 2,
     initiative: 2,
-    abilityText: "ПТ-САУ с хорошей дальностью.",
+    abilityText:
+      "ПТ-САУ. Генерирует 1 топливо. Опасна на соседних клетках.",
   },
   {
     id: "m4_sherman",
@@ -103,8 +121,11 @@ export const cards: TankCard[] = [
     hp: 5,
     range: 1,
     movement: 1,
+    fuelGeneration: 2,
+    actionFuelCost: 2,
     initiative: 4,
-    abilityText: "Маневренный средний танк.",
+    abilityText:
+      "Средний танк. Генерирует 2 топлива. Хорошая инициатива и гибкость.",
   },
   {
     id: "m5_stuart",
@@ -118,8 +139,11 @@ export const cards: TankCard[] = [
     hp: 3,
     range: 1,
     movement: 2,
+    fuelGeneration: 1,
+    actionFuelCost: 1,
     initiative: 5,
-    abilityText: "Легкий танк: может двигаться на 2 клетки.",
+    abilityText:
+      "Легкий танк. Генерирует 1 топливо. Дешевые действия, быстрое движение и бонус после спавна.",
   },
   {
     id: "churchill",
@@ -133,8 +157,11 @@ export const cards: TankCard[] = [
     hp: 8,
     range: 1,
     movement: 1,
+    fuelGeneration: 2,
+    actionFuelCost: 3,
     initiative: 1,
-    abilityText: "Очень крепкая броня.",
+    abilityText:
+      "Тяжелый танк. Генерирует 2 топлива. Очень крепкая броня, но дорогие действия.",
   },
   {
     id: "marder_iii",
@@ -148,8 +175,11 @@ export const cards: TankCard[] = [
     hp: 2,
     range: 1,
     movement: 1,
+    fuelGeneration: 1,
+    actionFuelCost: 2,
     initiative: 2,
-    abilityText: "Высокий урон, слабая защита.",
+    abilityText:
+      "ПТ-САУ. Генерирует 1 топливо. Высокий урон, слабая защита.",
   },
   {
     id: "wespe",
@@ -161,10 +191,13 @@ export const cards: TankCard[] = [
     attack: 2,
     armor: 0,
     hp: 3,
-    range: 99,
+    range: 3,
     movement: 1,
+    fuelGeneration: 1,
+    actionFuelCost: 3,
     initiative: 1,
-    abilityText: "САУ: большая дальность.",
+    abilityText:
+      "САУ. Генерирует 1 топливо. Стреляет далеко и не получает ответный урон при атаке.",
   },
   {
     id: "su_122",
@@ -176,10 +209,13 @@ export const cards: TankCard[] = [
     attack: 2,
     armor: 1,
     hp: 4,
-    range: 99,
+    range: 3,
     movement: 1,
+    fuelGeneration: 1,
+    actionFuelCost: 3,
     initiative: 1,
-    abilityText: "Советская САУ с дальностью 3.",
+    abilityText:
+      "САУ. Генерирует 1 топливо. Дальняя поддержка, дорогая атака.",
   },
 ];
 
