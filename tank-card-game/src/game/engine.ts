@@ -126,6 +126,33 @@ function spendFuel(
   return true;
 }
 
+function damageHeadquartersFromEmptyDeck(
+  state: BattleState,
+  playerId: PlayerId
+) {
+  const headquarters = state.headquarters[playerId];
+
+  headquarters.hp -= 1;
+
+  addLog(
+    state,
+    `${
+      playerId === "player" ? "Игрок" : "Бот"
+    } не может добрать карту: колода пуста. Штаб получает 1 урон.`
+  );
+
+  if (headquarters.hp <= 0) {
+    state.status = playerId === "player" ? "bot_won" : "player_won";
+
+    addLog(
+      state,
+      playerId === "player"
+        ? "Штаб игрока уничтожен. Бот победил."
+        : "Штаб бота уничтожен. Игрок победил."
+    );
+  }
+}
+
 function startTurn(state: BattleState, playerId: PlayerId) {
   const player = state[playerId];
 
@@ -136,7 +163,9 @@ function startTurn(state: BattleState, playerId: PlayerId) {
 
   addLog(
     state,
-    `${playerId === "player" ? "Игрок" : "Бот"} получает ${generatedFuel} топлива.`
+    `${
+      playerId === "player" ? "Игрок" : "Бот"
+    } получает ${generatedFuel} топлива.`
   );
 
   const drawnCard = player.deck[0];
@@ -144,7 +173,14 @@ function startTurn(state: BattleState, playerId: PlayerId) {
   if (drawnCard) {
     player.hand.push(drawnCard);
     player.deck = player.deck.slice(1);
+
     addLog(state, `${playerId === "player" ? "Игрок" : "Бот"} добирает карту.`);
+  } else {
+    damageHeadquartersFromEmptyDeck(state, playerId);
+
+    if (state.status !== "active") {
+      return;
+    }
   }
 
   for (const unit of state.units) {
@@ -203,7 +239,9 @@ function playCard(
     state,
     `${action.playerId === "player" ? "Игрок" : "Бот"} размещает ${
       card.name
-    } за ${card.cost} топлива на [${action.position.row},${action.position.col}].`
+    } за ${card.cost} топлива на [${action.position.row},${
+      action.position.col
+    }].`
   );
 }
 
@@ -249,18 +287,14 @@ function canUnitAttackTarget(
   attackerPosition: Position,
   targetPosition: Position
 ): boolean {
-  // ПТ-САУ атакует только соседние клетки, включая диагональ.
   if (attackerCard.class === "td") {
     return isAdjacentAnyDirection(attackerPosition, targetPosition);
   }
 
-  // САУ может стрелять по любой точке карты.
   if (attackerCard.class === "spg") {
     return true;
   }
 
-  // Остальные юниты атакуют в пределах своей дальности,
-  // включая диагонали.
   return chebyshevDistance(attackerPosition, targetPosition) <= attackerCard.range;
 }
 
@@ -444,7 +478,9 @@ function moveUnit(
     state,
     `${action.playerId === "player" ? "Игрок" : "Бот"} перемещает ${
       card.name
-    } за ${card.actionFuelCost} топлива на [${action.position.row},${action.position.col}].`
+    } за ${card.actionFuelCost} топлива на [${action.position.row},${
+      action.position.col
+    }].`
   );
 }
 
@@ -461,6 +497,10 @@ function endTurn(state: BattleState, playerId: PlayerId) {
   }
 
   startTurn(state, nextPlayer);
+
+  if (state.status !== "active") {
+    return;
+  }
 
   addLog(
     state,

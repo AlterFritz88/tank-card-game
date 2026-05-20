@@ -8,12 +8,15 @@ import {
   getAvailableMoveCells,
   getTargetsInRange,
 } from "../game/engine";
-import type { BattleAction, Position } from "../game/types";
+import type { BattleAction, PlayerId, Position } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
+import { TankCardView } from "./TankCardView";
 import apShellImage from "../assets/ap-shell.png";
 import explosionFlashImage from "../assets/effects/explosion-flash.png";
 import explosionFireballImage from "../assets/effects/explosion-fireball.png";
 import explosionSmokeImage from "../assets/effects/explosion-smoke.png";
+import battleTableBackground from "../assets/backgrounds/battle-table-bg.png";
+import cardBackImage from "../assets/cards/card-back.png";
 
 function samePosition(a: Position, b: Position): boolean {
   return a.row === b.row && a.col === b.col;
@@ -479,6 +482,73 @@ export function BattleScreen() {
     });
   }
 
+  function renderCardBack(index: number, small = false) {
+    return (
+      <div
+        key={index}
+        style={{
+          ...styles.cardBack,
+          ...(small ? styles.cardBackSmall : {}),
+          transform: `translateX(${index * -5}px) rotate(${index * -2}deg)`,
+          backgroundImage: `url(${cardBackImage})`,
+        }}
+      />
+    );
+  }
+
+  function renderDeckPile(owner: PlayerId) {
+    const player = battle[owner];
+    const label = owner === "player" ? "Колода" : "Колода врага";
+
+    return (
+      <div style={styles.deckPile}>
+        <div style={styles.deckStack}>
+          {[0, 1, 2].map((index) => renderCardBack(index, true))}
+        </div>
+        <span style={styles.deckLabel}>{label}</span>
+        <strong>{player.deck.length}</strong>
+      </div>
+    );
+  }
+
+  function renderHqPanel(owner: PlayerId) {
+    const hq = battle.headquarters[owner];
+    const isPlayer = owner === "player";
+    const selected =
+      selectedAttacker?.type === "headquarters" &&
+      selectedAttacker.id === `${owner}_hq`;
+
+    return (
+      <div
+        style={{
+          ...styles.hqPanel,
+          ...(isPlayer ? styles.playerHqPanel : styles.botHqPanel),
+          ...(selected ? styles.selectedHqPanel : {}),
+        }}
+      >
+        <span style={styles.hqPanelLabel}>
+          {isPlayer ? "Ваш штаб" : "Штаб врага"}
+        </span>
+        <strong style={styles.hqPanelTitle}>{isPlayer ? "BASE" : "ENEMY"}</strong>
+
+        <div style={styles.hqStats}>
+          <span>
+            HP <strong>{hq.hp}</strong>
+          </span>
+          <span>
+            ATK <strong>{hq.attack}</strong>
+          </span>
+          <span>
+            FUEL <strong>+{hq.fuelGeneration}</strong>
+          </span>
+          <span>
+            ACT <strong>{hq.actionFuelCost}</strong>
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   const statusText =
     battle.status === "active"
       ? `Ход: ${battle.activePlayer === "player" ? "игрок" : "бот"}`
@@ -488,367 +558,384 @@ export function BattleScreen() {
 
   return (
     <div style={styles.page}>
-      <header style={styles.header}>
+      <div style={styles.vignette} />
+
+      <header style={styles.topHud}>
         <div>
-          <h1 style={styles.title}>Tank Cards MVP</h1>
-          <p style={styles.subtitle}>Тактический бой 3×5</p>
+          <h1 style={styles.title}>PanzerShrek</h1>
+          <p style={styles.subtitle}>Тактическая карточная дуэль 3×5</p>
         </div>
 
-        <div style={styles.headerActions}>
+        <div style={styles.statusPanel}>
           <strong>{statusText}</strong>
-          <button style={styles.button} onClick={reset}>
-            Новый бой
-          </button>
+          <span>
+            Топливо: {battle.player.resources}/{battle.player.maxResources}
+          </span>
         </div>
       </header>
 
-      <main style={styles.layout}>
-        <section style={styles.leftPanel}>
-          <div style={styles.infoRow}>
-            <div style={styles.infoCard}>
-              <strong>Штаб игрока</strong>
-              <span>HP: {battle.headquarters.player.hp}</span>
-              <span>Урон: {battle.headquarters.player.attack}</span>
-              <span>
-                FUEL +{battle.headquarters.player.fuelGeneration} / ACT{" "}
-                {battle.headquarters.player.actionFuelCost}
-              </span>
-            </div>
+      <main style={styles.gameTable}>
+        <section style={styles.enemyZone}>
+          <div style={styles.enemyDeckArea}>{renderDeckPile("bot")}</div>
 
-            <div style={styles.infoCard}>
-              <strong>Штаб противника</strong>
-              <span>HP: {battle.headquarters.bot.hp}</span>
-              <span>Урон: {battle.headquarters.bot.attack}</span>
-              <span>
-                FUEL +{battle.headquarters.bot.fuelGeneration} / ACT{" "}
-                {battle.headquarters.bot.actionFuelCost}
-              </span>
-            </div>
-
-            <div style={styles.infoCard}>
-              <strong>Топливо</strong>
-              <span>
-                {battle.player.resources}/{battle.player.maxResources} за ход
-              </span>
-            </div>
+          <div style={styles.enemyHand}>
+            {battle.bot.hand.map((_, index) => renderCardBack(index))}
           </div>
 
-          <motion.div ref={boardRef} layout style={styles.board}>
-            <AnimatePresence>
-              {projectileEffect && (
-                <motion.img
-                  key={projectileEffect.id}
-                  src={apShellImage}
-                  alt=""
-                  style={{
-                    ...styles.projectileImage,
-                    left: projectileEffect.from.x,
-                    top: projectileEffect.from.y,
-                    rotate: `${Math.atan2(
-                      projectileEffect.to.y - projectileEffect.from.y,
-                      projectileEffect.to.x - projectileEffect.from.x
-                    )}rad`,
-                  }}
-                  initial={{
-                    x: 0,
-                    y: 0,
-                    opacity: 0,
-                    scale: 0.22,
-                  }}
-                  animate={{
-                    x: projectileEffect.to.x - projectileEffect.from.x,
-                    y: projectileEffect.to.y - projectileEffect.from.y,
-                    opacity: [0, 1, 1, 0],
-                    scale: [0.22, 0.28, 0.28, 0.22],
-                  }}
-                  exit={{ opacity: 0 }}
-                  transition={{
-                    duration: 0.34,
-                    ease: "easeOut",
-                  }}
-                />
-              )}
-            </AnimatePresence>
+          <div style={styles.enemyInfo}>
+            <span>Враг</span>
+            <strong>{battle.bot.resources}</strong>
+            <small>топливо</small>
+          </div>
+        </section>
 
-            <AnimatePresence>
-              {explosionEffect && (
-                <motion.div
-                  key={explosionEffect.id}
-                  style={{
-                    ...styles.explosionContainer,
-                    left: explosionEffect.position.x,
-                    top: explosionEffect.position.y,
-                  }}
-                  initial={{ opacity: 1 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                >
+        <section style={styles.centerBattleArea}>
+          <aside style={styles.leftCommandPanel}>
+            {renderDeckPile("player")}
+            {renderHqPanel("player")}
+
+            <div style={styles.smallInfoPanel}>
+              <span>Ход</span>
+              <strong>{battle.turn}</strong>
+            </div>
+          </aside>
+
+          <section style={styles.boardShell}>
+            <div style={styles.boardGlow} />
+
+            <motion.div ref={boardRef} layout style={styles.board}>
+              <AnimatePresence>
+                {projectileEffect && (
                   <motion.img
-                    src={explosionFlashImage}
+                    key={projectileEffect.id}
+                    src={apShellImage}
                     alt=""
-                    style={styles.explosionFlash}
-                    initial={{ opacity: 0, scale: 0.15, rotate: 0 }}
-                    animate={{
-                      opacity: [0, 1, 0],
-                      scale: [0.15, 1.15, 1.7],
-                      rotate: [0, 8, -4],
-                    }}
-                    transition={{ duration: 0.18, ease: "easeOut" }}
-                  />
-
-                  <motion.img
-                    src={explosionFireballImage}
-                    alt=""
-                    style={styles.explosionFireball}
-                    initial={{ opacity: 0, scale: 0.25, rotate: -6 }}
-                    animate={{
-                      opacity: [0, 1, 0.9, 0],
-                      scale: [0.25, 1.05, 1.35, 1.55],
-                      rotate: [-6, 4, -2, 0],
-                    }}
-                    transition={{ duration: 0.52, ease: "easeOut", delay: 0.06 }}
-                  />
-
-                  <motion.img
-                    src={explosionSmokeImage}
-                    alt=""
-                    style={styles.explosionSmoke}
-                    initial={{ opacity: 0, scale: 0.35, y: 4 }}
-                    animate={{
-                      opacity: [0, 0.55, 0.35, 0],
-                      scale: [0.35, 1.1, 1.45, 1.85],
-                      y: [4, -2, -8, -14],
-                    }}
-                    transition={{ duration: 0.95, ease: "easeOut", delay: 0.12 }}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {renderOverlayDamageText()}
-
-            {rows.map((row) =>
-              cols.map((col) => {
-                const position: Position = { row, col };
-
-                const unit = battle.units.find((item) =>
-                  samePosition(item.position, position)
-                );
-
-                const isPlayerHq = samePosition(
-                  battle.headquarters.player.position,
-                  position
-                );
-
-                const isBotHq = samePosition(
-                  battle.headquarters.bot.position,
-                  position
-                );
-
-                const spawn = isPlayerSpawn(position);
-
-                if (unit) {
-                  const card = getCard(unit.cardId);
-                  const canBeTarget = isTarget("unit", unit.instanceId);
-                  const isDamaged = damagedIds.has(unit.instanceId);
-                  const isAttacking = attackingId === unit.instanceId;
-
-                  return (
-                    <motion.button
-                      ref={setObjectRef(objectRefs, unit.instanceId)}
-                      layout
-                      layoutId={unit.instanceId}
-                      key={unit.instanceId}
-                      style={{
-                        ...styles.cell,
-                        ...(unit.ownerId === "player"
-                          ? styles.playerUnit
-                          : styles.botUnit),
-                        ...(canBeTarget ? styles.targetCell : {}),
-                        ...(isDamaged ? styles.damageCell : {}),
-                      }}
-                      initial={{ scale: 0.88, opacity: 0 }}
-                      animate={{
-                        scale: isDamaged ? [1, 1.08, 1] : 1,
-                        opacity: 1,
-                        x: isAttacking ? [0, 10, -6, 0] : 0,
-                      }}
-                      exit={{ scale: 0.75, opacity: 0 }}
-                      transition={{
-                        type: "spring",
-                        stiffness: 320,
-                        damping: 26,
-                      }}
-                      whileHover={{ scale: 1.03 }}
-                      whileTap={{ scale: 0.97 }}
-                      onClick={() => {
-                        if (battle.activePlayer !== "player") return;
-
-                        if (canBeTarget) {
-                          void handleAttackTarget("unit", unit.instanceId);
-                          return;
-                        }
-
-                        if (unit.ownerId === "player") {
-                          selectAttacker({
-                            type: "unit",
-                            id: unit.instanceId,
-                          });
-                        }
-                      }}
-                    >
-                      <strong>{card.name}</strong>
-                      <small>{positionLabel(position)}</small>
-                      <span>
-                        HP {unit.currentHp}/{card.hp}
-                      </span>
-                      <span>
-                        ATK {card.attack} RNG {card.range}
-                      </span>
-                      <span>MOVE {card.movement}</span>
-                      <span>
-                        FUEL +{card.fuelGeneration} / ACT{" "}
-                        {card.actionFuelCost}
-                      </span>
-                      {unit.alreadyAttacked && <small>Атаковал</small>}
-                      {unit.alreadyMoved && <small>Двигался</small>}
-
-                      {renderDamageText(unit.instanceId)}
-
-                      <AnimatePresence>
-                        {attackEffectId === unit.instanceId && (
-                          <motion.span
-                            style={styles.explosionEffect}
-                            initial={{ opacity: 0, scale: 0.2, rotate: 0 }}
-                            animate={{
-                              opacity: [0, 1, 0.85, 0],
-                              scale: [0.2, 1.1, 1.6, 2.2],
-                              rotate: [0, 12, -8, 0],
-                            }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.5 }}
-                          />
-                        )}
-                      </AnimatePresence>
-                    </motion.button>
-                  );
-                }
-
-                if (isPlayerHq || isBotHq) {
-                  const owner = isPlayerHq ? "player" : "bot";
-                  const hq = battle.headquarters[owner];
-                  const hqId = `${owner}_hq`;
-                  const canBeTarget = isTarget("headquarters", hqId);
-                  const isDamaged = damagedIds.has(hqId);
-                  const isAttacking = attackingId === hqId;
-
-                  return (
-                    <motion.button
-                      ref={setObjectRef(objectRefs, hqId)}
-                      layout
-                      layoutId={hqId}
-                      key={hqId}
-                      style={{
-                        ...styles.cell,
-                        ...styles.hqCell,
-                        ...(owner === "player"
-                          ? styles.playerHq
-                          : styles.botHq),
-                        ...(canBeTarget ? styles.targetCell : {}),
-                        ...(isDamaged ? styles.damageCell : {}),
-                      }}
-                      animate={{
-                        scale: isDamaged ? [1, 1.08, 1] : 1,
-                        x: isAttacking ? [0, 10, -6, 0] : 0,
-                      }}
-                      transition={{
-                        type: "spring",
-                        stiffness: 320,
-                        damping: 26,
-                      }}
-                      whileHover={{ scale: 1.03 }}
-                      whileTap={{ scale: 0.97 }}
-                      onClick={() => {
-                        if (battle.activePlayer !== "player") return;
-
-                        if (canBeTarget) {
-                          void handleAttackTarget("headquarters", hqId);
-                          return;
-                        }
-
-                        if (owner === "player") {
-                          selectAttacker({
-                            type: "headquarters",
-                            id: "player_hq",
-                          });
-                        }
-                      }}
-                    >
-                      <strong>
-                        {owner === "player" ? "Штаб игрока" : "Штаб врага"}
-                      </strong>
-                      <small>{positionLabel(position)}</small>
-                      <span>HP {hq.hp}</span>
-                      <span>ATK {hq.attack}</span>
-                      <span>RNG {hq.range}</span>
-                      <span>
-                        FUEL +{hq.fuelGeneration} / ACT {hq.actionFuelCost}
-                      </span>
-                      {hq.alreadyAttacked && <small>Атаковал</small>}
-
-                      {renderDamageText(hqId)}
-
-                      <AnimatePresence>
-                        {attackEffectId === hqId && (
-                          <motion.span
-                            style={styles.explosionEffect}
-                            initial={{ opacity: 0, scale: 0.2, rotate: 0 }}
-                            animate={{
-                              opacity: [0, 1, 0.85, 0],
-                              scale: [0.2, 1.1, 1.6, 2.2],
-                              rotate: [0, 12, -8, 0],
-                            }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.5 }}
-                          />
-                        )}
-                      </AnimatePresence>
-                    </motion.button>
-                  );
-                }
-
-                const moveCell = isMoveCell(position);
-
-                return (
-                  <motion.button
-                    layout
-                    key={`${row}-${col}`}
                     style={{
-                      ...styles.cell,
-                      ...(spawn ? styles.spawnCell : {}),
-                      ...(moveCell ? styles.moveCell : {}),
+                      ...styles.projectileImage,
+                      left: projectileEffect.from.x,
+                      top: projectileEffect.from.y,
+                      rotate: `${Math.atan2(
+                        projectileEffect.to.y - projectileEffect.from.y,
+                        projectileEffect.to.x - projectileEffect.from.x
+                      )}rad`,
                     }}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.97 }}
+                    initial={{
+                      x: 0,
+                      y: 0,
+                      opacity: 0,
+                      scale: 0.22,
+                    }}
+                    animate={{
+                      x: projectileEffect.to.x - projectileEffect.from.x,
+                      y: projectileEffect.to.y - projectileEffect.from.y,
+                      opacity: [0, 1, 1, 0],
+                      scale: [0.22, 0.28, 0.28, 0.22],
+                    }}
+                    exit={{ opacity: 0 }}
                     transition={{
-                      type: "spring",
-                      stiffness: 300,
-                      damping: 28,
+                      duration: 0.34,
+                      ease: "easeOut",
                     }}
-                    onClick={() => handleCellClick(position)}
-                  >
-                    <small>{positionLabel(position)}</small>
-                    {spawn && <span>Спавн</span>}
-                    {moveCell && <span>Движение</span>}
-                  </motion.button>
-                );
-              })
-            )}
-          </motion.div>
+                  />
+                )}
+              </AnimatePresence>
 
-          <div style={styles.actions}>
+              <AnimatePresence>
+                {explosionEffect && (
+                  <motion.div
+                    key={explosionEffect.id}
+                    style={{
+                      ...styles.explosionContainer,
+                      left: explosionEffect.position.x,
+                      top: explosionEffect.position.y,
+                    }}
+                    initial={{ opacity: 1 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    <motion.img
+                      src={explosionFlashImage}
+                      alt=""
+                      style={styles.explosionFlash}
+                      initial={{ opacity: 0, scale: 0.15, rotate: 0 }}
+                      animate={{
+                        opacity: [0, 1, 0],
+                        scale: [0.15, 1.15, 1.7],
+                        rotate: [0, 8, -4],
+                      }}
+                      transition={{ duration: 0.18, ease: "easeOut" }}
+                    />
+
+                    <motion.img
+                      src={explosionFireballImage}
+                      alt=""
+                      style={styles.explosionFireball}
+                      initial={{ opacity: 0, scale: 0.25, rotate: -6 }}
+                      animate={{
+                        opacity: [0, 1, 0.9, 0],
+                        scale: [0.25, 1.05, 1.35, 1.55],
+                        rotate: [-6, 4, -2, 0],
+                      }}
+                      transition={{
+                        duration: 0.52,
+                        ease: "easeOut",
+                        delay: 0.06,
+                      }}
+                    />
+
+                    <motion.img
+                      src={explosionSmokeImage}
+                      alt=""
+                      style={styles.explosionSmoke}
+                      initial={{ opacity: 0, scale: 0.35, y: 4 }}
+                      animate={{
+                        opacity: [0, 0.55, 0.35, 0],
+                        scale: [0.35, 1.1, 1.45, 1.85],
+                        y: [4, -2, -8, -14],
+                      }}
+                      transition={{
+                        duration: 0.95,
+                        ease: "easeOut",
+                        delay: 0.12,
+                      }}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {renderOverlayDamageText()}
+
+              {rows.map((row) =>
+                cols.map((col) => {
+                  const position: Position = { row, col };
+
+                  const unit = battle.units.find((item) =>
+                    samePosition(item.position, position)
+                  );
+
+                  const isPlayerHq = samePosition(
+                    battle.headquarters.player.position,
+                    position
+                  );
+
+                  const isBotHq = samePosition(
+                    battle.headquarters.bot.position,
+                    position
+                  );
+
+                  const spawn = isPlayerSpawn(position);
+
+                  if (unit) {
+                    const card = getCard(unit.cardId);
+                    const canBeTarget = isTarget("unit", unit.instanceId);
+                    const isDamaged = damagedIds.has(unit.instanceId);
+                    const isAttacking = attackingId === unit.instanceId;
+                    const isSelected =
+                      selectedAttacker?.type === "unit" &&
+                      selectedAttacker.id === unit.instanceId;
+
+                    return (
+                      <motion.button
+                        ref={setObjectRef(objectRefs, unit.instanceId)}
+                        layout
+                        layoutId={unit.instanceId}
+                        key={unit.instanceId}
+                        style={{
+                          ...styles.cell,
+                          ...(unit.ownerId === "player"
+                            ? styles.playerUnit
+                            : styles.botUnit),
+                          ...(canBeTarget ? styles.targetCell : {}),
+                          ...(isDamaged ? styles.damageCell : {}),
+                        }}
+                        initial={{ scale: 0.88, opacity: 0 }}
+                        animate={{
+                          scale: isDamaged ? [1, 1.08, 1] : 1,
+                          opacity: 1,
+                          x: isAttacking ? [0, 10, -6, 0] : 0,
+                        }}
+                        exit={{ scale: 0.75, opacity: 0 }}
+                        transition={{
+                          type: "spring",
+                          stiffness: 320,
+                          damping: 26,
+                        }}
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                        onClick={() => {
+                          if (battle.activePlayer !== "player") return;
+
+                          if (canBeTarget) {
+                            void handleAttackTarget("unit", unit.instanceId);
+                            return;
+                          }
+
+                          if (unit.ownerId === "player") {
+                            selectAttacker({
+                              type: "unit",
+                              id: unit.instanceId,
+                            });
+                          }
+                        }}
+                      >
+                        <TankCardView
+                          card={card}
+                          variant="board"
+                          currentHp={unit.currentHp}
+                          selected={isSelected}
+                          alreadyMoved={unit.alreadyMoved}
+                          alreadyAttacked={unit.alreadyAttacked}
+                        />
+
+                        {renderDamageText(unit.instanceId)}
+
+                        <AnimatePresence>
+                          {attackEffectId === unit.instanceId && (
+                            <motion.span
+                              style={styles.explosionEffect}
+                              initial={{ opacity: 0, scale: 0.2, rotate: 0 }}
+                              animate={{
+                                opacity: [0, 1, 0.85, 0],
+                                scale: [0.2, 1.1, 1.6, 2.2],
+                                rotate: [0, 12, -8, 0],
+                              }}
+                              exit={{ opacity: 0 }}
+                              transition={{ duration: 0.5 }}
+                            />
+                          )}
+                        </AnimatePresence>
+                      </motion.button>
+                    );
+                  }
+
+                  if (isPlayerHq || isBotHq) {
+                    const owner = isPlayerHq ? "player" : "bot";
+                    const hq = battle.headquarters[owner];
+                    const hqId = `${owner}_hq`;
+                    const canBeTarget = isTarget("headquarters", hqId);
+                    const isDamaged = damagedIds.has(hqId);
+                    const isAttacking = attackingId === hqId;
+                    const isSelected =
+                      selectedAttacker?.type === "headquarters" &&
+                      selectedAttacker.id === hqId;
+
+                    return (
+                      <motion.button
+                        ref={setObjectRef(objectRefs, hqId)}
+                        layout
+                        layoutId={hqId}
+                        key={hqId}
+                        style={{
+                          ...styles.cell,
+                          ...styles.hqCell,
+                          ...(owner === "player"
+                            ? styles.playerHq
+                            : styles.botHq),
+                          ...(canBeTarget ? styles.targetCell : {}),
+                          ...(isDamaged ? styles.damageCell : {}),
+                          ...(isSelected ? styles.selectedHqCell : {}),
+                        }}
+                        animate={{
+                          scale: isDamaged ? [1, 1.08, 1] : 1,
+                          x: isAttacking ? [0, 10, -6, 0] : 0,
+                        }}
+                        transition={{
+                          type: "spring",
+                          stiffness: 320,
+                          damping: 26,
+                        }}
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                        onClick={() => {
+                          if (battle.activePlayer !== "player") return;
+
+                          if (canBeTarget) {
+                            void handleAttackTarget("headquarters", hqId);
+                            return;
+                          }
+
+                          if (owner === "player") {
+                            selectAttacker({
+                              type: "headquarters",
+                              id: "player_hq",
+                            });
+                          }
+                        }}
+                      >
+                        <strong>
+                          {owner === "player" ? "Штаб игрока" : "Штаб врага"}
+                        </strong>
+                        <small>{positionLabel(position)}</small>
+                        <span>HP {hq.hp}</span>
+                        <span>ATK {hq.attack}</span>
+                        <span>RNG {hq.range}</span>
+                        <span>
+                          FUEL +{hq.fuelGeneration} / ACT {hq.actionFuelCost}
+                        </span>
+                        {hq.alreadyAttacked && <small>Атаковал</small>}
+
+                        {renderDamageText(hqId)}
+
+                        <AnimatePresence>
+                          {attackEffectId === hqId && (
+                            <motion.span
+                              style={styles.explosionEffect}
+                              initial={{ opacity: 0, scale: 0.2, rotate: 0 }}
+                              animate={{
+                                opacity: [0, 1, 0.85, 0],
+                                scale: [0.2, 1.1, 1.6, 2.2],
+                                rotate: [0, 12, -8, 0],
+                              }}
+                              exit={{ opacity: 0 }}
+                              transition={{ duration: 0.5 }}
+                            />
+                          )}
+                        </AnimatePresence>
+                      </motion.button>
+                    );
+                  }
+
+                  const moveCell = isMoveCell(position);
+
+                  return (
+                    <motion.button
+                      layout
+                      key={`${row}-${col}`}
+                      style={{
+                        ...styles.cell,
+                        ...(spawn ? styles.spawnCell : {}),
+                        ...(moveCell ? styles.moveCell : {}),
+                      }}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.97 }}
+                      transition={{
+                        type: "spring",
+                        stiffness: 300,
+                        damping: 28,
+                      }}
+                      onClick={() => handleCellClick(position)}
+                    >
+                      <small>{positionLabel(position)}</small>
+                      {spawn && <span>Спавн</span>}
+                      {moveCell && <span>Движение</span>}
+                    </motion.button>
+                  );
+                })
+              )}
+            </motion.div>
+          </section>
+
+          <aside style={styles.rightCommandPanel}>
+            {renderHqPanel("bot")}
+
             <button
-              style={styles.button}
+              style={{
+                ...styles.endTurnButton,
+                opacity:
+                  battle.activePlayer !== "player" || battle.status !== "active"
+                    ? 0.45
+                    : 1,
+              }}
               disabled={
                 battle.activePlayer !== "player" || battle.status !== "active"
               }
@@ -859,87 +946,90 @@ export function BattleScreen() {
                 })
               }
             >
-              Закончить ход
+              Конец хода
             </button>
 
-            {selectedCardInstanceId && (
-              <span>
-                Выбрана карта для размещения. Нажми на свободный спавн.
-              </span>
-            )}
+            <button style={styles.secondaryButton} onClick={reset}>
+              Новый бой
+            </button>
 
-            {selectedAttacker && selectedAttacker.type === "unit" && (
-              <span>
-                Выбран юнит. Зеленые клетки — движение, желтые цели — атака.
-                Оба действия тратят топливо.
-              </span>
-            )}
+            <div style={styles.actionHint}>
+              {selectedCardInstanceId && (
+                <span>Выбрана карта. Нажми на свободный спавн.</span>
+              )}
 
-            {selectedAttacker && selectedAttacker.type === "headquarters" && (
-              <span>Выбран штаб. Желтые цели доступны для атаки.</span>
-            )}
+              {selectedAttacker && selectedAttacker.type === "unit" && (
+                <span>
+                  Зеленые клетки — движение. Желтые цели — атака. Оба действия
+                  тратят топливо.
+                </span>
+              )}
+
+              {selectedAttacker && selectedAttacker.type === "headquarters" && (
+                <span>Выбран штаб. Желтые цели доступны для атаки.</span>
+              )}
+
+              {!selectedCardInstanceId && !selectedAttacker && (
+                <span>Выбери карту из руки или свой юнит на поле.</span>
+              )}
+            </div>
+          </aside>
+        </section>
+
+        <section style={styles.playerZone}>
+          <div style={styles.playerFuelBadge}>
+            <span>Топливо</span>
+            <strong>
+              {battle.player.resources}/{battle.player.maxResources}
+            </strong>
           </div>
 
-          <section>
-            <h2 style={styles.sectionTitle}>Рука</h2>
+          <div style={styles.hand}>
+            <AnimatePresence>
+              {battle.player.hand.map((cardInstance) => {
+                const card = getCard(cardInstance.cardId);
+                const selected =
+                  selectedCardInstanceId === cardInstance.instanceId;
 
-            <div style={styles.hand}>
-              <AnimatePresence>
-                {battle.player.hand.map((cardInstance) => {
-                  const card = getCard(cardInstance.cardId);
-                  const selected =
-                    selectedCardInstanceId === cardInstance.instanceId;
-
-                  return (
-                    <motion.button
-                      key={cardInstance.instanceId}
-                      layout
-                      style={{
-                        ...styles.card,
-                        ...(selected ? styles.selectedCard : {}),
-                      }}
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -16 }}
-                      transition={{
-                        type: "spring",
-                        stiffness: 280,
-                        damping: 24,
-                      }}
-                      whileHover={{ y: -4, scale: 1.03 }}
-                      whileTap={{ scale: 0.97 }}
-                      disabled={battle.activePlayer !== "player"}
-                      onClick={() =>
-                        selectCard(selected ? null : cardInstance.instanceId)
+                return (
+                  <motion.button
+                    key={cardInstance.instanceId}
+                    layout
+                    style={styles.card}
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -16 }}
+                    transition={{
+                      type: "spring",
+                      stiffness: 280,
+                      damping: 24,
+                    }}
+                    whileHover={{ y: -8, scale: 1.04 }}
+                    whileTap={{ scale: 0.97 }}
+                    disabled={battle.activePlayer !== "player"}
+                    onClick={() =>
+                      selectCard(selected ? null : cardInstance.instanceId)
+                    }
+                  >
+                    <TankCardView
+                      card={card}
+                      variant="hand"
+                      selected={selected}
+                      disabled={
+                        battle.activePlayer !== "player" ||
+                        battle.player.resources < card.cost
                       }
-                    >
-                      <strong>{card.name}</strong>
-                      <small>
-                        {card.nation} / {card.class}
-                      </small>
-                      <span>Spawn fuel {card.cost}</span>
-                      <span>
-                        ATK {card.attack} ARM {card.armor}
-                      </span>
-                      <span>
-                        HP {card.hp} RNG {card.range}
-                      </span>
-                      <span>MOVE {card.movement}</span>
-                      <span>
-                        FUEL +{card.fuelGeneration} / ACT{" "}
-                        {card.actionFuelCost}
-                      </span>
-                      <small>{card.abilityText}</small>
-                    </motion.button>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-          </section>
+                    />
+                  </motion.button>
+                );
+              })}
+            </AnimatePresence>
+          </div>
         </section>
 
         <aside style={styles.logPanel}>
           <h2 style={styles.sectionTitle}>Лог боя</h2>
+
           <div style={styles.log}>
             {battle.log.map((item, index) => (
               <motion.p
@@ -962,91 +1052,439 @@ export function BattleScreen() {
 const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: "100vh",
-    background: "#101418",
+    position: "relative",
+    overflow: "hidden",
+    backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.2)), url(${battleTableBackground})`,
+    backgroundSize: "cover",
+    backgroundPosition: "center center",
+    backgroundRepeat: "no-repeat",
     color: "#eef2f3",
-    padding: 24,
+    padding: 18,
     fontFamily:
       "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
   },
-  header: {
+
+  vignette: {
+    position: "absolute",
+    inset: 0,
+    pointerEvents: "none",
+    background:
+      "radial-gradient(circle at center, rgba(255,255,255,0.02), rgba(0,0,0,0.58) 82%), linear-gradient(90deg, rgba(0,0,0,0.48), transparent 20%, transparent 80%, rgba(0,0,0,0.48))",
+    zIndex: 0,
+  },
+
+  topHud: {
+    position: "relative",
+    zIndex: 1,
     display: "flex",
     justifyContent: "space-between",
-    gap: 24,
     alignItems: "center",
-    marginBottom: 24,
+    marginBottom: 8,
   },
+
   title: {
     margin: 0,
-    fontSize: 32,
+    fontSize: 26,
+    letterSpacing: 1,
+    textTransform: "uppercase",
   },
+
   subtitle: {
-    margin: "6px 0 0",
-    opacity: 0.7,
+    margin: "4px 0 0",
+    opacity: 0.65,
+    fontSize: 13,
   },
-  headerActions: {
-    display: "flex",
-    gap: 16,
-    alignItems: "center",
-  },
-  layout: {
-    display: "grid",
-    gridTemplateColumns: "1fr 320px",
-    gap: 24,
-  },
-  leftPanel: {
-    minWidth: 0,
-  },
-  infoRow: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, 1fr)",
-    gap: 12,
-    marginBottom: 16,
-  },
-  infoCard: {
+
+  statusPanel: {
     display: "flex",
     flexDirection: "column",
+    alignItems: "flex-end",
     gap: 4,
-    padding: 12,
+    padding: "9px 12px",
     borderRadius: 12,
-    background: "#1b232b",
-    border: "1px solid #2c3844",
+    background: "rgba(10, 12, 12, 0.74)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    boxShadow: "0 10px 28px rgba(0,0,0,0.35)",
   },
+
+  gameTable: {
+    position: "relative",
+    zIndex: 1,
+    display: "grid",
+    gridTemplateRows: "160px minmax(410px, auto) minmax(260px, auto)",
+    gridTemplateColumns: "1fr 310px",
+    gap: 12,
+  },
+
+  enemyZone: {
+    gridColumn: "1 / 3",
+    display: "grid",
+    gridTemplateColumns: "180px 1fr 130px",
+    alignItems: "center",
+    gap: 16,
+    minHeight: 150,
+    padding: "8px 18px",
+    borderRadius: 18,
+    background:
+      "linear-gradient(180deg, rgba(30, 12, 12, 0.35), rgba(0, 0, 0, 0.12))",
+    border: "1px solid rgba(255,255,255,0.06)",
+  },
+
+  enemyDeckArea: {
+    display: "flex",
+    justifyContent: "flex-start",
+  },
+
+  enemyHand: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 12,
+  },
+
+  enemyInfo: {
+    justifySelf: "end",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 2,
+    color: "#ff8b7a",
+    textTransform: "uppercase",
+    fontSize: 12,
+  },
+
+  centerBattleArea: {
+    gridColumn: "1 / 2",
+    display: "grid",
+    gridTemplateColumns: "150px 1fr 150px",
+    gap: 12,
+    alignItems: "stretch",
+  },
+
+  leftCommandPanel: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    justifyContent: "center",
+  },
+
+  rightCommandPanel: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    justifyContent: "center",
+  },
+
+  boardShell: {
+    position: "relative",
+    padding: 12,
+    borderRadius: 20,
+    background:
+      "linear-gradient(135deg, rgba(75, 86, 82, 0.14), rgba(18, 22, 22, 0.38)), radial-gradient(circle at 50% 50%, rgba(111, 159, 155, 0.12), transparent 58%)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    boxShadow:
+      "inset 0 0 0 1px rgba(255,255,255,0.04), 0 24px 70px rgba(0,0,0,0.5)",
+  },
+
+  boardGlow: {
+    position: "absolute",
+    inset: 10,
+    borderRadius: 16,
+    background:
+      "radial-gradient(circle at center, rgba(116, 168, 170, 0.16), transparent 65%)",
+    pointerEvents: "none",
+  },
+
   board: {
     position: "relative",
     display: "grid",
-    gridTemplateColumns: "repeat(5, minmax(120px, 1fr))",
-    gap: 8,
-    marginBottom: 16,
+    gridTemplateColumns: "repeat(5, minmax(140px, 1fr))",
+    gap: 6,
+    alignItems: "stretch",
   },
+
   cell: {
-    minHeight: 120,
+    height: 166,
     position: "relative",
     overflow: "visible",
-    borderRadius: 12,
-    border: "1px solid #2c3844",
-    background: "#151b21",
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background:
+      "linear-gradient(135deg, rgba(17, 24, 26, 0.72), rgba(7, 9, 10, 0.62))",
     color: "#eef2f3",
-    padding: 10,
+    padding: 5,
     display: "flex",
     flexDirection: "column",
     gap: 5,
-    alignItems: "flex-start",
+    alignItems: "stretch",
     justifyContent: "center",
     cursor: "pointer",
     textAlign: "left",
+    boxShadow:
+      "inset 0 0 0 1px rgba(255,255,255,0.025), inset 0 0 24px rgba(0,0,0,0.35)",
   },
+
   spawnCell: {
-    border: "1px dashed #8aa36f",
-    background: "#1c261d",
+    border: "1px dashed rgba(125, 227, 141, 0.55)",
+    background:
+      "linear-gradient(135deg, rgba(35, 66, 36, 0.48), rgba(8, 13, 8, 0.62))",
   },
+
   moveCell: {
-    outline: "3px solid #7de38d",
-    background: "#1d3021",
+    outline: "3px solid rgba(125, 227, 141, 0.86)",
+    background:
+      "linear-gradient(135deg, rgba(32, 92, 42, 0.56), rgba(13, 25, 14, 0.74))",
   },
+
   damageCell: {
     outline: "4px solid #ffdf6e",
     filter: "brightness(1.25)",
   },
+
+  playerUnit: {
+    border: "1px solid rgba(105, 171, 255, 0.55)",
+  },
+
+  botUnit: {
+    border: "1px solid rgba(255, 105, 88, 0.55)",
+  },
+
+  hqCell: {
+    padding: 12,
+    fontWeight: 800,
+    textTransform: "uppercase",
+  },
+
+  playerHq: {
+    background:
+      "linear-gradient(135deg, rgba(36, 50, 75, 0.8), rgba(10, 16, 28, 0.7))",
+    border: "2px solid rgba(122, 162, 255, 0.8)",
+  },
+
+  botHq: {
+    background:
+      "linear-gradient(135deg, rgba(80, 32, 32, 0.85), rgba(26, 9, 9, 0.75))",
+    border: "2px solid rgba(255, 139, 122, 0.8)",
+  },
+
+  selectedHqCell: {
+    boxShadow: "0 0 0 3px rgba(247, 215, 116, 0.86)",
+  },
+
+  targetCell: {
+    outline: "3px solid #f7d774",
+  },
+
+  playerZone: {
+    gridColumn: "1 / 2",
+    display: "grid",
+    gridTemplateColumns: "110px 1fr",
+    gap: 14,
+    alignItems: "end",
+    padding: "12px 16px 4px",
+    borderRadius: 18,
+    background:
+      "linear-gradient(0deg, rgba(32, 10, 10, 0.45), rgba(0, 0, 0, 0.05))",
+    borderTop: "1px solid rgba(255, 70, 70, 0.25)",
+    boxShadow: "0 -18px 54px rgba(139, 29, 29, 0.18)",
+  },
+
+  playerFuelBadge: {
+    alignSelf: "center",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 4,
+    padding: "12px 10px",
+    borderRadius: 14,
+    background: "rgba(14, 17, 17, 0.78)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    color: "#d6a84f",
+  },
+
+  hand: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))",
+    gap: 12,
+    alignItems: "end",
+  },
+
+  card: {
+    border: "none",
+    background: "transparent",
+    color: "#eef2f3",
+    padding: 0,
+    cursor: "pointer",
+    textAlign: "left",
+  },
+
+  deckPile: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 8,
+    padding: 12,
+    borderRadius: 14,
+    background: "rgba(7, 9, 9, 0.62)",
+    border: "1px solid rgba(255,255,255,0.08)",
+  },
+
+  deckStack: {
+    position: "relative",
+    width: 92,
+    height: 124,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  deckLabel: {
+    fontSize: 11,
+    opacity: 0.68,
+    textTransform: "uppercase",
+  },
+
+  cardBack: {
+    width: 104,
+    height: 138,
+    borderRadius: 12,
+    backgroundSize: "cover",
+    backgroundPosition: "center center",
+    backgroundRepeat: "no-repeat",
+    border: "1px solid rgba(255,255,255,0.22)",
+    boxShadow: "0 14px 34px rgba(0,0,0,0.52)",
+  },
+
+  cardBackSmall: {
+    position: "absolute",
+    width: 86,
+    height: 114,
+  },
+
+  hqPanel: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    padding: 12,
+    borderRadius: 15,
+    background: "rgba(10, 12, 12, 0.75)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    boxShadow: "0 18px 44px rgba(0,0,0,0.36)",
+  },
+
+  playerHqPanel: {
+    borderColor: "rgba(122, 162, 255, 0.34)",
+  },
+
+  botHqPanel: {
+    borderColor: "rgba(255, 139, 122, 0.34)",
+  },
+
+  selectedHqPanel: {
+    boxShadow:
+      "0 0 0 3px rgba(247, 215, 116, 0.74), 0 18px 44px rgba(0,0,0,0.36)",
+  },
+
+  hqPanelLabel: {
+    fontSize: 11,
+    textTransform: "uppercase",
+    opacity: 0.64,
+  },
+
+  hqPanelTitle: {
+    fontSize: 22,
+    letterSpacing: 2,
+  },
+
+  hqStats: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 6,
+    fontSize: 12,
+  },
+
+  smallInfoPanel: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 14,
+    background: "rgba(7, 9, 9, 0.62)",
+    border: "1px solid rgba(255,255,255,0.08)",
+  },
+
+  endTurnButton: {
+    minHeight: 74,
+    border: "none",
+    borderRadius: 14,
+    background:
+      "linear-gradient(180deg, #d8b46a, #9d7133), radial-gradient(circle at 50% 0%, rgba(255,255,255,0.35), transparent 60%)",
+    color: "#1d1207",
+    padding: "12px 14px",
+    fontWeight: 900,
+    cursor: "pointer",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    boxShadow: "0 12px 32px rgba(0,0,0,0.42)",
+  },
+
+  secondaryButton: {
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: 12,
+    background: "rgba(12, 14, 14, 0.7)",
+    color: "#eef2f3",
+    padding: "10px 12px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  actionHint: {
+    minHeight: 90,
+    padding: 12,
+    borderRadius: 14,
+    background: "rgba(7, 9, 9, 0.62)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    fontSize: 13,
+    lineHeight: 1.35,
+    color: "rgba(238, 242, 243, 0.78)",
+  },
+
+  logPanel: {
+    gridColumn: "2 / 3",
+    gridRow: "2 / 4",
+    background: "rgba(10, 12, 12, 0.74)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 18,
+    padding: 14,
+    alignSelf: "stretch",
+    boxShadow: "0 18px 54px rgba(0,0,0,0.38)",
+    overflow: "hidden",
+  },
+
+  sectionTitle: {
+    margin: "0 0 12px",
+    fontSize: 17,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+
+  log: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    maxHeight: 720,
+    overflow: "auto",
+  },
+
+  logItem: {
+    margin: 0,
+    fontSize: 13,
+    lineHeight: 1.3,
+    opacity: 0.86,
+    paddingBottom: 8,
+    borderBottom: "1px solid rgba(255,255,255,0.05)",
+  },
+
   damageText: {
     position: "absolute",
     left: "50%",
@@ -1061,6 +1499,7 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 45,
     pointerEvents: "none",
   },
+
   overlayDamageText: {
     position: "absolute",
     transform: "translateX(-50%)",
@@ -1073,6 +1512,7 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 60,
     pointerEvents: "none",
   },
+
   projectileImage: {
     position: "absolute",
     width: 210,
@@ -1084,6 +1524,7 @@ const styles: Record<string, React.CSSProperties> = {
     transformOrigin: "center center",
     filter: "drop-shadow(0 0 8px rgba(255, 209, 102, 0.75))",
   },
+
   explosionContainer: {
     position: "absolute",
     width: 140,
@@ -1093,6 +1534,7 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 35,
     pointerEvents: "none",
   },
+
   explosionFlash: {
     position: "absolute",
     inset: 0,
@@ -1102,6 +1544,7 @@ const styles: Record<string, React.CSSProperties> = {
     mixBlendMode: "screen",
     filter: "drop-shadow(0 0 18px rgba(255, 229, 120, 0.95))",
   },
+
   explosionFireball: {
     position: "absolute",
     inset: 0,
@@ -1111,6 +1554,7 @@ const styles: Record<string, React.CSSProperties> = {
     mixBlendMode: "screen",
     filter: "drop-shadow(0 0 22px rgba(255, 104, 20, 0.85))",
   },
+
   explosionSmoke: {
     position: "absolute",
     inset: 0,
@@ -1120,6 +1564,7 @@ const styles: Record<string, React.CSSProperties> = {
     opacity: 0.55,
     filter: "drop-shadow(0 0 12px rgba(30, 30, 30, 0.65))",
   },
+
   explosionEffect: {
     position: "absolute",
     inset: "50%",
@@ -1133,86 +1578,5 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: "0 0 28px 12px rgba(251, 86, 7, 0.8)",
     zIndex: 10,
     pointerEvents: "none",
-  },
-  playerUnit: {
-    background: "#162331",
-    border: "1px solid #4e83b7",
-  },
-  botUnit: {
-    background: "#311b1b",
-    border: "1px solid #b75b4e",
-  },
-  hqCell: {
-    fontWeight: 700,
-  },
-  playerHq: {
-    background: "#24324b",
-    border: "2px solid #7aa2ff",
-  },
-  botHq: {
-    background: "#4b2424",
-    border: "2px solid #ff8b7a",
-  },
-  targetCell: {
-    outline: "3px solid #f7d774",
-  },
-  actions: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 20,
-    flexWrap: "wrap",
-  },
-  button: {
-    border: "none",
-    borderRadius: 10,
-    background: "#d6a84f",
-    color: "#121212",
-    padding: "10px 14px",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  sectionTitle: {
-    margin: "0 0 12px",
-    fontSize: 20,
-  },
-  hand: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
-    gap: 10,
-  },
-  card: {
-    minHeight: 190,
-    borderRadius: 12,
-    border: "1px solid #3a4652",
-    background: "#1b232b",
-    color: "#eef2f3",
-    padding: 12,
-    display: "flex",
-    flexDirection: "column",
-    gap: 5,
-    alignItems: "flex-start",
-    cursor: "pointer",
-    textAlign: "left",
-  },
-  selectedCard: {
-    outline: "3px solid #d6a84f",
-  },
-  logPanel: {
-    background: "#1b232b",
-    border: "1px solid #2c3844",
-    borderRadius: 12,
-    padding: 16,
-    alignSelf: "start",
-  },
-  log: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-  },
-  logItem: {
-    margin: 0,
-    fontSize: 14,
-    opacity: 0.9,
   },
 };
