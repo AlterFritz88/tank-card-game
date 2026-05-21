@@ -1,3 +1,4 @@
+import { ResultScreen } from "./ResultScreen";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -95,6 +96,10 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+function getRandomBotThinkingDelay(): number {
+  return Math.floor(Math.random() * 4000);
+}
+
 function waitForNextFrame(): Promise<void> {
   return new Promise((resolve) => {
     window.requestAnimationFrame(() => resolve());
@@ -123,6 +128,7 @@ export function BattleScreen() {
     DamageTextEffect[]
   >([]);
   const [turnBannerText, setTurnBannerText] = useState<string | null>(null);
+  const [thinkingCardIndex, setThinkingCardIndex] = useState<number | null>(null);
 
   const previousHpRef = useRef<Map<string, number>>(new Map());
   const previousActivePlayerRef = useRef(battle.activePlayer);
@@ -178,6 +184,41 @@ export function BattleScreen() {
       window.clearTimeout(timeout);
     };
   }, [battle.activePlayer, battle.status]);
+
+
+  useEffect(() => {
+  if (battle.status !== "active") {
+    setThinkingCardIndex(null);
+    return;
+  }
+
+  if (battle.activePlayer !== "bot") {
+    setThinkingCardIndex(null);
+    return;
+  }
+
+  if (battle.bot.hand.length === 0) {
+    setThinkingCardIndex(null);
+    return;
+  }
+
+  const interval = window.setInterval(() => {
+    const shouldRaiseCard = Math.random() < 0.45;
+
+    if (!shouldRaiseCard) {
+      setThinkingCardIndex(null);
+      return;
+    }
+
+    const randomIndex = Math.floor(Math.random() * battle.bot.hand.length);
+    setThinkingCardIndex(randomIndex);
+  }, 1100);
+
+  return () => {
+    window.clearInterval(interval);
+    setThinkingCardIndex(null);
+  };
+}, [battle.activePlayer, battle.status, battle.bot.hand.length]);
 
   useEffect(() => {
     const currentHp = new Map<string, number>();
@@ -365,7 +406,12 @@ export function BattleScreen() {
 
         const action: BattleAction | null = getNextBotAction(currentBattle);
 
-        if (!action) break;
+if (!action) break;
+
+await delay(getRandomBotThinkingDelay());
+
+if (cancelled) break;
+
 
         if (action.type === "ATTACK") {
           await delay(180);
@@ -577,19 +623,29 @@ export function BattleScreen() {
   );
 }
 
-  function renderCardBack(index: number, small = false) {
-    return (
-      <div
-        key={index}
-        style={{
-          ...styles.cardBack,
-          ...(small ? styles.cardBackSmall : {}),
-          transform: `translateX(${index * -5}px) rotate(${index * -2}deg)`,
-          backgroundImage: `url(${cardBackImage})`,
-        }}
-      />
-    );
-  }
+  function renderCardBack(index: number, small = false, raised = false) {
+  return (
+    <motion.div
+      key={index}
+      style={{
+        ...styles.cardBack,
+        ...(small ? styles.cardBackSmall : {}),
+        backgroundImage: `url(${cardBackImage})`,
+      }}
+      animate={{
+  x: index * -5,
+  y: raised ? -10 : 0,
+  rotate: index * -2,
+  scale: raised ? 1.03 : 1,
+}}
+      transition={{
+  type: "spring",
+  stiffness: 180,
+  damping: 22,
+}}
+    />
+  );
+}
 
   function renderDeckPile(owner: PlayerId) {
   const player = battle[owner];
@@ -677,8 +733,14 @@ export function BattleScreen() {
           <div style={styles.enemyDeckArea}>{renderDeckPile("bot")}</div>
 
           <div style={styles.enemyHand}>
-            {battle.bot.hand.map((_, index) => renderCardBack(index))}
-          </div>
+  {battle.bot.hand.map((_, index) =>
+    renderCardBack(
+      index,
+      false,
+      battle.activePlayer === "bot" && thinkingCardIndex === index
+    )
+  )}
+</div>
 
           <div style={styles.enemyInfo}>
             <span>Враг</span>
@@ -1161,6 +1223,12 @@ export function BattleScreen() {
           </div>
         </aside>
       </main>
+           
+
+      {battle.status !== "active" && (
+        <ResultScreen battle={battle} onRestart={reset} />
+      )}
+    
     </div>
   );
 }

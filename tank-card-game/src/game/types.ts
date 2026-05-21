@@ -127,6 +127,20 @@ export type BattleState = {
   units: BoardUnit[];
 
   timers: Record<PlayerId, PlayerTimerState>;
+  stats: BattleStats;
 
   log: string[];
+};
+
+export type BattleKillStats = {
+  light: number;
+  medium: number;
+  heavy: number;
+  td: number;
+  spg: number;
+};
+
+export type BattleStats = {
+  destroyedByPlayer: BattleKillStats;
+  destroyedByBot: BattleKillStats;
 };

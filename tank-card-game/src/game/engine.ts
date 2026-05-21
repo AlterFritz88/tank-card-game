@@ -93,6 +93,43 @@ function addLog(state: BattleState, message: string) {
   state.log = [message, ...state.log].slice(0, 12);
 }
 
+function ensureBattleStats(state: BattleState) {
+  if (state.stats) return;
+
+  state.stats = {
+    destroyedByPlayer: {
+      light: 0,
+      medium: 0,
+      heavy: 0,
+      td: 0,
+      spg: 0,
+    },
+    destroyedByBot: {
+      light: 0,
+      medium: 0,
+      heavy: 0,
+      td: 0,
+      spg: 0,
+    },
+  };
+}
+
+function recordDestroyedUnit(
+  state: BattleState,
+  destroyedBy: PlayerId,
+  unit: BoardUnit
+) {
+  ensureBattleStats(state);
+
+  const card = getCard(unit.cardId);
+  const stats =
+    destroyedBy === "player"
+      ? state.stats.destroyedByPlayer
+      : state.stats.destroyedByBot;
+
+  stats[card.class] += 1;
+}
+
 function calculateFuelGeneration(
   state: BattleState,
   playerId: PlayerId
@@ -345,8 +382,17 @@ function canAttackTarget(
   return canUnitAttackTarget(attackerCard, attacker.position, target.position);
 }
 
-function destroyUnit(state: BattleState, unit: BoardUnit, reason: string) {
+function destroyUnit(
+  state: BattleState,
+  unit: BoardUnit,
+  reason: string,
+  destroyedBy?: PlayerId
+) {
   const card = getCard(unit.cardId);
+
+  if (destroyedBy) {
+    recordDestroyedUnit(state, destroyedBy, unit);
+  }
 
   state.units = state.units.filter(
     (item) => item.instanceId !== unit.instanceId
@@ -422,12 +468,17 @@ function attack(state: BattleState, action: AttackAction) {
     }
 
     if (targetDestroyed) {
-      destroyUnit(state, target, "уничтожен.");
-    }
+  destroyUnit(state, target, "уничтожен.", action.playerId);
+}
 
-    if (attackerIsUnit && attacker.currentHp <= 0) {
-      destroyUnit(state, attacker, "уничтожен ответным огнем.");
-    }
+   if (attackerIsUnit && attacker.currentHp <= 0) {
+  destroyUnit(
+    state,
+    attacker,
+    "уничтожен ответным огнем.",
+    getOpponent(action.playerId)
+  );
+}
   } else {
     target.hp -= attackValue;
 

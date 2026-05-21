@@ -96,11 +96,28 @@ export function createInitialBattleState(): BattleState {
     units: [],
 
     timers: {
-      player: createTimerState(),
-      bot: createTimerState(),
-    },
+  player: createTimerState(),
+  bot: createTimerState(),
+},
 
-    log: ["Бой начался."],
+stats: {
+  destroyedByPlayer: {
+    light: 0,
+    medium: 0,
+    heavy: 0,
+    td: 0,
+    spg: 0,
+  },
+  destroyedByBot: {
+    light: 0,
+    medium: 0,
+    heavy: 0,
+    td: 0,
+    spg: 0,
+  },
+},
+
+log: ["Бой начался."],
   };
 
   state.player.maxResources = state.headquarters.player.fuelGeneration;
