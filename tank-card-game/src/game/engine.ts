@@ -9,6 +9,9 @@ import type {
   TankCard,
 } from "./types";
 
+const BATTLE_TIME_MS = 7 * 60 * 1000;
+const STEP_TIME_MS = 15 * 1000;
+
 export const PLAYER_SPAWN_CELLS: Position[] = [
   { row: 1, col: 0 },
   { row: 1, col: 1 },
@@ -49,6 +52,10 @@ function isCellOccupied(state: BattleState, position: Position): boolean {
 
 function getOpponent(playerId: PlayerId): PlayerId {
   return playerId === "player" ? "bot" : "player";
+}
+
+function getPlayerLabel(playerId: PlayerId): string {
+  return playerId === "player" ? "Игрок" : "Бот";
 }
 
 function manhattanDistance(a: Position, b: Position): number {
@@ -126,6 +133,27 @@ function spendFuel(
   return true;
 }
 
+function resetStepTimer(state: BattleState, playerId: PlayerId) {
+  state.timers[playerId].stepTimeLeftMs = STEP_TIME_MS;
+  state.timers[playerId].actedThisStep = false;
+}
+
+function markSuccessfulAction(state: BattleState, playerId: PlayerId) {
+  state.timers[playerId].idleStreak = 0;
+  resetStepTimer(state, playerId);
+}
+
+function setWinnerByLoser(state: BattleState, loserId: PlayerId, reason: string) {
+  state.status = loserId === "player" ? "bot_won" : "player_won";
+
+  addLog(
+    state,
+    loserId === "player"
+      ? `Игрок проиграл: ${reason}`
+      : `Бот проиграл: ${reason}`
+  );
+}
+
 function damageHeadquartersFromEmptyDeck(
   state: BattleState,
   playerId: PlayerId
@@ -160,6 +188,8 @@ function startTurn(state: BattleState, playerId: PlayerId) {
 
   player.maxResources = generatedFuel;
   player.resources = generatedFuel;
+
+  resetStepTimer(state, playerId);
 
   addLog(
     state,
@@ -234,6 +264,8 @@ function playCard(
   };
 
   state.units.push(unit);
+
+  markSuccessfulAction(state, action.playerId);
 
   addLog(
     state,
@@ -415,6 +447,10 @@ function attack(state: BattleState, action: AttackAction) {
   }
 
   attacker.alreadyAttacked = true;
+
+  if (state.status === "active") {
+    markSuccessfulAction(state, action.playerId);
+  }
 }
 
 function canUnitMoveTo(
@@ -474,6 +510,8 @@ function moveUnit(
   unit.position = action.position;
   unit.alreadyMoved = true;
 
+  markSuccessfulAction(state, action.playerId);
+
   addLog(
     state,
     `${action.playerId === "player" ? "Игрок" : "Бот"} перемещает ${
@@ -487,6 +525,9 @@ function moveUnit(
 function endTurn(state: BattleState, playerId: PlayerId) {
   if (state.status !== "active") return;
   if (state.activePlayer !== playerId) return;
+
+  state.timers[playerId].actedThisStep = true;
+  state.timers[playerId].stepTimeLeftMs = STEP_TIME_MS;
 
   const nextPlayer = getOpponent(playerId);
 
@@ -506,6 +547,97 @@ function endTurn(state: BattleState, playerId: PlayerId) {
     state,
     `Ход переходит к ${nextPlayer === "player" ? "игроку" : "боту"}.`
   );
+}
+
+function handleIdleTimeout(state: BattleState, playerId: PlayerId) {
+  if (state.status !== "active") return;
+  if (state.activePlayer !== playerId) return;
+
+  const timer = state.timers[playerId];
+
+  timer.idleStreak += 1;
+  timer.stepTimeLeftMs = STEP_TIME_MS;
+  timer.actedThisStep = false;
+
+  if (timer.idleStreak >= 3) {
+    setWinnerByLoser(
+      state,
+      playerId,
+      `${getPlayerLabel(playerId).toLowerCase()} пропустил действие 3 раза подряд`
+    );
+
+    return;
+  }
+
+  if (timer.idleStreak === 2) {
+    const headquarters = state.headquarters[playerId];
+
+    headquarters.hp -= 1;
+
+    addLog(
+      state,
+      `${
+        playerId === "player" ? "Игрок" : "Бот"
+      } бездействует второй раз подряд. Штаб теряет 1 HP.`
+    );
+
+    if (headquarters.hp <= 0) {
+      state.status = playerId === "player" ? "bot_won" : "player_won";
+
+      addLog(
+        state,
+        playerId === "player"
+          ? "Штаб игрока уничтожен. Бот победил."
+          : "Штаб бота уничтожен. Игрок победил."
+      );
+
+      return;
+    }
+  } else {
+    addLog(
+      state,
+      `${
+        playerId === "player" ? "Игрок" : "Бот"
+      } не сделал действие за 15 секунд. Ход пропущен.`
+    );
+  }
+
+  endTurn(state, playerId);
+}
+
+function timerTick(
+  state: BattleState,
+  action: Extract<BattleAction, { type: "TIMER_TICK" }>
+) {
+  if (state.status !== "active") return;
+
+  if (!state.timers?.player || !state.timers?.bot) {
+    return;
+  }
+
+  const activePlayer = state.activePlayer;
+  const timer = state.timers[activePlayer];
+
+  if (!timer) {
+    return;
+  }
+
+  timer.battleTimeLeftMs = Math.max(0, timer.battleTimeLeftMs - action.elapsedMs);
+  timer.stepTimeLeftMs = Math.max(0, timer.stepTimeLeftMs - action.elapsedMs);
+
+  if (timer.battleTimeLeftMs <= 0) {
+    setWinnerByLoser(
+      state,
+      activePlayer,
+      `${getPlayerLabel(activePlayer).toLowerCase()} исчерпал 7 минут на бой`
+    );
+
+    return;
+  }
+
+  if (timer.stepTimeLeftMs <= 0) {
+    handleIdleTimeout(state, activePlayer);
+  }
 }
 
 export function applyAction(
@@ -528,7 +660,12 @@ export function applyAction(
       break;
 
     case "END_TURN":
+      markSuccessfulAction(nextState, action.playerId);
       endTurn(nextState, action.playerId);
+      break;
+
+    case "TIMER_TICK":
+      timerTick(nextState, action);
       break;
 
     default:

@@ -30,6 +30,14 @@ function positionLabel(position: Position) {
   return `[${position.row},${position.col}]`;
 }
 
+function formatTimer(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 type DamageId = string;
 
 type CellCenter = {
@@ -125,6 +133,28 @@ export function BattleScreen() {
   const damageTextIdRef = useRef(0);
   const lastObjectCentersRef = useRef<Map<string, CellCenter>>(new Map());
   const botTurnRunningRef = useRef(false);
+
+  useEffect(() => {
+    if (battle.status !== "active") return;
+
+    let lastTickTime = Date.now();
+
+    const interval = window.setInterval(() => {
+      const now = Date.now();
+      const elapsedMs = now - lastTickTime;
+
+      lastTickTime = now;
+
+      useBattleStore.getState().dispatch({
+        type: "TIMER_TICK",
+        elapsedMs,
+      });
+    }, 250);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [battle.status]);
 
   useEffect(() => {
     const previousActivePlayer = previousActivePlayerRef.current;
@@ -507,6 +537,46 @@ export function BattleScreen() {
     });
   }
 
+  function renderTimerPanel(owner: PlayerId) {
+  const timer = battle.timers?.[owner];
+
+  if (!timer) {
+    return null;
+  }
+
+  const active = battle.activePlayer === owner;
+  const isPlayer = owner === "player";
+
+  return (
+    <div
+      style={{
+        ...styles.timerPanel,
+        ...(active ? styles.timerPanelActive : {}),
+        ...(isPlayer ? styles.playerTimerPanel : styles.botTimerPanel),
+      }}
+    >
+      <span style={styles.timerLabel}>
+        {isPlayer ? "Таймер игрока" : "Таймер врага"}
+      </span>
+
+      <div style={styles.timerMainRow}>
+        <span>Бой</span>
+        <strong>{formatTimer(timer.battleTimeLeftMs)}</strong>
+      </div>
+
+      <div style={styles.timerMainRow}>
+        <span>Шаг</span>
+        <strong>{formatTimer(timer.stepTimeLeftMs)}</strong>
+      </div>
+
+      <div style={styles.idleRow}>
+        <span>Простой</span>
+        <strong>{timer.idleStreak}/3</strong>
+      </div>
+    </div>
+  );
+}
+
   function renderCardBack(index: number, small = false) {
     return (
       <div
@@ -522,19 +592,22 @@ export function BattleScreen() {
   }
 
   function renderDeckPile(owner: PlayerId) {
-    const player = battle[owner];
-    const label = owner === "player" ? "Колода" : "Колода врага";
+  const player = battle[owner];
+  const label = owner === "player" ? "Колода" : "Колода врага";
 
-    return (
-      <div style={styles.deckPile}>
-        <div style={styles.deckStack}>
-          {[0, 1, 2].map((index) => renderCardBack(index, true))}
-        </div>
-        <span style={styles.deckLabel}>{label}</span>
-        <strong>{player.deck.length}</strong>
+  return (
+    <div style={styles.deckPile}>
+      <div style={styles.deckStack}>
+        {[0, 1, 2].map((index) => renderCardBack(index, true))}
       </div>
-    );
-  }
+
+      <span style={styles.deckLabel}>{label}</span>
+      <strong>{player.deck.length}</strong>
+
+      {owner === "player" && renderTimerPanel(owner)}
+    </div>
+  );
+}
 
   function renderHqPanel(owner: PlayerId) {
     const hq = battle.headquarters[owner];
@@ -1419,6 +1492,59 @@ const styles: Record<string, React.CSSProperties> = {
     position: "absolute",
     width: 86,
     height: 114,
+  },
+
+  timerPanel: {
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    padding: "8px 9px",
+    borderRadius: 11,
+    background:
+      "linear-gradient(180deg, rgba(8, 10, 10, 0.92), rgba(0, 0, 0, 0.78))",
+    border: "1px solid rgba(255,255,255,0.1)",
+    boxShadow: "inset 0 0 16px rgba(0,0,0,0.72)",
+  },
+
+  timerPanelActive: {
+    boxShadow:
+      "0 0 0 2px rgba(125, 255, 138, 0.28), inset 0 0 16px rgba(0,0,0,0.72)",
+  },
+
+  playerTimerPanel: {
+    borderColor: "rgba(125, 255, 138, 0.28)",
+  },
+
+  botTimerPanel: {
+    borderColor: "rgba(255, 139, 122, 0.28)",
+  },
+
+  timerLabel: {
+    fontSize: 10,
+    opacity: 0.62,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+
+  timerMainRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 8,
+    fontSize: 12,
+    lineHeight: 1.1,
+  },
+
+  idleRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 2,
+    paddingTop: 4,
+    borderTop: "1px solid rgba(255,255,255,0.08)",
+    fontSize: 11,
+    color: "rgba(238,242,243,0.74)",
+    lineHeight: 1.1,
   },
 
   hqPanel: {
