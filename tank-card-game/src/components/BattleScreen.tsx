@@ -114,8 +114,10 @@ export function BattleScreen() {
   const [damageTextEffects, setDamageTextEffects] = useState<
     DamageTextEffect[]
   >([]);
+  const [turnBannerText, setTurnBannerText] = useState<string | null>(null);
 
   const previousHpRef = useRef<Map<string, number>>(new Map());
+  const previousActivePlayerRef = useRef(battle.activePlayer);
   const boardRef = useRef<HTMLDivElement | null>(null);
   const objectRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const projectileIdRef = useRef(0);
@@ -123,6 +125,29 @@ export function BattleScreen() {
   const damageTextIdRef = useRef(0);
   const lastObjectCentersRef = useRef<Map<string, CellCenter>>(new Map());
   const botTurnRunningRef = useRef(false);
+
+  useEffect(() => {
+    const previousActivePlayer = previousActivePlayerRef.current;
+
+    previousActivePlayerRef.current = battle.activePlayer;
+
+    if (battle.status !== "active") return;
+
+    const playerTurnStarted =
+      battle.activePlayer === "player" && previousActivePlayer !== "player";
+
+    if (!playerTurnStarted) return;
+
+    setTurnBannerText("ТВОЙ ХОД");
+
+    const timeout = window.setTimeout(() => {
+      setTurnBannerText(null);
+    }, 1300);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [battle.activePlayer, battle.status]);
 
   useEffect(() => {
     const currentHp = new Map<string, number>();
@@ -603,6 +628,24 @@ export function BattleScreen() {
           <section style={styles.boardShell}>
             <div style={styles.boardGlow} />
 
+            <AnimatePresence>
+              {turnBannerText && (
+                <motion.div
+                  style={styles.turnBanner}
+                  initial={{ opacity: 0, scale: 0.72, y: 20 }}
+                  animate={{
+                    opacity: [0, 1, 1, 0],
+                    scale: [0.72, 1.08, 1, 0.96],
+                    y: [20, 0, 0, -16],
+                  }}
+                  exit={{ opacity: 0, scale: 0.92 }}
+                  transition={{ duration: 1.3, ease: "easeOut" }}
+                >
+                  {turnBannerText}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <motion.div ref={boardRef} layout style={styles.board}>
               <AnimatePresence>
                 {projectileEffect && (
@@ -1071,6 +1114,23 @@ const styles: Record<string, React.CSSProperties> = {
     background:
       "radial-gradient(circle at center, rgba(255,255,255,0.02), rgba(0,0,0,0.58) 82%), linear-gradient(90deg, rgba(0,0,0,0.48), transparent 20%, transparent 80%, rgba(0,0,0,0.48))",
     zIndex: 0,
+  },
+
+  turnBanner: {
+    position: "absolute",
+    left: "35%",
+    top: "50%",
+    transform: "translate(-50%, -50%)",
+    zIndex: 500,
+    color: "#7dff8a",
+    fontSize: 54,
+    fontWeight: 1000,
+    letterSpacing: 4,
+    textTransform: "uppercase",
+    textShadow:
+      "0 3px 0 rgba(0,0,0,0.95), 0 0 14px rgba(125,255,138,0.95), 0 0 34px rgba(125,255,138,0.65)",
+    pointerEvents: "none",
+    whiteSpace: "nowrap",
   },
 
   topHud: {
