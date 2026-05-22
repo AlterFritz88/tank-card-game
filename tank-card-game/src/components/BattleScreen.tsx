@@ -5,6 +5,7 @@ import { getCard } from "../game/cards";
 import { getNextBotAction } from "../game/bot";
 import {
   PLAYER_SPAWN_CELLS,
+  BOT_SPAWN_CELLS,
   getAvailableMoveCells,
   getTargetsInRange,
 } from "../game/engine";
@@ -25,6 +26,10 @@ function samePosition(a: Position, b: Position): boolean {
 
 function isPlayerSpawn(position: Position): boolean {
   return PLAYER_SPAWN_CELLS.some((cell) => samePosition(cell, position));
+}
+
+function isBotSpawn(position: Position): boolean {
+  return BOT_SPAWN_CELLS.some((cell) => samePosition(cell, position));
 }
 
 function positionLabel(position: Position) {
@@ -933,6 +938,7 @@ function renderEnemyDeckWithTimer() {
                   );
 
                   const spawn = isPlayerSpawn(position);
+                  const botSpawn = isBotSpawn(position);
 
                   if (unit) {
                     const card = getCard(unit.cardId);
@@ -1071,17 +1077,13 @@ function renderEnemyDeckWithTimer() {
                           }
                         }}
                       >
-                        <strong>
-                          {owner === "player" ? "Штаб игрока" : "Штаб врага"}
-                        </strong>
-                        <small>{positionLabel(position)}</small>
-                        <span>HP {hq.hp}</span>
-                        <span>ATK {hq.attack}</span>
-                        <span>RNG {hq.range}</span>
-                        <span>
-                          FUEL +{hq.fuelGeneration} / ACT {hq.actionFuelCost}
-                        </span>
-                        {hq.alreadyAttacked && <small>Атаковал</small>}
+                        <strong>{owner === "player" ? "Штаб" : "Штаб"}</strong>
+<span>HP {hq.hp}</span>
+<span>ATK {hq.attack}</span>
+<span>RNG {hq.range}</span>
+<span>
+  FUEL +{hq.fuelGeneration} / ACT {hq.actionFuelCost}
+</span>
 
                         {renderDamageText(hqId)}
 
@@ -1107,28 +1109,26 @@ function renderEnemyDeckWithTimer() {
                   const moveCell = isMoveCell(position);
 
                   return (
-                    <motion.button
-                      layout
-                      key={`${row}-${col}`}
-                      style={{
-                        ...styles.cell,
-                        ...(spawn ? styles.spawnCell : {}),
-                        ...(moveCell ? styles.moveCell : {}),
-                      }}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.97 }}
-                      transition={{
-                        type: "spring",
-                        stiffness: 300,
-                        damping: 28,
-                      }}
-                      onClick={() => handleCellClick(position)}
-                    >
-                      <small>{positionLabel(position)}</small>
-                      {spawn && <span>Спавн</span>}
-                      {moveCell && <span>Движение</span>}
-                    </motion.button>
-                  );
+  <motion.button
+    layout
+    key={`${row}-${col}`}
+    style={{
+      ...styles.cell,
+      ...(spawn ? styles.spawnCell : {}),
+      ...(botSpawn ? styles.botSpawnCell : {}),
+      ...(moveCell ? styles.moveCell : {}),
+    }}
+    whileHover={{ scale: 1.02 }}
+    whileTap={{ scale: 0.97 }}
+    transition={{
+      type: "spring",
+      stiffness: 300,
+      damping: 28,
+    }}
+    onClick={() => handleCellClick(position)}
+    aria-label={`Клетка ${position.row}-${position.col}`}
+  />
+);
                 })
               )}
             </motion.div>
@@ -1489,6 +1489,14 @@ actionSideColumn: {
     background:
       "linear-gradient(135deg, rgba(35, 66, 36, 0.48), rgba(8, 13, 8, 0.62))",
   },
+
+  botSpawnCell: {
+  border: "1px dashed rgba(255, 105, 88, 0.55)",
+  background:
+    "linear-gradient(135deg, rgba(92, 32, 32, 0.46), rgba(23, 8, 8, 0.64))",
+  boxShadow:
+    "inset 0 0 0 1px rgba(255, 120, 100, 0.08), inset 0 0 24px rgba(120, 20, 20, 0.22)",
+},
 
   moveCell: {
     outline: "3px solid rgba(125, 227, 141, 0.86)",
