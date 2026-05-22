@@ -4,6 +4,8 @@ import { getClassVisual, getNationVisual } from "../game/cardVisuals";
 import prototypeTankImage from "../assets/tanks/prototype-tank.png";
 import ussrCardBackground from "../assets/cards/nation-ussr-bg.png";
 import fuelCanisterIcon from "../assets/icons/fuel-canister-icon.png";
+import attackBadgeImage from "../assets/icons/badge-attack.png";
+import healthBadgeImage from "../assets/icons/badge-health.png";
 
 type TankCardViewVariant = "hand" | "board";
 
@@ -35,6 +37,7 @@ export function TankCardView({
 
   const hpValue = currentHp ?? card.hp;
   const isHand = variant === "hand";
+  const isBoardExhausted = !isHand && alreadyMoved && alreadyAttacked;
 
   if (!isHand) {
     return (
@@ -44,10 +47,12 @@ export function TankCardView({
         style={{
           ...styles.card,
           ...styles.boardCard,
-          borderColor: selected ? "#f7d774" : "rgba(220, 205, 155, 0.34)",
+          borderColor: selected
+            ? "#f7d774"
+            : "rgba(225, 214, 184, 0.28)",
           boxShadow: selected
-            ? `0 0 0 3px rgba(247, 215, 116, 0.9), 0 12px 28px rgba(0, 0, 0, 0.6)`
-            : `0 0 0 1px rgba(0,0,0,0.72), 0 10px 24px rgba(0, 0, 0, 0.5)`,
+            ? "0 0 0 3px rgba(247, 215, 116, 0.9), 0 12px 28px rgba(0, 0, 0, 0.55)"
+            : "0 0 0 1px rgba(255,255,255,0.06), 0 10px 24px rgba(0, 0, 0, 0.46)",
           opacity: disabled ? 0.46 : 1,
           cursor: disabled ? "not-allowed" : "pointer",
         }}
@@ -67,8 +72,10 @@ export function TankCardView({
         <img
           src={prototypeTankImage}
           alt={card.name}
-          style={styles.boardTankImage}
-          draggable={false}
+          style={{
+            ...styles.boardTankImage,
+            ...(isBoardExhausted ? styles.boardTankImageExhausted : {}),
+          }}
         />
 
         <div
@@ -80,39 +87,60 @@ export function TankCardView({
           }}
         />
 
-        <header style={styles.boardNameArea}>
-          <strong style={styles.boardTitle}>{card.name}</strong>
+        {isBoardExhausted && <div style={styles.boardExhaustedOverlay} />}
 
+        <div style={styles.boardTitleArea}>
+          <strong style={styles.boardTitle}>{card.name}</strong>
           <span
             style={{
               ...styles.boardClassIcon,
-              borderColor: unitClass.accent,
-              color: unitClass.accent,
+              color: ownerId === "player" ? "#8dff9a" : "#ff7770",
+              borderColor:
+                ownerId === "player"
+                  ? "rgba(141, 255, 154, 0.38)"
+                  : "rgba(255, 119, 112, 0.42)",
+              background:
+                ownerId === "player"
+                  ? "rgba(16, 46, 22, 0.72)"
+                  : "rgba(58, 18, 18, 0.72)",
             }}
             title={unitClass.label}
           >
             {unitClass.icon}
           </span>
-        </header>
+        </div>
 
         <div style={styles.boardActionCost} title="Стоимость действия">
           {card.actionFuelCost}
         </div>
 
         <div style={styles.boardCombatStats}>
-          <div style={styles.boardAttackCircle} title="Сила атаки">
-            <strong>{card.attack}</strong>
+          <div
+            style={{
+              ...styles.boardAttackIconWrap,
+              ...(alreadyAttacked ? styles.boardAttackIconWrapDimmed : {}),
+            }}
+            title="Атака"
+          >
+            <img
+              src={attackBadgeImage}
+              alt=""
+              style={styles.boardAttackIconImage}
+              draggable={false}
+            />
+            <strong style={styles.boardAttackValue}>{card.attack}</strong>
           </div>
 
-          <div style={styles.boardHpShield} title="Текущее здоровье">
-            <strong>{hpValue}</strong>
+          <div style={styles.boardHealthIconWrap} title="Здоровье">
+            <img src={healthBadgeImage} alt="" style={styles.boardHealthIconImage} draggable={false} />
+            <strong style={styles.boardHealthValue}>{hpValue}</strong>
           </div>
         </div>
 
         {(alreadyMoved || alreadyAttacked) && (
-          <div style={styles.statusRowBoard}>
-            {alreadyMoved && <span style={styles.statusBadge}>MOVE</span>}
-            {alreadyAttacked && <span style={styles.statusBadge}>FIRE</span>}
+          <div style={styles.boardStatusRow}>
+            {alreadyMoved && <span style={styles.boardStatusBadge}>MOVE</span>}
+            {alreadyAttacked && <span style={styles.boardStatusBadge}>FIRE</span>}
           </div>
         )}
       </div>
@@ -128,8 +156,8 @@ export function TankCardView({
         ...styles.handCard,
         borderColor: selected ? "#f7d774" : `${unitClass.accent}aa`,
         boxShadow: selected
-          ? `0 0 0 3px rgba(247, 215, 116, 0.9), 0 18px 42px rgba(0, 0, 0, 0.55)`
-          : `0 0 0 1px rgba(255,255,255,0.08), 0 14px 34px rgba(0, 0, 0, 0.45)`,
+          ? "0 0 0 3px rgba(247, 215, 116, 0.9), 0 18px 42px rgba(0, 0, 0, 0.55)"
+          : "0 0 0 1px rgba(255,255,255,0.08), 0 14px 34px rgba(0, 0, 0, 0.45)",
         opacity: disabled ? 0.46 : 1,
         cursor: disabled ? "not-allowed" : "pointer",
       }}
@@ -201,9 +229,7 @@ export function TankCardView({
 
         <div style={styles.hpBadge}>
           <span>HP</span>
-          <strong>
-            {hpValue}/{card.hp}
-          </strong>
+          <strong>{hpValue}/{card.hp}</strong>
         </div>
       </div>
 
@@ -263,164 +289,7 @@ const styles: Record<string, React.CSSProperties> = {
     height: "100%",
     minHeight: 0,
     borderRadius: 10,
-    background: "#080909",
-  },
-
-  boardTankImage: {
-    position: "absolute",
-    inset: 0,
-    zIndex: 0,
-    width: "100%",
-    height: "100%",
-    objectFit: "cover",
-    objectPosition: "center center",
-    display: "block",
-  },
-
-  boardOwnerGradient: {
-    position: "absolute",
-    inset: 0,
-    zIndex: 1,
-    borderRadius: 10,
-    pointerEvents: "none",
-  },
-
-  boardFriendlyGradient: {
-    background:
-      "linear-gradient(135deg, rgba(54, 255, 118, 0.28) 0%, rgba(54, 255, 118, 0.14) 28%, rgba(54, 255, 118, 0.04) 54%, rgba(54, 255, 118, 0) 78%), radial-gradient(circle at 0% 0%, rgba(126, 255, 164, 0.18) 0%, rgba(126, 255, 164, 0) 52%)",
-  },
-
-  boardEnemyGradient: {
-    background:
-      "linear-gradient(135deg, rgba(255, 68, 54, 0.30) 0%, rgba(255, 68, 54, 0.15) 28%, rgba(255, 68, 54, 0.04) 54%, rgba(255, 68, 54, 0) 78%), radial-gradient(circle at 0% 0%, rgba(255, 120, 96, 0.17) 0%, rgba(255, 120, 96, 0) 52%)",
-  },
-
-  boardNameArea: {
-    position: "absolute",
-    left: 6,
-    top: 5,
-    zIndex: 4,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-start",
-    gap: 3,
-    maxWidth: "calc(100% - 44px)",
-    pointerEvents: "none",
-  },
-
-  boardTitle: {
-    maxWidth: "100%",
-    overflow: "hidden",
-    whiteSpace: "nowrap",
-    textOverflow: "ellipsis",
-    fontSize: 11,
-    lineHeight: 1,
-    color: "#f5eed8",
-    textShadow:
-      "0 2px 0 rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.85)",
-  },
-
-  boardClassIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: 7,
-    background: "rgba(4, 6, 6, 0.78)",
-    border: "1px solid",
-    boxShadow: "0 5px 12px rgba(0,0,0,0.58)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 14,
-    fontWeight: 1000,
-    lineHeight: 1,
-  },
-
-  boardActionCost: {
-    position: "absolute",
-    right: 6,
-    top: 5,
-    zIndex: 5,
-    width: 28,
-    height: 28,
-    borderRadius: 999,
-    background:
-      "radial-gradient(circle at 38% 30%, rgba(255, 229, 139, 0.98), rgba(165, 105, 25, 0.96) 62%, rgba(60, 34, 8, 0.98))",
-    border: "1px solid rgba(255, 234, 160, 0.62)",
-    boxShadow:
-      "0 0 0 2px rgba(0,0,0,0.55), 0 8px 16px rgba(0,0,0,0.58)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#1b1004",
-    fontSize: 17,
-    fontWeight: 1000,
-    lineHeight: 1,
-    textShadow: "0 1px 0 rgba(255,255,255,0.36)",
-    pointerEvents: "none",
-  },
-
-  boardCombatStats: {
-    position: "absolute",
-    left: 1,
-    bottom: 3,
-    zIndex: 5,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-start",
-    gap: 2,
-    padding: 0,
-    pointerEvents: "none",
-  },
-
-  boardAttackCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 999,
-    background:
-      "radial-gradient(circle at 38% 30%, rgba(117, 255, 153, 0.98), rgba(22, 119, 47, 0.96) 58%, rgba(3, 30, 12, 0.98))",
-    border: "1px solid rgba(154, 255, 178, 0.72)",
-    boxShadow:
-      "0 0 0 1px rgba(0,0,0,0.64), 0 0 10px rgba(65, 255, 112, 0.22), 0 5px 10px rgba(0,0,0,0.52)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#071108",
-    fontSize: 14,
-    fontWeight: 1000,
-    lineHeight: 1,
-    textShadow: "0 1px 0 rgba(255,255,255,0.32)",
-  },
-
-  boardHpShield: {
-    width: 26,
-    height: 30,
-    clipPath:
-      "polygon(50% 0%, 92% 15%, 86% 67%, 50% 100%, 14% 67%, 8% 15%)",
-    background:
-      "linear-gradient(180deg, rgba(255, 95, 82, 0.98), rgba(132, 17, 14, 0.98) 64%, rgba(48, 5, 4, 0.98))",
-    border: "1px solid rgba(255, 146, 132, 0.78)",
-    boxShadow:
-      "0 0 0 1px rgba(0,0,0,0.68), 0 0 10px rgba(255, 69, 55, 0.22), 0 5px 10px rgba(0,0,0,0.52)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#fff0e8",
-    fontSize: 13,
-    fontWeight: 1000,
-    lineHeight: 1,
-    textShadow: "0 2px 0 rgba(0,0,0,0.88)",
-  },
-
-  statusRowBoard: {
-    position: "absolute",
-    right: 5,
-    bottom: 5,
-    zIndex: 6,
-    display: "flex",
-    flexDirection: "column",
-    gap: 3,
-    alignItems: "flex-end",
-    pointerEvents: "none",
+    background: "#070808",
   },
 
   backgroundLayer: {
@@ -637,17 +506,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 10,
   },
 
-  statusBadge: {
-    padding: "2px 5px",
-    borderRadius: 999,
-    background: "rgba(0, 0, 0, 0.64)",
-    border: "1px solid rgba(255,255,255,0.14)",
-    fontSize: 8,
-    fontWeight: 900,
-    color: "rgba(238,242,243,0.76)",
-    letterSpacing: 0.4,
-  },
-
   abilityText: {
     position: "relative",
     zIndex: 2,
@@ -661,5 +519,227 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     lineHeight: 1.28,
     color: "rgba(238, 242, 243, 0.76)",
+  },
+
+  boardTankImage: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 1,
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    objectPosition: "center center",
+    display: "block",
+    transition: "filter 0.22s ease, opacity 0.22s ease",
+  },
+
+  boardTankImageExhausted: {
+    filter: "brightness(0.48) saturate(0.72) contrast(0.95)",
+    opacity: 0.72,
+  },
+
+  boardOwnerGradient: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 2,
+    pointerEvents: "none",
+    borderRadius: 10,
+    mixBlendMode: "screen",
+  },
+
+  boardExhaustedOverlay: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 3,
+    borderRadius: 10,
+    background: "rgba(0, 0, 0, 0.28)",
+    boxShadow: "inset 0 0 26px rgba(0,0,0,0.62)",
+    pointerEvents: "none",
+  },
+
+  boardFriendlyGradient: {
+    background:
+      "linear-gradient(135deg, rgba(80, 255, 130, 0.28) 0%, rgba(80, 255, 130, 0.11) 25%, rgba(80, 255, 130, 0.025) 48%, rgba(80, 255, 130, 0) 72%), radial-gradient(circle at 0% 0%, rgba(80,255,130,0.12), transparent 48%)",
+  },
+
+  boardEnemyGradient: {
+    background:
+      "linear-gradient(135deg, rgba(255, 70, 55, 0.30) 0%, rgba(255, 70, 55, 0.12) 25%, rgba(255, 70, 55, 0.03) 48%, rgba(255, 70, 55, 0) 72%), radial-gradient(circle at 0% 0%, rgba(255,70,55,0.13), transparent 48%)",
+  },
+
+  boardTitleArea: {
+    position: "absolute",
+    left: 4,
+    top: 3,
+    zIndex: 6,
+    maxWidth: "calc(100% - 34px)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 2,
+    pointerEvents: "none",
+  },
+
+  boardTitle: {
+    maxWidth: "100%",
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    textOverflow: "ellipsis",
+    fontSize: 10,
+    lineHeight: 1,
+    color: "#f1ead5",
+    textShadow:
+      "0 1px 0 rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.95)",
+  },
+
+  boardClassIcon: {
+    minWidth: 18,
+    height: 18,
+    padding: "0 4px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 6,
+    border: "1px solid",
+    boxShadow: "0 3px 8px rgba(0,0,0,0.55)",
+    fontSize: 11,
+    lineHeight: 1,
+    fontWeight: 900,
+  },
+
+  boardActionCost: {
+    position: "absolute",
+    right: 3,
+    top: 3,
+    zIndex: 7,
+    minWidth: 22,
+    height: 22,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 999,
+    background:
+      "radial-gradient(circle at 40% 30%, rgba(255,220,120,0.96), rgba(132,84,22,0.96))",
+    border: "1px solid rgba(255,235,160,0.58)",
+    color: "#170d03",
+    fontSize: 13,
+    fontWeight: 1000,
+    textShadow: "0 1px 0 rgba(255,255,255,0.32)",
+    boxShadow: "0 4px 10px rgba(0,0,0,0.58)",
+    pointerEvents: "none",
+  },
+
+  boardCombatStats: {
+  position: "absolute",
+  left: -7,
+  bottom: -6,
+  zIndex: 8,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 0,
+  padding: 0,
+  pointerEvents: "none",
+},
+
+  boardAttackIconWrap: {
+    position: "relative",
+    width: 36,
+    height: 36,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    filter: "drop-shadow(0 5px 10px rgba(0,0,0,0.66))",
+    transition: "filter 0.22s ease, opacity 0.22s ease",
+  },
+
+  boardAttackIconWrapDimmed: {
+    opacity: 0.42,
+    filter:
+      "grayscale(0.45) brightness(0.55) drop-shadow(0 3px 7px rgba(0,0,0,0.62))",
+  },
+
+  boardHealthIconWrap: {
+  position: "relative",
+  width: 38,
+  height: 43,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  marginTop: -10,
+  filter: "drop-shadow(0 5px 10px rgba(0,0,0,0.66))",
+},
+
+  boardAttackIconImage: {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    pointerEvents: "none",
+    userSelect: "none",
+  },
+
+  boardHealthIconImage: {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    pointerEvents: "none",
+    userSelect: "none",
+  },
+
+  boardAttackValue: {
+    position: "absolute",
+    left: "50%",
+    top: "47%",
+    zIndex: 2,
+    transform: "translate(-50%, -50%)",
+    fontSize: 18,
+    lineHeight: 1,
+    color: "#f4ffd8",
+    fontWeight: 1000,
+    textAlign: "center",
+    textShadow:
+      "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
+  },
+
+  boardHealthValue: {
+    position: "absolute",
+    left: "50%",
+    top: "43%",
+    zIndex: 2,
+    transform: "translate(-50%, -50%)",
+    fontSize: 18,
+    lineHeight: 1,
+    color: "#ffe4d8",
+    fontWeight: 1000,
+    textAlign: "center",
+    textShadow:
+      "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
+  },
+
+  boardStatusRow: {
+    position: "absolute",
+    right: 3,
+    bottom: 3,
+    zIndex: 9,
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    alignItems: "flex-end",
+    pointerEvents: "none",
+  },
+
+  boardStatusBadge: {
+    padding: "2px 4px",
+    borderRadius: 999,
+    background: "rgba(0,0,0,0.68)",
+    border: "1px solid rgba(255,255,255,0.14)",
+    color: "rgba(238,242,243,0.72)",
+    fontSize: 7,
+    fontWeight: 900,
+    letterSpacing: 0.4,
   },
 };
