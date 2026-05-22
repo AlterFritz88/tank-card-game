@@ -1514,6 +1514,7 @@ function renderEnemyDeckWithTimer() {
                         <TankCardView
                           card={card}
                           variant="board"
+                          ownerId={unit.ownerId}
                           currentHp={unit.currentHp}
                           selected={isSelected}
                           alreadyMoved={unit.alreadyMoved}
@@ -2116,11 +2117,11 @@ actionSideColumn: {
   },
 
   playerUnit: {
-    border: "1px solid rgba(105, 171, 255, 0.55)",
+    border: "1px solid rgba(255,255,255,0.12)",
   },
 
   botUnit: {
-    border: "1px solid rgba(255, 105, 88, 0.55)",
+    border: "1px solid rgba(255,255,255,0.12)",
   },
 
   hqCell: {
@@ -2156,11 +2157,10 @@ actionSideColumn: {
   gap: 14,
   alignItems: "end",
   padding: "12px 16px 4px",
-  borderRadius: 18,
-  background:
-    "linear-gradient(0deg, rgba(32, 10, 10, 0.45), rgba(0, 0, 0, 0.05))",
-  borderTop: "1px solid rgba(255, 70, 70, 0.25)",
-  boxShadow: "0 -18px 54px rgba(139, 29, 29, 0.18)",
+  borderRadius: 0,
+  background: "transparent",
+  border: "none",
+  boxShadow: "none",
   transform: "translateY(-64px)",
   overflow: "visible",
 },
