@@ -199,27 +199,26 @@ export function BattleScreen() {
   }, [battle.activePlayer, battle.status, battle.bot.hand.length]);
 
   useEffect(() => {
-    const previousActivePlayer = previousActivePlayerRef.current;
+  const previousActivePlayer = previousActivePlayerRef.current;
 
-    previousActivePlayerRef.current = battle.activePlayer;
+  previousActivePlayerRef.current = battle.activePlayer;
 
-    if (battle.status !== "active") return;
+  if (battle.status !== "active") return;
+  if (previousActivePlayer === battle.activePlayer) return;
 
-    const playerTurnStarted =
-      battle.activePlayer === "player" && previousActivePlayer !== "player";
+  const nextBannerText =
+    battle.activePlayer === "player" ? "ТВОЙ ХОД" : "ХОД ВРАГА";
 
-    if (!playerTurnStarted) return;
+  setTurnBannerText(nextBannerText);
 
-    setTurnBannerText("ТВОЙ ХОД");
+  const timeout = window.setTimeout(() => {
+    setTurnBannerText(null);
+  }, 1300);
 
-    const timeout = window.setTimeout(() => {
-      setTurnBannerText(null);
-    }, 1300);
-
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [battle.activePlayer, battle.status]);
+  return () => {
+    window.clearTimeout(timeout);
+  };
+}, [battle.activePlayer, battle.status]);
 
   useEffect(() => {
     const currentHp = new Map<string, number>();
@@ -647,39 +646,35 @@ export function BattleScreen() {
   );
 }
 
-  function renderDeckPile(owner: PlayerId) {
-  const player = battle[owner];
-  const label = owner === "player" ? "Колода" : "Колода врага";
+function renderDeckStack(cardCount: number) {
+  if (cardCount <= 0) {
+    return <div style={styles.emptyDeckStack} />;
+  }
+
+  const visibleCardsCount = Math.min(cardCount, 3);
 
   return (
-    <div style={styles.deckPile}>
-      <div style={styles.deckStack}>
-        {[0, 1, 2].map((index) => renderCardBack(index, true))}
-      </div>
-
-      <span style={styles.deckLabel}>{label}</span>
-      <strong>{player.deck.length}</strong>
-
-      {owner === "player" && renderTimerPanel(owner)}
+    <div style={styles.deckStack}>
+      {Array.from({ length: visibleCardsCount }).map((_, index) =>
+        renderCardBack(index, true)
+      )}
     </div>
   );
 }
 
-  function renderEnemyDeckWithTimer() {
+function renderEnemyDeckWithTimer() {
   const player = battle.bot;
 
   return (
     <div style={styles.enemyDeckWithTimer}>
-      {renderTimerPanel("bot")}
-
       <div style={styles.enemyDeckCompact}>
-        <div style={styles.deckStack}>
-          {[0, 1, 2].map((index) => renderCardBack(index, true))}
-        </div>
+        {renderDeckStack(player.deck.length)}
 
         <span style={styles.deckLabel}>Колода врага</span>
         <strong>{player.deck.length}</strong>
       </div>
+
+      {renderTimerPanel("bot")}
     </div>
   );
 }
@@ -754,42 +749,60 @@ export function BattleScreen() {
   )}
 </div>
 
-          <div style={styles.enemyInfo}>
-  {renderEnemyDeckWithTimer()}
-</div>
+          <div style={styles.enemyInfo} />
         </section>
 
         <section style={styles.centerBattleArea}>
-          <aside style={styles.leftCommandPanel}>
-            {renderDeckPile("player")}
-            {renderHqPanel("player")}
+         <aside style={styles.leftCommandPanel}>
+  <div style={styles.turnCounterPanel}>
+  <span style={styles.turnCounterLabel}>ХОД</span>
+  <strong style={styles.turnCounterValue}>{battle.turn}</strong>
+</div>
 
-            <div style={styles.smallInfoPanel}>
-              <span>Ход</span>
-              <strong>{battle.turn}</strong>
-            </div>
-          </aside>
+  {renderTimerPanel("player")}
+
+  <div style={styles.playerFuelBadge}>
+    <span>Топливо</span>
+    <strong>
+      {battle.player.resources}/{battle.player.maxResources}
+    </strong>
+  </div>
+
+  <div style={styles.playerDeckBottom}>
+    <div style={styles.playerDeckOnly}>
+  {renderDeckStack(battle.player.deck.length)}
+</div>
+
+    <div style={styles.cardsLeftInfo}>
+  <span>Карт осталось</span>
+  <strong style={styles.cardsLeftValue}>{battle.player.deck.length}</strong>
+</div>
+  </div>
+</aside>
 
           <section style={styles.boardShell}>
             <div style={styles.boardGlow} />
 
             <AnimatePresence>
-              {turnBannerText && (
-                <motion.div
-                  style={styles.turnBanner}
-                  initial={{ opacity: 0, scale: 0.72, y: 20 }}
-                  animate={{
-                    opacity: [0, 1, 1, 0],
-                    scale: [0.72, 1.08, 1, 0.96],
-                    y: [20, 0, 0, -16],
-                  }}
-                  exit={{ opacity: 0, scale: 0.92 }}
-                  transition={{ duration: 1.3, ease: "easeOut" }}
-                >
-                  {turnBannerText}
-                </motion.div>
-              )}
-            </AnimatePresence>
+  {turnBannerText && (
+    <motion.div
+      style={{
+        ...styles.turnBanner,
+        ...(turnBannerText === "ХОД ВРАГА" ? styles.enemyTurnBanner : {}),
+      }}
+      initial={{ opacity: 0, scale: 0.72, y: 20 }}
+      animate={{
+        opacity: [0, 1, 1, 0],
+        scale: [0.72, 1.08, 1, 0.96],
+        y: [20, 0, 0, -16],
+      }}
+      exit={{ opacity: 0, scale: 0.92 }}
+      transition={{ duration: 1.3, ease: "easeOut" }}
+    >
+      {turnBannerText}
+    </motion.div>
+  )}
+</AnimatePresence>
 
             <motion.div ref={boardRef} layout style={styles.board}>
               <AnimatePresence>
@@ -1114,9 +1127,12 @@ export function BattleScreen() {
           </section>
 
           <aside style={styles.rightCommandPanel}>
-            {renderHqPanel("bot")}
+  <div style={styles.enemySideColumn}>
+    {renderEnemyDeckWithTimer()}
+  </div>
 
-            <button
+  <div style={styles.actionSideColumn}>
+    <button
               style={{
                 ...styles.endTurnButton,
                 opacity:
@@ -1161,16 +1177,12 @@ export function BattleScreen() {
                 <span>Выбери карту из руки или свой юнит на поле.</span>
               )}
             </div>
+            </div>
           </aside>
         </section>
 
         <section style={styles.playerZone}>
-          <div style={styles.playerFuelBadge}>
-            <span>Топливо</span>
-            <strong>
-              {battle.player.resources}/{battle.player.maxResources}
-            </strong>
-          </div>
+  
 
           <div style={styles.hand}>
             <AnimatePresence>
@@ -1282,6 +1294,12 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: "nowrap",
   },
 
+  enemyTurnBanner: {
+  color: "#ff4d4d",
+  textShadow:
+    "0 3px 0 rgba(0,0,0,0.95), 0 0 14px rgba(255,77,77,0.95), 0 0 34px rgba(255,77,77,0.65)",
+},
+
   gameTable: {
   position: "relative",
   zIndex: 1,
@@ -1295,7 +1313,7 @@ const styles: Record<string, React.CSSProperties> = {
   enemyZone: {
   gridColumn: "1 / 2",
   display: "grid",
-  gridTemplateColumns: "130px 1fr 330px",
+  gridTemplateColumns: "130px 1fr 40px",
   alignItems: "start",
   gap: 16,
   minHeight: 150,
@@ -1319,15 +1337,21 @@ const styles: Record<string, React.CSSProperties> = {
   gap: 12,
   overflow: "visible",
   position: "relative",
-  transform: "translateY(-18px)",
+  transform: "translateY(-26px)",
   zIndex: 20,
+  background: "transparent",
+  border: "none",
+  boxShadow: "none",
 },
 
 enemyHandClip: {
-  height: 52,
+  height: 50,
   overflow: "hidden",
   position: "relative",
   width: "100%",
+  background: "transparent",
+  border: "none",
+  boxShadow: "none",
 },
 
 enemyHandCardMask: {
@@ -1335,7 +1359,7 @@ enemyHandCardMask: {
   justifyContent: "center",
   alignItems: "flex-start",
   gap: 12,
-  transform: "translateY(-88px)",
+  transform: "translateY(-92px)",
 },
 
 enemyThinkingLayer: {
@@ -1348,40 +1372,57 @@ enemyThinkingLayer: {
   justifyContent: "center",
   alignItems: "flex-start",
   gap: 12,
-  transform: "translateY(-88px)",
+  transform: "translateY(-92px)",
   pointerEvents: "none",
 },
 
-  enemyInfo: {
+ enemyInfo: {
   justifySelf: "end",
   alignSelf: "start",
-  display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "flex-end",
 },
 
   centerBattleArea: {
   gridColumn: "1 / 2",
   display: "grid",
-  gridTemplateColumns: "130px 1fr 130px",
+  gridTemplateColumns: "130px 1fr 270px",
   gap: 8,
   alignItems: "stretch",
-  transform: "translateY(-54px)",
+  transform: "translateY(-62px)",
 },
 
   leftCommandPanel: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-    justifyContent: "center",
-  },
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+  justifyContent: "flex-start",
+  alignSelf: "stretch",
+  minHeight: 0,
+},
 
   rightCommandPanel: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-    justifyContent: "center",
-  },
+  display: "grid",
+  gridTemplateColumns: "118px 1fr",
+  gap: 10,
+  alignItems: "start",
+  alignSelf: "start",
+  zIndex: 10,
+},
+
+enemySideColumn: {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "stretch",
+  gap: 8,
+  transform: "translate(-94px, -74px)",
+  zIndex: 30,
+},
+
+actionSideColumn: {
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+  alignItems: "stretch",
+},
 
   boardShell: {
   position: "relative",
@@ -1489,7 +1530,7 @@ enemyThinkingLayer: {
   playerZone: {
   gridColumn: "1 / 2",
   display: "grid",
-  gridTemplateColumns: "110px 1fr",
+  gridTemplateColumns: "1fr",
   gap: 14,
   alignItems: "end",
   padding: "12px 16px 4px",
@@ -1503,17 +1544,18 @@ enemyThinkingLayer: {
 },
 
   playerFuelBadge: {
-    alignSelf: "center",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 4,
-    padding: "12px 10px",
-    borderRadius: 14,
-    background: "rgba(14, 17, 17, 0.78)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    color: "#d6a84f",
-  },
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 8,
+  padding: "10px 12px",
+  borderRadius: 14,
+  background: "rgba(14, 17, 17, 0.78)",
+  border: "1px solid rgba(255,255,255,0.1)",
+  color: "#d6a84f",
+  fontSize: 13,
+  fontWeight: 800,
+},
 
  hand: {
   display: "grid",
@@ -1549,29 +1591,72 @@ enemyThinkingLayer: {
   background: "rgba(7, 9, 9, 0.62)",
   border: "1px solid rgba(255,255,255,0.08)",
 },
+playerDeckBottom: {
+  marginTop: "auto",
+  display: "grid",
+  gridTemplateColumns: "1fr auto",
+  gap: 8,
+  alignItems: "center",
+  padding: 8,
+  borderRadius: 14,
+  background: "rgba(7, 9, 9, 0.62)",
+  border: "1px solid rgba(255,255,255,0.08)",
+},
+
+playerDeckOnly: {
+  minHeight: 172,
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+},
+
+cardsLeftInfo: {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  justifyContent: "center",
+  gap: 4,
+  minWidth: 48,
+  color: "#d8d2be",
+  textTransform: "uppercase",
+  fontSize: 10,
+  lineHeight: 1.1,
+},
 
   deckStack: {
   position: "relative",
-  width: 78,
-  height: 100,
+  width: 130,
+  height: 172,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
 },
+emptyDeckStack: {
+  position: "relative",
+  width: 130,
+  height: 172,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  pointerEvents: "none",
+},
+
   enemyDeckWithTimer: {
-  display: "grid",
-  gridTemplateColumns: "170px 118px",
-  gap: 10,
-  alignItems: "start",
-  justifyContent: "end",
+  width: "100%",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "stretch",
+  gap: 4,
 },
 
 enemyDeckCompact: {
+  minHeight: 214,
   display: "flex",
   flexDirection: "column",
   alignItems: "center",
-  gap: 6,
-  padding: 8,
+  justifyContent: "flex-start",
+  gap: 3,
+  padding: 5,
   borderRadius: 12,
   background: "rgba(7, 9, 9, 0.46)",
 },
@@ -1595,8 +1680,8 @@ enemyDeckCompact: {
 
   cardBackSmall: {
   position: "absolute",
-  width: 70,
-  height: 94,
+  width: 96,
+  height: 128,
   border: "none",
   boxShadow: "0 10px 24px rgba(0,0,0,0.42)",
 },
@@ -1705,6 +1790,37 @@ idleRow: {
     background: "rgba(7, 9, 9, 0.62)",
     border: "1px solid rgba(255,255,255,0.08)",
   },
+  turnCounterPanel: {
+  minHeight: 64,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 2,
+  padding: "10px 12px",
+  borderRadius: 16,
+  background:
+    "linear-gradient(180deg, rgba(55, 43, 22, 0.92), rgba(12, 10, 7, 0.86))",
+  border: "1px solid rgba(247, 215, 116, 0.42)",
+  boxShadow:
+    "0 0 0 1px rgba(0,0,0,0.55), 0 12px 30px rgba(0,0,0,0.35), inset 0 0 18px rgba(247, 215, 116, 0.08)",
+  color: "#f7d774",
+  textTransform: "uppercase",
+},
+
+turnCounterLabel: {
+  fontSize: 11,
+  letterSpacing: 2,
+  opacity: 0.78,
+},
+
+turnCounterValue: {
+  fontSize: 34,
+  lineHeight: 1,
+  color: "#f7d774",
+  textShadow:
+    "0 2px 0 rgba(0,0,0,0.95), 0 0 14px rgba(247, 215, 116, 0.42)",
+},
 
   endTurnButton: {
     minHeight: 74,
@@ -1867,6 +1983,12 @@ idleRow: {
     opacity: 0.55,
     filter: "drop-shadow(0 0 12px rgba(30, 30, 30, 0.65))",
   },
+  cardsLeftValue: {
+  fontSize: 24,
+  lineHeight: 1,
+  color: "#f7d774",
+  textShadow: "0 2px 0 rgba(0,0,0,0.9)",
+},
 
   explosionEffect: {
     position: "absolute",
