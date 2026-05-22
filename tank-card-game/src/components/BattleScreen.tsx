@@ -132,7 +132,6 @@ export function BattleScreen() {
     null
   );
 
-  const previousHpRef = useRef<Map<string, number>>(new Map());
   const previousActivePlayerRef = useRef(battle.activePlayer);
   const boardRef = useRef<HTMLDivElement | null>(null);
   const objectRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
@@ -219,92 +218,6 @@ export function BattleScreen() {
     window.clearTimeout(timeout);
   };
 }, [battle.activePlayer, battle.status]);
-
-  useEffect(() => {
-    const currentHp = new Map<string, number>();
-
-    for (const unit of battle.units) {
-      currentHp.set(unit.instanceId, unit.currentHp);
-    }
-
-    currentHp.set("player_hq", battle.headquarters.player.hp);
-    currentHp.set("bot_hq", battle.headquarters.bot.hp);
-
-    const damaged = new Set<string>();
-    const nextDamageTextEffects: DamageTextEffect[] = [];
-
-    for (const [id, hp] of currentHp.entries()) {
-      const previousHp = previousHpRef.current.get(id);
-
-      if (previousHp !== undefined && hp < previousHp) {
-        const amount = previousHp - hp;
-
-        damaged.add(id);
-
-        damageTextIdRef.current += 1;
-
-        nextDamageTextEffects.push({
-          id: damageTextIdRef.current,
-          targetId: id,
-          amount,
-        });
-      }
-    }
-
-    for (const [id, previousHp] of previousHpRef.current.entries()) {
-      const stillExists = currentHp.has(id);
-      const isHeadquarters = id === "player_hq" || id === "bot_hq";
-
-      if (stillExists || isHeadquarters) continue;
-
-      const lastCenter = lastObjectCentersRef.current.get(id);
-
-      damageTextIdRef.current += 1;
-
-      nextDamageTextEffects.push({
-        id: damageTextIdRef.current,
-        amount: previousHp,
-        position: lastCenter,
-      });
-    }
-
-    previousHpRef.current = currentHp;
-
-    const timeouts: number[] = [];
-
-    if (damaged.size > 0) {
-      setDamagedIds(damaged);
-
-      const timeout = window.setTimeout(() => {
-        setDamagedIds(new Set());
-      }, 450);
-
-      timeouts.push(timeout);
-    }
-
-    if (nextDamageTextEffects.length > 0) {
-      setDamageTextEffects((current) => [
-        ...current,
-        ...nextDamageTextEffects,
-      ]);
-
-      const effectIds = nextDamageTextEffects.map((item) => item.id);
-
-      const timeout = window.setTimeout(() => {
-        setDamageTextEffects((current) =>
-          current.filter((item) => !effectIds.includes(item.id))
-        );
-      }, 900);
-
-      timeouts.push(timeout);
-    }
-
-    return () => {
-      for (const timeout of timeouts) {
-        window.clearTimeout(timeout);
-      }
-    };
-  }, [battle]);
 
   function updateLastObjectCenters() {
     const boardElement = boardRef.current;
@@ -418,25 +331,25 @@ export function BattleScreen() {
 
           if (cancelled) break;
 
-          useBattleStore.getState().dispatch(action);
+          dispatchBattleAction(action);
           await delay(700);
           continue;
         }
 
         if (action.type === "MOVE_UNIT") {
-          useBattleStore.getState().dispatch(action);
+          dispatchBattleAction(action);
           await delay(450);
           continue;
         }
 
         if (action.type === "PLAY_CARD") {
-          useBattleStore.getState().dispatch(action);
+          dispatchBattleAction(action);
           await delay(450);
           continue;
         }
 
         if (action.type === "END_TURN") {
-          useBattleStore.getState().dispatch(action);
+          dispatchBattleAction(action);
           await delay(250);
           break;
         }
@@ -537,11 +450,106 @@ export function BattleScreen() {
     );
   }
 
+  function createHpSnapshot(sourceBattle: typeof battle): Map<string, number> {
+    const hp = new Map<string, number>();
+
+    for (const unit of sourceBattle.units) {
+      hp.set(unit.instanceId, unit.currentHp);
+    }
+
+    hp.set("player_hq", sourceBattle.headquarters.player.hp);
+    hp.set("bot_hq", sourceBattle.headquarters.bot.hp);
+
+    return hp;
+  }
+
+  function showDamageEffectsFromSnapshots(
+    before: Map<string, number>,
+    after: Map<string, number>
+  ) {
+    const damaged = new Set<string>();
+    const nextDamageTextEffects: DamageTextEffect[] = [];
+
+    for (const [id, currentHp] of after.entries()) {
+      const previousHp = before.get(id);
+
+      if (previousHp !== undefined && currentHp < previousHp) {
+        const amount = previousHp - currentHp;
+
+        damaged.add(id);
+
+        damageTextIdRef.current += 1;
+
+        nextDamageTextEffects.push({
+          id: damageTextIdRef.current,
+          targetId: id,
+          amount,
+        });
+      }
+    }
+
+    for (const [id, previousHp] of before.entries()) {
+      const stillExists = after.has(id);
+      const isHeadquarters = id === "player_hq" || id === "bot_hq";
+
+      if (stillExists || isHeadquarters) continue;
+
+      const lastCenter = lastObjectCentersRef.current.get(id);
+
+      damageTextIdRef.current += 1;
+
+      nextDamageTextEffects.push({
+        id: damageTextIdRef.current,
+        amount: previousHp,
+        position: lastCenter,
+      });
+    }
+
+    if (damaged.size > 0) {
+      setDamagedIds(damaged);
+
+      window.setTimeout(() => {
+        setDamagedIds(new Set());
+      }, 450);
+    }
+
+    if (nextDamageTextEffects.length > 0) {
+      setDamageTextEffects((current) => [
+        ...current,
+        ...nextDamageTextEffects,
+      ]);
+
+      const effectIds = nextDamageTextEffects.map((item) => item.id);
+
+      window.setTimeout(() => {
+        setDamageTextEffects((current) =>
+          current.filter((item) => !effectIds.includes(item.id))
+        );
+      }, 900);
+    }
+  }
+
+  function dispatchBattleAction(action: BattleAction) {
+    const shouldShowDamage = action.type === "ATTACK";
+
+    const before = shouldShowDamage
+      ? createHpSnapshot(useBattleStore.getState().battle)
+      : null;
+
+    dispatch(action);
+
+    if (!shouldShowDamage || !before) return;
+
+    const after = createHpSnapshot(useBattleStore.getState().battle);
+
+    showDamageEffectsFromSnapshots(before, after);
+  }
+
   function handleCellClick(position: Position) {
     if (battle.activePlayer !== "player") return;
 
     if (selectedCardInstanceId) {
-      dispatch({
+      dispatchBattleAction({
         type: "PLAY_CARD",
         playerId: "player",
         cardInstanceId: selectedCardInstanceId,
@@ -554,7 +562,7 @@ export function BattleScreen() {
     if (selectedAttacker && selectedAttacker.type === "unit") {
       if (!isMoveCell(position)) return;
 
-      dispatch({
+      dispatchBattleAction({
         type: "MOVE_UNIT",
         playerId: "player",
         unitId: selectedAttacker.id,
@@ -572,7 +580,7 @@ export function BattleScreen() {
 
     await playAttackAnimation(selectedAttacker.id, targetId);
 
-    dispatch({
+    dispatchBattleAction({
       type: "ATTACK",
       playerId: "player",
       attackerType: selectedAttacker.type,
@@ -1144,7 +1152,7 @@ function renderEnemyDeckWithTimer() {
                 battle.activePlayer !== "player" || battle.status !== "active"
               }
               onClick={() =>
-                dispatch({
+                dispatchBattleAction({
                   type: "END_TURN",
                   playerId: "player",
                 })
