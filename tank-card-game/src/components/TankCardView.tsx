@@ -188,8 +188,10 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   boardCard: {
-    minHeight: 150,
-  },
+  height: "100%",
+  minHeight: 0,
+  borderRadius: 10,
+},
 
   backgroundLayer: {
     position: "absolute",
@@ -279,15 +281,15 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "center",
   },
 
-  boardHeader: {
-    position: "relative",
-    zIndex: 2,
-    padding: "9px 54px 4px 10px",
-    minHeight: 36,
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-  },
+ boardHeader: {
+  position: "relative",
+  zIndex: 2,
+  padding: "4px 38px 1px 6px",
+  minHeight: 22,
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+},
 
   handTitle: {
     fontSize: 20,
@@ -297,22 +299,22 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   boardTitle: {
-    fontSize: 13,
-    lineHeight: 1,
-    letterSpacing: 0.1,
-    textShadow: "0 2px 6px rgba(0,0,0,0.85)",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-  },
+  fontSize: 9,
+  lineHeight: 1,
+  letterSpacing: 0.1,
+  textShadow: "0 2px 6px rgba(0,0,0,0.85)",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+},
 
   subtitle: {
-    marginTop: 3,
-    fontSize: 10,
-    opacity: 0.72,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-  },
+  marginTop: 2,
+  fontSize: 8,
+  opacity: 0.72,
+  textTransform: "uppercase",
+  letterSpacing: 0.3,
+},
 
   handStatRail: {
     position: "absolute",
@@ -326,15 +328,17 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   boardStatRail: {
-    position: "absolute",
-    left: 7,
-    top: 43,
-    zIndex: 6,
-    display: "flex",
-    flexDirection: "column",
-    gap: 5,
-    alignItems: "center",
-  },
+  position: "absolute",
+  left: 4,
+  top: 28,
+  zIndex: 6,
+  display: "flex",
+  flexDirection: "column",
+  gap: 2,
+  alignItems: "center",
+  transform: "scale(0.78)",
+  transformOrigin: "top left",
+},
 
   classIconBadge: {
     width: 34,
@@ -397,17 +401,17 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   boardImageFrame: {
-    position: "relative",
-    zIndex: 1,
-    margin: "2px 8px 0 42px",
-    height: 54,
-    borderRadius: 9,
-    border: "1px solid rgba(180, 170, 145, 0.48)",
-    overflow: "hidden",
-    background: "#111",
-    boxShadow:
-      "0 8px 16px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.07)",
-  },
+  position: "relative",
+  zIndex: 1,
+  margin: "0 5px 0 32px",
+  height: 30,
+  borderRadius: 6,
+  border: "1px solid rgba(180, 170, 145, 0.48)",
+  overflow: "hidden",
+  background: "#111",
+  boxShadow:
+    "0 6px 12px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.07)",
+},
 
   tankImage: {
     width: "100%",
@@ -435,36 +439,37 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   boardBottomStats: {
-    position: "relative",
-    zIndex: 2,
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 5,
-    margin: "6px 8px 0 42px",
-  },
+  position: "relative",
+  zIndex: 2,
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 3,
+  margin: "3px 5px 0 32px",
+},
 
   statChip: {
-    minHeight: 28,
-    borderRadius: 8,
-    border: "1px solid",
-    background:
-      "linear-gradient(180deg, rgba(12, 13, 13, 0.88), rgba(0, 0, 0, 0.78))",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 5,
-    padding: "4px 7px",
-    boxShadow: "inset 0 0 12px rgba(0,0,0,0.65)",
-  },
+  minHeight: 22,
+  borderRadius: 7,
+  border: "1px solid",
+  background:
+    "linear-gradient(180deg, rgba(12, 13, 13, 0.88), rgba(0, 0, 0, 0.78))",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 4,
+  padding: "2px 5px",
+  boxShadow: "inset 0 0 12px rgba(0,0,0,0.65)",
+  fontSize: 10,
+},
 
   statusRow: {
-    position: "relative",
-    zIndex: 2,
-    display: "flex",
-    gap: 4,
-    flexWrap: "wrap",
-    margin: "5px 8px 0 42px",
-  },
+  position: "relative",
+  zIndex: 2,
+  display: "flex",
+  gap: 3,
+  flexWrap: "wrap",
+  margin: "2px 5px 0 32px",
+},
 
   statusBadge: {
     padding: "2px 5px",

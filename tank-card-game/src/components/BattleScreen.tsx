@@ -1,4 +1,3 @@
-import { ResultScreen } from "./ResultScreen";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -12,6 +11,7 @@ import {
 import type { BattleAction, PlayerId, Position } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
 import { TankCardView } from "./TankCardView";
+import { ResultScreen } from "./ResultScreen";
 import apShellImage from "../assets/ap-shell.png";
 import explosionFlashImage from "../assets/effects/explosion-flash.png";
 import explosionFireballImage from "../assets/effects/explosion-fireball.png";
@@ -128,7 +128,9 @@ export function BattleScreen() {
     DamageTextEffect[]
   >([]);
   const [turnBannerText, setTurnBannerText] = useState<string | null>(null);
-  const [thinkingCardIndex, setThinkingCardIndex] = useState<number | null>(null);
+  const [thinkingCardIndex, setThinkingCardIndex] = useState<number | null>(
+    null
+  );
 
   const previousHpRef = useRef<Map<string, number>>(new Map());
   const previousActivePlayerRef = useRef(battle.activePlayer);
@@ -163,6 +165,40 @@ export function BattleScreen() {
   }, [battle.status]);
 
   useEffect(() => {
+    if (battle.status !== "active") {
+      setThinkingCardIndex(null);
+      return;
+    }
+
+    if (battle.activePlayer !== "bot") {
+      setThinkingCardIndex(null);
+      return;
+    }
+
+    if (battle.bot.hand.length === 0) {
+      setThinkingCardIndex(null);
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      const shouldRaiseCard = Math.random() < 0.45;
+
+      if (!shouldRaiseCard) {
+        setThinkingCardIndex(null);
+        return;
+      }
+
+      const randomIndex = Math.floor(Math.random() * battle.bot.hand.length);
+      setThinkingCardIndex(randomIndex);
+    }, 1100);
+
+    return () => {
+      window.clearInterval(interval);
+      setThinkingCardIndex(null);
+    };
+  }, [battle.activePlayer, battle.status, battle.bot.hand.length]);
+
+  useEffect(() => {
     const previousActivePlayer = previousActivePlayerRef.current;
 
     previousActivePlayerRef.current = battle.activePlayer;
@@ -184,41 +220,6 @@ export function BattleScreen() {
       window.clearTimeout(timeout);
     };
   }, [battle.activePlayer, battle.status]);
-
-
-  useEffect(() => {
-  if (battle.status !== "active") {
-    setThinkingCardIndex(null);
-    return;
-  }
-
-  if (battle.activePlayer !== "bot") {
-    setThinkingCardIndex(null);
-    return;
-  }
-
-  if (battle.bot.hand.length === 0) {
-    setThinkingCardIndex(null);
-    return;
-  }
-
-  const interval = window.setInterval(() => {
-    const shouldRaiseCard = Math.random() < 0.45;
-
-    if (!shouldRaiseCard) {
-      setThinkingCardIndex(null);
-      return;
-    }
-
-    const randomIndex = Math.floor(Math.random() * battle.bot.hand.length);
-    setThinkingCardIndex(randomIndex);
-  }, 1100);
-
-  return () => {
-    window.clearInterval(interval);
-    setThinkingCardIndex(null);
-  };
-}, [battle.activePlayer, battle.status, battle.bot.hand.length]);
 
   useEffect(() => {
     const currentHp = new Map<string, number>();
@@ -406,12 +407,11 @@ export function BattleScreen() {
 
         const action: BattleAction | null = getNextBotAction(currentBattle);
 
-if (!action) break;
+        if (!action) break;
 
-await delay(getRandomBotThinkingDelay());
+        await delay(getRandomBotThinkingDelay());
 
-if (cancelled) break;
-
+        if (cancelled) break;
 
         if (action.type === "ATTACK") {
           await delay(180);
@@ -584,44 +584,44 @@ if (cancelled) break;
   }
 
   function renderTimerPanel(owner: PlayerId) {
-  const timer = battle.timers?.[owner];
+    const timer = battle.timers?.[owner];
 
-  if (!timer) {
-    return null;
+    if (!timer) {
+      return null;
+    }
+
+    const active = battle.activePlayer === owner;
+    const isPlayer = owner === "player";
+
+    return (
+      <div
+        style={{
+          ...styles.timerPanel,
+          ...(active ? styles.timerPanelActive : {}),
+          ...(isPlayer ? styles.playerTimerPanel : styles.botTimerPanel),
+        }}
+      >
+        <span style={styles.timerLabel}>
+          {isPlayer ? "Таймер игрока" : "Таймер врага"}
+        </span>
+
+        <div style={styles.timerMainRow}>
+          <span>Бой</span>
+          <strong>{formatTimer(timer.battleTimeLeftMs)}</strong>
+        </div>
+
+        <div style={styles.timerMainRow}>
+          <span>Шаг</span>
+          <strong>{formatTimer(timer.stepTimeLeftMs)}</strong>
+        </div>
+
+        <div style={styles.idleRow}>
+          <span>Простой</span>
+          <strong>{timer.idleStreak}/3</strong>
+        </div>
+      </div>
+    );
   }
-
-  const active = battle.activePlayer === owner;
-  const isPlayer = owner === "player";
-
-  return (
-    <div
-      style={{
-        ...styles.timerPanel,
-        ...(active ? styles.timerPanelActive : {}),
-        ...(isPlayer ? styles.playerTimerPanel : styles.botTimerPanel),
-      }}
-    >
-      <span style={styles.timerLabel}>
-        {isPlayer ? "Таймер игрока" : "Таймер врага"}
-      </span>
-
-      <div style={styles.timerMainRow}>
-        <span>Бой</span>
-        <strong>{formatTimer(timer.battleTimeLeftMs)}</strong>
-      </div>
-
-      <div style={styles.timerMainRow}>
-        <span>Шаг</span>
-        <strong>{formatTimer(timer.stepTimeLeftMs)}</strong>
-      </div>
-
-      <div style={styles.idleRow}>
-        <span>Простой</span>
-        <strong>{timer.idleStreak}/3</strong>
-      </div>
-    </div>
-  );
-}
 
   function renderCardBack(index: number, small = false, raised = false) {
   return (
@@ -633,16 +633,16 @@ if (cancelled) break;
         backgroundImage: `url(${cardBackImage})`,
       }}
       animate={{
-  x: index * -5,
-  y: raised ? -10 : 0,
-  rotate: index * -2,
-  scale: raised ? 1.03 : 1,
-}}
+        x: index * -5,
+        y: raised ? 34 : 0,
+        rotate: index * -2,
+        scale: raised ? 1.03 : 1,
+      }}
       transition={{
-  type: "spring",
-  stiffness: 180,
-  damping: 22,
-}}
+        type: "spring",
+        stiffness: 180,
+        damping: 22,
+      }}
     />
   );
 }
@@ -661,6 +661,25 @@ if (cancelled) break;
       <strong>{player.deck.length}</strong>
 
       {owner === "player" && renderTimerPanel(owner)}
+    </div>
+  );
+}
+
+  function renderEnemyDeckWithTimer() {
+  const player = battle.bot;
+
+  return (
+    <div style={styles.enemyDeckWithTimer}>
+      {renderTimerPanel("bot")}
+
+      <div style={styles.enemyDeckCompact}>
+        <div style={styles.deckStack}>
+          {[0, 1, 2].map((index) => renderCardBack(index, true))}
+        </div>
+
+        <span style={styles.deckLabel}>Колода врага</span>
+        <strong>{player.deck.length}</strong>
+      </div>
     </div>
   );
 }
@@ -703,50 +722,41 @@ if (cancelled) break;
     );
   }
 
-  const statusText =
-    battle.status === "active"
-      ? `Ход: ${battle.activePlayer === "player" ? "игрок" : "бот"}`
-      : battle.status === "player_won"
-        ? "Победа!"
-        : "Поражение!";
-
   return (
     <div style={styles.page}>
       <div style={styles.vignette} />
 
-      <header style={styles.topHud}>
-        <div>
-          <h1 style={styles.title}>PanzerShrek</h1>
-          <p style={styles.subtitle}>Тактическая карточная дуэль 3×5</p>
-        </div>
-
-        <div style={styles.statusPanel}>
-          <strong>{statusText}</strong>
-          <span>
-            Топливо: {battle.player.resources}/{battle.player.maxResources}
-          </span>
-        </div>
-      </header>
-
       <main style={styles.gameTable}>
         <section style={styles.enemyZone}>
-          <div style={styles.enemyDeckArea}>{renderDeckPile("bot")}</div>
+  <div style={styles.enemyDeckArea} />
 
-          <div style={styles.enemyHand}>
-  {battle.bot.hand.map((_, index) =>
-    renderCardBack(
-      index,
-      false,
-      battle.activePlayer === "bot" && thinkingCardIndex === index
-    )
+  <div style={styles.enemyHand}>
+  <div style={styles.enemyHandClip}>
+    <div style={styles.enemyHandCardMask}>
+      {battle.bot.hand.map((_, index) => renderCardBack(index, false, false))}
+    </div>
+  </div>
+
+  {battle.activePlayer === "bot" && thinkingCardIndex !== null && (
+    <div style={styles.enemyThinkingLayer}>
+      {battle.bot.hand.map((_, index) => (
+        <div
+          key={`thinking-${index}`}
+          style={{
+            opacity: thinkingCardIndex === index ? 1 : 0,
+            pointerEvents: "none",
+          }}
+        >
+          {renderCardBack(index, false, thinkingCardIndex === index)}
+        </div>
+      ))}
+    </div>
   )}
 </div>
 
           <div style={styles.enemyInfo}>
-            <span>Враг</span>
-            <strong>{battle.bot.resources}</strong>
-            <small>топливо</small>
-          </div>
+  {renderEnemyDeckWithTimer()}
+</div>
         </section>
 
         <section style={styles.centerBattleArea}>
@@ -1172,7 +1182,7 @@ if (cancelled) break;
                 return (
                   <motion.button
                     key={cardInstance.instanceId}
-                    layout
+              
                     style={styles.card}
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1182,7 +1192,7 @@ if (cancelled) break;
                       stiffness: 280,
                       damping: 24,
                     }}
-                    whileHover={{ y: -8, scale: 1.04 }}
+                    whileHover={{ y: -108, scale: 1.08 }}
                     whileTap={{ scale: 0.97 }}
                     disabled={battle.activePlayer !== "player"}
                     onClick={() =>
@@ -1223,12 +1233,10 @@ if (cancelled) break;
           </div>
         </aside>
       </main>
-           
 
       {battle.status !== "active" && (
         <ResultScreen battle={battle} onRestart={reset} />
       )}
-    
     </div>
   );
 }
@@ -1274,62 +1282,29 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: "nowrap",
   },
 
-  topHud: {
-    position: "relative",
-    zIndex: 1,
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-
-  title: {
-    margin: 0,
-    fontSize: 26,
-    letterSpacing: 1,
-    textTransform: "uppercase",
-  },
-
-  subtitle: {
-    margin: "4px 0 0",
-    opacity: 0.65,
-    fontSize: 13,
-  },
-
-  statusPanel: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-end",
-    gap: 4,
-    padding: "9px 12px",
-    borderRadius: 12,
-    background: "rgba(10, 12, 12, 0.74)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    boxShadow: "0 10px 28px rgba(0,0,0,0.35)",
-  },
-
   gameTable: {
-    position: "relative",
-    zIndex: 1,
-    display: "grid",
-    gridTemplateRows: "160px minmax(410px, auto) minmax(260px, auto)",
-    gridTemplateColumns: "1fr 310px",
-    gap: 12,
-  },
+  position: "relative",
+  zIndex: 1,
+  display: "grid",
+  gridTemplateRows: "110px minmax(260px, auto) minmax(210px, auto) 60px",
+  gridTemplateColumns: "1fr",
+  gap: 6,
+  overflow: "visible",
+},
 
   enemyZone: {
-    gridColumn: "1 / 3",
-    display: "grid",
-    gridTemplateColumns: "180px 1fr 130px",
-    alignItems: "center",
-    gap: 16,
-    minHeight: 150,
-    padding: "8px 18px",
-    borderRadius: 18,
-    background:
-      "linear-gradient(180deg, rgba(30, 12, 12, 0.35), rgba(0, 0, 0, 0.12))",
-    border: "1px solid rgba(255,255,255,0.06)",
-  },
+  gridColumn: "1 / 2",
+  display: "grid",
+  gridTemplateColumns: "130px 1fr 330px",
+  alignItems: "start",
+  gap: 16,
+  minHeight: 150,
+  padding: "8px 18px",
+  borderRadius: 18,
+  background:
+    "linear-gradient(180deg, rgba(30, 12, 12, 0.35), rgba(0, 0, 0, 0.12))",
+  border: "1px solid rgba(255,255,255,0.06)",
+},
 
   enemyDeckArea: {
     display: "flex",
@@ -1337,30 +1312,62 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   enemyHand: {
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 12,
-  },
+  height: 52,
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "flex-start",
+  gap: 12,
+  overflow: "visible",
+  position: "relative",
+  transform: "translateY(-18px)",
+  zIndex: 20,
+},
+
+enemyHandClip: {
+  height: 52,
+  overflow: "hidden",
+  position: "relative",
+  width: "100%",
+},
+
+enemyHandCardMask: {
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "flex-start",
+  gap: 12,
+  transform: "translateY(-88px)",
+},
+
+enemyThinkingLayer: {
+  position: "absolute",
+  left: 0,
+  right: 0,
+  top: 0,
+  zIndex: 40,
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "flex-start",
+  gap: 12,
+  transform: "translateY(-88px)",
+  pointerEvents: "none",
+},
 
   enemyInfo: {
-    justifySelf: "end",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 2,
-    color: "#ff8b7a",
-    textTransform: "uppercase",
-    fontSize: 12,
-  },
+  justifySelf: "end",
+  alignSelf: "start",
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "flex-end",
+},
 
   centerBattleArea: {
-    gridColumn: "1 / 2",
-    display: "grid",
-    gridTemplateColumns: "150px 1fr 150px",
-    gap: 12,
-    alignItems: "stretch",
-  },
+  gridColumn: "1 / 2",
+  display: "grid",
+  gridTemplateColumns: "130px 1fr 130px",
+  gap: 8,
+  alignItems: "stretch",
+  transform: "translateY(-54px)",
+},
 
   leftCommandPanel: {
     display: "flex",
@@ -1377,15 +1384,17 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   boardShell: {
-    position: "relative",
-    padding: 12,
-    borderRadius: 20,
-    background:
-      "linear-gradient(135deg, rgba(75, 86, 82, 0.14), rgba(18, 22, 22, 0.38)), radial-gradient(circle at 50% 50%, rgba(111, 159, 155, 0.12), transparent 58%)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    boxShadow:
-      "inset 0 0 0 1px rgba(255,255,255,0.04), 0 24px 70px rgba(0,0,0,0.5)",
-  },
+  position: "relative",
+  padding: 6,
+  maxWidth: 720,
+  justifySelf: "center",
+  borderRadius: 20,
+  background:
+    "linear-gradient(135deg, rgba(75, 86, 82, 0.14), rgba(18, 22, 22, 0.38)), radial-gradient(circle at 50% 50%, rgba(111, 159, 155, 0.12), transparent 58%)",
+  border: "1px solid rgba(255,255,255,0.1)",
+  boxShadow:
+    "inset 0 0 0 1px rgba(255,255,255,0.04), 0 24px 70px rgba(0,0,0,0.5)",
+},
 
   boardGlow: {
     position: "absolute",
@@ -1396,34 +1405,35 @@ const styles: Record<string, React.CSSProperties> = {
     pointerEvents: "none",
   },
 
-  board: {
-    position: "relative",
-    display: "grid",
-    gridTemplateColumns: "repeat(5, minmax(140px, 1fr))",
-    gap: 6,
-    alignItems: "stretch",
-  },
+ board: {
+  position: "relative",
+  display: "grid",
+  gridTemplateColumns: "repeat(5, minmax(120px, 1fr))",
+  gap: 4,
+  alignItems: "stretch",
+},
 
   cell: {
-    height: 166,
-    position: "relative",
-    overflow: "visible",
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background:
-      "linear-gradient(135deg, rgba(17, 24, 26, 0.72), rgba(7, 9, 10, 0.62))",
-    color: "#eef2f3",
-    padding: 5,
-    display: "flex",
-    flexDirection: "column",
-    gap: 5,
-    alignItems: "stretch",
-    justifyContent: "center",
-    cursor: "pointer",
-    textAlign: "left",
-    boxShadow:
-      "inset 0 0 0 1px rgba(255,255,255,0.025), inset 0 0 24px rgba(0,0,0,0.35)",
-  },
+  aspectRatio: "1 / 1",
+  minHeight: 0,
+  position: "relative",
+  overflow: "visible",
+  borderRadius: 10,
+  border: "1px solid rgba(255,255,255,0.12)",
+  background:
+    "linear-gradient(135deg, rgba(17, 24, 26, 0.72), rgba(7, 9, 10, 0.62))",
+  color: "#eef2f3",
+  padding: 3,
+  display: "flex",
+  flexDirection: "column",
+  gap: 0,
+  alignItems: "stretch",
+  justifyContent: "center",
+  cursor: "pointer",
+  textAlign: "left",
+  boxShadow:
+    "inset 0 0 0 1px rgba(255,255,255,0.025), inset 0 0 24px rgba(0,0,0,0.35)",
+},
 
   spawnCell: {
     border: "1px dashed rgba(125, 227, 141, 0.55)",
@@ -1477,18 +1487,20 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   playerZone: {
-    gridColumn: "1 / 2",
-    display: "grid",
-    gridTemplateColumns: "110px 1fr",
-    gap: 14,
-    alignItems: "end",
-    padding: "12px 16px 4px",
-    borderRadius: 18,
-    background:
-      "linear-gradient(0deg, rgba(32, 10, 10, 0.45), rgba(0, 0, 0, 0.05))",
-    borderTop: "1px solid rgba(255, 70, 70, 0.25)",
-    boxShadow: "0 -18px 54px rgba(139, 29, 29, 0.18)",
-  },
+  gridColumn: "1 / 2",
+  display: "grid",
+  gridTemplateColumns: "110px 1fr",
+  gap: 14,
+  alignItems: "end",
+  padding: "12px 16px 4px",
+  borderRadius: 18,
+  background:
+    "linear-gradient(0deg, rgba(32, 10, 10, 0.45), rgba(0, 0, 0, 0.05))",
+  borderTop: "1px solid rgba(255, 70, 70, 0.25)",
+  boxShadow: "0 -18px 54px rgba(139, 29, 29, 0.18)",
+  transform: "translateY(-64px)",
+  overflow: "visible",
+},
 
   playerFuelBadge: {
     alignSelf: "center",
@@ -1503,41 +1515,66 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#d6a84f",
   },
 
-  hand: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))",
-    gap: 12,
-    alignItems: "end",
-  },
+ hand: {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))",
+  gridAutoRows: "minmax(332px, auto)",
+  gap: 12,
+  alignItems: "start",
+  overflow: "visible",
+  position: "relative",
+  zIndex: 30,
+},
 
   card: {
-    border: "none",
-    background: "transparent",
-    color: "#eef2f3",
-    padding: 0,
-    cursor: "pointer",
-    textAlign: "left",
-  },
+  border: "none",
+  background: "transparent",
+  color: "#eef2f3",
+  padding: 0,
+  cursor: "pointer",
+  textAlign: "left",
+  height: "100%",
+  display: "flex",
+  alignItems: "flex-start",
+  overflow: "visible",
+},
 
   deckPile: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 8,
-    padding: 12,
-    borderRadius: 14,
-    background: "rgba(7, 9, 9, 0.62)",
-    border: "1px solid rgba(255,255,255,0.08)",
-  },
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 5,
+  padding: 8,
+  borderRadius: 12,
+  background: "rgba(7, 9, 9, 0.62)",
+  border: "1px solid rgba(255,255,255,0.08)",
+},
 
   deckStack: {
-    position: "relative",
-    width: 92,
-    height: 124,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  position: "relative",
+  width: 78,
+  height: 100,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+},
+  enemyDeckWithTimer: {
+  display: "grid",
+  gridTemplateColumns: "170px 118px",
+  gap: 10,
+  alignItems: "start",
+  justifyContent: "end",
+},
+
+enemyDeckCompact: {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 6,
+  padding: 8,
+  borderRadius: 12,
+  background: "rgba(7, 9, 9, 0.46)",
+},
 
   deckLabel: {
     fontSize: 11,
@@ -1557,23 +1594,25 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   cardBackSmall: {
-    position: "absolute",
-    width: 86,
-    height: 114,
-  },
+  position: "absolute",
+  width: 70,
+  height: 94,
+  border: "none",
+  boxShadow: "0 10px 24px rgba(0,0,0,0.42)",
+},
 
   timerPanel: {
-    width: "100%",
-    display: "flex",
-    flexDirection: "column",
-    gap: 4,
-    padding: "8px 9px",
-    borderRadius: 11,
-    background:
-      "linear-gradient(180deg, rgba(8, 10, 10, 0.92), rgba(0, 0, 0, 0.78))",
-    border: "1px solid rgba(255,255,255,0.1)",
-    boxShadow: "inset 0 0 16px rgba(0,0,0,0.72)",
-  },
+  width: "100%",
+  display: "flex",
+  flexDirection: "column",
+  gap: 3,
+  padding: "6px 7px",
+  borderRadius: 9,
+  background:
+    "linear-gradient(180deg, rgba(8, 10, 10, 0.92), rgba(0, 0, 0, 0.78))",
+  border: "1px solid rgba(255,255,255,0.1)",
+  boxShadow: "inset 0 0 16px rgba(0,0,0,0.72)",
+},
 
   timerPanelActive: {
     boxShadow:
@@ -1589,31 +1628,31 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   timerLabel: {
-    fontSize: 10,
-    opacity: 0.62,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
+  fontSize: 9,
+  opacity: 0.62,
+  textTransform: "uppercase",
+  letterSpacing: 0.5,
+},
 
-  timerMainRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 8,
-    fontSize: 12,
-    lineHeight: 1.1,
-  },
+timerMainRow: {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 6,
+  fontSize: 11,
+  lineHeight: 1.05,
+},
 
-  idleRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 8,
-    marginTop: 2,
-    paddingTop: 4,
-    borderTop: "1px solid rgba(255,255,255,0.08)",
-    fontSize: 11,
-    color: "rgba(238,242,243,0.74)",
-    lineHeight: 1.1,
-  },
+idleRow: {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 6,
+  marginTop: 1,
+  paddingTop: 3,
+  borderTop: "1px solid rgba(255,255,255,0.08)",
+  fontSize: 10,
+  color: "rgba(238,242,243,0.74)",
+  lineHeight: 1.05,
+},
 
   hqPanel: {
     display: "flex",
@@ -1704,39 +1743,49 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   logPanel: {
-    gridColumn: "2 / 3",
-    gridRow: "2 / 4",
+    gridColumn: "1 / 2",
+    gridRow: "4 / 5",
+    display: "grid",
+    gridTemplateColumns: "110px 1fr",
+    alignItems: "center",
+    gap: 12,
     background: "rgba(10, 12, 12, 0.74)",
     border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: 18,
-    padding: 14,
-    alignSelf: "stretch",
-    boxShadow: "0 18px 54px rgba(0,0,0,0.38)",
+    borderRadius: 14,
+    padding: "8px 12px",
+    boxShadow: "0 12px 34px rgba(0,0,0,0.32)",
     overflow: "hidden",
   },
 
   sectionTitle: {
-    margin: "0 0 12px",
-    fontSize: 17,
+    margin: 0,
+    fontSize: 14,
     textTransform: "uppercase",
     letterSpacing: 1,
+    opacity: 0.78,
+    whiteSpace: "nowrap",
   },
 
   log: {
     display: "flex",
-    flexDirection: "column",
-    gap: 8,
-    maxHeight: 720,
-    overflow: "auto",
+    flexDirection: "row",
+    gap: 10,
+    overflowX: "auto",
+    overflowY: "hidden",
+    whiteSpace: "nowrap",
+    paddingBottom: 4,
   },
 
   logItem: {
     margin: 0,
-    fontSize: 13,
-    lineHeight: 1.3,
+    flex: "0 0 auto",
+    fontSize: 12,
+    lineHeight: 1.2,
     opacity: 0.86,
-    paddingBottom: 8,
-    borderBottom: "1px solid rgba(255,255,255,0.05)",
+    padding: "7px 10px",
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.055)",
+    border: "1px solid rgba(255,255,255,0.055)",
   },
 
   damageText: {
