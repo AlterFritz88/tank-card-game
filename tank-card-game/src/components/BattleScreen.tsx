@@ -69,6 +69,13 @@ type DamageTextEffect = {
   position?: CellCenter;
 };
 
+type DrawCardEffect = {
+  id: number;
+  owner: PlayerId;
+  from: CellCenter;
+  to: CellCenter;
+};
+
 function setObjectRef(
   refs: React.MutableRefObject<Map<string, HTMLButtonElement>>,
   id: string
@@ -92,6 +99,15 @@ function getElementCenterRelativeToBoard(
   return {
     x: elementRect.left - boardRect.left + elementRect.width / 2,
     y: elementRect.top - boardRect.top + elementRect.height / 2,
+  };
+}
+
+function getElementCenterInViewport(element: HTMLElement): CellCenter {
+  const rect = element.getBoundingClientRect();
+
+  return {
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
   };
 }
 
@@ -121,7 +137,8 @@ export function BattleScreen() {
     dispatch,
     reset,
   } = useBattleStore();
-
+  const DRAW_CARD_ANIMATION_MS = 760;
+  const DRAW_CARD_REVEAL_DELAY_MS = 80;
   const [damagedIds, setDamagedIds] = useState<Set<DamageId>>(new Set());
   const [attackingId, setAttackingId] = useState<string | null>(null);
   const [attackEffectId, setAttackEffectId] = useState<string | null>(null);
@@ -136,7 +153,10 @@ export function BattleScreen() {
   const [thinkingCardIndex, setThinkingCardIndex] = useState<number | null>(
     null
   );
-
+  const previousHandIdsRef = useRef<Record<PlayerId, Set<string>>>({
+  player: new Set(battle.player.hand.map((card) => card.instanceId)),
+  bot: new Set(battle.bot.hand.map((card) => card.instanceId)),
+});
   const previousActivePlayerRef = useRef(battle.activePlayer);
   const boardRef = useRef<HTMLDivElement | null>(null);
   const objectRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
@@ -145,6 +165,94 @@ export function BattleScreen() {
   const damageTextIdRef = useRef(0);
   const lastObjectCentersRef = useRef<Map<string, CellCenter>>(new Map());
   const botTurnRunningRef = useRef(false);
+  const [drawCardEffects, setDrawCardEffects] = useState<DrawCardEffect[]>([]);
+
+  const drawCardEffectIdRef = useRef(0);
+
+const deckRefs = useRef<Record<PlayerId, HTMLDivElement | null>>({
+  player: null,
+  bot: null,
+});
+
+const handRefs = useRef<Record<PlayerId, HTMLDivElement | null>>({
+  player: null,
+  bot: null,
+});
+
+const [hiddenDrawnCardIds, setHiddenDrawnCardIds] = useState<Set<string>>(
+  new Set()
+);
+
+const handCardRefs = useRef<Record<PlayerId, Map<string, HTMLElement>>>({
+  player: new Map(),
+  bot: new Map(),
+});
+
+function setHandCardRef(owner: PlayerId, cardInstanceId: string) {
+  return (element: HTMLElement | null) => {
+    if (element) {
+      handCardRefs.current[owner].set(cardInstanceId, element);
+    } else {
+      handCardRefs.current[owner].delete(cardInstanceId);
+    }
+  };
+}
+
+const previousHandCountsRef = useRef<Record<PlayerId, number>>({
+  player: battle.player.hand.length,
+  bot: battle.bot.hand.length,
+});
+
+const previousDeckCountsRef = useRef<Record<PlayerId, number>>({
+  player: battle.player.deck.length,
+  bot: battle.bot.deck.length,
+});
+
+useEffect(() => {
+  if (battle.status !== "active") {
+    previousHandIdsRef.current = {
+      player: new Set(battle.player.hand.map((card) => card.instanceId)),
+      bot: new Set(battle.bot.hand.map((card) => card.instanceId)),
+    };
+
+    return;
+  }
+
+  const owners: PlayerId[] = ["player", "bot"];
+
+  for (const owner of owners) {
+    const previousIds = previousHandIdsRef.current[owner];
+    const currentHand = battle[owner].hand;
+
+    const newCards = currentHand.filter(
+      (card) => !previousIds.has(card.instanceId)
+    );
+
+    if (newCards.length > 0) {
+      const drawnCard = newCards[newCards.length - 1];
+
+      setHiddenDrawnCardIds((current) => {
+        const next = new Set(current);
+        next.add(drawnCard.instanceId);
+        return next;
+      });
+
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          playDrawCardAnimation(owner, drawnCard.instanceId);
+        });
+      });
+    }
+
+    previousHandIdsRef.current[owner] = new Set(
+      currentHand.map((card) => card.instanceId)
+    );
+  }
+}, [
+  battle.status,
+  battle.player.hand.map((card) => card.instanceId).join("|"),
+  battle.bot.hand.map((card) => card.instanceId).join("|"),
+]);
 
   useEffect(() => {
     if (battle.status !== "active") return;
@@ -201,6 +309,53 @@ export function BattleScreen() {
       setThinkingCardIndex(null);
     };
   }, [battle.activePlayer, battle.status, battle.bot.hand.length]);
+
+  useEffect(() => {
+  if (battle.status !== "active") {
+    previousHandCountsRef.current = {
+      player: battle.player.hand.length,
+      bot: battle.bot.hand.length,
+    };
+
+    previousDeckCountsRef.current = {
+      player: battle.player.deck.length,
+      bot: battle.bot.deck.length,
+    };
+
+    return;
+  }
+
+  const owners: PlayerId[] = ["player", "bot"];
+
+  for (const owner of owners) {
+    const previousHandCount = previousHandCountsRef.current[owner];
+    const previousDeckCount = previousDeckCountsRef.current[owner];
+
+    const currentHandCount = battle[owner].hand.length;
+    const currentDeckCount = battle[owner].deck.length;
+
+    const cardWasDrawn =
+      currentHandCount > previousHandCount &&
+      currentDeckCount < previousDeckCount;
+
+    if (cardWasDrawn) {
+      window.requestAnimationFrame(() => {
+  window.requestAnimationFrame(() => {
+    playDrawCardAnimation(owner);
+  });
+});
+    }
+
+    previousHandCountsRef.current[owner] = currentHandCount;
+    previousDeckCountsRef.current[owner] = currentDeckCount;
+  }
+}, [
+  battle.status,
+  battle.player.hand.length,
+  battle.player.deck.length,
+  battle.bot.hand.length,
+  battle.bot.deck.length,
+]);
 
   useEffect(() => {
   const previousActivePlayer = previousActivePlayerRef.current;
@@ -550,6 +705,42 @@ export function BattleScreen() {
     showDamageEffectsFromSnapshots(before, after);
   }
 
+  function playDrawCardAnimation(owner: PlayerId, cardInstanceId: string) {
+  const deckElement = deckRefs.current[owner];
+  const targetCardElement = handCardRefs.current[owner].get(cardInstanceId);
+
+  if (!deckElement || !targetCardElement) return;
+
+  const from = getElementCenterInViewport(deckElement);
+  const to = getElementCenterInViewport(targetCardElement);
+
+  drawCardEffectIdRef.current += 1;
+
+  const effect: DrawCardEffect = {
+    id: drawCardEffectIdRef.current,
+    owner,
+    from,
+    to,
+  };
+
+  setDrawCardEffects((current) => [...current, effect]);
+
+  window.setTimeout(() => {
+  setDrawCardEffects((current) =>
+    current.filter((item) => item.id !== effect.id)
+  );
+}, DRAW_CARD_ANIMATION_MS);
+
+window.setTimeout(() => {
+  setHiddenDrawnCardIds((current) => {
+    const next = new Set(current);
+    next.delete(cardInstanceId);
+    return next;
+  });
+}, DRAW_CARD_ANIMATION_MS + DRAW_CARD_REVEAL_DELAY_MS);
+}
+
+
   function handleCellClick(position: Position) {
     if (battle.activePlayer !== "player") return;
 
@@ -680,7 +871,12 @@ function renderEnemyDeckWithTimer() {
 
   return (
     <div style={styles.enemyDeckWithTimer}>
-      <div style={styles.enemyDeckCompact}>
+      <div
+  ref={(element) => {
+    deckRefs.current.bot = element;
+  }}
+  style={styles.enemyDeckCompact}
+>
         {renderDeckStack(player.deck.length)}
 
         <span style={styles.deckLabel}>Колода врага</span>
@@ -733,15 +929,59 @@ function renderEnemyDeckWithTimer() {
   return (
     <div style={styles.page}>
       <div style={styles.vignette} />
-
+        <AnimatePresence>
+  {drawCardEffects.map((effect) => (
+    <motion.div
+      key={effect.id}
+      style={{
+        ...styles.drawCardEffect,
+        backgroundImage: `url(${cardBackImage})`,
+      }}
+      initial={{
+        x: effect.from.x,
+        y: effect.from.y,
+        opacity: 0,
+        scale: 0.48,
+        rotate: effect.owner === "player" ? -8 : 8,
+      }}
+      animate={{
+        x: effect.to.x,
+        y: effect.to.y,
+        opacity: [0, 1, 1, 0],
+        scale: [0.48, 0.78, 0.9, 0.86],
+        rotate: effect.owner === "player" ? [ -8, 2, 0 ] : [8, -2, 0],
+      }}
+      exit={{ opacity: 0 }}
+      transition={{
+  duration: DRAW_CARD_ANIMATION_MS / 1000,
+  ease: "easeOut",
+}}
+    />
+  ))}
+</AnimatePresence>
       <main style={styles.gameTable}>
         <section style={styles.enemyZone}>
   <div style={styles.enemyDeckArea} />
 
-  <div style={styles.enemyHand}>
+  <div
+  ref={(element) => {
+    handRefs.current.bot = element;
+  }}
+  style={styles.enemyHand}
+>
   <div style={styles.enemyHandClip}>
     <div style={styles.enemyHandCardMask}>
-      {battle.bot.hand.map((_, index) => renderCardBack(index, false, false))}
+     {battle.bot.hand.map((cardInstance, index) => (
+  <div
+    key={`bot-hand-${cardInstance.instanceId}`}
+    ref={setHandCardRef("bot", cardInstance.instanceId)}
+    style={{
+      opacity: hiddenDrawnCardIds.has(cardInstance.instanceId) ? 0 : 1,
+    }}
+  >
+    {renderCardBack(index, false, false)}
+  </div>
+))}
     </div>
   </div>
 
@@ -782,7 +1022,12 @@ function renderEnemyDeckWithTimer() {
   </div>
 
   <div style={styles.playerDeckBottom}>
-    <div style={styles.playerDeckOnly}>
+    <div
+  ref={(element) => {
+    deckRefs.current.player = element;
+  }}
+  style={styles.playerDeckOnly}
+>
   {renderDeckStack(battle.player.deck.length)}
 </div>
 
@@ -1192,9 +1437,14 @@ function renderEnemyDeckWithTimer() {
         <section style={styles.playerZone}>
   
 
-          <div style={styles.hand}>
+          <div
+  ref={(element) => {
+    handRefs.current.player = element;
+  }}
+  style={styles.hand}
+>
             <AnimatePresence>
-              {battle.player.hand.map((cardInstance) => {
+              {battle.player.hand.map((cardInstance, index) => {
                 const card = getCard(cardInstance.cardId);
                 const selected =
                   selectedCardInstanceId === cardInstance.instanceId;
@@ -1202,8 +1452,11 @@ function renderEnemyDeckWithTimer() {
                 return (
                   <motion.button
                     key={cardInstance.instanceId}
-              
-                    style={styles.card}
+                    ref={setHandCardRef("player", cardInstance.instanceId)}
+                    style={{
+    ...styles.card,
+    opacity: hiddenDrawnCardIds.has(cardInstance.instanceId) ? 0 : 1,
+  }}
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -16 }}
@@ -2004,6 +2257,26 @@ turnCounterValue: {
   lineHeight: 1,
   color: "#f7d774",
   textShadow: "0 2px 0 rgba(0,0,0,0.9)",
+},
+
+drawCardEffect: {
+  position: "fixed",
+  left: 0,
+  top: 0,
+  width: 96,
+  height: 128,
+  marginLeft: -48,
+  marginTop: -64,
+  borderRadius: 12,
+  backgroundSize: "cover",
+  backgroundPosition: "center center",
+  backgroundRepeat: "no-repeat",
+  border: "none",
+  boxShadow:
+    "0 18px 42px rgba(0,0,0,0.64), 0 0 18px rgba(247,215,116,0.18)",
+  zIndex: 2600,
+  pointerEvents: "none",
+  
 },
 
   explosionEffect: {
