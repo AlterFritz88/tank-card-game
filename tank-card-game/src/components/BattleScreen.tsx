@@ -77,6 +77,15 @@ type DrawCardEffect = {
   to: CellCenter;
 };
 
+type SpawnCardEffect = {
+  id: number;
+  owner: PlayerId;
+  from: CellCenter;
+  to: CellCenter;
+  cardId: string;
+  hiddenCardInstanceId: string;
+};
+
 function setObjectRef(
   refs: React.MutableRefObject<Map<string, HTMLButtonElement>>,
   id: string
@@ -140,6 +149,7 @@ export function BattleScreen() {
   } = useBattleStore();
   const DRAW_CARD_ANIMATION_MS = 760;
   const DRAW_CARD_REVEAL_DELAY_MS = 80;
+  const SPAWN_CARD_ANIMATION_MS = 620;
   const START_ROLL_DURATION_MS = 2800;
   const START_ROLL_RESULT_DELAY_MS = 350;
   const [damagedIds, setDamagedIds] = useState<Set<DamageId>>(new Set());
@@ -169,7 +179,16 @@ export function BattleScreen() {
   const lastObjectCentersRef = useRef<Map<string, CellCenter>>(new Map());
   const botTurnRunningRef = useRef(false);
   const [drawCardEffects, setDrawCardEffects] = useState<DrawCardEffect[]>([]);
+  const [spawnCardEffects, setSpawnCardEffects] = useState<SpawnCardEffect[]>([]);
+  const [hiddenSpawningCardIds, setHiddenSpawningCardIds] = useState<Set<string>>(
+    new Set()
+  );
+  const [spawningCardInstanceId, setSpawningCardInstanceId] = useState<
+    string | null
+  >(null);
   const drawCardEffectIdRef = useRef(0);
+  const spawnCardEffectIdRef = useRef(0);
+  const cellRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   type StartRollState = {
     visible: boolean;
@@ -212,6 +231,22 @@ export function BattleScreen() {
         handCardRefs.current[owner].set(cardInstanceId, element);
       } else {
         handCardRefs.current[owner].delete(cardInstanceId);
+      }
+    };
+  }
+
+  function positionKey(position: Position): string {
+    return `${position.row}-${position.col}`;
+  }
+
+  function setCellRef(position: Position) {
+    return (element: HTMLButtonElement | null) => {
+      const key = positionKey(position);
+
+      if (element) {
+        cellRefs.current.set(key, element);
+      } else {
+        cellRefs.current.delete(key);
       }
     };
   }
@@ -517,6 +552,21 @@ export function BattleScreen() {
         }
 
         if (action.type === "PLAY_CARD") {
+          const cardInstance = useBattleStore
+            .getState()
+            .battle.bot.hand.find(
+              (item) => item.instanceId === action.cardInstanceId
+            );
+
+          if (cardInstance) {
+            await playSpawnCardAnimation(
+              "bot",
+              cardInstance.instanceId,
+              cardInstance.cardId,
+              action.position
+            );
+          }
+
           dispatchBattleAction(action);
           await delay(450);
           continue;
@@ -766,16 +816,90 @@ export function BattleScreen() {
   }
 
 
-    function handleCellClick(position: Position) {
+    function playSpawnCardAnimation(
+    owner: PlayerId,
+    cardInstanceId: string,
+    cardId: string,
+    position: Position
+  ): Promise<void> {
+    const sourceCardElement = handCardRefs.current[owner].get(cardInstanceId);
+    const targetCellElement = cellRefs.current.get(positionKey(position));
+
+    if (!sourceCardElement || !targetCellElement) {
+      return Promise.resolve();
+    }
+
+    const from = getElementCenterInViewport(sourceCardElement);
+    const to = getElementCenterInViewport(targetCellElement);
+
+    spawnCardEffectIdRef.current += 1;
+
+    const effect: SpawnCardEffect = {
+      id: spawnCardEffectIdRef.current,
+      owner,
+      from,
+      to,
+      cardId,
+      hiddenCardInstanceId: cardInstanceId,
+    };
+
+    setSpawningCardInstanceId(cardInstanceId);
+
+    setHiddenSpawningCardIds((current) => {
+      const next = new Set(current);
+      next.add(cardInstanceId);
+      return next;
+    });
+
+    setSpawnCardEffects((current) => [...current, effect]);
+
+    return new Promise((resolve) => {
+      window.setTimeout(() => {
+        setSpawnCardEffects((current) =>
+          current.filter((item) => item.id !== effect.id)
+        );
+
+        setHiddenSpawningCardIds((current) => {
+          const next = new Set(current);
+          next.delete(cardInstanceId);
+          return next;
+        });
+
+        setSpawningCardInstanceId((current) =>
+          current === cardInstanceId ? null : current
+        );
+
+        resolve();
+      }, SPAWN_CARD_ANIMATION_MS);
+    });
+  }
+
+  function handleCellClick(position: Position) {
     if (battle.status !== "active") return;
     if (battle.activePlayer !== "player") return;
 
     if (selectedCardInstanceId) {
-      dispatchBattleAction({
-        type: "PLAY_CARD",
-        playerId: "player",
-        cardInstanceId: selectedCardInstanceId,
-        position,
+      if (spawningCardInstanceId) return;
+      if (!isPlayerSpawn(position)) return;
+
+      const cardInstance = battle.player.hand.find(
+        (item) => item.instanceId === selectedCardInstanceId
+      );
+
+      if (!cardInstance) return;
+
+      void playSpawnCardAnimation(
+        "player",
+        cardInstance.instanceId,
+        cardInstance.cardId,
+        position
+      ).then(() => {
+        dispatchBattleAction({
+          type: "PLAY_CARD",
+          playerId: "player",
+          cardInstanceId: cardInstance.instanceId,
+          position,
+        });
       });
 
       return;
@@ -986,6 +1110,70 @@ function renderEnemyDeckWithTimer() {
     />
   ))}
 </AnimatePresence>
+        <AnimatePresence>
+  {spawnCardEffects.map((effect) => {
+    const card = getCard(effect.cardId);
+
+    if (effect.owner === "bot") {
+      return (
+        <motion.div
+          key={effect.id}
+          style={{
+            ...styles.spawnCardBackEffect,
+            backgroundImage: `url(${cardBackImage})`,
+          }}
+          initial={{
+            x: effect.from.x,
+            y: effect.from.y,
+            opacity: 0.95,
+            scale: 0.72,
+            rotate: 4,
+          }}
+          animate={{
+            x: effect.to.x,
+            y: effect.to.y,
+            opacity: [0.95, 1, 1, 0],
+            scale: [0.72, 0.76, 0.58],
+            rotate: [4, -2, 0],
+          }}
+          exit={{ opacity: 0 }}
+          transition={{
+            duration: SPAWN_CARD_ANIMATION_MS / 1000,
+            ease: "easeOut",
+          }}
+        />
+      );
+    }
+
+    return (
+      <motion.div
+        key={effect.id}
+        style={styles.spawnCardEffect}
+        initial={{
+          x: effect.from.x,
+          y: effect.from.y,
+          opacity: 0.95,
+          scale: 1,
+          rotate: -4,
+        }}
+        animate={{
+          x: effect.to.x,
+          y: effect.to.y,
+          opacity: [0.95, 1, 1, 0],
+          scale: [1, 0.82, 0.58],
+          rotate: [-4, 2, 0],
+        }}
+        exit={{ opacity: 0 }}
+        transition={{
+          duration: SPAWN_CARD_ANIMATION_MS / 1000,
+          ease: "easeOut",
+        }}
+      >
+        <TankCardView card={card} variant="hand" />
+      </motion.div>
+    );
+  })}
+</AnimatePresence>
       <main style={styles.gameTable}>
         <section style={styles.enemyZone}>
   <div style={styles.enemyDeckArea} />
@@ -1003,7 +1191,11 @@ function renderEnemyDeckWithTimer() {
     key={`bot-hand-${cardInstance.instanceId}`}
     ref={setHandCardRef("bot", cardInstance.instanceId)}
     style={{
-      opacity: hiddenDrawnCardIds.has(cardInstance.instanceId) ? 0 : 1,
+      opacity:
+        hiddenDrawnCardIds.has(cardInstance.instanceId) ||
+        hiddenSpawningCardIds.has(cardInstance.instanceId)
+          ? 0
+          : 1,
     }}
   >
     {renderCardBack(index, false, false)}
@@ -1438,6 +1630,7 @@ function renderEnemyDeckWithTimer() {
 
                   return (
   <motion.button
+    ref={setCellRef(position)}
     layout
     key={`${row}-${col}`}
     style={{
@@ -1534,6 +1727,9 @@ function renderEnemyDeckWithTimer() {
                 const isHiddenDrawnCard = hiddenDrawnCardIds.has(
                   cardInstance.instanceId
                 );
+                const isHiddenSpawningCard = hiddenSpawningCardIds.has(
+                  cardInstance.instanceId
+                );
 
                 return (
                   <motion.button
@@ -1541,7 +1737,11 @@ function renderEnemyDeckWithTimer() {
                     ref={setHandCardRef("player", cardInstance.instanceId)}
                     style={styles.card}
                     initial={{ opacity: 0, y: 16 }}
-                    animate={{ opacity: isHiddenDrawnCard ? 0 : 1, y: 0 }}
+                    animate={{
+                      opacity:
+                        isHiddenDrawnCard || isHiddenSpawningCard ? 0 : 1,
+                      y: 0,
+                    }}
                     exit={{ opacity: 0, y: -16 }}
                     transition={{
                       type: "spring",
@@ -1550,7 +1750,11 @@ function renderEnemyDeckWithTimer() {
                     }}
                     whileHover={{ y: -108, scale: 1.08 }}
                     whileTap={{ scale: 0.97 }}
-                    disabled={battle.status !== "active" || battle.activePlayer !== "player"}
+                    disabled={
+                      battle.status !== "active" ||
+                      battle.activePlayer !== "player" ||
+                      Boolean(spawningCardInstanceId)
+                    }
                     onClick={() =>
                       selectCard(selected ? null : cardInstance.instanceId)
                     }
@@ -2426,6 +2630,36 @@ drawCardEffect: {
   zIndex: 2600,
   pointerEvents: "none",
   
+},
+
+spawnCardEffect: {
+  position: "fixed",
+  left: 0,
+  top: 0,
+  width: 175,
+  marginLeft: -87,
+  marginTop: -140,
+  zIndex: 2700,
+  pointerEvents: "none",
+  filter: "drop-shadow(0 22px 44px rgba(0,0,0,0.62))",
+},
+
+spawnCardBackEffect: {
+  position: "fixed",
+  left: 0,
+  top: 0,
+  width: 104,
+  height: 138,
+  marginLeft: -52,
+  marginTop: -69,
+  borderRadius: 12,
+  backgroundSize: "cover",
+  backgroundPosition: "center center",
+  backgroundRepeat: "no-repeat",
+  border: "none",
+  boxShadow: "0 18px 42px rgba(0,0,0,0.64)",
+  zIndex: 2700,
+  pointerEvents: "none",
 },
 
   explosionEffect: {
