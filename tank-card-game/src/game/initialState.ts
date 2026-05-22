@@ -81,7 +81,7 @@ function createHeadquarters(ownerId: PlayerId): HeadquartersState {
 
 export function createInitialBattleState(): BattleState {
   const state: BattleState = {
-    status: "active",
+    status: "starting",
     activePlayer: "player",
     turn: 1,
 
@@ -96,28 +96,28 @@ export function createInitialBattleState(): BattleState {
     units: [],
 
     timers: {
-  player: createTimerState(),
-  bot: createTimerState(),
-},
+      player: createTimerState(),
+      bot: createTimerState(),
+    },
 
-stats: {
-  destroyedByPlayer: {
-    light: 0,
-    medium: 0,
-    heavy: 0,
-    td: 0,
-    spg: 0,
-  },
-  destroyedByBot: {
-    light: 0,
-    medium: 0,
-    heavy: 0,
-    td: 0,
-    spg: 0,
-  },
-},
+    stats: {
+      destroyedByPlayer: {
+        light: 0,
+        medium: 0,
+        heavy: 0,
+        td: 0,
+        spg: 0,
+      },
+      destroyedByBot: {
+        light: 0,
+        medium: 0,
+        heavy: 0,
+        td: 0,
+        spg: 0,
+      },
+    },
 
-log: ["Бой начался."],
+    log: ["Бой готовится. Определяется первый ход."],
   };
 
   state.player.maxResources = state.headquarters.player.fuelGeneration;

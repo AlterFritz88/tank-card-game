@@ -19,6 +19,7 @@ import explosionFireballImage from "../assets/effects/explosion-fireball.png";
 import explosionSmokeImage from "../assets/effects/explosion-smoke.png";
 import battleTableBackground from "../assets/backgrounds/battle-table-bg.png";
 import cardBackImage from "../assets/cards/card-back.png";
+import cartridgeImage from "../assets/effects/rifle-cartridge.png";
 
 function samePosition(a: Position, b: Position): boolean {
   return a.row === b.row && a.col === b.col;
@@ -139,6 +140,8 @@ export function BattleScreen() {
   } = useBattleStore();
   const DRAW_CARD_ANIMATION_MS = 760;
   const DRAW_CARD_REVEAL_DELAY_MS = 80;
+  const START_ROLL_DURATION_MS = 2800;
+  const START_ROLL_RESULT_DELAY_MS = 350;
   const [damagedIds, setDamagedIds] = useState<Set<DamageId>>(new Set());
   const [attackingId, setAttackingId] = useState<string | null>(null);
   const [attackEffectId, setAttackEffectId] = useState<string | null>(null);
@@ -154,9 +157,9 @@ export function BattleScreen() {
     null
   );
   const previousHandIdsRef = useRef<Record<PlayerId, Set<string>>>({
-  player: new Set(battle.player.hand.map((card) => card.instanceId)),
-  bot: new Set(battle.bot.hand.map((card) => card.instanceId)),
-});
+    player: new Set(battle.player.hand.map((card) => card.instanceId)),
+    bot: new Set(battle.bot.hand.map((card) => card.instanceId)),
+  });
   const previousActivePlayerRef = useRef(battle.activePlayer);
   const boardRef = useRef<HTMLDivElement | null>(null);
   const objectRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
@@ -166,93 +169,150 @@ export function BattleScreen() {
   const lastObjectCentersRef = useRef<Map<string, CellCenter>>(new Map());
   const botTurnRunningRef = useRef(false);
   const [drawCardEffects, setDrawCardEffects] = useState<DrawCardEffect[]>([]);
-
   const drawCardEffectIdRef = useRef(0);
 
-const deckRefs = useRef<Record<PlayerId, HTMLDivElement | null>>({
-  player: null,
-  bot: null,
-});
-
-const handRefs = useRef<Record<PlayerId, HTMLDivElement | null>>({
-  player: null,
-  bot: null,
-});
-
-const [hiddenDrawnCardIds, setHiddenDrawnCardIds] = useState<Set<string>>(
-  new Set()
-);
-
-const handCardRefs = useRef<Record<PlayerId, Map<string, HTMLElement>>>({
-  player: new Map(),
-  bot: new Map(),
-});
-
-function setHandCardRef(owner: PlayerId, cardInstanceId: string) {
-  return (element: HTMLElement | null) => {
-    if (element) {
-      handCardRefs.current[owner].set(cardInstanceId, element);
-    } else {
-      handCardRefs.current[owner].delete(cardInstanceId);
-    }
+  type StartRollState = {
+    visible: boolean;
+    winner: PlayerId | null;
+    finalRotation: number;
+    resultVisible: boolean;
   };
-}
 
-const previousHandCountsRef = useRef<Record<PlayerId, number>>({
-  player: battle.player.hand.length,
-  bot: battle.bot.hand.length,
-});
+  const startRollRunningRef = useRef(false);
 
-const previousDeckCountsRef = useRef<Record<PlayerId, number>>({
-  player: battle.player.deck.length,
-  bot: battle.bot.deck.length,
-});
+  const deckRefs = useRef<Record<PlayerId, HTMLDivElement | null>>({
+    player: null,
+    bot: null,
+  });
 
-useEffect(() => {
-  if (battle.status !== "active") {
-    previousHandIdsRef.current = {
-      player: new Set(battle.player.hand.map((card) => card.instanceId)),
-      bot: new Set(battle.bot.hand.map((card) => card.instanceId)),
+  const handRefs = useRef<Record<PlayerId, HTMLDivElement | null>>({
+    player: null,
+    bot: null,
+  });
+
+  const [hiddenDrawnCardIds, setHiddenDrawnCardIds] = useState<Set<string>>(
+    new Set()
+  );
+
+  const handCardRefs = useRef<Record<PlayerId, Map<string, HTMLElement>>>({
+    player: new Map(),
+    bot: new Map(),
+  });
+
+  const [startRollState, setStartRollState] = useState<StartRollState>({
+    visible: false,
+    winner: null,
+    finalRotation: 0,
+    resultVisible: false,
+  });
+
+  function setHandCardRef(owner: PlayerId, cardInstanceId: string) {
+    return (element: HTMLElement | null) => {
+      if (element) {
+        handCardRefs.current[owner].set(cardInstanceId, element);
+      } else {
+        handCardRefs.current[owner].delete(cardInstanceId);
+      }
     };
-
-    return;
   }
 
-  const owners: PlayerId[] = ["player", "bot"];
+  useEffect(() => {
+    if (battle.status !== "starting") {
+      if (battle.status === "active") {
+        startRollRunningRef.current = false;
+      }
 
-  for (const owner of owners) {
-    const previousIds = previousHandIdsRef.current[owner];
-    const currentHand = battle[owner].hand;
-
-    const newCards = currentHand.filter(
-      (card) => !previousIds.has(card.instanceId)
-    );
-
-    if (newCards.length > 0) {
-      const drawnCard = newCards[newCards.length - 1];
-
-      setHiddenDrawnCardIds((current) => {
-        const next = new Set(current);
-        next.add(drawnCard.instanceId);
-        return next;
-      });
-
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          playDrawCardAnimation(owner, drawnCard.instanceId);
-        });
-      });
+      return;
     }
 
-    previousHandIdsRef.current[owner] = new Set(
-      currentHand.map((card) => card.instanceId)
-    );
-  }
-}, [
-  battle.status,
-  battle.player.hand.map((card) => card.instanceId).join("|"),
-  battle.bot.hand.map((card) => card.instanceId).join("|"),
-]);
+    if (startRollRunningRef.current) return;
+
+    startRollRunningRef.current = true;
+
+    const winner: PlayerId = Math.random() < 0.5 ? "player" : "bot";
+    const targetAngle = winner === "player" ? 135 : -45;
+    const finalRotation = 360 * 8 + targetAngle;
+
+    setStartRollState({
+      visible: true,
+      winner,
+      finalRotation,
+      resultVisible: false,
+    });
+
+    const resultTimer = window.setTimeout(() => {
+      setStartRollState((current) => ({
+        ...current,
+        resultVisible: true,
+      }));
+    }, START_ROLL_DURATION_MS + START_ROLL_RESULT_DELAY_MS);
+
+    const finishTimer = window.setTimeout(() => {
+      dispatchBattleAction({
+        type: "BEGIN_BATTLE",
+        startingPlayer: winner,
+      });
+
+      setStartRollState({
+        visible: false,
+        winner: null,
+        finalRotation: 0,
+        resultVisible: false,
+      });
+
+      setTurnBannerText(winner === "player" ? "ТВОЙ ХОД" : "ХОД ВРАГА");
+
+      window.setTimeout(() => {
+        setTurnBannerText(null);
+      }, 1300);
+
+      previousActivePlayerRef.current = winner;
+      startRollRunningRef.current = false;
+    }, START_ROLL_DURATION_MS + START_ROLL_RESULT_DELAY_MS + 650);
+
+    return () => {
+      window.clearTimeout(resultTimer);
+      window.clearTimeout(finishTimer);
+      startRollRunningRef.current = false;
+    };
+  }, [battle.status]);
+
+  useEffect(() => {
+    const owners: PlayerId[] = ["player", "bot"];
+
+    for (const owner of owners) {
+      const previousIds = previousHandIdsRef.current[owner];
+      const currentHand = battle[owner].hand;
+
+      const newCards = currentHand.filter(
+        (card) => !previousIds.has(card.instanceId)
+      );
+
+      if (battle.status === "active" && newCards.length > 0) {
+        for (const drawnCard of newCards) {
+          setHiddenDrawnCardIds((current) => {
+            const next = new Set(current);
+            next.add(drawnCard.instanceId);
+            return next;
+          });
+
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+              playDrawCardAnimation(owner, drawnCard.instanceId);
+            });
+          });
+        }
+      }
+
+      previousHandIdsRef.current[owner] = new Set(
+        currentHand.map((card) => card.instanceId)
+      );
+    }
+  }, [
+    battle.status,
+    battle.player.hand.map((card) => card.instanceId).join("|"),
+    battle.bot.hand.map((card) => card.instanceId).join("|"),
+  ]);
 
   useEffect(() => {
     if (battle.status !== "active") return;
@@ -310,52 +370,6 @@ useEffect(() => {
     };
   }, [battle.activePlayer, battle.status, battle.bot.hand.length]);
 
-  useEffect(() => {
-  if (battle.status !== "active") {
-    previousHandCountsRef.current = {
-      player: battle.player.hand.length,
-      bot: battle.bot.hand.length,
-    };
-
-    previousDeckCountsRef.current = {
-      player: battle.player.deck.length,
-      bot: battle.bot.deck.length,
-    };
-
-    return;
-  }
-
-  const owners: PlayerId[] = ["player", "bot"];
-
-  for (const owner of owners) {
-    const previousHandCount = previousHandCountsRef.current[owner];
-    const previousDeckCount = previousDeckCountsRef.current[owner];
-
-    const currentHandCount = battle[owner].hand.length;
-    const currentDeckCount = battle[owner].deck.length;
-
-    const cardWasDrawn =
-      currentHandCount > previousHandCount &&
-      currentDeckCount < previousDeckCount;
-
-    if (cardWasDrawn) {
-      window.requestAnimationFrame(() => {
-  window.requestAnimationFrame(() => {
-    playDrawCardAnimation(owner);
-  });
-});
-    }
-
-    previousHandCountsRef.current[owner] = currentHandCount;
-    previousDeckCountsRef.current[owner] = currentDeckCount;
-  }
-}, [
-  battle.status,
-  battle.player.hand.length,
-  battle.player.deck.length,
-  battle.bot.hand.length,
-  battle.bot.deck.length,
-]);
 
   useEffect(() => {
   const previousActivePlayer = previousActivePlayerRef.current;
@@ -530,7 +544,9 @@ useEffect(() => {
   const cols = [0, 1, 2, 3, 4] as const;
 
   const selectedTargets =
-    selectedAttacker && battle.activePlayer === "player"
+    selectedAttacker &&
+    battle.status === "active" &&
+    battle.activePlayer === "player"
       ? getTargetsInRange(
           battle,
           "player",
@@ -542,6 +558,7 @@ useEffect(() => {
   const selectedMoveCells =
     selectedAttacker &&
     selectedAttacker.type === "unit" &&
+    battle.status === "active" &&
     battle.activePlayer === "player"
       ? getAvailableMoveCells(battle, "player", selectedAttacker.id)
       : [];
@@ -706,42 +723,51 @@ useEffect(() => {
   }
 
   function playDrawCardAnimation(owner: PlayerId, cardInstanceId: string) {
-  const deckElement = deckRefs.current[owner];
-  const targetCardElement = handCardRefs.current[owner].get(cardInstanceId);
+    const deckElement = deckRefs.current[owner];
+    const targetCardElement = handCardRefs.current[owner].get(cardInstanceId);
 
-  if (!deckElement || !targetCardElement) return;
+    if (!deckElement || !targetCardElement) {
+      setHiddenDrawnCardIds((current) => {
+        const next = new Set(current);
+        next.delete(cardInstanceId);
+        return next;
+      });
 
-  const from = getElementCenterInViewport(deckElement);
-  const to = getElementCenterInViewport(targetCardElement);
+      return;
+    }
 
-  drawCardEffectIdRef.current += 1;
+    const from = getElementCenterInViewport(deckElement);
+    const to = getElementCenterInViewport(targetCardElement);
 
-  const effect: DrawCardEffect = {
-    id: drawCardEffectIdRef.current,
-    owner,
-    from,
-    to,
-  };
+    drawCardEffectIdRef.current += 1;
 
-  setDrawCardEffects((current) => [...current, effect]);
+    const effect: DrawCardEffect = {
+      id: drawCardEffectIdRef.current,
+      owner,
+      from,
+      to,
+    };
 
-  window.setTimeout(() => {
-  setDrawCardEffects((current) =>
-    current.filter((item) => item.id !== effect.id)
-  );
-}, DRAW_CARD_ANIMATION_MS);
+    setDrawCardEffects((current) => [...current, effect]);
 
-window.setTimeout(() => {
-  setHiddenDrawnCardIds((current) => {
-    const next = new Set(current);
-    next.delete(cardInstanceId);
-    return next;
-  });
-}, DRAW_CARD_ANIMATION_MS + DRAW_CARD_REVEAL_DELAY_MS);
-}
+    window.setTimeout(() => {
+      setDrawCardEffects((current) =>
+        current.filter((item) => item.id !== effect.id)
+      );
+    }, DRAW_CARD_ANIMATION_MS);
+
+    window.setTimeout(() => {
+      setHiddenDrawnCardIds((current) => {
+        const next = new Set(current);
+        next.delete(cardInstanceId);
+        return next;
+      });
+    }, DRAW_CARD_ANIMATION_MS + DRAW_CARD_REVEAL_DELAY_MS);
+  }
 
 
-  function handleCellClick(position: Position) {
+    function handleCellClick(position: Position) {
+    if (battle.status !== "active") return;
     if (battle.activePlayer !== "player") return;
 
     if (selectedCardInstanceId) {
@@ -772,6 +798,7 @@ window.setTimeout(() => {
     targetId: string
   ) {
     if (!selectedAttacker) return;
+    if (battle.status !== "active") return;
     if (battle.activePlayer !== "player") return;
 
     await playAttackAnimation(selectedAttacker.id, targetId);
@@ -1041,6 +1068,58 @@ function renderEnemyDeckWithTimer() {
           <section style={styles.boardShell}>
             <div style={styles.boardGlow} />
 
+      <AnimatePresence>
+  {startRollState.visible && (
+    <motion.div
+      style={styles.startRollOverlay}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.25 }}
+    >
+      <div style={styles.startRollPanel}>
+        <div style={styles.startRollCenterGroup}>
+          <div style={styles.startRollText}>Определяем первый ход</div>
+
+          <motion.img
+            src={cartridgeImage}
+            alt="Жеребьевка первого хода"
+            style={styles.startRollCartridge}
+            initial={{ rotate: 0, scale: 0.9 }}
+            animate={{
+              rotate: startRollState.finalRotation,
+              scale: 1,
+            }}
+            transition={{
+              duration: START_ROLL_DURATION_MS / 1000,
+              ease: [0.08, 0.82, 0.18, 1],
+            }}
+          />
+
+          {startRollState.resultVisible && startRollState.winner && (
+            <motion.div
+              style={{
+                ...styles.startRollResult,
+                ...(startRollState.winner === "player"
+                  ? styles.startRollResultPlayer
+                  : styles.startRollResultBot),
+              }}
+              initial={{ opacity: 0, y: 10, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.25 }}
+            >
+              {startRollState.winner === "player"
+                ? "ПЕРВЫМ ХОДИТ ИГРОК"
+                : "ПЕРВЫМ ХОДИТ ВРАГ"}
+            </motion.div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  )}
+</AnimatePresence>
+
+
             <AnimatePresence>
   {turnBannerText && (
     <motion.div
@@ -1223,6 +1302,8 @@ function renderEnemyDeckWithTimer() {
                         whileHover={{ scale: 1.03 }}
                         whileTap={{ scale: 0.97 }}
                         onClick={() => {
+                          if (battle.status !== "active") return;
+                          if (battle.status !== "active") return;
                           if (battle.activePlayer !== "player") return;
 
                           if (canBeTarget) {
@@ -1307,6 +1388,8 @@ function renderEnemyDeckWithTimer() {
                         whileHover={{ scale: 1.03 }}
                         whileTap={{ scale: 0.97 }}
                         onClick={() => {
+                          if (battle.status !== "active") return;
+                          if (battle.status !== "active") return;
                           if (battle.activePlayer !== "player") return;
 
                           if (canBeTarget) {
@@ -1448,17 +1531,17 @@ function renderEnemyDeckWithTimer() {
                 const card = getCard(cardInstance.cardId);
                 const selected =
                   selectedCardInstanceId === cardInstance.instanceId;
+                const isHiddenDrawnCard = hiddenDrawnCardIds.has(
+                  cardInstance.instanceId
+                );
 
                 return (
                   <motion.button
                     key={cardInstance.instanceId}
                     ref={setHandCardRef("player", cardInstance.instanceId)}
-                    style={{
-    ...styles.card,
-    opacity: hiddenDrawnCardIds.has(cardInstance.instanceId) ? 0 : 1,
-  }}
+                    style={styles.card}
                     initial={{ opacity: 0, y: 16 }}
-                    animate={{ opacity: 1, y: 0 }}
+                    animate={{ opacity: isHiddenDrawnCard ? 0 : 1, y: 0 }}
                     exit={{ opacity: 0, y: -16 }}
                     transition={{
                       type: "spring",
@@ -1467,7 +1550,7 @@ function renderEnemyDeckWithTimer() {
                     }}
                     whileHover={{ y: -108, scale: 1.08 }}
                     whileTap={{ scale: 0.97 }}
-                    disabled={battle.activePlayer !== "player"}
+                    disabled={battle.status !== "active" || battle.activePlayer !== "player"}
                     onClick={() =>
                       selectCard(selected ? null : cardInstance.instanceId)
                     }
@@ -1507,9 +1590,9 @@ function renderEnemyDeckWithTimer() {
         </aside>
       </main>
 
-      {battle.status !== "active" && (
-        <ResultScreen battle={battle} onRestart={reset} />
-      )}
+      {(battle.status === "player_won" || battle.status === "bot_won") && (
+  <ResultScreen battle={battle} onRestart={reset} />
+)}
     </div>
   );
 }
@@ -1603,6 +1686,72 @@ const styles: Record<string, React.CSSProperties> = {
   background: "transparent",
   border: "none",
   boxShadow: "none",
+},
+
+startRollOverlay: {
+  position: "absolute",
+  inset: 0,
+  zIndex: 4000,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  pointerEvents: "none",
+},
+
+startRollPanel: {
+  width: "100%",
+  height: "100%",
+  position: "relative",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+startRollCenterGroup: {
+  position: "relative",
+  display: "grid",
+  gridTemplateRows: "28px 140px 36px",
+  alignItems: "center",
+  justifyItems: "center",
+  gap: 10,
+},
+
+startRollCartridge: {
+  width: 220,
+  height: "auto",
+  gridRow: "2 / 3",
+  filter:
+    "drop-shadow(0 14px 28px rgba(0,0,0,0.55)) drop-shadow(0 0 18px rgba(255,215,120,0.18))",
+  transformOrigin: "50% 50%",
+},
+
+startRollText: {
+  gridRow: "1 / 2",
+  color: "#e6e0cf",
+  fontSize: 18,
+  fontWeight: 800,
+  letterSpacing: 1.2,
+  textTransform: "uppercase",
+  textShadow: "0 2px 10px rgba(0,0,0,0.8)",
+  whiteSpace: "nowrap",
+},
+
+startRollResult: {
+  gridRow: "3 / 4",
+  fontSize: 24,
+  fontWeight: 1000,
+  letterSpacing: 2,
+  textTransform: "uppercase",
+  textShadow: "0 2px 14px rgba(0,0,0,0.9)",
+  whiteSpace: "nowrap",
+},
+
+startRollResultPlayer: {
+  color: "#7dff8a",
+},
+
+startRollResultBot: {
+  color: "#ff6b6b",
 },
 
 enemyHandClip: {

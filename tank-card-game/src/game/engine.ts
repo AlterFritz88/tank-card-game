@@ -218,6 +218,68 @@ function damageHeadquartersFromEmptyDeck(
   }
 }
 
+function drawOneCardWithoutPenalty(state: BattleState, playerId: PlayerId) {
+  const player = state[playerId];
+  const drawnCard = player.deck[0];
+
+  if (!drawnCard) {
+    return false;
+  }
+
+  player.hand.push(drawnCard);
+  player.deck = player.deck.slice(1);
+
+  return true;
+}
+
+function beginBattle(
+  state: BattleState,
+  action: Extract<BattleAction, { type: "BEGIN_BATTLE" }>
+) {
+  if (state.status !== "starting") return;
+
+  const startingPlayer = action.startingPlayer;
+  const secondPlayer = getOpponent(startingPlayer);
+
+  state.status = "active";
+  state.activePlayer = startingPlayer;
+  state.turn = 1;
+
+  for (const owner of ["player", "bot"] as const) {
+    const generatedFuel = calculateFuelGeneration(state, owner);
+
+    state[owner].maxResources = generatedFuel;
+    state[owner].resources = generatedFuel;
+
+    resetStepTimer(state, owner);
+    state.timers[owner].idleStreak = 0;
+    state.timers[owner].actedThisStep = false;
+
+    state.headquarters[owner].alreadyAttacked = false;
+  }
+
+  for (const unit of state.units) {
+    unit.alreadyAttacked = false;
+    unit.alreadyMoved = false;
+  }
+
+  addLog(
+    state,
+    `Первым ходит ${startingPlayer === "player" ? "игрок" : "бот"}.`
+  );
+
+  const secondPlayerDrewCard = drawOneCardWithoutPenalty(state, secondPlayer);
+
+  if (secondPlayerDrewCard) {
+    addLog(
+      state,
+      `${
+        secondPlayer === "player" ? "Игрок" : "Бот"
+      } получает дополнительную карту за второй ход.`
+    );
+  }
+}
+
 function startTurn(state: BattleState, playerId: PlayerId) {
   const player = state[playerId];
 
@@ -697,7 +759,11 @@ export function applyAction(
 ): BattleState {
   const nextState = cloneState(state);
 
-  switch (action.type) {
+    switch (action.type) {
+    case "BEGIN_BATTLE":
+      beginBattle(nextState, action);
+      break;
+
     case "PLAY_CARD":
       playCard(nextState, action);
       break;
