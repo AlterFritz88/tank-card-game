@@ -64,6 +64,8 @@ export type BoardUnit = {
 
   alreadyMoved: boolean;
   alreadyAttacked: boolean;
+
+  spawnedThisTurn: boolean;
 };
 
 export type PlayerTimerState = {
@@ -71,19 +73,6 @@ export type PlayerTimerState = {
   stepTimeLeftMs: number;
   idleStreak: number;
   actedThisStep: boolean;
-};
-
-export type BattleKillStats = {
-  light: number;
-  medium: number;
-  heavy: number;
-  td: number;
-  spg: number;
-};
-
-export type BattleStats = {
-  destroyedByPlayer: BattleKillStats;
-  destroyedByBot: BattleKillStats;
 };
 
 export type PlayCardAction = {
@@ -119,20 +108,14 @@ export type TimerTickAction = {
   elapsedMs: number;
 };
 
-export type BeginBattleAction = {
-  type: "BEGIN_BATTLE";
-  startingPlayer: PlayerId;
-};
-
 export type BattleAction =
   | PlayCardAction
   | MoveUnitAction
   | AttackAction
   | EndTurnAction
-  | TimerTickAction
-  | BeginBattleAction;
+  | TimerTickAction;
 
-export type BattleStatus = "starting" | "active" | "player_won" | "bot_won";
+export type BattleStatus = "active" | "player_won" | "bot_won";
 
 export type BattleState = {
   status: BattleStatus;
@@ -149,4 +132,17 @@ export type BattleState = {
   stats: BattleStats;
 
   log: string[];
+};
+
+export type BattleKillStats = {
+  light: number;
+  medium: number;
+  heavy: number;
+  td: number;
+  spg: number;
+};
+
+export type BattleStats = {
+  destroyedByPlayer: BattleKillStats;
+  destroyedByBot: BattleKillStats;
 };

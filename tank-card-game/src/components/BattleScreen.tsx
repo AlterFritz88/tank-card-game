@@ -360,7 +360,7 @@ export function BattleScreen() {
 
       lastTickTime = now;
 
-      useBattleStore.getState().dispatch({
+      dispatchBattleAction({
         type: "TIMER_TICK",
         elapsedMs,
       });
@@ -757,7 +757,10 @@ export function BattleScreen() {
   }
 
   function dispatchBattleAction(action: BattleAction) {
-    const shouldShowDamage = action.type === "ATTACK";
+    const shouldShowDamage =
+      action.type === "ATTACK" ||
+      action.type === "END_TURN" ||
+      action.type === "TIMER_TICK";
 
     const before = shouldShowDamage
       ? createHpSnapshot(useBattleStore.getState().battle)

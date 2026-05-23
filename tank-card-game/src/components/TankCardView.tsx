@@ -7,6 +7,17 @@ import fuelCanisterIcon from "../assets/icons/fuel-canister-icon.png";
 import attackBadgeImage from "../assets/icons/badge-attack.png";
 import healthBadgeImage from "../assets/icons/badge-health.png";
 
+import classLightPlayerIcon from "../assets/icons/classes/class-light-player.png";
+import classLightEnemyIcon from "../assets/icons/classes/class-light-enemy.png";
+import classMediumPlayerIcon from "../assets/icons/classes/class-medium-player.png";
+import classMediumEnemyIcon from "../assets/icons/classes/class-medium-enemy.png";
+import classHeavyPlayerIcon from "../assets/icons/classes/class-heavy-player.png";
+import classHeavyEnemyIcon from "../assets/icons/classes/class-heavy-enemy.png";
+import classTdPlayerIcon from "../assets/icons/classes/class-td-player.png";
+import classTdEnemyIcon from "../assets/icons/classes/class-td-enemy.png";
+import classSpgPlayerIcon from "../assets/icons/classes/class-spg-player.png";
+import classSpgEnemyIcon from "../assets/icons/classes/class-spg-enemy.png";
+
 type TankCardViewVariant = "hand" | "board";
 
 type TankCardViewProps = {
@@ -20,6 +31,30 @@ type TankCardViewProps = {
   alreadyAttacked?: boolean;
   onClick?: () => void;
 };
+
+function getBoardClassIcon(cardClass: TankCard["class"], ownerId: PlayerId) {
+  const isPlayer = ownerId === "player";
+
+  switch (cardClass) {
+    case "light":
+      return isPlayer ? classLightPlayerIcon : classLightEnemyIcon;
+
+    case "medium":
+      return isPlayer ? classMediumPlayerIcon : classMediumEnemyIcon;
+
+    case "heavy":
+      return isPlayer ? classHeavyPlayerIcon : classHeavyEnemyIcon;
+
+    case "td":
+      return isPlayer ? classTdPlayerIcon : classTdEnemyIcon;
+
+    case "spg":
+      return isPlayer ? classSpgPlayerIcon : classSpgEnemyIcon;
+
+    default:
+      return isPlayer ? classMediumPlayerIcon : classMediumEnemyIcon;
+  }
+}
 
 export function TankCardView({
   card,
@@ -38,6 +73,7 @@ export function TankCardView({
   const hpValue = currentHp ?? card.hp;
   const isHand = variant === "hand";
   const isBoardExhausted = !isHand && alreadyMoved && alreadyAttacked;
+  const boardClassIconImage = getBoardClassIcon(card.class, ownerId);
 
   if (!isHand) {
     return (
@@ -91,23 +127,13 @@ export function TankCardView({
 
         <div style={styles.boardTitleArea}>
           <strong style={styles.boardTitle}>{card.name}</strong>
-          <span
-            style={{
-              ...styles.boardClassIcon,
-              color: ownerId === "player" ? "#8dff9a" : "#ff7770",
-              borderColor:
-                ownerId === "player"
-                  ? "rgba(141, 255, 154, 0.38)"
-                  : "rgba(255, 119, 112, 0.42)",
-              background:
-                ownerId === "player"
-                  ? "rgba(16, 46, 22, 0.72)"
-                  : "rgba(58, 18, 18, 0.72)",
-            }}
+          <img
+            src={boardClassIconImage}
+            alt={unitClass.label}
             title={unitClass.label}
-          >
-            {unitClass.icon}
-          </span>
+            style={styles.boardClassIconImage}
+            draggable={false}
+          />
         </div>
 
         <div style={styles.boardActionCost} title="Стоимость действия">
@@ -132,7 +158,12 @@ export function TankCardView({
           </div>
 
           <div style={styles.boardHealthIconWrap} title="Здоровье">
-            <img src={healthBadgeImage} alt="" style={styles.boardHealthIconImage} draggable={false} />
+            <img
+              src={healthBadgeImage}
+              alt=""
+              style={styles.boardHealthIconImage}
+              draggable={false}
+            />
             <strong style={styles.boardHealthValue}>{hpValue}</strong>
           </div>
         </div>
@@ -559,12 +590,12 @@ const styles: Record<string, React.CSSProperties> = {
 
   boardFriendlyGradient: {
     background:
-      "linear-gradient(135deg, rgba(80, 255, 130, 0.28) 0%, rgba(80, 255, 130, 0.11) 25%, rgba(80, 255, 130, 0.025) 48%, rgba(80, 255, 130, 0) 72%), radial-gradient(circle at 0% 0%, rgba(80,255,130,0.12), transparent 48%)",
+      "linear-gradient(315deg, rgba(80, 255, 130, 0.28) 0%, rgba(80, 255, 130, 0.11) 25%, rgba(80, 255, 130, 0.025) 48%, rgba(80, 255, 130, 0) 72%), radial-gradient(circle at 100% 100%, rgba(80,255,130,0.12), transparent 48%)",
   },
 
   boardEnemyGradient: {
     background:
-      "linear-gradient(135deg, rgba(255, 70, 55, 0.30) 0%, rgba(255, 70, 55, 0.12) 25%, rgba(255, 70, 55, 0.03) 48%, rgba(255, 70, 55, 0) 72%), radial-gradient(circle at 0% 0%, rgba(255,70,55,0.13), transparent 48%)",
+      "linear-gradient(315deg, rgba(255, 70, 55, 0.30) 0%, rgba(255, 70, 55, 0.12) 25%, rgba(255, 70, 55, 0.03) 48%, rgba(255, 70, 55, 0) 72%), radial-gradient(circle at 100% 100%, rgba(255,70,55,0.13), transparent 48%)",
   },
 
   boardTitleArea: {
@@ -592,19 +623,14 @@ const styles: Record<string, React.CSSProperties> = {
       "0 1px 0 rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.95)",
   },
 
-  boardClassIcon: {
-    minWidth: 18,
-    height: 18,
-    padding: "0 4px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 6,
-    border: "1px solid",
-    boxShadow: "0 3px 8px rgba(0,0,0,0.55)",
-    fontSize: 11,
-    lineHeight: 1,
-    fontWeight: 900,
+  boardClassIconImage: {
+    width: 24,
+    height: 24,
+    objectFit: "contain",
+    display: "block",
+    filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.8))",
+    pointerEvents: "none",
+    userSelect: "none",
   },
 
   boardActionCost: {
@@ -630,17 +656,17 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   boardCombatStats: {
-  position: "absolute",
-  left: -7,
-  bottom: -6,
-  zIndex: 8,
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  gap: 0,
-  padding: 0,
-  pointerEvents: "none",
-},
+    position: "absolute",
+    left: -7,
+    bottom: -6,
+    zIndex: 8,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 0,
+    padding: 0,
+    pointerEvents: "none",
+  },
 
   boardAttackIconWrap: {
     position: "relative",
@@ -660,15 +686,15 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   boardHealthIconWrap: {
-  position: "relative",
-  width: 38,
-  height: 43,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  marginTop: -10,
-  filter: "drop-shadow(0 5px 10px rgba(0,0,0,0.66))",
-},
+    position: "relative",
+    width: 38,
+    height: 43,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: -10,
+    filter: "drop-shadow(0 5px 10px rgba(0,0,0,0.66))",
+  },
 
   boardAttackIconImage: {
     position: "absolute",

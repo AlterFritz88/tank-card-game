@@ -261,6 +261,7 @@ function beginBattle(
   for (const unit of state.units) {
     unit.alreadyAttacked = false;
     unit.alreadyMoved = false;
+    unit.spawnedThisTurn = false;
   }
 
   addLog(
@@ -316,6 +317,7 @@ function startTurn(state: BattleState, playerId: PlayerId) {
     if (unit.ownerId === playerId) {
       unit.alreadyAttacked = false;
       unit.alreadyMoved = false;
+      unit.spawnedThisTurn = false;
     }
   }
 
@@ -360,6 +362,7 @@ function playCard(
 
     alreadyAttacked: !isLightTank,
     alreadyMoved: !isLightTank,
+    spawnedThisTurn: true,
   };
 
   state.units.push(unit);
@@ -579,11 +582,11 @@ function canUnitMoveTo(
   const manhattan = manhattanDistance(from, to);
 
   if (isSpawnBonusMove && card.class === "light") {
-    return isAdjacentAnyDirection(from, to);
+    return straight && manhattan === 1;
   }
 
   if (card.class === "light") {
-    return (diagonal && manhattan === 2) || (straight && manhattan <= 2);
+    return (diagonal && manhattan === 2) || (straight && manhattan === 2);
   }
 
   if (card.class === "medium") {
@@ -609,8 +612,7 @@ function moveUnit(
 
   const card = getCard(unit.cardId);
 
-  const isSpawnBonusMove =
-    card.class === "light" && !unit.alreadyMoved && !unit.alreadyAttacked;
+  const isSpawnBonusMove = card.class === "light" && unit.spawnedThisTurn;
 
   if (!canUnitMoveTo(card, unit.position, action.position, isSpawnBonusMove)) {
     return;
@@ -622,6 +624,7 @@ function moveUnit(
 
   unit.position = action.position;
   unit.alreadyMoved = true;
+  unit.spawnedThisTurn = false;
 
   markSuccessfulAction(state, action.playerId);
 
@@ -870,8 +873,7 @@ export function getAvailableMoveCells(
   const rows = [0, 1, 2] as const;
   const cols = [0, 1, 2, 3, 4] as const;
 
-  const isSpawnBonusMove =
-    card.class === "light" && !unit.alreadyMoved && !unit.alreadyAttacked;
+  const isSpawnBonusMove = card.class === "light" && unit.spawnedThisTurn;
 
   for (const row of rows) {
     for (const col of cols) {
