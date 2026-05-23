@@ -6,6 +6,7 @@ import ussrCardBackground from "../assets/cards/nation-ussr-bg.png";
 import fuelCanisterIcon from "../assets/icons/fuel-canister-icon.png";
 import attackBadgeImage from "../assets/icons/badge-attack.png";
 import healthBadgeImage from "../assets/icons/badge-health.png";
+import actionCostBadgeImage from "../assets/icons/badge-action-cost.png";
 import classLightPlayerIcon from "../assets/icons/classes/class-light-player.png";
 import classLightEnemyIcon from "../assets/icons/classes/class-light-enemy.png";
 import classMediumPlayerIcon from "../assets/icons/classes/class-medium-player.png";
@@ -138,7 +139,15 @@ export function TankCardView({
         </div>
 
         <div style={styles.boardActionCost} title="Стоимость действия">
-          {card.actionFuelCost}
+          <img
+            src={actionCostBadgeImage}
+            alt=""
+            style={styles.boardActionCostIcon}
+            draggable={false}
+          />
+          <strong style={styles.boardActionCostValue}>
+            {card.actionFuelCost}
+          </strong>
         </div>
 
         <div style={styles.boardCombatStats}>
@@ -155,7 +164,24 @@ export function TankCardView({
               style={styles.boardAttackIconImage}
               draggable={false}
             />
-            <strong style={styles.boardAttackValue}>{card.attack}</strong>
+            <div
+              style={{
+                ...styles.boardAttackTint,
+                ...(ownerId === "player"
+                  ? styles.boardAttackTintPlayer
+                  : styles.boardAttackTintEnemy),
+              }}
+            />
+            <strong
+              style={{
+                ...styles.boardAttackValue,
+                ...(ownerId === "player"
+                  ? styles.boardAttackValuePlayer
+                  : styles.boardAttackValueEnemy),
+              }}
+            >
+              {card.attack}
+            </strong>
           </div>
 
           <div style={styles.boardHealthIconWrap} title="Здоровье">
@@ -647,31 +673,49 @@ const styles: Record<string, React.CSSProperties> = {
     objectFit: "contain",
     display: "block",
     flex: "0 0 auto",
-    filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.85))",
+    filter:
+    "brightness(1.28) saturate(1.35) contrast(1.58) drop-shadow(0 1px 3px rgba(0,0,0,0.85))",
     pointerEvents: "none",
     userSelect: "none",
   },
 
   boardActionCost: {
     position: "absolute",
-    right: 3,
-    top: 3,
+    right: 1,
+    top: 1,
     zIndex: 7,
-    minWidth: 22,
-    height: 22,
+    width: 30,
+    height: 30,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 999,
-    background:
-      "radial-gradient(circle at 40% 30%, rgba(255,220,120,0.96), rgba(132,84,22,0.96))",
-    border: "1px solid rgba(255,235,160,0.58)",
-    color: "#170d03",
-    fontSize: 13,
-    fontWeight: 1000,
-    textShadow: "0 1px 0 rgba(255,255,255,0.32)",
-    boxShadow: "0 4px 10px rgba(0,0,0,0.58)",
     pointerEvents: "none",
+  },
+
+  boardActionCostIcon: {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    pointerEvents: "none",
+    userSelect: "none",
+    filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.66))",
+  },
+
+  boardActionCostValue: {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    zIndex: 2,
+    transform: "translate(-50%, -50%)",
+    fontSize: 14,
+    lineHeight: 1,
+    color: "#f6d27a",
+    fontWeight: 1000,
+    textAlign: "center",
+    textShadow:
+      "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
   },
 
   boardCombatStats: {
@@ -725,6 +769,25 @@ const styles: Record<string, React.CSSProperties> = {
     userSelect: "none",
   },
 
+  boardAttackTint: {
+    position: "absolute",
+    inset: 2,
+    zIndex: 1,
+    borderRadius: "999px",
+    pointerEvents: "none",
+    mixBlendMode: "screen",
+  },
+
+  boardAttackTintPlayer: {
+    background:
+      "radial-gradient(circle at center, rgba(93, 255, 116, 0.42) 0%, rgba(93, 255, 116, 0.26) 45%, rgba(93, 255, 116, 0.08) 72%, rgba(93, 255, 116, 0) 100%)",
+  },
+
+  boardAttackTintEnemy: {
+    background:
+      "radial-gradient(circle at center, rgba(255, 74, 64, 0.46) 0%, rgba(255, 74, 64, 0.28) 45%, rgba(255, 74, 64, 0.09) 72%, rgba(255, 74, 64, 0) 100%)",
+  },
+
   boardHealthIconImage: {
     position: "absolute",
     inset: 0,
@@ -741,12 +804,20 @@ const styles: Record<string, React.CSSProperties> = {
     top: "47%",
     zIndex: 2,
     transform: "translate(-50%, -50%)",
-    fontSize: 18,
+    fontSize: 16,
     lineHeight: 1,
-    color: "#f4ffd8",
-    fontWeight: 1000,
+    fontFamily: "'Rajdhani', 'Arial Narrow', sans-serif",
+    fontWeight: 600,
     textAlign: "center",
     textShadow: "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
+  },
+
+  boardAttackValuePlayer: {
+    color: "#9cff9f",
+  },
+
+  boardAttackValueEnemy: {
+    color: "#ff6b64",
   },
 
   boardHealthValue: {
@@ -755,10 +826,11 @@ const styles: Record<string, React.CSSProperties> = {
     top: "43%",
     zIndex: 2,
     transform: "translate(-50%, -50%)",
-    fontSize: 18,
+    fontSize: 16,
     lineHeight: 1,
     color: "#ffe4d8",
-    fontWeight: 1000,
+    fontFamily: "'Rajdhani', 'Arial Narrow', sans-serif",
+    fontWeight: 600,
     textAlign: "center",
     textShadow: "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
   },

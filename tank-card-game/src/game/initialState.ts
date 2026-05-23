@@ -39,12 +39,27 @@ function createCardInstances(cardIds: string[], owner: PlayerId): CardInstance[]
   }));
 }
 
+function shuffleCards<T>(items: T[]): T[] {
+  const result = [...items];
+
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+
+    [result[index], result[randomIndex]] = [
+      result[randomIndex],
+      result[index],
+    ];
+  }
+
+  return result;
+}
+
 function createPlayerState(owner: PlayerId, deckCardIds: string[]): PlayerState {
-  const deck = createCardInstances(deckCardIds, owner);
+  const deck = shuffleCards(createCardInstances(deckCardIds, owner));
 
   return {
-    deck: deck.slice(3),
-    hand: deck.slice(0, 3),
+    deck,
+    hand: [],
     discard: [],
 
     resources: 0,

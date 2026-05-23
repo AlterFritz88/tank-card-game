@@ -66,6 +66,7 @@ export type BoardUnit = {
   alreadyAttacked: boolean;
 
   spawnedThisTurn: boolean;
+  moveCountThisTurn: number;
 };
 
 export type PlayerTimerState = {

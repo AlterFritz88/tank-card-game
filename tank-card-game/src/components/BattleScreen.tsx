@@ -252,6 +252,17 @@ export function BattleScreen() {
     };
   }
 
+  function getPlayerHandCardMarginLeft(index: number, totalCards: number) {
+    if (index === 0) return 0;
+
+    if (totalCards <= 5) {
+      return 12;
+    }
+
+    return -Math.min(98, 10 + (totalCards - 6) * 14);
+  }
+
+
   useEffect(() => {
     if (battle.status !== "starting") {
       if (battle.status === "active") {
@@ -325,19 +336,25 @@ export function BattleScreen() {
       );
 
       if (battle.status === "active" && newCards.length > 0) {
-        for (const drawnCard of newCards) {
-          setHiddenDrawnCardIds((current) => {
-            const next = new Set(current);
-            next.add(drawnCard.instanceId);
-            return next;
-          });
+        setHiddenDrawnCardIds((current) => {
+          const next = new Set(current);
 
-          window.requestAnimationFrame(() => {
+          for (const drawnCard of newCards) {
+            next.add(drawnCard.instanceId);
+          }
+
+          return next;
+        });
+
+        newCards.forEach((drawnCard, index) => {
+          window.setTimeout(() => {
             window.requestAnimationFrame(() => {
-              playDrawCardAnimation(owner, drawnCard.instanceId);
+              window.requestAnimationFrame(() => {
+                playDrawCardAnimation(owner, drawnCard.instanceId);
+              });
             });
-          });
-        }
+          }, index * 140);
+        });
       }
 
       previousHandIdsRef.current[owner] = new Set(
@@ -1742,7 +1759,18 @@ function renderEnemyDeckWithTimer() {
                   <motion.button
                     key={cardInstance.instanceId}
                     ref={setHandCardRef("player", cardInstance.instanceId)}
-                    style={styles.card}
+                    style={{
+                      ...styles.card,
+                      marginLeft: getPlayerHandCardMarginLeft(
+                        index,
+                        battle.player.hand.length
+                      ),
+                      zIndex: selected ? 120 : index + 1,
+                      pointerEvents:
+                        isHiddenDrawnCard || isHiddenSpawningCard
+                          ? "none"
+                          : "auto",
+                    }}
                     initial={{ opacity: 0, y: 16 }}
                     animate={{
                       opacity:
@@ -1760,7 +1788,9 @@ function renderEnemyDeckWithTimer() {
                     disabled={
                       battle.status !== "active" ||
                       battle.activePlayer !== "player" ||
-                      Boolean(spawningCardInstanceId)
+                      Boolean(spawningCardInstanceId) ||
+                      isHiddenDrawnCard ||
+                      isHiddenSpawningCard
                     }
                     onClick={() =>
                       selectCard(selected ? null : cardInstance.instanceId)
@@ -2098,13 +2128,11 @@ actionSideColumn: {
 },
 
   spawnCell: {
-    border: "1px dashed rgba(125, 227, 141, 0.55)",
     background:
       "linear-gradient(135deg, rgba(35, 66, 36, 0.48), rgba(8, 13, 8, 0.62))",
   },
 
   botSpawnCell: {
-  border: "1px dashed rgba(255, 105, 88, 0.55)",
   background:
     "linear-gradient(135deg, rgba(92, 32, 32, 0.46), rgba(23, 8, 8, 0.64))",
   boxShadow:
@@ -2184,24 +2212,28 @@ actionSideColumn: {
 },
 
  hand: {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))",
-  gridAutoRows: "minmax(332px, auto)",
-  gap: 12,
-  alignItems: "start",
+  display: "flex",
+  flexWrap: "nowrap",
+  justifyContent: "center",
+  alignItems: "flex-start",
+  gap: 0,
+  minHeight: 350,
   overflow: "visible",
   position: "relative",
   zIndex: 30,
 },
 
   card: {
+  flex: "0 0 175px",
+  width: 175,
+  maxWidth: 175,
   border: "none",
   background: "transparent",
   color: "#eef2f3",
   padding: 0,
   cursor: "pointer",
   textAlign: "left",
-  height: "100%",
+  height: "auto",
   display: "flex",
   alignItems: "flex-start",
   overflow: "visible",
@@ -2560,10 +2592,10 @@ turnCounterValue: {
 
   projectileImage: {
     position: "absolute",
-    width: 96,
-    height: 28,
-    marginLeft: -48,
-    marginTop: -14,
+    width: 132,
+    height: 38,
+    marginLeft: -66,
+    marginTop: -19,
     zIndex: 20,
     pointerEvents: "none",
     transformOrigin: "center center",

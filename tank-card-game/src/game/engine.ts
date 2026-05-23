@@ -232,6 +232,24 @@ function drawOneCardWithoutPenalty(state: BattleState, playerId: PlayerId) {
   return true;
 }
 
+function drawCardsWithoutPenalty(
+  state: BattleState,
+  playerId: PlayerId,
+  count: number
+) {
+  let drawnCount = 0;
+
+  for (let index = 0; index < count; index += 1) {
+    const drawn = drawOneCardWithoutPenalty(state, playerId);
+
+    if (!drawn) break;
+
+    drawnCount += 1;
+  }
+
+  return drawnCount;
+}
+
 function beginBattle(
   state: BattleState,
   action: Extract<BattleAction, { type: "BEGIN_BATTLE" }>
@@ -262,23 +280,39 @@ function beginBattle(
     unit.alreadyAttacked = false;
     unit.alreadyMoved = false;
     unit.spawnedThisTurn = false;
+    unit.moveCountThisTurn = 0;
   }
+
+  const startingPlayerDrawnCards = drawCardsWithoutPenalty(
+    state,
+    startingPlayer,
+    3
+  );
+
+  const secondPlayerDrawnCards = drawCardsWithoutPenalty(
+    state,
+    secondPlayer,
+    4
+  );
 
   addLog(
     state,
     `Первым ходит ${startingPlayer === "player" ? "игрок" : "бот"}.`
   );
 
-  const secondPlayerDrewCard = drawOneCardWithoutPenalty(state, secondPlayer);
+  addLog(
+    state,
+    `${
+      startingPlayer === "player" ? "Игрок" : "Бот"
+    } получает стартовую руку: ${startingPlayerDrawnCards} карты.`
+  );
 
-  if (secondPlayerDrewCard) {
-    addLog(
-      state,
-      `${
-        secondPlayer === "player" ? "Игрок" : "Бот"
-      } получает дополнительную карту за второй ход.`
-    );
-  }
+  addLog(
+    state,
+    `${
+      secondPlayer === "player" ? "Игрок" : "Бот"
+    } получает стартовую руку и бонус за второй ход: ${secondPlayerDrawnCards} карты.`
+  );
 }
 
 function startTurn(state: BattleState, playerId: PlayerId) {
@@ -318,6 +352,7 @@ function startTurn(state: BattleState, playerId: PlayerId) {
       unit.alreadyAttacked = false;
       unit.alreadyMoved = false;
       unit.spawnedThisTurn = false;
+      unit.moveCountThisTurn = 0;
     }
   }
 
@@ -363,6 +398,7 @@ function playCard(
     alreadyAttacked: !isLightTank,
     alreadyMoved: !isLightTank,
     spawnedThisTurn: true,
+    moveCountThisTurn: 0,
   };
 
   state.units.push(unit);
@@ -569,24 +605,56 @@ function attack(state: BattleState, action: AttackAction) {
   }
 }
 
+function getLightTankMoveCost(
+  from: Position,
+  to: Position,
+  isSpawnBonusMove: boolean
+): number | null {
+  const straight = isStraightMove(from, to);
+  const diagonal = isDiagonalMove(from, to);
+  const manhattan = manhattanDistance(from, to);
+
+  if (isSpawnBonusMove) {
+    return straight && manhattan === 1 ? 1 : null;
+  }
+
+  if (diagonal) {
+    return 2;
+  }
+
+  if (straight && manhattan === 1) {
+    return 1;
+  }
+
+  if (straight && manhattan === 2) {
+    return 2;
+  }
+
+  return null;
+}
+
 function canUnitMoveTo(
   card: TankCard,
   from: Position,
   to: Position,
-  isSpawnBonusMove: boolean
+  isSpawnBonusMove: boolean,
+  moveCountThisTurn = 0
 ): boolean {
   if (samePosition(from, to)) return false;
 
-  const diagonal = isDiagonalMove(from, to);
   const straight = isStraightMove(from, to);
   const manhattan = manhattanDistance(from, to);
 
-  if (isSpawnBonusMove && card.class === "light") {
-    return straight && manhattan === 1;
-  }
-
   if (card.class === "light") {
-    return (diagonal && manhattan === 2) || (straight && manhattan === 2);
+    const moveCost = getLightTankMoveCost(from, to, isSpawnBonusMove);
+
+    if (moveCost === null) return false;
+
+    if (isSpawnBonusMove) {
+      return straight && manhattan === 1;
+    }
+
+    return moveCountThisTurn + moveCost <= 2;
   }
 
   if (card.class === "medium") {
@@ -611,10 +679,20 @@ function moveUnit(
   if (isCellOccupied(state, action.position)) return;
 
   const card = getCard(unit.cardId);
+  const fromPosition = unit.position;
+  const isLightTank = card.class === "light";
+  const moveCountThisTurn = unit.moveCountThisTurn ?? 0;
+  const isSpawnBonusMove = isLightTank && unit.spawnedThisTurn;
 
-  const isSpawnBonusMove = card.class === "light" && unit.spawnedThisTurn;
-
-  if (!canUnitMoveTo(card, unit.position, action.position, isSpawnBonusMove)) {
+  if (
+    !canUnitMoveTo(
+      card,
+      fromPosition,
+      action.position,
+      isSpawnBonusMove,
+      moveCountThisTurn
+    )
+  ) {
     return;
   }
 
@@ -623,8 +701,27 @@ function moveUnit(
   }
 
   unit.position = action.position;
-  unit.alreadyMoved = true;
-  unit.spawnedThisTurn = false;
+
+  if (isLightTank) {
+    const moveCost =
+      getLightTankMoveCost(fromPosition, action.position, isSpawnBonusMove) ?? 1;
+
+    if (isSpawnBonusMove) {
+      unit.moveCountThisTurn = 1;
+      unit.alreadyMoved = true;
+    } else {
+      const nextMoveCount = moveCountThisTurn + moveCost;
+
+      unit.moveCountThisTurn = nextMoveCount;
+      unit.alreadyMoved = nextMoveCount >= 2;
+    }
+
+    unit.spawnedThisTurn = false;
+  } else {
+    unit.alreadyMoved = true;
+    unit.spawnedThisTurn = false;
+    unit.moveCountThisTurn = 1;
+  }
 
   markSuccessfulAction(state, action.playerId);
 
@@ -874,6 +971,7 @@ export function getAvailableMoveCells(
   const cols = [0, 1, 2, 3, 4] as const;
 
   const isSpawnBonusMove = card.class === "light" && unit.spawnedThisTurn;
+  const moveCountThisTurn = unit.moveCountThisTurn ?? 0;
 
   for (const row of rows) {
     for (const col of cols) {
@@ -881,7 +979,15 @@ export function getAvailableMoveCells(
 
       if (isCellOccupied(state, position)) continue;
 
-      if (!canUnitMoveTo(card, unit.position, position, isSpawnBonusMove)) {
+      if (
+        !canUnitMoveTo(
+          card,
+          unit.position,
+          position,
+          isSpawnBonusMove,
+          moveCountThisTurn
+        )
+      ) {
         continue;
       }
 

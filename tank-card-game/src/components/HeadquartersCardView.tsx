@@ -3,7 +3,7 @@ import type { PlayerId } from "../game/types";
 import prototypeTankImage from "../assets/tanks/prototype-tank.png";
 import attackBadgeImage from "../assets/icons/badge-attack.png";
 import healthBadgeImage from "../assets/icons/badge-health.png";
-import fuelCanisterIcon from "../assets/icons/fuel-canister-icon.png";
+import actionCostBadgeImage from "../assets/icons/badge-action-cost.png";
 
 const headquartersImageModules = import.meta.glob(
   "../assets/headquarters/*.{png,jpg,jpeg,webp}",
@@ -100,7 +100,6 @@ export function HeadquartersCardView({
   ownerId,
   hp,
   attack,
-  fuelGeneration,
   actionFuelCost,
   selected = false,
   alreadyAttacked = false,
@@ -131,31 +130,39 @@ export function HeadquartersCardView({
       />
 
       <div style={styles.titleArea}>
-        <strong style={styles.title}>{isPlayer ? "Штаб" : "Штаб врага"}</strong>
+        <div style={styles.titleRow}>
+          {headquartersClassIcon ? (
+            <img
+              src={headquartersClassIcon}
+              alt=""
+              title="Штаб"
+              style={styles.classIconImage}
+              draggable={false}
+            />
+          ) : (
+            <span
+              style={{
+                ...styles.fallbackClassIcon,
+                color: isPlayer ? "#8dff9a" : "#ff7770",
+              }}
+              title="Штаб"
+            >
+              ⚑
+            </span>
+          )}
 
-        {headquartersClassIcon ? (
-          <img
-            src={headquartersClassIcon}
-            alt=""
-            title="Штаб"
-            style={styles.classIconImage}
-            draggable={false}
-          />
-        ) : (
-          <span
-            style={{
-              ...styles.fallbackClassIcon,
-              color: isPlayer ? "#8dff9a" : "#ff7770",
-            }}
-            title="Штаб"
-          >
-            ⚑
-          </span>
-        )}
+          <strong style={styles.title}>Штаб</strong>
+        </div>
       </div>
 
       <div style={styles.actionCost} title="Стоимость действия">
-        {actionFuelCost}
+        <img
+          src={actionCostBadgeImage}
+          alt=""
+          style={styles.actionCostIcon}
+          draggable={false}
+        />
+        <strong style={styles.actionCostValue}>{actionFuelCost}</strong>
       </div>
 
       <div style={styles.combatStats}>
@@ -172,7 +179,22 @@ export function HeadquartersCardView({
             style={styles.statIconImage}
             draggable={false}
           />
-          <strong style={styles.attackValue}>{attack}</strong>
+
+          <div
+            style={{
+              ...styles.attackOwnerTint,
+              ...(isPlayer ? styles.attackPlayerTint : styles.attackEnemyTint),
+            }}
+          />
+
+          <strong
+            style={{
+              ...styles.attackValue,
+              ...(isPlayer ? styles.attackValuePlayer : styles.attackValueEnemy),
+            }}
+          >
+            {attack}
+          </strong>
         </div>
 
         <div style={styles.healthIconWrap} title="Здоровье">
@@ -184,23 +206,8 @@ export function HeadquartersCardView({
           />
           <strong style={styles.healthValue}>{hp}</strong>
         </div>
-
-        <div style={styles.fuelIconWrap} title="Генерация топлива">
-          <img
-            src={fuelCanisterIcon}
-            alt=""
-            style={styles.fuelIconImage}
-            draggable={false}
-          />
-          <strong style={styles.fuelValue}>+{fuelGeneration}</strong>
-        </div>
       </div>
 
-      {alreadyAttacked && (
-        <div style={styles.statusRow}>
-          <span style={styles.statusBadge}>FIRE</span>
-        </div>
-      )}
     </div>
   );
 }
@@ -266,15 +273,18 @@ const styles: Record<string, React.CSSProperties> = {
     top: 3,
     zIndex: 6,
     maxWidth: "calc(100% - 34px)",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-start",
-    gap: 2,
     pointerEvents: "none",
   },
 
+  titleRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 3,
+    minWidth: 0,
+  },
+
   title: {
-    maxWidth: "100%",
+    minWidth: 0,
     overflow: "hidden",
     whiteSpace: "nowrap",
     textOverflow: "ellipsis",
@@ -286,47 +296,68 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   classIconImage: {
-    width: 24,
-    height: 24,
+    width: 14,
+    height: 14,
     objectFit: "contain",
     display: "block",
-    filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.75))",
+    flex: "0 0 auto",
+    filter:
+      "brightness(1.28) saturate(1.35) contrast(1.58) drop-shadow(0 1px 3px rgba(0,0,0,0.85))",
     pointerEvents: "none",
     userSelect: "none",
   },
 
   fallbackClassIcon: {
-    width: 24,
-    height: 24,
+    width: 14,
+    height: 14,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontSize: 20,
+    flex: "0 0 auto",
+    fontSize: 12,
     lineHeight: 1,
     fontWeight: 900,
-    textShadow: "0 2px 4px rgba(0,0,0,0.75)",
+    textShadow: "0 1px 3px rgba(0,0,0,0.85)",
   },
 
   actionCost: {
     position: "absolute",
-    right: 3,
-    top: 3,
+    right: 1,
+    top: 1,
     zIndex: 7,
-    minWidth: 22,
-    height: 22,
+    width: 30,
+    height: 30,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 999,
-    background:
-      "radial-gradient(circle at 40% 30%, rgba(255,220,120,0.96), rgba(132,84,22,0.96))",
-    border: "1px solid rgba(255,235,160,0.58)",
-    color: "#170d03",
-    fontSize: 13,
-    fontWeight: 1000,
-    textShadow: "0 1px 0 rgba(255,255,255,0.32)",
-    boxShadow: "0 4px 10px rgba(0,0,0,0.58)",
     pointerEvents: "none",
+  },
+
+  actionCostIcon: {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    pointerEvents: "none",
+    userSelect: "none",
+    filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.66))",
+  },
+
+  actionCostValue: {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    zIndex: 2,
+    transform: "translate(-50%, -50%)",
+    fontSize: 14,
+    lineHeight: 1,
+    color: "#f6d27a",
+    fontFamily: "'Rajdhani', 'Arial Narrow', sans-serif",
+    fontWeight: 600,
+    textAlign: "center",
+    textShadow:
+      "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
   },
 
   combatStats: {
@@ -359,22 +390,30 @@ const styles: Record<string, React.CSSProperties> = {
       "grayscale(0.45) brightness(0.55) drop-shadow(0 3px 7px rgba(0,0,0,0.62))",
   },
 
+  attackOwnerTint: {
+    position: "absolute",
+    inset: 2,
+    zIndex: 1,
+    borderRadius: 999,
+    mixBlendMode: "screen",
+    pointerEvents: "none",
+  },
+
+  attackPlayerTint: {
+    background:
+      "radial-gradient(circle at 50% 50%, rgba(94,255,126,0.42), rgba(94,255,126,0.20) 48%, rgba(94,255,126,0.04) 72%, transparent 100%)",
+  },
+
+  attackEnemyTint: {
+    background:
+      "radial-gradient(circle at 50% 50%, rgba(255,72,66,0.44), rgba(255,72,66,0.22) 48%, rgba(255,72,66,0.05) 72%, transparent 100%)",
+  },
+
   healthIconWrap: {
     position: "relative",
     width: 38,
     height: 43,
     marginTop: -10,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    filter: "drop-shadow(0 5px 10px rgba(0,0,0,0.66))",
-  },
-
-  fuelIconWrap: {
-    position: "relative",
-    width: 34,
-    height: 38,
-    marginTop: -9,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -391,29 +430,27 @@ const styles: Record<string, React.CSSProperties> = {
     userSelect: "none",
   },
 
-  fuelIconImage: {
-    position: "absolute",
-    inset: 0,
-    width: "100%",
-    height: "100%",
-    objectFit: "contain",
-    pointerEvents: "none",
-    userSelect: "none",
-  },
-
   attackValue: {
     position: "absolute",
     left: "50%",
     top: "47%",
     zIndex: 2,
     transform: "translate(-50%, -50%)",
-    fontSize: 18,
+    fontSize: 16,
     lineHeight: 1,
-    color: "#f4ffd8",
-    fontWeight: 1000,
+    fontFamily: "'Rajdhani', 'Arial Narrow', sans-serif",
+    fontWeight: 600,
     textAlign: "center",
     textShadow:
       "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
+  },
+
+  attackValuePlayer: {
+    color: "#8dff9a",
+  },
+
+  attackValueEnemy: {
+    color: "#ff7770",
   },
 
   healthValue: {
@@ -422,25 +459,11 @@ const styles: Record<string, React.CSSProperties> = {
     top: "43%",
     zIndex: 2,
     transform: "translate(-50%, -50%)",
-    fontSize: 18,
+    fontSize: 16,
     lineHeight: 1,
     color: "#ffe4d8",
-    fontWeight: 1000,
-    textAlign: "center",
-    textShadow:
-      "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
-  },
-
-  fuelValue: {
-    position: "absolute",
-    left: "50%",
-    top: "53%",
-    zIndex: 2,
-    transform: "translate(-50%, -50%)",
-    fontSize: 13,
-    lineHeight: 1,
-    color: "#f6d27a",
-    fontWeight: 1000,
+    fontFamily: "'Rajdhani', 'Arial Narrow', sans-serif",
+    fontWeight: 600,
     textAlign: "center",
     textShadow:
       "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
