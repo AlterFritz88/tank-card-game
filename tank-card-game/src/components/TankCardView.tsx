@@ -1,12 +1,11 @@
 import type React from "react";
 import type { PlayerId, TankCard } from "../game/types";
 import { getClassVisual, getNationVisual } from "../game/cardVisuals";
-import prototypeTankImage from "../assets/tanks/prototype-tank.png";
+import { getTankImage } from "../game/tankImages";
 import ussrCardBackground from "../assets/cards/nation-ussr-bg.png";
 import fuelCanisterIcon from "../assets/icons/fuel-canister-icon.png";
 import attackBadgeImage from "../assets/icons/badge-attack.png";
 import healthBadgeImage from "../assets/icons/badge-health.png";
-
 import classLightPlayerIcon from "../assets/icons/classes/class-light-player.png";
 import classLightEnemyIcon from "../assets/icons/classes/class-light-enemy.png";
 import classMediumPlayerIcon from "../assets/icons/classes/class-medium-player.png";
@@ -73,6 +72,7 @@ export function TankCardView({
   const hpValue = currentHp ?? card.hp;
   const isHand = variant === "hand";
   const isBoardExhausted = !isHand && alreadyMoved && alreadyAttacked;
+  const tankImage = getTankImage(card.id);
   const boardClassIconImage = getBoardClassIcon(card.class, ownerId);
 
   if (!isHand) {
@@ -83,9 +83,7 @@ export function TankCardView({
         style={{
           ...styles.card,
           ...styles.boardCard,
-          borderColor: selected
-            ? "#f7d774"
-            : "rgba(225, 214, 184, 0.28)",
+          borderColor: selected ? "#f7d774" : "rgba(225, 214, 184, 0.28)",
           boxShadow: selected
             ? "0 0 0 3px rgba(247, 215, 116, 0.9), 0 12px 28px rgba(0, 0, 0, 0.55)"
             : "0 0 0 1px rgba(255,255,255,0.06), 0 10px 24px rgba(0, 0, 0, 0.46)",
@@ -106,7 +104,7 @@ export function TankCardView({
         }}
       >
         <img
-          src={prototypeTankImage}
+          src={tankImage}
           alt={card.name}
           style={{
             ...styles.boardTankImage,
@@ -126,14 +124,17 @@ export function TankCardView({
         {isBoardExhausted && <div style={styles.boardExhaustedOverlay} />}
 
         <div style={styles.boardTitleArea}>
-          <strong style={styles.boardTitle}>{card.name}</strong>
-          <img
-            src={boardClassIconImage}
-            alt={unitClass.label}
-            title={unitClass.label}
-            style={styles.boardClassIconImage}
-            draggable={false}
-          />
+          <div style={styles.boardTitleRow}>
+            <img
+              src={boardClassIconImage}
+              alt={unitClass.label}
+              title={unitClass.label}
+              style={styles.boardClassIconImage}
+              draggable={false}
+            />
+
+            <strong style={styles.boardTitle}>{card.name}</strong>
+          </div>
         </div>
 
         <div style={styles.boardActionCost} title="Стоимость действия">
@@ -171,7 +172,9 @@ export function TankCardView({
         {(alreadyMoved || alreadyAttacked) && (
           <div style={styles.boardStatusRow}>
             {alreadyMoved && <span style={styles.boardStatusBadge}>MOVE</span>}
-            {alreadyAttacked && <span style={styles.boardStatusBadge}>FIRE</span>}
+            {alreadyAttacked && (
+              <span style={styles.boardStatusBadge}>FIRE</span>
+            )}
           </div>
         )}
       </div>
@@ -260,12 +263,14 @@ export function TankCardView({
 
         <div style={styles.hpBadge}>
           <span>HP</span>
-          <strong>{hpValue}/{card.hp}</strong>
+          <strong>
+            {hpValue}/{card.hp}
+          </strong>
         </div>
       </div>
 
       <section style={styles.handImageFrame}>
-        <img src={prototypeTankImage} alt={card.name} style={styles.tankImage} />
+        <img src={tankImage} alt={card.name} style={styles.tankImage} />
         <div style={styles.imageVignette} />
       </section>
 
@@ -376,8 +381,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 21,
     lineHeight: 1,
     color: "#f6d27a",
-    textShadow:
-      "0 2px 0 rgba(0,0,0,0.95), 0 0 8px rgba(255, 210, 90, 0.8)",
+    textShadow: "0 2px 0 rgba(0,0,0,0.95), 0 0 8px rgba(255, 210, 90, 0.8)",
   },
 
   fuelBadge: {
@@ -392,8 +396,7 @@ const styles: Record<string, React.CSSProperties> = {
     background:
       "linear-gradient(180deg, rgba(50, 48, 42, 0.98), rgba(15, 15, 14, 0.96))",
     border: "2px solid",
-    boxShadow:
-      "0 0 0 2px rgba(0,0,0,0.65), 0 8px 18px rgba(0,0,0,0.55)",
+    boxShadow: "0 0 0 2px rgba(0,0,0,0.65), 0 8px 18px rgba(0,0,0,0.55)",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -459,8 +462,7 @@ const styles: Record<string, React.CSSProperties> = {
     background:
       "radial-gradient(circle at 40% 30%, rgba(255,110,90,0.9), rgba(93,14,10,0.98) 55%, rgba(12,5,4,0.98))",
     border: "2px solid rgba(255, 99, 85, 0.72)",
-    boxShadow:
-      "0 0 0 2px rgba(0,0,0,0.65), 0 8px 18px rgba(0,0,0,0.58)",
+    boxShadow: "0 0 0 2px rgba(0,0,0,0.65), 0 8px 18px rgba(0,0,0,0.58)",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -475,8 +477,7 @@ const styles: Record<string, React.CSSProperties> = {
     background:
       "linear-gradient(180deg, rgba(38, 42, 48, 0.98), rgba(8, 9, 12, 0.98))",
     border: "2px solid rgba(170, 185, 205, 0.55)",
-    boxShadow:
-      "0 0 0 2px rgba(0,0,0,0.65), 0 8px 18px rgba(0,0,0,0.58)",
+    boxShadow: "0 0 0 2px rgba(0,0,0,0.65), 0 8px 18px rgba(0,0,0,0.58)",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -604,31 +605,49 @@ const styles: Record<string, React.CSSProperties> = {
     top: 3,
     zIndex: 6,
     maxWidth: "calc(100% - 34px)",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-start",
-    gap: 2,
     pointerEvents: "none",
   },
 
+  boardTitleRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 3,
+    minWidth: 0,
+  },
+
   boardTitle: {
-    maxWidth: "100%",
+    minWidth: 0,
     overflow: "hidden",
     whiteSpace: "nowrap",
     textOverflow: "ellipsis",
     fontSize: 10,
     lineHeight: 1,
     color: "#f1ead5",
-    textShadow:
-      "0 1px 0 rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.95)",
+    textShadow: "0 1px 0 rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.95)",
+  },
+
+  boardClassIcon: {
+    minWidth: 18,
+    height: 18,
+    padding: "0 4px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 6,
+    border: "1px solid",
+    boxShadow: "0 3px 8px rgba(0,0,0,0.55)",
+    fontSize: 11,
+    lineHeight: 1,
+    fontWeight: 900,
   },
 
   boardClassIconImage: {
-    width: 24,
-    height: 24,
+    width: 14,
+    height: 14,
     objectFit: "contain",
     display: "block",
-    filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.8))",
+    flex: "0 0 auto",
+    filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.85))",
     pointerEvents: "none",
     userSelect: "none",
   },
@@ -727,8 +746,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#f4ffd8",
     fontWeight: 1000,
     textAlign: "center",
-    textShadow:
-      "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
+    textShadow: "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
   },
 
   boardHealthValue: {
@@ -742,8 +760,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#ffe4d8",
     fontWeight: 1000,
     textAlign: "center",
-    textShadow:
-      "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
+    textShadow: "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
   },
 
   boardStatusRow: {

@@ -12,6 +12,7 @@ import {
 import type { BattleAction, PlayerId, Position } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
 import { TankCardView } from "./TankCardView";
+import { HeadquartersCardView } from "./HeadquartersCardView";
 import { ResultScreen } from "./ResultScreen";
 import apShellImage from "../assets/ap-shell.png";
 import explosionFlashImage from "../assets/effects/explosion-flash.png";
@@ -1601,13 +1602,15 @@ function renderEnemyDeckWithTimer() {
                           }
                         }}
                       >
-                        <strong>{owner === "player" ? "Штаб" : "Штаб"}</strong>
-<span>HP {hq.hp}</span>
-<span>ATK {hq.attack}</span>
-<span>RNG {hq.range}</span>
-<span>
-  FUEL +{hq.fuelGeneration} / ACT {hq.actionFuelCost}
-</span>
+                        <HeadquartersCardView
+                          ownerId={owner}
+                          hp={hq.hp}
+                          attack={hq.attack}
+                          fuelGeneration={hq.fuelGeneration}
+                          actionFuelCost={hq.actionFuelCost}
+                          selected={isSelected}
+                          alreadyAttacked={hq.alreadyAttacked}
+                        />
 
                         {renderDamageText(hqId)}
 
@@ -2128,21 +2131,19 @@ actionSideColumn: {
   },
 
   hqCell: {
-    padding: 12,
-    fontWeight: 800,
-    textTransform: "uppercase",
+    padding: 3,
+    background: "transparent",
+    border: "1px solid rgba(225, 214, 184, 0.18)",
   },
 
   playerHq: {
-    background:
-      "linear-gradient(135deg, rgba(36, 50, 75, 0.8), rgba(10, 16, 28, 0.7))",
-    border: "2px solid rgba(122, 162, 255, 0.8)",
+    background: "transparent",
+    border: "1px solid rgba(225, 214, 184, 0.22)",
   },
 
   botHq: {
-    background:
-      "linear-gradient(135deg, rgba(80, 32, 32, 0.85), rgba(26, 9, 9, 0.75))",
-    border: "2px solid rgba(255, 139, 122, 0.8)",
+    background: "transparent",
+    border: "1px solid rgba(225, 214, 184, 0.22)",
   },
 
   selectedHqCell: {
@@ -2559,13 +2560,14 @@ turnCounterValue: {
 
   projectileImage: {
     position: "absolute",
-    width: 210,
-    height: "auto",
-    marginLeft: -105,
-    marginTop: -25,
+    width: 96,
+    height: 28,
+    marginLeft: -48,
+    marginTop: -14,
     zIndex: 20,
     pointerEvents: "none",
     transformOrigin: "center center",
+    objectFit: "contain",
     filter: "drop-shadow(0 0 8px rgba(255, 209, 102, 0.75))",
   },
 
