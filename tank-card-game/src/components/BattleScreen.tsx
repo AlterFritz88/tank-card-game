@@ -88,6 +88,12 @@ type SpawnCardEffect = {
   hiddenCardInstanceId: string;
 };
 
+type CardPreview = {
+  cardId: string;
+  ownerId: PlayerId;
+  currentHp?: number;
+};
+
 function setObjectRef(
   refs: React.MutableRefObject<Map<string, HTMLButtonElement>>,
   id: string
@@ -215,6 +221,8 @@ export function BattleScreen() {
     new Set()
   );
 
+  const [cardPreview, setCardPreview] = useState<CardPreview | null>(null);
+
   const handCardRefs = useRef<Record<PlayerId, Map<string, HTMLElement>>>({
     player: new Map(),
     bot: new Map(),
@@ -253,6 +261,20 @@ export function BattleScreen() {
     };
   }
 
+  function openCardPreview(
+    event: React.MouseEvent,
+    preview: CardPreview
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    setCardPreview(preview);
+  }
+
+  function closeCardPreview() {
+    setCardPreview(null);
+  }
+
   function getPlayerHandCardMarginLeft(index: number, totalCards: number) {
     if (index === 0) return 0;
 
@@ -262,6 +284,22 @@ export function BattleScreen() {
 
     return -Math.min(98, 10 + (totalCards - 6) * 14);
   }
+
+  useEffect(() => {
+    if (!cardPreview) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeCardPreview();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [cardPreview]);
 
 
   useEffect(() => {
@@ -1515,6 +1553,13 @@ function renderEnemyDeckWithTimer() {
                         }}
                         whileHover={{ scale: 1.03 }}
                         whileTap={{ scale: 0.97 }}
+                        onContextMenu={(event) =>
+                          openCardPreview(event, {
+                            cardId: unit.cardId,
+                            ownerId: unit.ownerId,
+                            currentHp: unit.currentHp,
+                          })
+                        }
                         onClick={() => {
                           if (battle.status !== "active") return;
                           if (battle.status !== "active") return;
@@ -1786,16 +1831,27 @@ function renderEnemyDeckWithTimer() {
                     }}
                     whileHover={{ y: -108, scale: 1.08 }}
                     whileTap={{ scale: 0.97 }}
-                    disabled={
+                    aria-disabled={
                       battle.status !== "active" ||
                       battle.activePlayer !== "player" ||
                       Boolean(spawningCardInstanceId) ||
                       isHiddenDrawnCard ||
                       isHiddenSpawningCard
                     }
-                    onClick={() =>
-                      selectCard(selected ? null : cardInstance.instanceId)
+                    onContextMenu={(event) =>
+                      openCardPreview(event, {
+                        cardId: card.id,
+                        ownerId: "player",
+                      })
                     }
+                    onClick={() => {
+                      if (battle.status !== "active") return;
+                      if (battle.activePlayer !== "player") return;
+                      if (spawningCardInstanceId) return;
+                      if (isHiddenDrawnCard || isHiddenSpawningCard) return;
+
+                      selectCard(selected ? null : cardInstance.instanceId);
+                    }}
                   >
                     <HandCardView
                       card={card}
@@ -1830,6 +1886,56 @@ function renderEnemyDeckWithTimer() {
           </div>
         </aside>
       </main>
+
+      <AnimatePresence>
+        {cardPreview && (
+          <motion.div
+            style={styles.cardPreviewOverlay}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            onMouseDown={closeCardPreview}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              closeCardPreview();
+            }}
+          >
+            <motion.div
+              style={styles.cardPreviewPanel}
+              initial={{ opacity: 0, scale: 0.84, y: 18 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 12 }}
+              transition={{
+                type: "spring",
+                stiffness: 260,
+                damping: 24,
+              }}
+              onMouseDown={(event) => event.stopPropagation()}
+              onContextMenu={(event) => event.preventDefault()}
+            >
+              <button
+                type="button"
+                style={styles.cardPreviewClose}
+                onClick={closeCardPreview}
+                aria-label="Закрыть просмотр карты"
+              >
+                ×
+              </button>
+
+              <HandCardView
+                card={getCard(cardPreview.cardId)}
+                ownerId={cardPreview.ownerId}
+                currentHp={cardPreview.currentHp}
+              />
+
+              <div style={styles.cardPreviewHint}>
+                ПКМ по фону или Esc — закрыть
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {(battle.status === "player_won" || battle.status === "bot_won") && (
   <ResultScreen battle={battle} onRestart={reset} />
@@ -2713,4 +2819,60 @@ spawnCardBackEffect: {
     zIndex: 10,
     pointerEvents: "none",
   },
+
+  cardPreviewOverlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 9000,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    background:
+      "radial-gradient(circle at center, rgba(0,0,0,0.58), rgba(0,0,0,0.86) 74%)",
+    backdropFilter: "blur(6px)",
+  },
+
+  cardPreviewPanel: {
+    position: "relative",
+    width: "min(390px, 82vw)",
+    maxHeight: "92vh",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    filter: "drop-shadow(0 28px 58px rgba(0,0,0,0.78))",
+  },
+
+  cardPreviewClose: {
+    position: "absolute",
+    right: -12,
+    top: -12,
+    zIndex: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.18)",
+    background:
+      "linear-gradient(180deg, rgba(38,40,40,0.96), rgba(5,6,6,0.96))",
+    color: "#f3ead0",
+    fontSize: 24,
+    lineHeight: "30px",
+    fontWeight: 800,
+    cursor: "pointer",
+    boxShadow: "0 10px 22px rgba(0,0,0,0.58)",
+  },
+
+  cardPreviewHint: {
+    position: "absolute",
+    left: "50%",
+    bottom: -28,
+    transform: "translateX(-50%)",
+    color: "rgba(238,242,243,0.68)",
+    fontSize: 11,
+    lineHeight: 1,
+    whiteSpace: "nowrap",
+    textShadow: "0 2px 8px rgba(0,0,0,0.85)",
+    pointerEvents: "none",
+  },
+
 };

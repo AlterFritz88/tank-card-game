@@ -196,24 +196,25 @@ const styles: Record<string, React.CSSProperties> = {
     pointerEvents: "none",
 
     WebkitMaskRepeat: "no-repeat",
-    WebkitMaskSize: "100% 100%",
+    WebkitMaskSize: "95% 100%",
     WebkitMaskPosition: "center",
 
     maskRepeat: "no-repeat",
-    maskSize: "100% 100%",
-    maskPosition: "center",
+    
+    maskSize: "96% 100%",
+    maskPosition: "center -6px",
   },
 
   tankArt: {
-    position: "absolute",
-    left: "9.8%",
-    top: "8.95%",
-    width: "98%",
-    height: "52.1%",
-    objectFit: "cover",
-    objectPosition: "center center",
-    display: "block",
-  },
+  position: "absolute",
+  left: "-3%",
+  top: "7%",
+  width: "99%",
+  height: "60%",
+  objectFit: "contain",
+  objectPosition: "45% center",
+  display: "block",
+},
 
   artVignette: {
     position: "absolute",
