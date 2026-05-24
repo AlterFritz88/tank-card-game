@@ -12,6 +12,7 @@ import {
 import type { BattleAction, PlayerId, Position } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
 import { TankCardView } from "./TankCardView";
+import { HandCardView } from "./HandCardView";
 import { HeadquartersCardView } from "./HeadquartersCardView";
 import { ResultScreen } from "./ResultScreen";
 import apShellImage from "../assets/ap-shell.png";
@@ -1190,7 +1191,7 @@ function renderEnemyDeckWithTimer() {
           ease: "easeOut",
         }}
       >
-        <TankCardView card={card} variant="hand" />
+        <HandCardView card={card} />
       </motion.div>
     );
   })}
@@ -1796,9 +1797,8 @@ function renderEnemyDeckWithTimer() {
                       selectCard(selected ? null : cardInstance.instanceId)
                     }
                   >
-                    <TankCardView
+                    <HandCardView
                       card={card}
-                      variant="hand"
                       selected={selected}
                       disabled={
                         battle.activePlayer !== "player" ||

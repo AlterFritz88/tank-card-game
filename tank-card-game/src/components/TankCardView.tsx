@@ -791,8 +791,8 @@ const styles: Record<string, React.CSSProperties> = {
   boardHealthIconImage: {
     position: "absolute",
     inset: 0,
-    width: "100%",
-    height: "100%",
+    width: "70%",
+    height: "70%",
     objectFit: "contain",
     pointerEvents: "none",
     userSelect: "none",
