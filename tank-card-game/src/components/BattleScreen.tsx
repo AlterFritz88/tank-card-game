@@ -88,11 +88,21 @@ type SpawnCardEffect = {
   hiddenCardInstanceId: string;
 };
 
-type CardPreview = {
-  cardId: string;
-  ownerId: PlayerId;
-  currentHp?: number;
-};
+type CardPreview =
+  | {
+      type: "unit";
+      cardId: string;
+      ownerId: PlayerId;
+      currentHp?: number;
+    }
+  | {
+      type: "headquarters";
+      ownerId: PlayerId;
+      hp: number;
+      attack: number;
+      fuelGeneration: number;
+      actionFuelCost: number;
+    };
 
 function setObjectRef(
   refs: React.MutableRefObject<Map<string, HTMLButtonElement>>,
@@ -1555,6 +1565,7 @@ function renderEnemyDeckWithTimer() {
                         whileTap={{ scale: 0.97 }}
                         onContextMenu={(event) =>
                           openCardPreview(event, {
+                            type: "unit",
                             cardId: unit.cardId,
                             ownerId: unit.ownerId,
                             currentHp: unit.currentHp,
@@ -1628,18 +1639,19 @@ function renderEnemyDeckWithTimer() {
                         key={hqId}
                         style={{
                           ...styles.cell,
-                          ...styles.hqCell,
                           ...(owner === "player"
-                            ? styles.playerHq
-                            : styles.botHq),
+                            ? styles.playerUnit
+                            : styles.botUnit),
                           ...(canBeTarget ? styles.targetCell : {}),
                           ...(isDamaged ? styles.damageCell : {}),
-                          ...(isSelected ? styles.selectedHqCell : {}),
                         }}
+                        initial={{ scale: 0.88, opacity: 0 }}
                         animate={{
                           scale: isDamaged ? [1, 1.08, 1] : 1,
+                          opacity: 1,
                           x: isAttacking ? [0, 10, -6, 0] : 0,
                         }}
+                        exit={{ scale: 0.75, opacity: 0 }}
                         transition={{
                           type: "spring",
                           stiffness: 320,
@@ -1647,6 +1659,16 @@ function renderEnemyDeckWithTimer() {
                         }}
                         whileHover={{ scale: 1.03 }}
                         whileTap={{ scale: 0.97 }}
+                        onContextMenu={(event) =>
+                          openCardPreview(event, {
+                            type: "headquarters",
+                            ownerId: owner,
+                            hp: hq.hp,
+                            attack: hq.attack,
+                            fuelGeneration: hq.fuelGeneration,
+                            actionFuelCost: hq.actionFuelCost,
+                          })
+                        }
                         onClick={() => {
                           if (battle.status !== "active") return;
                           if (battle.status !== "active") return;
@@ -1840,6 +1862,7 @@ function renderEnemyDeckWithTimer() {
                     }
                     onContextMenu={(event) =>
                       openCardPreview(event, {
+                        type: "unit",
                         cardId: card.id,
                         ownerId: "player",
                       })
@@ -1923,11 +1946,23 @@ function renderEnemyDeckWithTimer() {
                 ×
               </button>
 
-              <HandCardView
-                card={getCard(cardPreview.cardId)}
-                ownerId={cardPreview.ownerId}
-                currentHp={cardPreview.currentHp}
-              />
+              {cardPreview.type === "unit" ? (
+                <HandCardView
+                  card={getCard(cardPreview.cardId)}
+                  ownerId={cardPreview.ownerId}
+                  currentHp={cardPreview.currentHp}
+                />
+              ) : (
+                <HandCardView
+                  ownerId={cardPreview.ownerId}
+                  headquarters={{
+                    hp: cardPreview.hp,
+                    attack: cardPreview.attack,
+                    fuelGeneration: cardPreview.fuelGeneration,
+                    actionFuelCost: cardPreview.actionFuelCost,
+                  }}
+                />
+              )}
 
               <div style={styles.cardPreviewHint}>
                 ПКМ по фону или Esc — закрыть
