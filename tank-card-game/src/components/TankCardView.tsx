@@ -2,11 +2,9 @@ import type React from "react";
 import type { PlayerId, TankCard } from "../game/types";
 import { getClassVisual, getNationVisual } from "../game/cardVisuals";
 import { getTankImage } from "../game/tankImages";
+import { StatBadge } from "./StatBadge";
 import ussrCardBackground from "../assets/cards/nation-ussr-bg.png";
 import fuelCanisterIcon from "../assets/icons/fuel-canister-icon.png";
-import attackBadgeImage from "../assets/icons/badge-attack.png";
-import healthBadgeImage from "../assets/icons/badge-health.png";
-import actionCostBadgeImage from "../assets/icons/badge-action-cost.png";
 import classLightPlayerIcon from "../assets/icons/classes/class-light-player.png";
 import classLightEnemyIcon from "../assets/icons/classes/class-light-enemy.png";
 import classMediumPlayerIcon from "../assets/icons/classes/class-medium-player.png";
@@ -138,61 +136,32 @@ export function TankCardView({
           </div>
         </div>
 
-        <div style={styles.boardActionCost} title="Стоимость действия">
-          <img
-            src={actionCostBadgeImage}
-            alt=""
-            style={styles.boardActionCostIcon}
-            draggable={false}
+        <div style={styles.boardActionCost}>
+          <StatBadge
+            type="actionCost"
+            mode="board"
+            value={card.actionFuelCost}
+            title="Стоимость действия"
           />
-          <strong style={styles.boardActionCostValue}>
-            {card.actionFuelCost}
-          </strong>
         </div>
 
         <div style={styles.boardCombatStats}>
-          <div
-            style={{
-              ...styles.boardAttackIconWrap,
-              ...(alreadyAttacked ? styles.boardAttackIconWrapDimmed : {}),
-            }}
+          <StatBadge
+            type="attack"
+            mode="board"
+            ownerId={ownerId}
+            value={card.attack}
+            dimmed={alreadyAttacked}
             title="Атака"
-          >
-            <img
-              src={attackBadgeImage}
-              alt=""
-              style={styles.boardAttackIconImage}
-              draggable={false}
-            />
-            <div
-              style={{
-                ...styles.boardAttackTint,
-                ...(ownerId === "player"
-                  ? styles.boardAttackTintPlayer
-                  : styles.boardAttackTintEnemy),
-              }}
-            />
-            <strong
-              style={{
-                ...styles.boardAttackValue,
-                ...(ownerId === "player"
-                  ? styles.boardAttackValuePlayer
-                  : styles.boardAttackValueEnemy),
-              }}
-            >
-              {card.attack}
-            </strong>
-          </div>
+          />
 
-          <div style={styles.boardHealthIconWrap} title="Здоровье">
-            <img
-              src={healthBadgeImage}
-              alt=""
-              style={styles.boardHealthIconImage}
-              draggable={false}
-            />
-            <strong style={styles.boardHealthValue}>{hpValue}</strong>
-          </div>
+          <StatBadge
+            type="health"
+            mode="board"
+            value={hpValue}
+            title="Здоровье"
+            style={styles.boardHealthBadgeOffset}
+          />
         </div>
 
         {(alreadyMoved || alreadyAttacked) && (
@@ -681,8 +650,8 @@ const styles: Record<string, React.CSSProperties> = {
 
   boardActionCost: {
     position: "absolute",
-    right: 1,
-    top: 1,
+    right: -7,
+    top: -3,
     zIndex: 7,
     width: 30,
     height: 30,
@@ -720,8 +689,8 @@ const styles: Record<string, React.CSSProperties> = {
 
   boardCombatStats: {
     position: "absolute",
-    left: -7,
-    bottom: -6,
+    left: -2,
+    bottom: -0,
     zIndex: 8,
     display: "flex",
     flexDirection: "column",
@@ -729,6 +698,11 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 0,
     padding: 0,
     pointerEvents: "none",
+  },
+
+
+  boardHealthBadgeOffset: {
+    marginTop: -1,
   },
 
   boardAttackIconWrap: {

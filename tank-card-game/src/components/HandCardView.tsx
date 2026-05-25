@@ -3,12 +3,9 @@ import type { PlayerId, TankCard } from "../game/types";
 import { getClassVisual, getNationVisual } from "../game/cardVisuals";
 import { getTankImage } from "../game/tankImages";
 import prototypeTankImage from "../assets/tanks/prototype-tank.png";
+import { StatBadge } from "./StatBadge";
 import cardHandFrameImage from "../assets/cards/card-hand-frame.png";
 import handCardArtMaskImage from "../assets/cards/hand-card-art-mask.png";
-import fuelCanisterIcon from "../assets/icons/fuel-canister-icon.png";
-import attackBadgeImage from "../assets/icons/badge-attack.png";
-import healthBadgeImage from "../assets/icons/badge-health.png";
-import actionCostBadgeImage from "../assets/icons/badge-action-cost.png";
 import classLightPlayerIcon from "../assets/icons/classes/class-light-player.png";
 import classLightEnemyIcon from "../assets/icons/classes/class-light-enemy.png";
 import classMediumPlayerIcon from "../assets/icons/classes/class-medium-player.png";
@@ -198,11 +195,6 @@ export function HandCardView({
     ? `Командный пункт. Генерирует топливо: +${fuelGenerationValue}. Потеря штаба означает поражение.`
     : card!.abilityText || "Без особых свойств.";
 
-  const attackTint =
-    ownerId === "player"
-      ? "rgba(63, 220, 92, 0.34)"
-      : "rgba(230, 50, 46, 0.36)";
-  const attackValueColor = ownerId === "player" ? "#7dff8a" : "#ff5a52";
 
   return (
     <div
@@ -236,25 +228,25 @@ export function HandCardView({
       </div>
 
       {!isHeadquarters && (
-        <div style={styles.spawnCostBadge} title="Стоимость розыгрыша">
-          <img
-            src={fuelCanisterIcon}
-            alt=""
-            style={styles.spawnCostIcon}
-            draggable={false}
+        <div style={styles.spawnCostBadge}>
+          <StatBadge
+            type="spawnCost"
+            mode="hand"
+            value={card!.cost}
+            title="Стоимость розыгрыша"
+            style={styles.fullBadge}
           />
-          <strong style={styles.spawnCostValue}>{card!.cost}</strong>
         </div>
       )}
 
-      <div style={styles.actionCostBadge} title="Стоимость действия">
-        <img
-          src={actionCostBadgeImage}
-          alt=""
-          style={styles.actionCostIcon}
-          draggable={false}
+      <div style={styles.actionCostBadge}>
+        <StatBadge
+          type="actionCost"
+          mode="hand"
+          value={actionCostValue}
+          title="Стоимость действия"
+          style={styles.fullBadge}
         />
-        <strong style={styles.actionCostValue}>{actionCostValue}</strong>
       </div>
 
       <div
@@ -288,28 +280,21 @@ export function HandCardView({
           </span>
         )}
 
-        <div style={styles.attackWrap} title="Атака">
-          <img
-            src={attackBadgeImage}
-            alt=""
-            style={styles.statIconImage}
-            draggable={false}
-          />
-          <div style={{ ...styles.attackTint, background: attackTint }} />
-          <strong style={{ ...styles.attackValue, color: attackValueColor }}>
-            {attackValue}
-          </strong>
-        </div>
+        <StatBadge
+          type="attack"
+          mode="hand"
+          ownerId={ownerId}
+          value={attackValue}
+          title="Атака"
+        />
 
-        <div style={styles.healthWrap} title="Здоровье">
-          <img
-            src={healthBadgeImage}
-            alt=""
-            style={styles.statIconImage}
-            draggable={false}
-          />
-          <strong style={styles.healthValue}>{hpValue}</strong>
-        </div>
+        <StatBadge
+          type="health"
+          mode="hand"
+          value={hpValue}
+          title="Здоровье"
+          style={styles.healthBadgeOffset}
+        />
       </div>
 
       <div style={styles.descriptionPanel}>
@@ -317,13 +302,19 @@ export function HandCardView({
         <div style={styles.bottomMeta}>
           <span>RNG</span>
           <strong>{rangeValue}</strong>
-          <span>FUEL</span>
-          <strong>+{fuelGenerationValue}</strong>
+          <StatBadge
+            type="fuel"
+            mode="hand"
+            value={`+${fuelGenerationValue}`}
+            title="Генерация топлива"
+            style={styles.bottomFuelBadge}
+          />
         </div>
       </div>
     </div>
   );
 }
+
 
 const digitFont =
   "'Rajdhani', 'Arial Narrow', Inter, ui-sans-serif, system-ui, sans-serif";
@@ -446,6 +437,12 @@ const styles: Record<string, React.CSSProperties> = {
     textOverflow: "ellipsis",
   },
 
+  fullBadge: {
+    width: "100%",
+    height: "100%",
+    filter: "drop-shadow(0 5px 8px rgba(0,0,0,0.72))",
+  },
+
   spawnCostBadge: {
     position: "absolute",
     left: "2.5%",
@@ -520,8 +517,8 @@ const styles: Record<string, React.CSSProperties> = {
 
   leftStats: {
     position: "absolute",
-    left: "3.1%",
-    top: "25.1%",
+    left: "8.1%",
+    top: "27.1%",
     zIndex: 6,
     display: "flex",
     flexDirection: "column",
@@ -531,11 +528,22 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   classIcon: {
-    width: 29,
+    width: 20,
     height: 29,
     objectFit: "contain",
+    transform: "translate(-7px, -36px)",
     filter:
       "brightness(1.28) saturate(1.35) contrast(1.38) drop-shadow(0 2px 4px rgba(0,0,0,0.85))",
+  },
+
+  healthBadgeOffset: {
+    marginTop: -8,
+  },
+
+  bottomFuelBadge: {
+    marginLeft: 4,
+    transform: "scale(0.72)",
+    transformOrigin: "center center",
   },
 
   classIconFallback: {
@@ -623,8 +631,8 @@ const styles: Record<string, React.CSSProperties> = {
 
   descriptionPanel: {
     position: "absolute",
-    left: "6.5%",
-    right: "5.5%",
+    left: "9.5%",
+    right: "9.5%",
     bottom: "4.7%",
     height: "25.2%",
     zIndex: 5,
@@ -641,6 +649,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     lineHeight: 1.18,
     textShadow: "0 1px 0 rgba(0,0,0,0.95)",
+    textAlign: "justify",
   },
 
   bottomMeta: {

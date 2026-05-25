@@ -1,9 +1,7 @@
 import type React from "react";
 import type { PlayerId } from "../game/types";
 import prototypeTankImage from "../assets/tanks/prototype-tank.png";
-import attackBadgeImage from "../assets/icons/badge-attack.png";
-import healthBadgeImage from "../assets/icons/badge-health.png";
-import actionCostBadgeImage from "../assets/icons/badge-action-cost.png";
+import { StatBadge } from "./StatBadge";
 
 const headquartersImageModules = import.meta.glob(
   "../assets/headquarters/*.{png,jpg,jpeg,webp}",
@@ -155,57 +153,32 @@ export function HeadquartersCardView({
         </div>
       </div>
 
-      <div style={styles.actionCost} title="Стоимость действия">
-        <img
-          src={actionCostBadgeImage}
-          alt=""
-          style={styles.actionCostIcon}
-          draggable={false}
+      <div style={styles.actionCost}>
+        <StatBadge
+          type="actionCost"
+          mode="board"
+          value={actionFuelCost}
+          title="Стоимость действия"
         />
-        <strong style={styles.actionCostValue}>{actionFuelCost}</strong>
       </div>
 
       <div style={styles.combatStats}>
-        <div
-          style={{
-            ...styles.attackIconWrap,
-            ...(alreadyAttacked ? styles.attackIconWrapDimmed : {}),
-          }}
+        <StatBadge
+          type="attack"
+          mode="board"
+          ownerId={ownerId}
+          value={attack}
+          dimmed={alreadyAttacked}
           title="Атака"
-        >
-          <img
-            src={attackBadgeImage}
-            alt=""
-            style={styles.statIconImage}
-            draggable={false}
-          />
+        />
 
-          <div
-            style={{
-              ...styles.attackOwnerTint,
-              ...(isPlayer ? styles.attackPlayerTint : styles.attackEnemyTint),
-            }}
-          />
-
-          <strong
-            style={{
-              ...styles.attackValue,
-              ...(isPlayer ? styles.attackValuePlayer : styles.attackValueEnemy),
-            }}
-          >
-            {attack}
-          </strong>
-        </div>
-
-        <div style={styles.healthIconWrap} title="Здоровье">
-          <img
-            src={healthBadgeImage}
-            alt=""
-            style={styles.statIconImage}
-            draggable={false}
-          />
-          <strong style={styles.healthValue}>{hp}</strong>
-        </div>
+        <StatBadge
+          type="health"
+          mode="board"
+          value={hp}
+          title="Здоровье"
+          style={styles.healthBadgeOffset}
+        />
       </div>
 
     </div>
@@ -322,8 +295,8 @@ const styles: Record<string, React.CSSProperties> = {
 
   actionCost: {
     position: "absolute",
-    right: 1,
-    top: 1,
+    right: -7,
+    top: -3,
     zIndex: 7,
     width: 30,
     height: 30,
@@ -362,8 +335,8 @@ const styles: Record<string, React.CSSProperties> = {
 
   combatStats: {
     position: "absolute",
-    left: -7,
-    bottom: -6,
+    left: -2,
+    bottom: -0,
     zIndex: 8,
     display: "flex",
     flexDirection: "column",
@@ -371,6 +344,10 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 0,
     padding: 0,
     pointerEvents: "none",
+  },
+
+  healthBadgeOffset: {
+    marginTop: -1,
   },
 
   attackIconWrap: {
