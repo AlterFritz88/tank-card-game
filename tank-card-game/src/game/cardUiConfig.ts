@@ -91,7 +91,7 @@ export const CARD_UI = {
       width: 34,
       height: 38,
       valueTop: "53%",
-      fontSize: 13,
+      fontSize: 11,
       fontWeight: 700,
     },
 

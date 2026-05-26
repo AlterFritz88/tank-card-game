@@ -158,8 +158,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   dimmed: {
-    opacity: 0.42,
+    opacity: 0.8,
     filter:
-      "grayscale(0.45) brightness(0.55) drop-shadow(0 3px 7px rgba(0,0,0,0.62))",
+      "grayscale(0.55) brightness(0.85) drop-shadow(0 3px 7px rgba(0,0,0,0.62))",
   },
 };

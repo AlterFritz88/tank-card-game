@@ -232,6 +232,8 @@ export function BattleScreen() {
   );
 
   const [cardPreview, setCardPreview] = useState<CardPreview | null>(null);
+  const [debugPaused, setDebugPaused] = useState(false);
+  const debugPausedRef = useRef(false);
 
   const handCardRefs = useRef<Record<PlayerId, Map<string, HTMLElement>>>({
     player: new Map(),
@@ -294,6 +296,10 @@ export function BattleScreen() {
 
     return -Math.min(98, 10 + (totalCards - 6) * 14);
   }
+
+  useEffect(() => {
+    debugPausedRef.current = debugPaused;
+  }, [debugPaused]);
 
   useEffect(() => {
     if (!cardPreview) return;
@@ -417,6 +423,7 @@ export function BattleScreen() {
   ]);
 
   useEffect(() => {
+    if (debugPaused) return;
     if (battle.status !== "active") return;
 
     let lastTickTime = Date.now();
@@ -436,9 +443,14 @@ export function BattleScreen() {
     return () => {
       window.clearInterval(interval);
     };
-  }, [battle.status]);
+  }, [battle.status, debugPaused]);
 
   useEffect(() => {
+    if (debugPaused) {
+      setThinkingCardIndex(null);
+      return;
+    }
+
     if (battle.status !== "active") {
       setThinkingCardIndex(null);
       return;
@@ -576,6 +588,7 @@ export function BattleScreen() {
   }
 
   useEffect(() => {
+    if (debugPaused) return;
     if (battle.status !== "active") return;
     if (battle.activePlayer !== "bot") return;
     if (botTurnRunningRef.current) return;
@@ -588,6 +601,8 @@ export function BattleScreen() {
       await delay(450);
 
       while (!cancelled) {
+        if (debugPausedRef.current) break;
+
         const currentBattle = useBattleStore.getState().battle;
 
         if (currentBattle.status !== "active") break;
@@ -599,7 +614,7 @@ export function BattleScreen() {
 
         await delay(getRandomBotThinkingDelay());
 
-        if (cancelled) break;
+        if (cancelled || debugPausedRef.current) break;
 
         if (action.type === "ATTACK") {
           await delay(180);
@@ -655,7 +670,7 @@ export function BattleScreen() {
       cancelled = true;
       botTurnRunningRef.current = false;
     };
-  }, [battle.activePlayer, battle.status]);
+  }, [battle.activePlayer, battle.status, debugPaused]);
 
   const rows = [0, 1, 2] as const;
   const cols = [0, 1, 2, 3, 4] as const;
@@ -945,6 +960,7 @@ export function BattleScreen() {
   }
 
   function handleCellClick(position: Position) {
+    if (debugPaused) return;
     if (battle.status !== "active") return;
     if (battle.activePlayer !== "player") return;
 
@@ -991,6 +1007,7 @@ export function BattleScreen() {
     targetType: "unit" | "headquarters",
     targetId: string
   ) {
+    if (debugPaused) return;
     if (!selectedAttacker) return;
     if (battle.status !== "active") return;
     if (battle.activePlayer !== "player") return;
@@ -1150,6 +1167,20 @@ function renderEnemyDeckWithTimer() {
   return (
     <div style={styles.page}>
       <div style={styles.vignette} />
+
+      <AnimatePresence>
+        {debugPaused && (
+          <motion.div
+            style={styles.debugPauseBadge}
+            initial={{ opacity: 0, y: -8, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.96 }}
+            transition={{ duration: 0.18 }}
+          >
+            ПАУЗА
+          </motion.div>
+        )}
+      </AnimatePresence>
         <AnimatePresence>
   {drawCardEffects.map((effect) => (
     <motion.div
@@ -1572,6 +1603,7 @@ function renderEnemyDeckWithTimer() {
                           })
                         }
                         onClick={() => {
+                          if (debugPaused) return;
                           if (battle.status !== "active") return;
                           if (battle.status !== "active") return;
                           if (battle.activePlayer !== "player") return;
@@ -1670,6 +1702,7 @@ function renderEnemyDeckWithTimer() {
                           })
                         }
                         onClick={() => {
+                          if (debugPaused) return;
                           if (battle.status !== "active") return;
                           if (battle.status !== "active") return;
                           if (battle.activePlayer !== "player") return;
@@ -1757,12 +1790,16 @@ function renderEnemyDeckWithTimer() {
               style={{
                 ...styles.endTurnButton,
                 opacity:
-                  battle.activePlayer !== "player" || battle.status !== "active"
+                  debugPaused ||
+                  battle.activePlayer !== "player" ||
+                  battle.status !== "active"
                     ? 0.45
                     : 1,
               }}
               disabled={
-                battle.activePlayer !== "player" || battle.status !== "active"
+                debugPaused ||
+                battle.activePlayer !== "player" ||
+                battle.status !== "active"
               }
               onClick={() =>
                 dispatchBattleAction({
@@ -1774,27 +1811,49 @@ function renderEnemyDeckWithTimer() {
               Конец хода
             </button>
 
+            <button
+              type="button"
+              style={{
+                ...styles.pauseButton,
+                ...(debugPaused ? styles.pauseButtonActive : {}),
+              }}
+              onClick={() => setDebugPaused((current) => !current)}
+            >
+              {debugPaused ? "Продолжить" : "Пауза"}
+            </button>
+
             <button style={styles.secondaryButton} onClick={reset}>
               Новый бой
             </button>
 
             <div style={styles.actionHint}>
-              {selectedCardInstanceId && (
-                <span>Выбрана карта. Нажми на свободный спавн.</span>
-              )}
-
-              {selectedAttacker && selectedAttacker.type === "unit" && (
+              {debugPaused && (
                 <span>
-                  Зеленые клетки — движение. Желтые цели — атака. Оба действия
-                  тратят топливо.
+                  Отладочная пауза включена: таймеры, бот и действия игрока
+                  остановлены. ПКМ-просмотр карт работает.
                 </span>
               )}
 
-              {selectedAttacker && selectedAttacker.type === "headquarters" && (
-                <span>Выбран штаб. Желтые цели доступны для атаки.</span>
+              {!debugPaused && selectedCardInstanceId && (
+                <span>Выбрана карта. Нажми на свободный спавн.</span>
               )}
 
-              {!selectedCardInstanceId && !selectedAttacker && (
+              {!debugPaused &&
+                selectedAttacker &&
+                selectedAttacker.type === "unit" && (
+                  <span>
+                    Зеленые клетки — движение. Желтые цели — атака. Оба
+                    действия тратят топливо.
+                  </span>
+                )}
+
+              {!debugPaused &&
+                selectedAttacker &&
+                selectedAttacker.type === "headquarters" && (
+                  <span>Выбран штаб. Желтые цели доступны для атаки.</span>
+                )}
+
+              {!debugPaused && !selectedCardInstanceId && !selectedAttacker && (
                 <span>Выбери карту из руки или свой юнит на поле.</span>
               )}
             </div>
@@ -1854,6 +1913,7 @@ function renderEnemyDeckWithTimer() {
                     whileHover={{ y: -108, scale: 1.08 }}
                     whileTap={{ scale: 0.97 }}
                     aria-disabled={
+                      debugPaused ||
                       battle.status !== "active" ||
                       battle.activePlayer !== "player" ||
                       Boolean(spawningCardInstanceId) ||
@@ -1868,6 +1928,7 @@ function renderEnemyDeckWithTimer() {
                       })
                     }
                     onClick={() => {
+                      if (debugPaused) return;
                       if (battle.status !== "active") return;
                       if (battle.activePlayer !== "player") return;
                       if (spawningCardInstanceId) return;
@@ -1880,6 +1941,7 @@ function renderEnemyDeckWithTimer() {
                       card={card}
                       selected={selected}
                       disabled={
+                        debugPaused ||
                         battle.activePlayer !== "player" ||
                         battle.player.resources < card.cost
                       }
@@ -2001,6 +2063,28 @@ const styles: Record<string, React.CSSProperties> = {
     background:
       "radial-gradient(circle at center, rgba(255,255,255,0.02), rgba(0,0,0,0.58) 82%), linear-gradient(90deg, rgba(0,0,0,0.48), transparent 20%, transparent 80%, rgba(0,0,0,0.48))",
     zIndex: 0,
+  },
+
+  debugPauseBadge: {
+    position: "fixed",
+    left: "50%",
+    top: 16,
+    zIndex: 650,
+    transform: "translateX(-50%)",
+    padding: "8px 18px",
+    borderRadius: 999,
+    background:
+      "linear-gradient(180deg, rgba(26, 72, 35, 0.96), rgba(7, 17, 8, 0.92))",
+    border: "1px solid rgba(125, 255, 138, 0.56)",
+    color: "#7dff8a",
+    fontSize: 15,
+    fontWeight: 1000,
+    letterSpacing: 2.2,
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.9), 0 0 10px rgba(125,255,138,0.45)",
+    boxShadow:
+      "0 10px 28px rgba(0,0,0,0.45), 0 0 22px rgba(125,255,138,0.18)",
+    pointerEvents: "none",
   },
 
   turnBanner: {
@@ -2644,6 +2728,29 @@ turnCounterValue: {
     padding: "10px 12px",
     fontWeight: 800,
     cursor: "pointer",
+  },
+
+  pauseButton: {
+    border: "1px solid rgba(255, 226, 124, 0.32)",
+    borderRadius: 12,
+    background:
+      "linear-gradient(180deg, rgba(66, 48, 21, 0.88), rgba(18, 14, 8, 0.82))",
+    color: "#f7d774",
+    padding: "10px 12px",
+    fontWeight: 900,
+    cursor: "pointer",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    boxShadow: "inset 0 0 14px rgba(247, 215, 116, 0.08)",
+  },
+
+  pauseButtonActive: {
+    borderColor: "rgba(125, 255, 138, 0.55)",
+    color: "#7dff8a",
+    background:
+      "linear-gradient(180deg, rgba(26, 72, 35, 0.92), rgba(8, 20, 10, 0.86))",
+    boxShadow:
+      "0 0 0 2px rgba(125, 255, 138, 0.16), inset 0 0 18px rgba(125, 255, 138, 0.12)",
   },
 
   actionHint: {

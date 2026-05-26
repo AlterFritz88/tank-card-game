@@ -271,7 +271,6 @@ export function TankCardView({
 
       <div style={styles.handBottomStats}>
         <StatChip label="ACT" value={card.actionFuelCost} tone="#d6a84f" />
-        <StatChip label="RNG" value={card.range} tone="#9fd3ff" />
       </div>
 
       {card.abilityText && <p style={styles.abilityText}>{card.abilityText}</p>}
@@ -561,8 +560,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   boardTankImageExhausted: {
-    filter: "brightness(0.48) saturate(0.72) contrast(0.95)",
-    opacity: 0.72,
+    filter: "brightness(0.85) saturate(0.82) contrast(0.95)",
+    opacity: 0.92,
   },
 
   boardOwnerGradient: {

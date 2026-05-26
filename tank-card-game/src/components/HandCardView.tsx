@@ -189,8 +189,6 @@ export function HandCardView({
     ? headquarters!.fuelGeneration
     : card!.fuelGeneration;
 
-  const rangeValue = isHeadquarters ? "∞" : card!.range;
-
   const abilityText = isHeadquarters
     ? `Командный пункт. Генерирует топливо: +${fuelGenerationValue}. Потеря штаба означает поражение.`
     : card!.abilityText || "Без особых свойств.";
@@ -234,6 +232,18 @@ export function HandCardView({
             mode="hand"
             value={card!.cost}
             title="Стоимость розыгрыша"
+            style={styles.fullBadge}
+          />
+        </div>
+      )}
+
+      {!isHeadquarters && (
+        <div style={styles.spawnFuelGenerationBadge}>
+          <StatBadge
+            type="fuel"
+            mode="hand"
+            value={`+${fuelGenerationValue}`}
+            title="Генерация топлива за ход"
             style={styles.fullBadge}
           />
         </div>
@@ -299,17 +309,6 @@ export function HandCardView({
 
       <div style={styles.descriptionPanel}>
         <p style={styles.abilityText}>{abilityText}</p>
-        <div style={styles.bottomMeta}>
-          <span>RNG</span>
-          <strong>{rangeValue}</strong>
-          <StatBadge
-            type="fuel"
-            mode="hand"
-            value={`+${fuelGenerationValue}`}
-            title="Генерация топлива"
-            style={styles.bottomFuelBadge}
-          />
-        </div>
       </div>
     </div>
   );
@@ -340,7 +339,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   disabledCard: {
-    opacity: 0.52,
+    opacity: 0.8,
     filter: "grayscale(0.3) brightness(0.72) drop-shadow(0 16px 26px rgba(0,0,0,0.42))",
   },
 
@@ -401,7 +400,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   titleArea: {
     position: "absolute",
-    left: "15%",
+    left: "30%",
     top: "2.8%",
     right: "14%",
     zIndex: 5,
@@ -416,8 +415,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   title: {
-    fontFamily: "'Oswald', 'Rajdhani', 'Arial Narrow', sans-serif",
-    fontSize: 18,
+    fontFamily: "inherit",
+    fontSize: 15,
     lineHeight: 1,
     color: "#f3ead0",
     textShadow: "0 2px 0 rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.85)",
@@ -435,6 +434,7 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
+    transform: "translateY(-2px)"
   },
 
   fullBadge: {
@@ -446,15 +446,29 @@ const styles: Record<string, React.CSSProperties> = {
   spawnCostBadge: {
     position: "absolute",
     left: "2.5%",
-    top: "2.3%",
+    top: "-1.0%",
     zIndex: 6,
-    width: "12.2%",
+    width: "20.2%",
     aspectRatio: "1 / 1.12",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     pointerEvents: "none",
     filter: "drop-shadow(0 6px 8px rgba(0,0,0,0.72))",
+  },
+
+  spawnFuelGenerationBadge: {
+    position: "absolute",
+    left: "16.4%",
+    top: "1.6%",
+    zIndex: 6,
+    width: "14.5%",
+    aspectRatio: "1 / 1.12",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    pointerEvents: "none",
+    filter: "drop-shadow(0 5px 8px rgba(0,0,0,0.72))",
   },
 
   spawnCostIcon: {
@@ -472,7 +486,7 @@ const styles: Record<string, React.CSSProperties> = {
     transform: "translate(-50%, -50%)",
     zIndex: 2,
     fontFamily: digitFont,
-    fontSize: 18,
+    fontSize: 15,
     lineHeight: 1,
     color: "#f6d27a",
     fontWeight: 700,
@@ -484,7 +498,7 @@ const styles: Record<string, React.CSSProperties> = {
     right: "2.7%",
     top: "2.2%",
     zIndex: 6,
-    width: "11%",
+    width: "17%",
     aspectRatio: "1 / 1",
     display: "flex",
     alignItems: "center",
@@ -645,7 +659,7 @@ const styles: Record<string, React.CSSProperties> = {
   abilityText: {
     margin: 0,
     color: "rgba(224, 222, 214, 0.72)",
-    fontFamily: "'Roboto Condensed', 'Arial Narrow', Inter, sans-serif",
+    fontFamily: "inherit",
     fontSize: 11,
     lineHeight: 1.18,
     textShadow: "0 1px 0 rgba(0,0,0,0.95)",
@@ -658,7 +672,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "flex-end",
     gap: 4,
     color: "rgba(236, 229, 204, 0.72)",
-    fontFamily: digitFont,
+    fontFamily: "inherit",
     fontSize: 10,
     lineHeight: 1,
   },
