@@ -70,7 +70,6 @@ export type BoardUnit = {
 };
 
 export type PlayerTimerState = {
-  battleTimeLeftMs: number;
   stepTimeLeftMs: number;
   idleStreak: number;
   actedThisStep: boolean;

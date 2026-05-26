@@ -7,7 +7,6 @@ import type {
   PlayerTimerState,
 } from "./types";
 
-export const BATTLE_TIME_MS = 7 * 60 * 1000;
 export const STEP_TIME_MS = 15 * 1000;
 
 const PLAYER_DECK_CARD_IDS = [
@@ -69,7 +68,6 @@ function createPlayerState(owner: PlayerId, deckCardIds: string[]): PlayerState 
 
 function createTimerState(): PlayerTimerState {
   return {
-    battleTimeLeftMs: BATTLE_TIME_MS,
     stepTimeLeftMs: STEP_TIME_MS,
     idleStreak: 0,
     actedThisStep: false,

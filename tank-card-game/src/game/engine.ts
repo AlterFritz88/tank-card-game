@@ -9,7 +9,6 @@ import type {
   TankCard,
 } from "./types";
 
-const BATTLE_TIME_MS = 7 * 60 * 1000;
 const STEP_TIME_MS = 15 * 1000;
 
 export const PLAYER_SPAWN_CELLS: Position[] = [
@@ -835,18 +834,7 @@ function timerTick(
     return;
   }
 
-  timer.battleTimeLeftMs = Math.max(0, timer.battleTimeLeftMs - action.elapsedMs);
   timer.stepTimeLeftMs = Math.max(0, timer.stepTimeLeftMs - action.elapsedMs);
-
-  if (timer.battleTimeLeftMs <= 0) {
-    setWinnerByLoser(
-      state,
-      activePlayer,
-      `${getPlayerLabel(activePlayer).toLowerCase()} исчерпал 7 минут на бой`
-    );
-
-    return;
-  }
 
   if (timer.stepTimeLeftMs <= 0) {
     handleIdleTimeout(state, activePlayer);
