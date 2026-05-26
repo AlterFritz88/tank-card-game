@@ -41,6 +41,8 @@ type HeadquartersHandCardData = {
   actionFuelCost: number;
 };
 
+type HandCardDisplayMode = "hand" | "preview";
+
 type HandCardViewProps = {
   card?: TankCard;
   headquarters?: HeadquartersHandCardData;
@@ -48,6 +50,7 @@ type HandCardViewProps = {
   currentHp?: number;
   selected?: boolean;
   disabled?: boolean;
+  displayMode?: HandCardDisplayMode;
 };
 
 function getBoardClassIcon(cardClass: TankCard["class"], ownerId: PlayerId) {
@@ -147,12 +150,19 @@ export function HandCardView({
   currentHp,
   selected = false,
   disabled = false,
+  displayMode = "hand",
 }: HandCardViewProps) {
   const isHeadquarters = Boolean(headquarters);
 
   if (!card && !headquarters) {
     return null;
   }
+
+  const isPreview = displayMode === "preview";
+  const badgeMode = isPreview ? "preview" : "hand";
+  const previewScale = 390 / 175;
+  const uiScale = isPreview ? previewScale : 1;
+  const scaled = (value: number) => Math.round(value * uiScale);
 
   const nation = card ? getNationVisual(card.nation) : null;
   const unitClass = card ? getClassVisual(card.class) : null;
@@ -198,6 +208,7 @@ export function HandCardView({
     <div
       style={{
         ...styles.card,
+        ...(isPreview ? styles.previewCard : {}),
         ...(selected ? styles.selectedCard : {}),
         ...(disabled ? styles.disabledCard : {}),
       }}
@@ -229,7 +240,7 @@ export function HandCardView({
         <div style={styles.spawnCostBadge}>
           <StatBadge
             type="spawnCost"
-            mode="hand"
+            mode={badgeMode}
             value={card!.cost}
             title="Стоимость розыгрыша"
             style={styles.fullBadge}
@@ -241,7 +252,7 @@ export function HandCardView({
         <div style={styles.spawnFuelGenerationBadge}>
           <StatBadge
             type="fuel"
-            mode="hand"
+            mode={badgeMode}
             value={`+${fuelGenerationValue}`}
             title="Генерация топлива за ход"
             style={styles.fullBadge}
@@ -252,7 +263,7 @@ export function HandCardView({
       <div style={styles.actionCostBadge}>
         <StatBadge
           type="actionCost"
-          mode="hand"
+          mode={badgeMode}
           value={actionCostValue}
           title="Стоимость действия"
           style={styles.fullBadge}
@@ -265,23 +276,52 @@ export function HandCardView({
           ...(isHeadquarters ? styles.titleAreaWithoutSpawnCost : {}),
         }}
       >
-        <strong style={styles.title}>{title}</strong>
-        <span style={styles.subtitle}>{subtitle}</span>
+        <strong
+          style={{
+            ...styles.title,
+            fontSize: scaled(15),
+            letterSpacing: 0.4 * uiScale,
+          }}
+        >
+          {title}
+        </strong>
+        <span
+          style={{
+            ...styles.subtitle,
+            fontSize: scaled(8),
+            transform: `translateY(${-2 * uiScale}px)`,
+          }}
+        >
+          {subtitle}
+        </span>
       </div>
 
-      <div style={styles.leftStats}>
+      <div
+        style={{
+          ...styles.leftStats,
+          gap: scaled(6),
+        }}
+      >
         {classIcon ? (
           <img
             src={classIcon}
             alt={isHeadquarters ? "Штаб" : unitClass!.label}
             title={isHeadquarters ? "Штаб" : unitClass!.label}
-            style={styles.classIcon}
+            style={{
+              ...styles.classIcon,
+              width: scaled(20),
+              height: scaled(29),
+              transform: `translate(${-7 * uiScale}px, ${-36 * uiScale}px)`,
+            }}
             draggable={false}
           />
         ) : (
           <span
             style={{
               ...styles.classIconFallback,
+              width: scaled(29),
+              height: scaled(29),
+              fontSize: scaled(23),
               color: ownerId === "player" ? "#7dff8a" : "#ff5a52",
             }}
             title="Штаб"
@@ -292,7 +332,7 @@ export function HandCardView({
 
         <StatBadge
           type="attack"
-          mode="hand"
+          mode={badgeMode}
           ownerId={ownerId}
           value={attackValue}
           title="Атака"
@@ -300,15 +340,23 @@ export function HandCardView({
 
         <StatBadge
           type="health"
-          mode="hand"
+          mode={badgeMode}
           value={hpValue}
           title="Здоровье"
-          style={styles.healthBadgeOffset}
+          style={{ marginTop: -8 * uiScale }}
         />
       </div>
 
       <div style={styles.descriptionPanel}>
-        <p style={styles.abilityText}>{abilityText}</p>
+        <p
+          style={{
+            ...styles.abilityText,
+            fontSize: scaled(11),
+            lineHeight: 1.18,
+          }}
+        >
+          {abilityText}
+        </p>
       </div>
     </div>
   );
@@ -331,6 +379,10 @@ const styles: Record<string, React.CSSProperties> = {
     userSelect: "none",
     transformOrigin: "center bottom",
     filter: "drop-shadow(0 16px 26px rgba(0,0,0,0.52))",
+  },
+
+  previewCard: {
+    filter: "drop-shadow(0 28px 58px rgba(0,0,0,0.78))",
   },
 
   selectedCard: {
@@ -645,7 +697,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   descriptionPanel: {
     position: "absolute",
-    left: "9.5%",
+    left: "10.5%",
     right: "9.5%",
     bottom: "4.7%",
     height: "25.2%",
@@ -660,10 +712,12 @@ const styles: Record<string, React.CSSProperties> = {
     margin: 0,
     color: "rgba(224, 222, 214, 0.72)",
     fontFamily: "inherit",
-    fontSize: 11,
-    lineHeight: 1.18,
+    fontSize: 9,
+    lineHeight: 0.8,
     textShadow: "0 1px 0 rgba(0,0,0,0.95)",
-    textAlign: "justify",
+    textAlign: "left",
+    overflowWrap: "break-word",
+    wordBreak: "normal",
   },
 
   bottomMeta: {

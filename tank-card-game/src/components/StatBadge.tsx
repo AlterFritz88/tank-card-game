@@ -6,6 +6,8 @@ import {
   getStatFontSize,
   getStatFontWeight,
   getStatValueTop,
+  getAttackTintBorderRadius,
+  getAttackTintInset,
   type CardStatBadge,
   type CardViewMode,
 } from "../game/cardUiConfig";
@@ -95,8 +97,8 @@ export function StatBadge({
         <div
           style={{
             ...styles.attackTint,
-            inset: CARD_UI.tint.attackInset,
-            borderRadius: CARD_UI.tint.attackBorderRadius,
+            inset: getAttackTintInset(mode),
+            borderRadius: getAttackTintBorderRadius(mode),
             background: getAttackTint(ownerId),
           }}
         />

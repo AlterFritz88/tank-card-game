@@ -2013,6 +2013,7 @@ function renderEnemyDeckWithTimer() {
                   card={getCard(cardPreview.cardId)}
                   ownerId={cardPreview.ownerId}
                   currentHp={cardPreview.currentHp}
+                  displayMode="preview"
                 />
               ) : (
                 <HandCardView
@@ -2023,6 +2024,7 @@ function renderEnemyDeckWithTimer() {
                     fuelGeneration: cardPreview.fuelGeneration,
                     actionFuelCost: cardPreview.actionFuelCost,
                   }}
+                  displayMode="preview"
                 />
               )}
 
@@ -2977,7 +2979,8 @@ spawnCardBackEffect: {
 
   cardPreviewPanel: {
     position: "relative",
-    width: "min(390px, 82vw)",
+    width: 390,
+    maxWidth: "82vw",
     maxHeight: "92vh",
     display: "flex",
     alignItems: "center",

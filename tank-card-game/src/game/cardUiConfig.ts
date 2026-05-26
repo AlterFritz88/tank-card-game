@@ -31,7 +31,7 @@ export const CARD_UI = {
   statScale: {
     board: 1,
     hand: 1,
-    preview: 1,
+    preview: 390 / 175,
   },
 
   colors: {
@@ -44,8 +44,8 @@ export const CARD_UI = {
     actionCost: "#f6d27a",
     spawnCost: "#f6d27a",
 
-    playerAttackTint: "rgba(63, 220, 92, 0.34)",
-    enemyAttackTint: "rgba(230, 50, 46, 0.36)",
+    playerAttackTint: "rgba(63, 220, 92, 0.10)",
+    enemyAttackTint: "rgba(230, 50, 46, 0.10)",
   },
 
   statBadges: {
@@ -67,7 +67,13 @@ export const CARD_UI = {
           height: 29,
           fontSize: 13,
           fontWeight: 600,
-        }
+        },
+        preview: {
+          width: 29,
+          height: 29,
+          fontSize: 13,
+          fontWeight: 600,
+        },
       },
     },
 
@@ -130,7 +136,7 @@ export const CARD_UI = {
   },
 
   tint: {
-    attackInset: 2,
+    attackInset: 3.5,
     attackBorderRadius: 999,
   },
 } as const;
@@ -182,4 +188,19 @@ export function getStatValueTop(
   mode: CardViewMode
 ): string {
   return getBadgeConfig(badge, mode).valueTop;
+}
+
+
+export function getAttackTintInset(mode: CardViewMode): number {
+  return scaleSize(CARD_UI.tint.attackInset, mode);
+}
+
+export function getAttackTintBorderRadius(mode: CardViewMode): number {
+  const radius = CARD_UI.tint.attackBorderRadius;
+
+  if (radius >= 999) {
+    return 9999;
+  }
+
+  return scaleSize(radius, mode);
 }
