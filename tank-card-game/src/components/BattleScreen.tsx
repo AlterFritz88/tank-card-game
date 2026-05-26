@@ -15,6 +15,7 @@ import { TankCardView } from "./TankCardView";
 import { HandCardView } from "./HandCardView";
 import { HeadquartersCardView } from "./HeadquartersCardView";
 import { ResultScreen } from "./ResultScreen";
+import { FuelPanel } from "./FuelPanel";
 import apShellImage from "../assets/ap-shell.png";
 import explosionFlashImage from "../assets/effects/explosion-flash.png";
 import explosionFireballImage from "../assets/effects/explosion-fireball.png";
@@ -1024,6 +1025,17 @@ export function BattleScreen() {
     });
   }
 
+
+  function getNextTurnFuel(owner: PlayerId): number {
+    const headquartersFuel = battle.headquarters[owner].fuelGeneration;
+
+    const unitsFuel = battle.units
+      .filter((unit) => unit.ownerId === owner)
+      .reduce((sum, unit) => sum + getCard(unit.cardId).fuelGeneration, 0);
+
+    return headquartersFuel + unitsFuel;
+  }
+
   function renderTimerPanel(owner: PlayerId) {
     const timer = battle.timers?.[owner];
 
@@ -1122,6 +1134,12 @@ function renderEnemyDeckWithTimer() {
       </div>
 
       {renderTimerPanel("bot")}
+
+      <FuelPanel
+        ownerId="bot"
+        currentFuel={battle.bot.resources}
+        nextTurnFuel={getNextTurnFuel("bot")}
+      />
     </div>
   );
 }
@@ -1334,12 +1352,11 @@ function renderEnemyDeckWithTimer() {
 
   {renderTimerPanel("player")}
 
-  <div style={styles.playerFuelBadge}>
-    <span>Топливо</span>
-    <strong>
-      {battle.player.resources}/{battle.player.maxResources}
-    </strong>
-  </div>
+  <FuelPanel
+    ownerId="player"
+    currentFuel={battle.player.resources}
+    nextTurnFuel={getNextTurnFuel("player")}
+  />
 
   <div style={styles.playerDeckBottom}>
     <div
