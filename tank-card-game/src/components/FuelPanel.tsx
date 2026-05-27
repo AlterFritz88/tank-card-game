@@ -27,7 +27,7 @@ export function FuelPanel({
     >
       <div style={styles.badgesRow}>
         <StatBadge
-          type="fuel"
+          type="spawnCost"
           mode="hand"
           value={currentFuel}
           title="Осталось топлива в этом ходу"
@@ -40,7 +40,7 @@ export function FuelPanel({
         </span>
 
         <StatBadge
-          type="fuel"
+          type="fuelGeneration"
           mode="hand"
           value={nextTurnFuel}
           title="Придет топлива в следующем ходу"
@@ -74,7 +74,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    gap: 3,
+    gap: 0,
     width: "100%",
   },
 
@@ -91,6 +91,7 @@ const styles: Record<string, React.CSSProperties> = {
       "0 1px 0 rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85)",
     pointerEvents: "none",
     userSelect: "none",
+    transform: "translate(-14px, 0px)",
   },
 
   currentFuelBadge: {
@@ -103,6 +104,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: 42,
     height: 46,
     filter: "drop-shadow(0 5px 8px rgba(0,0,0,0.64))",
+    marginLeft: -18,
   },
 
   currentFuelValue: {
@@ -111,7 +113,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   nextFuelValue: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: 800,
   },
 };

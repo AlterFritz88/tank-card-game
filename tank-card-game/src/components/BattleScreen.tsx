@@ -1157,9 +1157,20 @@ function renderDeckStack(cardCount: number) {
 
   return (
     <div style={styles.deckStack}>
-      {Array.from({ length: visibleCardsCount }).map((_, index) =>
-        renderCardBack(index, true)
-      )}
+      {Array.from({ length: visibleCardsCount }).map((_, index) => (
+        <div
+          key={`deck-card-${index}`}
+          style={{
+            ...styles.deckStackCard,
+            left: index * 5,
+            top: index * -4,
+            zIndex: index + 1,
+            backgroundImage: `url(${cardBackImage})`,
+          }}
+        />
+      ))}
+
+      <strong style={styles.deckCountBadge}>{cardCount}</strong>
     </div>
   );
 }
@@ -1176,9 +1187,6 @@ function renderEnemyDeckWithTimer() {
   style={styles.enemyDeckCompact}
 >
         {renderDeckStack(player.deck.length)}
-
-        <span style={styles.deckLabel}>Колода врага</span>
-        <strong>{player.deck.length}</strong>
       </div>
 
       {renderTimerPanel("bot")}
@@ -1409,11 +1417,6 @@ function renderEnemyDeckWithTimer() {
   style={styles.playerDeckOnly}
 >
   {renderDeckStack(battle.player.deck.length)}
-</div>
-
-    <div style={styles.cardsLeftInfo}>
-  <span>Карт осталось</span>
-  <strong style={styles.cardsLeftValue}>{battle.player.deck.length}</strong>
 </div>
   </div>
 </aside>
@@ -2182,19 +2185,6 @@ const styles: Record<string, React.CSSProperties> = {
   overflow: "visible",
 },
 
-  enemyZone: {
-  gridColumn: "1 / 2",
-  display: "grid",
-  gridTemplateColumns: "130px 1fr 40px",
-  alignItems: "start",
-  gap: 16,
-  minHeight: 150,
-  padding: "8px 18px",
-  borderRadius: 18,
-  background:
-    "linear-gradient(180deg, rgba(30, 12, 12, 0.35), rgba(0, 0, 0, 0.12))",
-  border: "1px solid rgba(255,255,255,0.06)",
-},
 
   enemyDeckArea: {
     display: "flex",
@@ -2202,14 +2192,14 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   enemyHand: {
-  height: 52,
+  height: 82,
   display: "flex",
   justifyContent: "center",
   alignItems: "flex-start",
   gap: 12,
   overflow: "visible",
   position: "relative",
-  transform: "translateY(-26px)",
+  transform: "translateY(-15px)",
   zIndex: 20,
   background: "transparent",
   border: "none",
@@ -2283,7 +2273,7 @@ startRollResultBot: {
 },
 
 enemyHandClip: {
-  height: 50,
+  height: 82,
   overflow: "hidden",
   position: "relative",
   width: "100%",
@@ -2296,8 +2286,8 @@ enemyHandCardMask: {
   display: "flex",
   justifyContent: "center",
   alignItems: "flex-start",
-  gap: 12,
-  transform: "translateY(-92px)",
+  gap: 10,
+  transform: "translateY(-82px)",
 },
 
 enemyThinkingLayer: {
@@ -2310,7 +2300,7 @@ enemyThinkingLayer: {
   justifyContent: "center",
   alignItems: "flex-start",
   gap: 12,
-  transform: "translateY(-92px)",
+  transform: "translateY(-96px)",
   pointerEvents: "none",
 },
 
@@ -2361,26 +2351,21 @@ actionSideColumn: {
   gap: 10,
   alignItems: "stretch",
 },
-
   boardShell: {
-  position: "relative",
-  padding: 6,
-  maxWidth: 720,
-  justifySelf: "center",
-  borderRadius: 20,
-  background:
-    "linear-gradient(135deg, rgba(75, 86, 82, 0.14), rgba(18, 22, 22, 0.38)), radial-gradient(circle at 50% 50%, rgba(111, 159, 155, 0.12), transparent 58%)",
-  border: "1px solid rgba(255,255,255,0.1)",
-  boxShadow:
-    "inset 0 0 0 1px rgba(255,255,255,0.04), 0 24px 70px rgba(0,0,0,0.5)",
-},
-
+    position: "relative",
+    padding: 0,
+    maxWidth: 720,
+    justifySelf: "center",
+    borderRadius: 0,
+    background: "transparent",
+    border: "none",
+    boxShadow: "none",
+  },
   boardGlow: {
     position: "absolute",
-    inset: 10,
-    borderRadius: 16,
-    background:
-      "radial-gradient(circle at center, rgba(116, 168, 170, 0.16), transparent 65%)",
+    inset: 0,
+    borderRadius: 0,
+    background: "transparent",
     pointerEvents: "none",
   },
 
@@ -2536,55 +2521,73 @@ actionSideColumn: {
   background: "rgba(7, 9, 9, 0.62)",
   border: "1px solid rgba(255,255,255,0.08)",
 },
-playerDeckBottom: {
-  marginTop: "auto",
-  display: "grid",
-  gridTemplateColumns: "1fr auto",
-  gap: 8,
-  alignItems: "center",
-  padding: 8,
-  borderRadius: 14,
-  background: "rgba(7, 9, 9, 0.62)",
-  border: "1px solid rgba(255,255,255,0.08)",
-},
-
-playerDeckOnly: {
-  minHeight: 172,
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-},
-
-cardsLeftInfo: {
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "flex-start",
-  justifyContent: "center",
-  gap: 4,
-  minWidth: 48,
-  color: "#d8d2be",
-  textTransform: "uppercase",
-  fontSize: 10,
-  lineHeight: 1.1,
-},
-
+  playerDeckBottom: {
+    marginTop: "auto",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 0,
+    borderRadius: 0,
+    background: "transparent",
+    border: "none",
+    boxShadow: "none",
+  },
+  playerDeckOnly: {
+    minHeight: 150,
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  cardsLeftInfo: {
+    display: "none",
+  },
   deckStack: {
-  position: "relative",
-  width: 130,
-  height: 172,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-},
-emptyDeckStack: {
-  position: "relative",
-  width: 130,
-  height: 172,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  pointerEvents: "none",
-},
+    position: "relative",
+    width: 114,
+    height: 146,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  deckStackCard: {
+    position: "absolute",
+    width: 104,
+    height: 138,
+    borderRadius: 12,
+    backgroundSize: "cover",
+    backgroundPosition: "center center",
+    backgroundRepeat: "no-repeat",
+    border: "none",
+    boxShadow: "0 14px 34px rgba(0,0,0,0.52)",
+    pointerEvents: "none",
+  },
+
+  deckCountBadge: {
+    position: "absolute",
+    left: 9,
+    bottom: 8,
+    zIndex: 10,
+    display: "block",
+    padding: 0,
+    color: "#f6d27a",
+    fontFamily: "'Rajdhani', 'Arial Narrow', Inter, ui-sans-serif, system-ui, sans-serif",
+    fontSize: 22,
+    lineHeight: 1,
+    fontWeight: 900,
+    textShadow:
+      "0 2px 0 rgba(0,0,0,0.95), 0 0 7px rgba(0,0,0,0.95), 0 0 12px rgba(246,210,122,0.45)",
+    pointerEvents: "none",
+  },
+  emptyDeckStack: {
+    position: "relative",
+    width: 104,
+    height: 138,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    pointerEvents: "none",
+  },
 
   enemyDeckWithTimer: {
   width: "100%",
@@ -2593,18 +2596,19 @@ emptyDeckStack: {
   alignItems: "stretch",
   gap: 4,
 },
-
-enemyDeckCompact: {
-  minHeight: 214,
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "flex-start",
-  gap: 3,
-  padding: 5,
-  borderRadius: 12,
-  background: "rgba(7, 9, 9, 0.46)",
-},
+  enemyDeckCompact: {
+    minHeight: 150,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 0,
+    padding: 0,
+    borderRadius: 0,
+    background: "transparent",
+    border: "none",
+    boxShadow: "none",
+  },
 
   deckLabel: {
     fontSize: 11,
@@ -2619,7 +2623,7 @@ enemyDeckCompact: {
     backgroundSize: "cover",
     backgroundPosition: "center center",
     backgroundRepeat: "no-repeat",
-    border: "1px solid rgba(255,255,255,0.22)",
+    border: "none",
     boxShadow: "0 14px 34px rgba(0,0,0,0.52)",
   },
 
@@ -2630,7 +2634,6 @@ enemyDeckCompact: {
   border: "none",
   boxShadow: "0 10px 24px rgba(0,0,0,0.42)",
 },
-
   timerPanel: {
     width: "100%",
     display: "flex",
@@ -2638,10 +2641,10 @@ enemyDeckCompact: {
     alignItems: "center",
     gap: 4,
     padding: "7px 10px",
-    borderRadius: 10,
-    background:
-      "linear-gradient(180deg, rgba(12, 13, 12, 0.95), rgba(6, 7, 6, 0.88))",
-    boxShadow: "0 2px 12px rgba(0,0,0,0.45), inset 0 0 12px rgba(0,0,0,0.6)",
+    borderRadius: 0,
+    background: "transparent",
+    border: "none",
+    boxShadow: "none",
   },
 
   playerReminder: {

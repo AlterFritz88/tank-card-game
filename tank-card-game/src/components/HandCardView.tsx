@@ -251,7 +251,7 @@ export function HandCardView({
       {!isHeadquarters && (
         <div style={styles.spawnFuelGenerationBadge}>
           <StatBadge
-            type="fuel"
+            type="fuelGeneration"
             mode={badgeMode}
             value={`+${fuelGenerationValue}`}
             title="Генерация топлива за ход"

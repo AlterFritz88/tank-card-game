@@ -4,6 +4,7 @@ export type CardStatBadge =
   | "attack"
   | "health"
   | "fuel"
+  | "fuelGeneration"
   | "actionCost"
   | "spawnCost";
 
@@ -41,6 +42,7 @@ export const CARD_UI = {
     enemyAttackPreview: "#ff5a52",
     health: "#ffe4d8",
     fuel: "#f6d27a",
+    fuelGeneration: "#f6d27a",
     actionCost: "#f6d27a",
     spawnCost: "#f6d27a",
 
@@ -94,6 +96,14 @@ export const CARD_UI = {
     },
 
     fuel: {
+      width: 34,
+      height: 38,
+      valueTop: "53%",
+      fontSize: 11,
+      fontWeight: 700,
+    },
+
+    fuelGeneration: {
       width: 34,
       height: 38,
       valueTop: "53%",

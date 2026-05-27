@@ -14,6 +14,7 @@ import {
 import attackBadgeImage from "../assets/icons/badge-attack.png";
 import healthBadgeImage from "../assets/icons/badge-health.png";
 import fuelCanisterIcon from "../assets/icons/fuel-canister-icon.png";
+import fuelGenerationCanisterIcon from "../assets/icons/fuel-generation-canister.png";
 import actionCostBadgeImage from "../assets/icons/badge-action-cost.png";
 
 type StatBadgeProps = {
@@ -32,6 +33,7 @@ const badgeImages: Record<CardStatBadge, string> = {
   attack: attackBadgeImage,
   health: healthBadgeImage,
   fuel: fuelCanisterIcon,
+  fuelGeneration: fuelGenerationCanisterIcon,
   actionCost: actionCostBadgeImage,
   spawnCost: fuelCanisterIcon,
 };
@@ -51,6 +53,7 @@ function getValueColor(type: CardStatBadge, mode: CardViewMode, ownerId: PlayerI
 
   if (type === "health") return CARD_UI.colors.health;
   if (type === "fuel") return CARD_UI.colors.fuel;
+  if (type === "fuelGeneration") return CARD_UI.colors.fuelGeneration;
   if (type === "spawnCost") return CARD_UI.colors.spawnCost;
 
   return CARD_UI.colors.actionCost;
