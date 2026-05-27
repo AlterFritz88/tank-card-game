@@ -159,7 +159,9 @@ function waitForNextFrame(): Promise<void> {
 
 export function BattleScreen() {
   const {
-    battle,
+    battle: rawBattle,
+    mode,
+    localPlayerId,
     selectedCardInstanceId,
     selectedAttacker,
     selectCard,
@@ -167,6 +169,18 @@ export function BattleScreen() {
     dispatch,
     reset,
   } = useBattleStore();
+
+  if (!rawBattle) {
+    return null;
+  }
+
+  const battle = rawBattle;
+  const humanPlayerId: PlayerId = mode === "pvp" ? localPlayerId : "player";
+  const opponentPlayerId: PlayerId =
+    humanPlayerId === "player" ? "bot" : "player";
+  const botAiEnabled = mode === "ai";
+  const isHumanTurn =
+    battle.status === "active" && battle.activePlayer === humanPlayerId;
   const DRAW_CARD_ANIMATION_MS = 760;
   const DRAW_CARD_REVEAL_DELAY_MS = 80;
   const SPAWN_CARD_ANIMATION_MS = 620;
@@ -187,8 +201,8 @@ export function BattleScreen() {
     null
   );
   const previousHandIdsRef = useRef<Record<PlayerId, Set<string>>>({
-    player: new Set(battle.player.hand.map((card) => card.instanceId)),
-    bot: new Set(battle.bot.hand.map((card) => card.instanceId)),
+    player: new Set(battle[humanPlayerId].hand.map((card) => card.instanceId)),
+    bot: new Set(battle[opponentPlayerId].hand.map((card) => card.instanceId)),
   });
   const previousActivePlayerRef = useRef(battle.activePlayer);
   const boardRef = useRef<HTMLDivElement | null>(null);
@@ -321,6 +335,8 @@ export function BattleScreen() {
 
 
   useEffect(() => {
+    if (mode === "pvp") return;
+
     if (battle.status !== "starting") {
       if (battle.status === "active") {
         startRollRunningRef.current = false;
@@ -364,7 +380,7 @@ export function BattleScreen() {
         resultVisible: false,
       });
 
-      setTurnBannerText(winner === "player" ? "ТВОЙ ХОД" : "ХОД ВРАГА");
+      setTurnBannerText(winner === humanPlayerId ? "ТВОЙ ХОД" : "ХОД ВРАГА");
 
       window.setTimeout(() => {
         setTurnBannerText(null);
@@ -379,7 +395,7 @@ export function BattleScreen() {
       window.clearTimeout(finishTimer);
       startRollRunningRef.current = false;
     };
-  }, [battle.status]);
+  }, [battle.status, mode]);
 
   useEffect(() => {
     const owners: PlayerId[] = ["player", "bot"];
@@ -420,13 +436,14 @@ export function BattleScreen() {
     }
   }, [
     battle.status,
-    battle.player.hand.map((card) => card.instanceId).join("|"),
-    battle.bot.hand.map((card) => card.instanceId).join("|"),
+    battle[humanPlayerId].hand.map((card) => card.instanceId).join("|"),
+    battle[opponentPlayerId].hand.map((card) => card.instanceId).join("|"),
   ]);
 
   useEffect(() => {
     if (debugPaused) return;
     if (battle.status !== "active") return;
+    if (mode === "pvp" && localPlayerId !== "player") return;
 
     let lastTickTime = Date.now();
 
@@ -445,9 +462,14 @@ export function BattleScreen() {
     return () => {
       window.clearInterval(interval);
     };
-  }, [battle.status, debugPaused]);
+  }, [battle.status, debugPaused, mode, localPlayerId]);
 
   useEffect(() => {
+    if (!botAiEnabled) {
+      setThinkingCardIndex(null);
+      return;
+    }
+
     if (debugPaused) {
       setThinkingCardIndex(null);
       return;
@@ -484,7 +506,7 @@ export function BattleScreen() {
       window.clearInterval(interval);
       setThinkingCardIndex(null);
     };
-  }, [battle.activePlayer, battle.status, battle.bot.hand.length]);
+  }, [botAiEnabled, battle.activePlayer, battle.status, battle.bot.hand.length]);
 
 
   useEffect(() => {
@@ -496,7 +518,7 @@ export function BattleScreen() {
   if (previousActivePlayer === battle.activePlayer) return;
 
   const nextBannerText =
-    battle.activePlayer === "player" ? "ТВОЙ ХОД" : "ХОД ВРАГА";
+    battle.activePlayer === humanPlayerId ? "ТВОЙ ХОД" : "ХОД ВРАГА";
 
   setTurnBannerText(nextBannerText);
 
@@ -590,6 +612,7 @@ export function BattleScreen() {
   }
 
   useEffect(() => {
+    if (!botAiEnabled) return;
     if (debugPaused) return;
     if (battle.status !== "active") return;
     if (battle.activePlayer !== "bot") return;
@@ -672,18 +695,22 @@ export function BattleScreen() {
       cancelled = true;
       botTurnRunningRef.current = false;
     };
-  }, [battle.activePlayer, battle.status, debugPaused]);
+  }, [botAiEnabled, battle.activePlayer, battle.status, debugPaused]);
 
   const rows = [0, 1, 2] as const;
   const cols = [0, 1, 2, 3, 4] as const;
+  const visualRows: readonly number[] =
+    humanPlayerId === "player" ? rows : [...rows].reverse();
+  const visualCols: readonly number[] =
+    humanPlayerId === "player" ? cols : [...cols].reverse();
 
   const selectedTargets =
     selectedAttacker &&
     battle.status === "active" &&
-    battle.activePlayer === "player"
+    battle.activePlayer === humanPlayerId
       ? getTargetsInRange(
-          battle,
-          "player",
+        battle,
+        humanPlayerId,
           selectedAttacker.type,
           selectedAttacker.id
         )
@@ -693,8 +720,8 @@ export function BattleScreen() {
     selectedAttacker &&
     selectedAttacker.type === "unit" &&
     battle.status === "active" &&
-    battle.activePlayer === "player"
-      ? getAvailableMoveCells(battle, "player", selectedAttacker.id)
+    battle.activePlayer === humanPlayerId
+      ? getAvailableMoveCells(battle, humanPlayerId, selectedAttacker.id)
       : [];
 
   function isTarget(targetType: "unit" | "headquarters", targetId: string) {
@@ -847,14 +874,14 @@ export function BattleScreen() {
       action.type === "TIMER_TICK";
 
     const before = shouldShowDamage
-      ? createHpSnapshot(useBattleStore.getState().battle)
+      ? createHpSnapshot(useBattleStore.getState().battle!)
       : null;
 
     dispatch(action);
 
     if (!shouldShowDamage || !before) return;
 
-    const after = createHpSnapshot(useBattleStore.getState().battle);
+    const after = createHpSnapshot(useBattleStore.getState().battle!);
 
     showDamageEffectsFromSnapshots(before, after);
   }
@@ -964,27 +991,29 @@ export function BattleScreen() {
   function handleCellClick(position: Position) {
     if (debugPaused) return;
     if (battle.status !== "active") return;
-    if (battle.activePlayer !== "player") return;
+    if (battle.activePlayer !== humanPlayerId) return;
 
     if (selectedCardInstanceId) {
       if (spawningCardInstanceId) return;
-      if (!isPlayerSpawn(position)) return;
+      const isOwnSpawn =
+        humanPlayerId === "player" ? isPlayerSpawn(position) : isBotSpawn(position);
+      if (!isOwnSpawn) return;
 
-      const cardInstance = battle.player.hand.find(
+      const cardInstance = battle[humanPlayerId].hand.find(
         (item) => item.instanceId === selectedCardInstanceId
       );
 
       if (!cardInstance) return;
 
       void playSpawnCardAnimation(
-        "player",
+        humanPlayerId,
         cardInstance.instanceId,
         cardInstance.cardId,
         position
       ).then(() => {
         dispatchBattleAction({
           type: "PLAY_CARD",
-          playerId: "player",
+          playerId: humanPlayerId,
           cardInstanceId: cardInstance.instanceId,
           position,
         });
@@ -998,7 +1027,7 @@ export function BattleScreen() {
 
       dispatchBattleAction({
         type: "MOVE_UNIT",
-        playerId: "player",
+        playerId: humanPlayerId,
         unitId: selectedAttacker.id,
         position,
       });
@@ -1012,13 +1041,13 @@ export function BattleScreen() {
     if (debugPaused) return;
     if (!selectedAttacker) return;
     if (battle.status !== "active") return;
-    if (battle.activePlayer !== "player") return;
+    if (battle.activePlayer !== humanPlayerId) return;
 
     await playAttackAnimation(selectedAttacker.id, targetId);
 
     dispatchBattleAction({
       type: "ATTACK",
-      playerId: "player",
+      playerId: humanPlayerId,
       attackerType: selectedAttacker.type,
       attackerId: selectedAttacker.id,
       targetType,
@@ -1045,9 +1074,9 @@ export function BattleScreen() {
     }
 
     const active = battle.activePlayer === owner;
-    const isPlayer = owner === "player";
+    const isLocalPlayer = owner === humanPlayerId;
     const isLowTime = timer.stepTimeLeftMs <= 4000;
-    const showPlayerReminder = isPlayer && active;
+    const showPlayerReminder = isLocalPlayer && active;
 
     return (
       <div
@@ -1176,25 +1205,25 @@ function renderDeckStack(cardCount: number) {
 }
 
 function renderEnemyDeckWithTimer() {
-  const player = battle.bot;
+  const player = battle[opponentPlayerId];
 
   return (
     <div style={styles.enemyDeckWithTimer}>
       <div
   ref={(element) => {
-    deckRefs.current.bot = element;
+    deckRefs.current[opponentPlayerId] = element;
   }}
   style={styles.enemyDeckCompact}
 >
         {renderDeckStack(player.deck.length)}
       </div>
 
-      {renderTimerPanel("bot")}
+      {renderTimerPanel(opponentPlayerId)}
 
       <FuelPanel
-        ownerId="bot"
-        currentFuel={battle.bot.resources}
-        nextTurnFuel={getNextTurnFuel("bot")}
+        ownerId={opponentPlayerId}
+        currentFuel={battle[opponentPlayerId].resources}
+        nextTurnFuel={getNextTurnFuel(opponentPlayerId)}
       />
     </div>
   );
@@ -1202,7 +1231,7 @@ function renderEnemyDeckWithTimer() {
 
   function renderHqPanel(owner: PlayerId) {
     const hq = battle.headquarters[owner];
-    const isPlayer = owner === "player";
+    const isLocalPlayer = owner === humanPlayerId;
     const selected =
       selectedAttacker?.type === "headquarters" &&
       selectedAttacker.id === `${owner}_hq`;
@@ -1211,14 +1240,14 @@ function renderEnemyDeckWithTimer() {
       <div
         style={{
           ...styles.hqPanel,
-          ...(isPlayer ? styles.playerHqPanel : styles.botHqPanel),
+          ...(isLocalPlayer ? styles.playerHqPanel : styles.botHqPanel),
           ...(selected ? styles.selectedHqPanel : {}),
         }}
       >
         <span style={styles.hqPanelLabel}>
-          {isPlayer ? "Ваш штаб" : "Штаб врага"}
+          {isLocalPlayer ? "Ваш штаб" : "Штаб врага"}
         </span>
-        <strong style={styles.hqPanelTitle}>{isPlayer ? "BASE" : "ENEMY"}</strong>
+        <strong style={styles.hqPanelTitle}>{isLocalPlayer ? "BASE" : "ENEMY"}</strong>
 
         <div style={styles.hqStats}>
           <span>
@@ -1268,14 +1297,14 @@ function renderEnemyDeckWithTimer() {
         y: effect.from.y,
         opacity: 0,
         scale: 0.48,
-        rotate: effect.owner === "player" ? -8 : 8,
+        rotate: effect.owner === humanPlayerId ? -8 : 8,
       }}
       animate={{
         x: effect.to.x,
         y: effect.to.y,
         opacity: [0, 1, 1, 0],
         scale: [0.48, 0.78, 0.9, 0.86],
-        rotate: effect.owner === "player" ? [ -8, 2, 0 ] : [8, -2, 0],
+        rotate: effect.owner === humanPlayerId ? [ -8, 2, 0 ] : [8, -2, 0],
       }}
       exit={{ opacity: 0 }}
       transition={{
@@ -1289,7 +1318,7 @@ function renderEnemyDeckWithTimer() {
   {spawnCardEffects.map((effect) => {
     const card = getCard(effect.cardId);
 
-    if (effect.owner === "bot") {
+    if (effect.owner !== humanPlayerId) {
       return (
         <motion.div
           key={effect.id}
@@ -1355,16 +1384,16 @@ function renderEnemyDeckWithTimer() {
 
   <div
   ref={(element) => {
-    handRefs.current.bot = element;
+    handRefs.current[opponentPlayerId] = element;
   }}
   style={styles.enemyHand}
 >
   <div style={styles.enemyHandClip}>
     <div style={styles.enemyHandCardMask}>
-     {battle.bot.hand.map((cardInstance, index) => (
+     {battle[opponentPlayerId].hand.map((cardInstance, index) => (
   <div
     key={`bot-hand-${cardInstance.instanceId}`}
-    ref={setHandCardRef("bot", cardInstance.instanceId)}
+    ref={setHandCardRef(opponentPlayerId, cardInstance.instanceId)}
     style={{
       opacity:
         hiddenDrawnCardIds.has(cardInstance.instanceId) ||
@@ -1381,7 +1410,7 @@ function renderEnemyDeckWithTimer() {
 
   {battle.activePlayer === "bot" && thinkingCardIndex !== null && (
     <div style={styles.enemyThinkingLayer}>
-      {battle.bot.hand.map((_, index) => (
+      {battle[opponentPlayerId].hand.map((_, index) => (
         <div
           key={`thinking-${index}`}
           style={{
@@ -1401,22 +1430,22 @@ function renderEnemyDeckWithTimer() {
 
         <section style={styles.centerBattleArea}>
          <aside style={styles.leftCommandPanel}>
-  {renderTimerPanel("player")}
+  {renderTimerPanel(humanPlayerId)}
 
   <FuelPanel
-    ownerId="player"
-    currentFuel={battle.player.resources}
-    nextTurnFuel={getNextTurnFuel("player")}
+    ownerId={humanPlayerId}
+    currentFuel={battle[humanPlayerId].resources}
+    nextTurnFuel={getNextTurnFuel(humanPlayerId)}
   />
 
   <div style={styles.playerDeckBottom}>
     <div
   ref={(element) => {
-    deckRefs.current.player = element;
+    deckRefs.current[humanPlayerId] = element;
   }}
   style={styles.playerDeckOnly}
 >
-  {renderDeckStack(battle.player.deck.length)}
+  {renderDeckStack(battle[humanPlayerId].deck.length)}
 </div>
   </div>
 </aside>
@@ -1599,8 +1628,7 @@ function renderEnemyDeckWithTimer() {
 
               {renderOverlayDamageText()}
 
-              {rows.map((row) =>
-                cols.map((col) => {
+              {visualRows.map((row) => visualCols.map((col) => {
                   const position: Position = { row, col };
 
                   const unit = battle.units.find((item) =>
@@ -1637,7 +1665,7 @@ function renderEnemyDeckWithTimer() {
                         key={unit.instanceId}
                         style={{
                           ...styles.cell,
-                          ...(unit.ownerId === "player"
+                          ...(unit.ownerId === humanPlayerId
                             ? styles.playerUnit
                             : styles.botUnit),
                           ...(canBeTarget ? styles.targetCell : {}),
@@ -1669,14 +1697,14 @@ function renderEnemyDeckWithTimer() {
                           if (debugPaused) return;
                           if (battle.status !== "active") return;
                           if (battle.status !== "active") return;
-                          if (battle.activePlayer !== "player") return;
+                          if (battle.activePlayer !== humanPlayerId) return;
 
                           if (canBeTarget) {
                             void handleAttackTarget("unit", unit.instanceId);
                             return;
                           }
 
-                          if (unit.ownerId === "player") {
+                          if (unit.ownerId === humanPlayerId) {
                             selectAttacker({
                               type: "unit",
                               id: unit.instanceId,
@@ -1734,7 +1762,7 @@ function renderEnemyDeckWithTimer() {
                         key={hqId}
                         style={{
                           ...styles.cell,
-                          ...(owner === "player"
+                          ...(owner === humanPlayerId
                             ? styles.playerUnit
                             : styles.botUnit),
                           ...(canBeTarget ? styles.targetCell : {}),
@@ -1768,17 +1796,17 @@ function renderEnemyDeckWithTimer() {
                           if (debugPaused) return;
                           if (battle.status !== "active") return;
                           if (battle.status !== "active") return;
-                          if (battle.activePlayer !== "player") return;
+                          if (battle.activePlayer !== humanPlayerId) return;
 
                           if (canBeTarget) {
                             void handleAttackTarget("headquarters", hqId);
                             return;
                           }
 
-                          if (owner === "player") {
+                          if (owner === humanPlayerId) {
                             selectAttacker({
                               type: "headquarters",
-                              id: "player_hq",
+                              id: `${humanPlayerId}_hq`,
                             });
                           }
                         }}
@@ -1854,20 +1882,20 @@ function renderEnemyDeckWithTimer() {
                 ...styles.endTurnButton,
                 opacity:
                   debugPaused ||
-                  battle.activePlayer !== "player" ||
+                  battle.activePlayer !== humanPlayerId ||
                   battle.status !== "active"
                     ? 0.45
                     : 1,
               }}
               disabled={
                 debugPaused ||
-                battle.activePlayer !== "player" ||
+                battle.activePlayer !== humanPlayerId ||
                 battle.status !== "active"
               }
               onClick={() =>
                 dispatchBattleAction({
                   type: "END_TURN",
-                  playerId: "player",
+                  playerId: humanPlayerId,
                 })
               }
             >
@@ -1929,12 +1957,12 @@ function renderEnemyDeckWithTimer() {
 
           <div
   ref={(element) => {
-    handRefs.current.player = element;
+    handRefs.current[humanPlayerId] = element;
   }}
   style={styles.hand}
 >
             <AnimatePresence>
-              {battle.player.hand.map((cardInstance, index) => {
+              {battle[humanPlayerId].hand.map((cardInstance, index) => {
                 const card = getCard(cardInstance.cardId);
                 const selected =
                   selectedCardInstanceId === cardInstance.instanceId;
@@ -1948,12 +1976,12 @@ function renderEnemyDeckWithTimer() {
                 return (
                   <motion.button
                     key={cardInstance.instanceId}
-                    ref={setHandCardRef("player", cardInstance.instanceId)}
+                    ref={setHandCardRef(humanPlayerId, cardInstance.instanceId)}
                     style={{
                       ...styles.card,
                       marginLeft: getPlayerHandCardMarginLeft(
                         index,
-                        battle.player.hand.length
+                        battle[humanPlayerId].hand.length
                       ),
                       zIndex: selected ? 120 : index + 1,
                       pointerEvents:
@@ -1978,7 +2006,7 @@ function renderEnemyDeckWithTimer() {
                     aria-disabled={
                       debugPaused ||
                       battle.status !== "active" ||
-                      battle.activePlayer !== "player" ||
+                      battle.activePlayer !== humanPlayerId ||
                       Boolean(spawningCardInstanceId) ||
                       isHiddenDrawnCard ||
                       isHiddenSpawningCard
@@ -1987,13 +2015,13 @@ function renderEnemyDeckWithTimer() {
                       openCardPreview(event, {
                         type: "unit",
                         cardId: card.id,
-                        ownerId: "player",
+                        ownerId: humanPlayerId,
                       })
                     }
                     onClick={() => {
                       if (debugPaused) return;
                       if (battle.status !== "active") return;
-                      if (battle.activePlayer !== "player") return;
+                      if (battle.activePlayer !== humanPlayerId) return;
                       if (spawningCardInstanceId) return;
                       if (isHiddenDrawnCard || isHiddenSpawningCard) return;
 
@@ -2005,8 +2033,8 @@ function renderEnemyDeckWithTimer() {
                       selected={selected}
                       disabled={
                         debugPaused ||
-                        battle.activePlayer !== "player" ||
-                        battle.player.resources < card.cost
+                        battle.activePlayer !== humanPlayerId ||
+                        battle[humanPlayerId].resources < card.cost
                       }
                     />
                   </motion.button>

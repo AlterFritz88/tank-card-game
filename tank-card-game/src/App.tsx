@@ -1,5 +1,9 @@
 import { BattleScreen } from "./components/BattleScreen";
+import { PvpLobby } from "./components/PvpLobby";
+import { useBattleStore } from "./store/battleStore";
 
 export default function App() {
-  return <BattleScreen />;
+  const battle = useBattleStore((state) => state.battle);
+
+  return <>{battle ? <BattleScreen /> : <PvpLobby />}</>;
 }

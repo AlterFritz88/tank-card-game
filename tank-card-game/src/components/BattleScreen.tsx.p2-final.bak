@@ -1,0 +1,3091 @@
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { getCard } from "../game/cards";
+import { getNextBotAction } from "../game/bot";
+import {
+  PLAYER_SPAWN_CELLS,
+  BOT_SPAWN_CELLS,
+  getAvailableMoveCells,
+  getTargetsInRange,
+} from "../game/engine";
+import type { BattleAction, PlayerId, Position } from "../game/types";
+import { useBattleStore } from "../store/battleStore";
+import { TankCardView } from "./TankCardView";
+import { HandCardView } from "./HandCardView";
+import { HeadquartersCardView } from "./HeadquartersCardView";
+import { ResultScreen } from "./ResultScreen";
+import { FuelPanel } from "./FuelPanel";
+import apShellImage from "../assets/ap-shell.png";
+import explosionFlashImage from "../assets/effects/explosion-flash.png";
+import explosionFireballImage from "../assets/effects/explosion-fireball.png";
+import explosionSmokeImage from "../assets/effects/explosion-smoke.png";
+import battleTableBackground from "../assets/backgrounds/battle-table-bg.png";
+import cardBackImage from "../assets/cards/card-back.png";
+import cartridgeImage from "../assets/effects/rifle-cartridge.png";
+import hourglassWw2Image from "../assets/icons/hourglass-ww2-clean.png";
+
+function samePosition(a: Position, b: Position): boolean {
+  return a.row === b.row && a.col === b.col;
+}
+
+function isPlayerSpawn(position: Position): boolean {
+  return PLAYER_SPAWN_CELLS.some((cell) => samePosition(cell, position));
+}
+
+function isBotSpawn(position: Position): boolean {
+  return BOT_SPAWN_CELLS.some((cell) => samePosition(cell, position));
+}
+
+function positionLabel(position: Position) {
+  return `[${position.row},${position.col}]`;
+}
+
+function formatTimer(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+type DamageId = string;
+
+type CellCenter = {
+  x: number;
+  y: number;
+};
+
+type ProjectileEffect = {
+  id: number;
+  from: CellCenter;
+  to: CellCenter;
+};
+
+type ExplosionEffect = {
+  id: number;
+  position: CellCenter;
+};
+
+type DamageTextEffect = {
+  id: number;
+  amount: number;
+  targetId?: string;
+  position?: CellCenter;
+};
+
+type DrawCardEffect = {
+  id: number;
+  owner: PlayerId;
+  from: CellCenter;
+  to: CellCenter;
+};
+
+type SpawnCardEffect = {
+  id: number;
+  owner: PlayerId;
+  from: CellCenter;
+  to: CellCenter;
+  cardId: string;
+  hiddenCardInstanceId: string;
+};
+
+type CardPreview =
+  | {
+      type: "unit";
+      cardId: string;
+      ownerId: PlayerId;
+      currentHp?: number;
+    }
+  | {
+      type: "headquarters";
+      ownerId: PlayerId;
+      hp: number;
+      attack: number;
+      fuelGeneration: number;
+      actionFuelCost: number;
+    };
+
+function setObjectRef(
+  refs: React.MutableRefObject<Map<string, HTMLButtonElement>>,
+  id: string
+) {
+  return (element: HTMLButtonElement | null) => {
+    if (element) {
+      refs.current.set(id, element);
+    } else {
+      refs.current.delete(id);
+    }
+  };
+}
+
+function getElementCenterRelativeToBoard(
+  boardElement: HTMLDivElement,
+  element: HTMLButtonElement
+): CellCenter {
+  const boardRect = boardElement.getBoundingClientRect();
+  const elementRect = element.getBoundingClientRect();
+
+  return {
+    x: elementRect.left - boardRect.left + elementRect.width / 2,
+    y: elementRect.top - boardRect.top + elementRect.height / 2,
+  };
+}
+
+function getElementCenterInViewport(element: HTMLElement): CellCenter {
+  const rect = element.getBoundingClientRect();
+
+  return {
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function getRandomBotThinkingDelay(): number {
+  return Math.floor(Math.random() * 4000);
+}
+
+function waitForNextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
+export function BattleScreen() {
+  const {
+    battle: rawBattle,
+    mode,
+    localPlayerId,
+    selectedCardInstanceId,
+    selectedAttacker,
+    selectCard,
+    selectAttacker,
+    dispatch,
+    reset,
+  } = useBattleStore();
+
+  if (!rawBattle) {
+    return null;
+  }
+
+  const battle = rawBattle;
+  const humanPlayerId: PlayerId = mode === "pvp" ? localPlayerId : "player";
+  const opponentPlayerId: PlayerId =
+    humanPlayerId === "player" ? "bot" : "player";
+  const botAiEnabled = mode === "ai";
+  const isHumanTurn =
+    battle.status === "active" && battle.activePlayer === humanPlayerId;
+  const DRAW_CARD_ANIMATION_MS = 760;
+  const DRAW_CARD_REVEAL_DELAY_MS = 80;
+  const SPAWN_CARD_ANIMATION_MS = 620;
+  const START_ROLL_DURATION_MS = 2800;
+  const START_ROLL_RESULT_DELAY_MS = 350;
+  const [damagedIds, setDamagedIds] = useState<Set<DamageId>>(new Set());
+  const [attackingId, setAttackingId] = useState<string | null>(null);
+  const [attackEffectId, setAttackEffectId] = useState<string | null>(null);
+  const [projectileEffect, setProjectileEffect] =
+    useState<ProjectileEffect | null>(null);
+  const [explosionEffect, setExplosionEffect] =
+    useState<ExplosionEffect | null>(null);
+  const [damageTextEffects, setDamageTextEffects] = useState<
+    DamageTextEffect[]
+  >([]);
+  const [turnBannerText, setTurnBannerText] = useState<string | null>(null);
+  const [thinkingCardIndex, setThinkingCardIndex] = useState<number | null>(
+    null
+  );
+  const previousHandIdsRef = useRef<Record<PlayerId, Set<string>>>({
+    player: new Set(battle[humanPlayerId].hand.map((card) => card.instanceId)),
+    bot: new Set(battle.bot.hand.map((card) => card.instanceId)),
+  });
+  const previousActivePlayerRef = useRef(battle.activePlayer);
+  const boardRef = useRef<HTMLDivElement | null>(null);
+  const objectRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const projectileIdRef = useRef(0);
+  const explosionIdRef = useRef(0);
+  const damageTextIdRef = useRef(0);
+  const lastObjectCentersRef = useRef<Map<string, CellCenter>>(new Map());
+  const botTurnRunningRef = useRef(false);
+  const [drawCardEffects, setDrawCardEffects] = useState<DrawCardEffect[]>([]);
+  const [spawnCardEffects, setSpawnCardEffects] = useState<SpawnCardEffect[]>([]);
+  const [hiddenSpawningCardIds, setHiddenSpawningCardIds] = useState<Set<string>>(
+    new Set()
+  );
+  const [spawningCardInstanceId, setSpawningCardInstanceId] = useState<
+    string | null
+  >(null);
+  const drawCardEffectIdRef = useRef(0);
+  const spawnCardEffectIdRef = useRef(0);
+  const cellRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  type StartRollState = {
+    visible: boolean;
+    winner: PlayerId | null;
+    finalRotation: number;
+    resultVisible: boolean;
+  };
+
+  const startRollRunningRef = useRef(false);
+
+  const deckRefs = useRef<Record<PlayerId, HTMLDivElement | null>>({
+    player: null,
+    bot: null,
+  });
+
+  const handRefs = useRef<Record<PlayerId, HTMLDivElement | null>>({
+    player: null,
+    bot: null,
+  });
+
+  const [hiddenDrawnCardIds, setHiddenDrawnCardIds] = useState<Set<string>>(
+    new Set()
+  );
+
+  const [cardPreview, setCardPreview] = useState<CardPreview | null>(null);
+  const [debugPaused, setDebugPaused] = useState(false);
+  const debugPausedRef = useRef(false);
+
+  const handCardRefs = useRef<Record<PlayerId, Map<string, HTMLElement>>>({
+    player: new Map(),
+    bot: new Map(),
+  });
+
+  const [startRollState, setStartRollState] = useState<StartRollState>({
+    visible: false,
+    winner: null,
+    finalRotation: 0,
+    resultVisible: false,
+  });
+
+  function setHandCardRef(owner: PlayerId, cardInstanceId: string) {
+    return (element: HTMLElement | null) => {
+      if (element) {
+        handCardRefs.current[owner].set(cardInstanceId, element);
+      } else {
+        handCardRefs.current[owner].delete(cardInstanceId);
+      }
+    };
+  }
+
+  function positionKey(position: Position): string {
+    return `${position.row}-${position.col}`;
+  }
+
+  function setCellRef(position: Position) {
+    return (element: HTMLButtonElement | null) => {
+      const key = positionKey(position);
+
+      if (element) {
+        cellRefs.current.set(key, element);
+      } else {
+        cellRefs.current.delete(key);
+      }
+    };
+  }
+
+  function openCardPreview(
+    event: React.MouseEvent,
+    preview: CardPreview
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    setCardPreview(preview);
+  }
+
+  function closeCardPreview() {
+    setCardPreview(null);
+  }
+
+  function getPlayerHandCardMarginLeft(index: number, totalCards: number) {
+    if (index === 0) return 0;
+
+    if (totalCards <= 5) {
+      return 12;
+    }
+
+    return -Math.min(98, 10 + (totalCards - 6) * 14);
+  }
+
+  useEffect(() => {
+    debugPausedRef.current = debugPaused;
+  }, [debugPaused]);
+
+  useEffect(() => {
+    if (!cardPreview) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeCardPreview();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [cardPreview]);
+
+
+  useEffect(() => {
+    if (mode === "pvp") return;
+
+    if (battle.status !== "starting") {
+      if (battle.status === "active") {
+        startRollRunningRef.current = false;
+      }
+
+      return;
+    }
+
+    if (startRollRunningRef.current) return;
+
+    startRollRunningRef.current = true;
+
+    const winner: PlayerId = Math.random() < 0.5 ? "player" : "bot";
+    const targetAngle = winner === "player" ? 135 : -45;
+    const finalRotation = 360 * 8 + targetAngle;
+
+    setStartRollState({
+      visible: true,
+      winner,
+      finalRotation,
+      resultVisible: false,
+    });
+
+    const resultTimer = window.setTimeout(() => {
+      setStartRollState((current) => ({
+        ...current,
+        resultVisible: true,
+      }));
+    }, START_ROLL_DURATION_MS + START_ROLL_RESULT_DELAY_MS);
+
+    const finishTimer = window.setTimeout(() => {
+      dispatchBattleAction({
+        type: "BEGIN_BATTLE",
+        startingPlayer: winner,
+      });
+
+      setStartRollState({
+        visible: false,
+        winner: null,
+        finalRotation: 0,
+        resultVisible: false,
+      });
+
+      setTurnBannerText(winner === humanPlayerId ? "ТВОЙ ХОД" : "ХОД ВРАГА");
+
+      window.setTimeout(() => {
+        setTurnBannerText(null);
+      }, 1300);
+
+      previousActivePlayerRef.current = winner;
+      startRollRunningRef.current = false;
+    }, START_ROLL_DURATION_MS + START_ROLL_RESULT_DELAY_MS + 650);
+
+    return () => {
+      window.clearTimeout(resultTimer);
+      window.clearTimeout(finishTimer);
+      startRollRunningRef.current = false;
+    };
+  }, [battle.status, mode]);
+
+  useEffect(() => {
+    const owners: PlayerId[] = ["player", "bot"];
+
+    for (const owner of owners) {
+      const previousIds = previousHandIdsRef.current[owner];
+      const currentHand = battle[owner].hand;
+
+      const newCards = currentHand.filter(
+        (card) => !previousIds.has(card.instanceId)
+      );
+
+      if (battle.status === "active" && newCards.length > 0) {
+        setHiddenDrawnCardIds((current) => {
+          const next = new Set(current);
+
+          for (const drawnCard of newCards) {
+            next.add(drawnCard.instanceId);
+          }
+
+          return next;
+        });
+
+        newCards.forEach((drawnCard, index) => {
+          window.setTimeout(() => {
+            window.requestAnimationFrame(() => {
+              window.requestAnimationFrame(() => {
+                playDrawCardAnimation(owner, drawnCard.instanceId);
+              });
+            });
+          }, index * 140);
+        });
+      }
+
+      previousHandIdsRef.current[owner] = new Set(
+        currentHand.map((card) => card.instanceId)
+      );
+    }
+  }, [
+    battle.status,
+    battle[humanPlayerId].hand.map((card) => card.instanceId).join("|"),
+    battle.bot.hand.map((card) => card.instanceId).join("|"),
+  ]);
+
+  useEffect(() => {
+    if (debugPaused) return;
+    if (battle.status !== "active") return;
+    if (mode === "pvp" && localPlayerId !== "player") return;
+
+    let lastTickTime = Date.now();
+
+    const interval = window.setInterval(() => {
+      const now = Date.now();
+      const elapsedMs = now - lastTickTime;
+
+      lastTickTime = now;
+
+      dispatchBattleAction({
+        type: "TIMER_TICK",
+        elapsedMs,
+      });
+    }, 250);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [battle.status, debugPaused, mode, localPlayerId]);
+
+  useEffect(() => {
+    if (!botAiEnabled) {
+      setThinkingCardIndex(null);
+      return;
+    }
+
+    if (debugPaused) {
+      setThinkingCardIndex(null);
+      return;
+    }
+
+    if (battle.status !== "active") {
+      setThinkingCardIndex(null);
+      return;
+    }
+
+    if (battle.activePlayer !== "bot") {
+      setThinkingCardIndex(null);
+      return;
+    }
+
+    if (battle.bot.hand.length === 0) {
+      setThinkingCardIndex(null);
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      const shouldRaiseCard = Math.random() < 0.45;
+
+      if (!shouldRaiseCard) {
+        setThinkingCardIndex(null);
+        return;
+      }
+
+      const randomIndex = Math.floor(Math.random() * battle.bot.hand.length);
+      setThinkingCardIndex(randomIndex);
+    }, 1100);
+
+    return () => {
+      window.clearInterval(interval);
+      setThinkingCardIndex(null);
+    };
+  }, [botAiEnabled, battle.activePlayer, battle.status, battle.bot.hand.length]);
+
+
+  useEffect(() => {
+  const previousActivePlayer = previousActivePlayerRef.current;
+
+  previousActivePlayerRef.current = battle.activePlayer;
+
+  if (battle.status !== "active") return;
+  if (previousActivePlayer === battle.activePlayer) return;
+
+  const nextBannerText =
+    battle.activePlayer === "player" ? "ТВОЙ ХОД" : "ХОД ВРАГА";
+
+  setTurnBannerText(nextBannerText);
+
+  const timeout = window.setTimeout(() => {
+    setTurnBannerText(null);
+  }, 1300);
+
+  return () => {
+    window.clearTimeout(timeout);
+  };
+}, [battle.activePlayer, battle.status]);
+
+  function updateLastObjectCenters() {
+    const boardElement = boardRef.current;
+
+    if (!boardElement) return;
+
+    const nextCenters = new Map<string, CellCenter>();
+
+    for (const [id, element] of objectRefs.current.entries()) {
+      nextCenters.set(id, getElementCenterRelativeToBoard(boardElement, element));
+    }
+
+    lastObjectCentersRef.current = nextCenters;
+  }
+
+  useEffect(() => {
+    updateLastObjectCenters();
+  }, [battle]);
+
+  async function playAttackAnimation(attackerId: string, targetId: string) {
+    await waitForNextFrame();
+    await delay(40);
+
+    const attackerElement = objectRefs.current.get(attackerId);
+    const targetElement = objectRefs.current.get(targetId);
+    const boardElement = boardRef.current;
+
+    let targetCenter: CellCenter | null = null;
+
+    setAttackingId(attackerId);
+
+    if (!attackerElement || !targetElement || !boardElement) {
+      console.warn("Attack animation skipped: missing element", {
+        attackerId,
+        targetId,
+        hasAttackerElement: Boolean(attackerElement),
+        hasTargetElement: Boolean(targetElement),
+        hasBoardElement: Boolean(boardElement),
+      });
+
+      await delay(260);
+      return;
+    }
+
+    const from = getElementCenterRelativeToBoard(boardElement, attackerElement);
+    const to = getElementCenterRelativeToBoard(boardElement, targetElement);
+
+    targetCenter = to;
+
+    projectileIdRef.current += 1;
+
+    setProjectileEffect({
+      id: projectileIdRef.current,
+      from,
+      to,
+    });
+
+    await delay(260);
+
+    setAttackEffectId(targetId);
+
+    if (targetCenter) {
+      explosionIdRef.current += 1;
+
+      setExplosionEffect({
+        id: explosionIdRef.current,
+        position: targetCenter,
+      });
+    }
+
+    window.setTimeout(() => {
+      setAttackingId(null);
+      setProjectileEffect(null);
+    }, 220);
+
+    window.setTimeout(() => {
+      setAttackEffectId(null);
+      setExplosionEffect(null);
+    }, 940);
+  }
+
+  useEffect(() => {
+    if (!botAiEnabled) return;
+    if (debugPaused) return;
+    if (battle.status !== "active") return;
+    if (battle.activePlayer !== "bot") return;
+    if (botTurnRunningRef.current) return;
+
+    let cancelled = false;
+
+    async function runAnimatedBotTurn() {
+      botTurnRunningRef.current = true;
+
+      await delay(450);
+
+      while (!cancelled) {
+        if (debugPausedRef.current) break;
+
+        const currentBattle = useBattleStore.getState().battle;
+
+        if (currentBattle.status !== "active") break;
+        if (currentBattle.activePlayer !== "bot") break;
+
+        const action: BattleAction | null = getNextBotAction(currentBattle);
+
+        if (!action) break;
+
+        await delay(getRandomBotThinkingDelay());
+
+        if (cancelled || debugPausedRef.current) break;
+
+        if (action.type === "ATTACK") {
+          await delay(180);
+          await playAttackAnimation(action.attackerId, action.targetId);
+
+          if (cancelled) break;
+
+          dispatchBattleAction(action);
+          await delay(700);
+          continue;
+        }
+
+        if (action.type === "MOVE_UNIT") {
+          dispatchBattleAction(action);
+          await delay(450);
+          continue;
+        }
+
+        if (action.type === "PLAY_CARD") {
+          const cardInstance = useBattleStore
+            .getState()
+            .battle.bot.hand.find(
+              (item) => item.instanceId === action.cardInstanceId
+            );
+
+          if (cardInstance) {
+            await playSpawnCardAnimation(
+              "bot",
+              cardInstance.instanceId,
+              cardInstance.cardId,
+              action.position
+            );
+          }
+
+          dispatchBattleAction(action);
+          await delay(450);
+          continue;
+        }
+
+        if (action.type === "END_TURN") {
+          dispatchBattleAction(action);
+          await delay(250);
+          break;
+        }
+      }
+
+      botTurnRunningRef.current = false;
+    }
+
+    void runAnimatedBotTurn();
+
+    return () => {
+      cancelled = true;
+      botTurnRunningRef.current = false;
+    };
+  }, [botAiEnabled, battle.activePlayer, battle.status, debugPaused]);
+
+  const rows = [0, 1, 2] as const;
+  const cols = [0, 1, 2, 3, 4] as const;
+  const visualRows: readonly number[] =
+    humanPlayerId === "player" ? rows : [...rows].reverse();
+  const visualCols: readonly number[] =
+    humanPlayerId === "player" ? cols : [...cols].reverse();
+
+  const selectedTargets =
+    selectedAttacker &&
+    battle.status === "active" &&
+    battle.activePlayer === "player"
+      ? getTargetsInRange(
+          battle,
+          "player",
+          selectedAttacker.type,
+          selectedAttacker.id
+        )
+      : [];
+
+  const selectedMoveCells =
+    selectedAttacker &&
+    selectedAttacker.type === "unit" &&
+    battle.status === "active" &&
+    battle.activePlayer === "player"
+      ? getAvailableMoveCells(battle, "player", selectedAttacker.id)
+      : [];
+
+  function isTarget(targetType: "unit" | "headquarters", targetId: string) {
+    return selectedTargets.some(
+      (target) => target.type === targetType && target.id === targetId
+    );
+  }
+
+  function isMoveCell(position: Position) {
+    return selectedMoveCells.some((cell) => samePosition(cell, position));
+  }
+
+  function renderDamageText(targetId: string) {
+    return (
+      <AnimatePresence>
+        {damageTextEffects
+          .filter((effect) => effect.targetId === targetId)
+          .map((effect) => (
+            <motion.span
+              key={effect.id}
+              style={styles.damageText}
+              initial={{ opacity: 0, y: 6, scale: 0.85 }}
+              animate={{
+                opacity: [0, 1, 1, 0],
+                y: [6, -8, -22, -34],
+                scale: [0.85, 1.25, 1.15, 1],
+              }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.9, ease: "easeOut" }}
+            >
+              -{effect.amount}
+            </motion.span>
+          ))}
+      </AnimatePresence>
+    );
+  }
+
+  function renderOverlayDamageText() {
+    return (
+      <AnimatePresence>
+        {damageTextEffects
+          .filter((effect) => effect.position)
+          .map((effect) => (
+            <motion.span
+              key={effect.id}
+              style={{
+                ...styles.overlayDamageText,
+                left: effect.position?.x,
+                top: effect.position?.y,
+              }}
+              initial={{ opacity: 0, y: 6, scale: 0.85 }}
+              animate={{
+                opacity: [0, 1, 1, 0],
+                y: [6, -8, -22, -38],
+                scale: [0.85, 1.35, 1.2, 1],
+              }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.9, ease: "easeOut" }}
+            >
+              -{effect.amount}
+            </motion.span>
+          ))}
+      </AnimatePresence>
+    );
+  }
+
+  function createHpSnapshot(sourceBattle: typeof battle): Map<string, number> {
+    const hp = new Map<string, number>();
+
+    for (const unit of sourceBattle.units) {
+      hp.set(unit.instanceId, unit.currentHp);
+    }
+
+    hp.set("player_hq", sourceBattle.headquarters.player.hp);
+    hp.set("bot_hq", sourceBattle.headquarters.bot.hp);
+
+    return hp;
+  }
+
+  function showDamageEffectsFromSnapshots(
+    before: Map<string, number>,
+    after: Map<string, number>
+  ) {
+    const damaged = new Set<string>();
+    const nextDamageTextEffects: DamageTextEffect[] = [];
+
+    for (const [id, currentHp] of after.entries()) {
+      const previousHp = before.get(id);
+
+      if (previousHp !== undefined && currentHp < previousHp) {
+        const amount = previousHp - currentHp;
+
+        damaged.add(id);
+
+        damageTextIdRef.current += 1;
+
+        nextDamageTextEffects.push({
+          id: damageTextIdRef.current,
+          targetId: id,
+          amount,
+        });
+      }
+    }
+
+    for (const [id, previousHp] of before.entries()) {
+      const stillExists = after.has(id);
+      const isHeadquarters = id === "player_hq" || id === "bot_hq";
+
+      if (stillExists || isHeadquarters) continue;
+
+      const lastCenter = lastObjectCentersRef.current.get(id);
+
+      damageTextIdRef.current += 1;
+
+      nextDamageTextEffects.push({
+        id: damageTextIdRef.current,
+        amount: previousHp,
+        position: lastCenter,
+      });
+    }
+
+    if (damaged.size > 0) {
+      setDamagedIds(damaged);
+
+      window.setTimeout(() => {
+        setDamagedIds(new Set());
+      }, 450);
+    }
+
+    if (nextDamageTextEffects.length > 0) {
+      setDamageTextEffects((current) => [
+        ...current,
+        ...nextDamageTextEffects,
+      ]);
+
+      const effectIds = nextDamageTextEffects.map((item) => item.id);
+
+      window.setTimeout(() => {
+        setDamageTextEffects((current) =>
+          current.filter((item) => !effectIds.includes(item.id))
+        );
+      }, 900);
+    }
+  }
+
+  function dispatchBattleAction(action: BattleAction) {
+    const shouldShowDamage =
+      action.type === "ATTACK" ||
+      action.type === "END_TURN" ||
+      action.type === "TIMER_TICK";
+
+    const before = shouldShowDamage
+      ? createHpSnapshot(useBattleStore.getState().battle)
+      : null;
+
+    dispatch(action);
+
+    if (!shouldShowDamage || !before) return;
+
+    const after = createHpSnapshot(useBattleStore.getState().battle);
+
+    showDamageEffectsFromSnapshots(before, after);
+  }
+
+  function playDrawCardAnimation(owner: PlayerId, cardInstanceId: string) {
+    const deckElement = deckRefs.current[owner];
+    const targetCardElement = handCardRefs.current[owner].get(cardInstanceId);
+
+    if (!deckElement || !targetCardElement) {
+      setHiddenDrawnCardIds((current) => {
+        const next = new Set(current);
+        next.delete(cardInstanceId);
+        return next;
+      });
+
+      return;
+    }
+
+    const from = getElementCenterInViewport(deckElement);
+    const to = getElementCenterInViewport(targetCardElement);
+
+    drawCardEffectIdRef.current += 1;
+
+    const effect: DrawCardEffect = {
+      id: drawCardEffectIdRef.current,
+      owner,
+      from,
+      to,
+    };
+
+    setDrawCardEffects((current) => [...current, effect]);
+
+    window.setTimeout(() => {
+      setDrawCardEffects((current) =>
+        current.filter((item) => item.id !== effect.id)
+      );
+    }, DRAW_CARD_ANIMATION_MS);
+
+    window.setTimeout(() => {
+      setHiddenDrawnCardIds((current) => {
+        const next = new Set(current);
+        next.delete(cardInstanceId);
+        return next;
+      });
+    }, DRAW_CARD_ANIMATION_MS + DRAW_CARD_REVEAL_DELAY_MS);
+  }
+
+
+    function playSpawnCardAnimation(
+    owner: PlayerId,
+    cardInstanceId: string,
+    cardId: string,
+    position: Position
+  ): Promise<void> {
+    const sourceCardElement = handCardRefs.current[owner].get(cardInstanceId);
+    const targetCellElement = cellRefs.current.get(positionKey(position));
+
+    if (!sourceCardElement || !targetCellElement) {
+      return Promise.resolve();
+    }
+
+    const from = getElementCenterInViewport(sourceCardElement);
+    const to = getElementCenterInViewport(targetCellElement);
+
+    spawnCardEffectIdRef.current += 1;
+
+    const effect: SpawnCardEffect = {
+      id: spawnCardEffectIdRef.current,
+      owner,
+      from,
+      to,
+      cardId,
+      hiddenCardInstanceId: cardInstanceId,
+    };
+
+    setSpawningCardInstanceId(cardInstanceId);
+
+    setHiddenSpawningCardIds((current) => {
+      const next = new Set(current);
+      next.add(cardInstanceId);
+      return next;
+    });
+
+    setSpawnCardEffects((current) => [...current, effect]);
+
+    return new Promise((resolve) => {
+      window.setTimeout(() => {
+        setSpawnCardEffects((current) =>
+          current.filter((item) => item.id !== effect.id)
+        );
+
+        setHiddenSpawningCardIds((current) => {
+          const next = new Set(current);
+          next.delete(cardInstanceId);
+          return next;
+        });
+
+        setSpawningCardInstanceId((current) =>
+          current === cardInstanceId ? null : current
+        );
+
+        resolve();
+      }, SPAWN_CARD_ANIMATION_MS);
+    });
+  }
+
+  function handleCellClick(position: Position) {
+    if (debugPaused) return;
+    if (battle.status !== "active") return;
+    if (battle.activePlayer !== humanPlayerId) return;
+
+    if (selectedCardInstanceId) {
+      if (spawningCardInstanceId) return;
+      const isOwnSpawn =
+        humanPlayerId === "player" ? isPlayerSpawn(position) : isBotSpawn(position);
+      if (!isOwnSpawn) return;
+
+      const cardInstance = battle[humanPlayerId].hand.find(
+        (item) => item.instanceId === selectedCardInstanceId
+      );
+
+      if (!cardInstance) return;
+
+      void playSpawnCardAnimation(
+        humanPlayerId,
+        cardInstance.instanceId,
+        cardInstance.cardId,
+        position
+      ).then(() => {
+        dispatchBattleAction({
+          type: "PLAY_CARD",
+          playerId: humanPlayerId,
+          cardInstanceId: cardInstance.instanceId,
+          position,
+        });
+      });
+
+      return;
+    }
+
+    if (selectedAttacker && selectedAttacker.type === "unit") {
+      if (!isMoveCell(position)) return;
+
+      dispatchBattleAction({
+        type: "MOVE_UNIT",
+        playerId: humanPlayerId,
+        unitId: selectedAttacker.id,
+        position,
+      });
+    }
+  }
+
+  async function handleAttackTarget(
+    targetType: "unit" | "headquarters",
+    targetId: string
+  ) {
+    if (debugPaused) return;
+    if (!selectedAttacker) return;
+    if (battle.status !== "active") return;
+    if (battle.activePlayer !== humanPlayerId) return;
+
+    await playAttackAnimation(selectedAttacker.id, targetId);
+
+    dispatchBattleAction({
+      type: "ATTACK",
+      playerId: humanPlayerId,
+      attackerType: selectedAttacker.type,
+      attackerId: selectedAttacker.id,
+      targetType,
+      targetId,
+    });
+  }
+
+
+  function getNextTurnFuel(owner: PlayerId): number {
+    const headquartersFuel = battle.headquarters[owner].fuelGeneration;
+
+    const unitsFuel = battle.units
+      .filter((unit) => unit.ownerId === owner)
+      .reduce((sum, unit) => sum + getCard(unit.cardId).fuelGeneration, 0);
+
+    return headquartersFuel + unitsFuel;
+  }
+
+  function renderTimerPanel(owner: PlayerId) {
+    const timer = battle.timers?.[owner];
+
+    if (!timer) {
+      return null;
+    }
+
+    const active = battle.activePlayer === owner;
+    const isPlayer = owner === humanPlayerId;
+    const isLowTime = timer.stepTimeLeftMs <= 4000;
+    const showPlayerReminder = isPlayer && active;
+
+    return (
+      <div
+        style={{
+          ...styles.timerPanel,
+        }}
+      >
+        {showPlayerReminder && (
+          <motion.div
+            style={{
+              ...styles.playerReminder,
+              color: isLowTime ? "#ff8a65" : "#f0d9a8",
+            }}
+            animate={{ opacity: [0.65, 1, 0.65] }}
+            transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+          >
+            ТВОЙ ХОД
+          </motion.div>
+        )}
+
+        <div style={styles.timerMainRow}>
+          <motion.img
+            src={hourglassWw2Image}
+            alt=""
+            style={{
+              width: 50,
+              height: 50,
+              marginRight: 12,
+              marginTop: 0,
+              objectFit: "contain",
+              filter: isLowTime
+                ? "sepia(0.3) saturate(2) hue-rotate(-15deg) brightness(0.9)"
+                : "none",
+              opacity: 0.92,
+            }}
+            animate={
+              active
+                ? { rotate: [0, 180, 360] }
+                : { rotate: 0 }
+            }
+            transition={
+              active
+                ? {
+                    duration: isLowTime ? 1.1 : 2.8,
+                    repeat: Infinity,
+                    ease: "linear",
+                  }
+                : undefined
+            }
+          />
+
+          <motion.strong
+            style={{
+              fontSize: 22,
+              color: isLowTime ? "#ff6b6b" : "#e8e4d9",
+              fontWeight: 600,
+              letterSpacing: "0.5px",
+            }}
+            animate={
+              isLowTime
+                ? { opacity: [1, 0.4, 1] }
+                : { opacity: 1 }
+            }
+            transition={
+              isLowTime
+                ? { duration: 0.55, repeat: Infinity, ease: "easeInOut" }
+                : undefined
+            }
+          >
+            {formatTimer(timer.stepTimeLeftMs)}
+          </motion.strong>
+        </div>
+      </div>
+    );
+  }
+
+  function renderCardBack(index: number, small = false, raised = false) {
+  return (
+    <motion.div
+      key={index}
+      style={{
+        ...styles.cardBack,
+        ...(small ? styles.cardBackSmall : {}),
+        backgroundImage: `url(${cardBackImage})`,
+      }}
+      animate={{
+        x: index * -5,
+        y: raised ? 34 : 0,
+        rotate: index * -2,
+        scale: raised ? 1.03 : 1,
+      }}
+      transition={{
+        type: "spring",
+        stiffness: 180,
+        damping: 22,
+      }}
+    />
+  );
+}
+
+function renderDeckStack(cardCount: number) {
+  if (cardCount <= 0) {
+    return <div style={styles.emptyDeckStack} />;
+  }
+
+  const visibleCardsCount = Math.min(cardCount, 3);
+
+  return (
+    <div style={styles.deckStack}>
+      {Array.from({ length: visibleCardsCount }).map((_, index) => (
+        <div
+          key={`deck-card-${index}`}
+          style={{
+            ...styles.deckStackCard,
+            left: index * 5,
+            top: index * -4,
+            zIndex: index + 1,
+            backgroundImage: `url(${cardBackImage})`,
+          }}
+        />
+      ))}
+
+      <strong style={styles.deckCountBadge}>{cardCount}</strong>
+    </div>
+  );
+}
+
+function renderEnemyDeckWithTimer() {
+  const player = battle.bot;
+
+  return (
+    <div style={styles.enemyDeckWithTimer}>
+      <div
+  ref={(element) => {
+    deckRefs.current[opponentPlayerId] = element;
+  }}
+  style={styles.enemyDeckCompact}
+>
+        {renderDeckStack(player.deck.length)}
+      </div>
+
+      {renderTimerPanel(opponentPlayerId)}
+
+      <FuelPanel
+        ownerId="bot"
+        currentFuel={battle.bot.resources}
+        nextTurnFuel={getNextTurnFuel("bot")}
+      />
+    </div>
+  );
+}
+
+  function renderHqPanel(owner: PlayerId) {
+    const hq = battle.headquarters[owner];
+    const isPlayer = owner === humanPlayerId;
+    const selected =
+      selectedAttacker?.type === "headquarters" &&
+      selectedAttacker.id === `${owner}_hq`;
+
+    return (
+      <div
+        style={{
+          ...styles.hqPanel,
+          ...(isPlayer ? styles.playerHqPanel : styles.botHqPanel),
+          ...(selected ? styles.selectedHqPanel : {}),
+        }}
+      >
+        <span style={styles.hqPanelLabel}>
+          {isLocalPlayer ? "Ваш штаб" : "Штаб врага"}
+        </span>
+        <strong style={styles.hqPanelTitle}>{isLocalPlayer ? "BASE" : "ENEMY"}</strong>
+
+        <div style={styles.hqStats}>
+          <span>
+            HP <strong>{hq.hp}</strong>
+          </span>
+          <span>
+            ATK <strong>{hq.attack}</strong>
+          </span>
+          <span>
+            FUEL <strong>+{hq.fuelGeneration}</strong>
+          </span>
+          <span>
+            ACT <strong>{hq.actionFuelCost}</strong>
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.page}>
+      <div style={styles.vignette} />
+
+      <AnimatePresence>
+        {debugPaused && (
+          <motion.div
+            style={styles.debugPauseBadge}
+            initial={{ opacity: 0, y: -8, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.96 }}
+            transition={{ duration: 0.18 }}
+          >
+            ПАУЗА
+          </motion.div>
+        )}
+      </AnimatePresence>
+        <AnimatePresence>
+  {drawCardEffects.map((effect) => (
+    <motion.div
+      key={effect.id}
+      style={{
+        ...styles.drawCardEffect,
+        backgroundImage: `url(${cardBackImage})`,
+      }}
+      initial={{
+        x: effect.from.x,
+        y: effect.from.y,
+        opacity: 0,
+        scale: 0.48,
+        rotate: effect.owner === humanPlayerId ? -8 : 8,
+      }}
+      animate={{
+        x: effect.to.x,
+        y: effect.to.y,
+        opacity: [0, 1, 1, 0],
+        scale: [0.48, 0.78, 0.9, 0.86],
+        rotate: effect.owner === humanPlayerId ? [ -8, 2, 0 ] : [8, -2, 0],
+      }}
+      exit={{ opacity: 0 }}
+      transition={{
+  duration: DRAW_CARD_ANIMATION_MS / 1000,
+  ease: "easeOut",
+}}
+    />
+  ))}
+</AnimatePresence>
+        <AnimatePresence>
+  {spawnCardEffects.map((effect) => {
+    const card = getCard(effect.cardId);
+
+    if (effect.owner !== humanPlayerId) {
+      return (
+        <motion.div
+          key={effect.id}
+          style={{
+            ...styles.spawnCardBackEffect,
+            backgroundImage: `url(${cardBackImage})`,
+          }}
+          initial={{
+            x: effect.from.x,
+            y: effect.from.y,
+            opacity: 0.95,
+            scale: 0.72,
+            rotate: 4,
+          }}
+          animate={{
+            x: effect.to.x,
+            y: effect.to.y,
+            opacity: [0.95, 1, 1, 0],
+            scale: [0.72, 0.76, 0.58],
+            rotate: [4, -2, 0],
+          }}
+          exit={{ opacity: 0 }}
+          transition={{
+            duration: SPAWN_CARD_ANIMATION_MS / 1000,
+            ease: "easeOut",
+          }}
+        />
+      );
+    }
+
+    return (
+      <motion.div
+        key={effect.id}
+        style={styles.spawnCardEffect}
+        initial={{
+          x: effect.from.x,
+          y: effect.from.y,
+          opacity: 0.95,
+          scale: 1,
+          rotate: -4,
+        }}
+        animate={{
+          x: effect.to.x,
+          y: effect.to.y,
+          opacity: [0.95, 1, 1, 0],
+          scale: [1, 0.82, 0.58],
+          rotate: [-4, 2, 0],
+        }}
+        exit={{ opacity: 0 }}
+        transition={{
+          duration: SPAWN_CARD_ANIMATION_MS / 1000,
+          ease: "easeOut",
+        }}
+      >
+        <HandCardView card={card} />
+      </motion.div>
+    );
+  })}
+</AnimatePresence>
+      <main style={styles.gameTable}>
+        <section style={styles.enemyZone}>
+  <div style={styles.enemyDeckArea} />
+
+  <div
+  ref={(element) => {
+    handRefs.current[opponentPlayerId] = element;
+  }}
+  style={styles.enemyHand}
+>
+  <div style={styles.enemyHandClip}>
+    <div style={styles.enemyHandCardMask}>
+     {battle[opponentPlayerId].hand.map((cardInstance, index) => (
+  <div
+    key={`bot-hand-${cardInstance.instanceId}`}
+    ref={setHandCardRef("bot", cardInstance.instanceId)}
+    style={{
+      opacity:
+        hiddenDrawnCardIds.has(cardInstance.instanceId) ||
+        hiddenSpawningCardIds.has(cardInstance.instanceId)
+          ? 0
+          : 1,
+    }}
+  >
+    {renderCardBack(index, false, false)}
+  </div>
+))}
+    </div>
+  </div>
+
+  {battle.activePlayer === "bot" && thinkingCardIndex !== null && (
+    <div style={styles.enemyThinkingLayer}>
+      {battle[opponentPlayerId].hand.map((_, index) => (
+        <div
+          key={`thinking-${index}`}
+          style={{
+            opacity: thinkingCardIndex === index ? 1 : 0,
+            pointerEvents: "none",
+          }}
+        >
+          {renderCardBack(index, false, thinkingCardIndex === index)}
+        </div>
+      ))}
+    </div>
+  )}
+</div>
+
+          <div style={styles.enemyInfo} />
+        </section>
+
+        <section style={styles.centerBattleArea}>
+         <aside style={styles.leftCommandPanel}>
+  {renderTimerPanel(humanPlayerId)}
+
+  <FuelPanel
+    ownerId="player"
+    currentFuel={battle.player.resources}
+    nextTurnFuel={getNextTurnFuel("player")}
+  />
+
+  <div style={styles.playerDeckBottom}>
+    <div
+  ref={(element) => {
+    deckRefs.current[humanPlayerId] = element;
+  }}
+  style={styles.playerDeckOnly}
+>
+  {renderDeckStack(battle[humanPlayerId].deck.length)}
+</div>
+  </div>
+</aside>
+
+          <section style={styles.boardShell}>
+            <div style={styles.boardGlow} />
+
+      <AnimatePresence>
+  {startRollState.visible && (
+    <motion.div
+      style={styles.startRollOverlay}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.25 }}
+    >
+      <div style={styles.startRollPanel}>
+        <div style={styles.startRollCenterGroup}>
+          <div style={styles.startRollText}>Определяем первый ход</div>
+
+          <motion.img
+            src={cartridgeImage}
+            alt="Жеребьевка первого хода"
+            style={styles.startRollCartridge}
+            initial={{ rotate: 0, scale: 0.9 }}
+            animate={{
+              rotate: startRollState.finalRotation,
+              scale: 1,
+            }}
+            transition={{
+              duration: START_ROLL_DURATION_MS / 1000,
+              ease: [0.08, 0.82, 0.18, 1],
+            }}
+          />
+
+          {startRollState.resultVisible && startRollState.winner && (
+            <motion.div
+              style={{
+                ...styles.startRollResult,
+                ...(startRollState.winner === "player"
+                  ? styles.startRollResultPlayer
+                  : styles.startRollResultBot),
+              }}
+              initial={{ opacity: 0, y: 10, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.25 }}
+            >
+              {startRollState.winner === "player"
+                ? "ПЕРВЫМ ХОДИТ ИГРОК"
+                : "ПЕРВЫМ ХОДИТ ВРАГ"}
+            </motion.div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  )}
+</AnimatePresence>
+
+
+            <AnimatePresence>
+  {turnBannerText && (
+    <motion.div
+      style={{
+        ...styles.turnBanner,
+        ...(turnBannerText === "ХОД ВРАГА" ? styles.enemyTurnBanner : {}),
+      }}
+      initial={{ opacity: 0, scale: 0.72, y: 20 }}
+      animate={{
+        opacity: [0, 1, 1, 0],
+        scale: [0.72, 1.08, 1, 0.96],
+        y: [20, 0, 0, -16],
+      }}
+      exit={{ opacity: 0, scale: 0.92 }}
+      transition={{ duration: 1.3, ease: "easeOut" }}
+    >
+      {turnBannerText}
+    </motion.div>
+  )}
+</AnimatePresence>
+
+            <motion.div ref={boardRef} layout style={styles.board}>
+              <AnimatePresence>
+                {projectileEffect && (
+                  <motion.img
+                    key={projectileEffect.id}
+                    src={apShellImage}
+                    alt=""
+                    style={{
+                      ...styles.projectileImage,
+                      left: projectileEffect.from.x,
+                      top: projectileEffect.from.y,
+                      rotate: `${Math.atan2(
+                        projectileEffect.to.y - projectileEffect.from.y,
+                        projectileEffect.to.x - projectileEffect.from.x
+                      )}rad`,
+                    }}
+                    initial={{
+                      x: 0,
+                      y: 0,
+                      opacity: 0,
+                      scale: 0.22,
+                    }}
+                    animate={{
+                      x: projectileEffect.to.x - projectileEffect.from.x,
+                      y: projectileEffect.to.y - projectileEffect.from.y,
+                      opacity: [0, 1, 1, 0],
+                      scale: [0.22, 0.28, 0.28, 0.22],
+                    }}
+                    exit={{ opacity: 0 }}
+                    transition={{
+                      duration: 0.34,
+                      ease: "easeOut",
+                    }}
+                  />
+                )}
+              </AnimatePresence>
+
+              <AnimatePresence>
+                {explosionEffect && (
+                  <motion.div
+                    key={explosionEffect.id}
+                    style={{
+                      ...styles.explosionContainer,
+                      left: explosionEffect.position.x,
+                      top: explosionEffect.position.y,
+                    }}
+                    initial={{ opacity: 1 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    <motion.img
+                      src={explosionFlashImage}
+                      alt=""
+                      style={styles.explosionFlash}
+                      initial={{ opacity: 0, scale: 0.15, rotate: 0 }}
+                      animate={{
+                        opacity: [0, 1, 0],
+                        scale: [0.15, 1.15, 1.7],
+                        rotate: [0, 8, -4],
+                      }}
+                      transition={{ duration: 0.18, ease: "easeOut" }}
+                    />
+
+                    <motion.img
+                      src={explosionFireballImage}
+                      alt=""
+                      style={styles.explosionFireball}
+                      initial={{ opacity: 0, scale: 0.25, rotate: -6 }}
+                      animate={{
+                        opacity: [0, 1, 0.9, 0],
+                        scale: [0.25, 1.05, 1.35, 1.55],
+                        rotate: [-6, 4, -2, 0],
+                      }}
+                      transition={{
+                        duration: 0.52,
+                        ease: "easeOut",
+                        delay: 0.06,
+                      }}
+                    />
+
+                    <motion.img
+                      src={explosionSmokeImage}
+                      alt=""
+                      style={styles.explosionSmoke}
+                      initial={{ opacity: 0, scale: 0.35, y: 4 }}
+                      animate={{
+                        opacity: [0, 0.55, 0.35, 0],
+                        scale: [0.35, 1.1, 1.45, 1.85],
+                        y: [4, -2, -8, -14],
+                      }}
+                      transition={{
+                        duration: 0.95,
+                        ease: "easeOut",
+                        delay: 0.12,
+                      }}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {renderOverlayDamageText()}
+
+              {rows.map((row) =>
+                cols.map((col) => {
+                  const position: Position = { row, col };
+
+                  const unit = battle.units.find((item) =>
+                    samePosition(item.position, position)
+                  );
+
+                  const isPlayerHq = samePosition(
+                    battle.headquarters.player.position,
+                    position
+                  );
+
+                  const isBotHq = samePosition(
+                    battle.headquarters.bot.position,
+                    position
+                  );
+
+                  const spawn = isPlayerSpawn(position);
+                  const botSpawn = isBotSpawn(position);
+
+                  if (unit) {
+                    const card = getCard(unit.cardId);
+                    const canBeTarget = isTarget("unit", unit.instanceId);
+                    const isDamaged = damagedIds.has(unit.instanceId);
+                    const isAttacking = attackingId === unit.instanceId;
+                    const isSelected =
+                      selectedAttacker?.type === "unit" &&
+                      selectedAttacker.id === unit.instanceId;
+
+                    return (
+                      <motion.button
+                        ref={setObjectRef(objectRefs, unit.instanceId)}
+                        layout
+                        layoutId={unit.instanceId}
+                        key={unit.instanceId}
+                        style={{
+                          ...styles.cell,
+                          ...(unit.ownerId === humanPlayerId
+                            ? styles.playerUnit
+                            : styles.botUnit),
+                          ...(canBeTarget ? styles.targetCell : {}),
+                          ...(isDamaged ? styles.damageCell : {}),
+                        }}
+                        initial={{ scale: 0.88, opacity: 0 }}
+                        animate={{
+                          scale: isDamaged ? [1, 1.08, 1] : 1,
+                          opacity: 1,
+                          x: isAttacking ? [0, 10, -6, 0] : 0,
+                        }}
+                        exit={{ scale: 0.75, opacity: 0 }}
+                        transition={{
+                          type: "spring",
+                          stiffness: 320,
+                          damping: 26,
+                        }}
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                        onContextMenu={(event) =>
+                          openCardPreview(event, {
+                            type: "unit",
+                            cardId: unit.cardId,
+                            ownerId: unit.ownerId,
+                            currentHp: unit.currentHp,
+                          })
+                        }
+                        onClick={() => {
+                          if (debugPaused) return;
+                          if (battle.status !== "active") return;
+                          if (battle.status !== "active") return;
+                          if (battle.activePlayer !== humanPlayerId) return;
+
+                          if (canBeTarget) {
+                            void handleAttackTarget("unit", unit.instanceId);
+                            return;
+                          }
+
+                          if (unit.ownerId === humanPlayerId) {
+                            selectAttacker({
+                              type: "unit",
+                              id: unit.instanceId,
+                            });
+                          }
+                        }}
+                      >
+                        <TankCardView
+                          card={card}
+                          variant="board"
+                          ownerId={unit.ownerId}
+                          currentHp={unit.currentHp}
+                          selected={isSelected}
+                          alreadyMoved={unit.alreadyMoved}
+                          alreadyAttacked={unit.alreadyAttacked}
+                        />
+
+                        {renderDamageText(unit.instanceId)}
+
+                        <AnimatePresence>
+                          {attackEffectId === unit.instanceId && (
+                            <motion.span
+                              style={styles.explosionEffect}
+                              initial={{ opacity: 0, scale: 0.2, rotate: 0 }}
+                              animate={{
+                                opacity: [0, 1, 0.85, 0],
+                                scale: [0.2, 1.1, 1.6, 2.2],
+                                rotate: [0, 12, -8, 0],
+                              }}
+                              exit={{ opacity: 0 }}
+                              transition={{ duration: 0.5 }}
+                            />
+                          )}
+                        </AnimatePresence>
+                      </motion.button>
+                    );
+                  }
+
+                  if (isPlayerHq || isBotHq) {
+                    const owner = isPlayerHq ? "player" : "bot";
+                    const hq = battle.headquarters[owner];
+                    const hqId = `${owner}_hq`;
+                    const canBeTarget = isTarget("headquarters", hqId);
+                    const isDamaged = damagedIds.has(hqId);
+                    const isAttacking = attackingId === hqId;
+                    const isSelected =
+                      selectedAttacker?.type === "headquarters" &&
+                      selectedAttacker.id === hqId;
+
+                    return (
+                      <motion.button
+                        ref={setObjectRef(objectRefs, hqId)}
+                        layout
+                        layoutId={hqId}
+                        key={hqId}
+                        style={{
+                          ...styles.cell,
+                          ...(owner === humanPlayerId
+                            ? styles.playerUnit
+                            : styles.botUnit),
+                          ...(canBeTarget ? styles.targetCell : {}),
+                          ...(isDamaged ? styles.damageCell : {}),
+                        }}
+                        initial={{ scale: 0.88, opacity: 0 }}
+                        animate={{
+                          scale: isDamaged ? [1, 1.08, 1] : 1,
+                          opacity: 1,
+                          x: isAttacking ? [0, 10, -6, 0] : 0,
+                        }}
+                        exit={{ scale: 0.75, opacity: 0 }}
+                        transition={{
+                          type: "spring",
+                          stiffness: 320,
+                          damping: 26,
+                        }}
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                        onContextMenu={(event) =>
+                          openCardPreview(event, {
+                            type: "headquarters",
+                            ownerId: owner,
+                            hp: hq.hp,
+                            attack: hq.attack,
+                            fuelGeneration: hq.fuelGeneration,
+                            actionFuelCost: hq.actionFuelCost,
+                          })
+                        }
+                        onClick={() => {
+                          if (debugPaused) return;
+                          if (battle.status !== "active") return;
+                          if (battle.status !== "active") return;
+                          if (battle.activePlayer !== humanPlayerId) return;
+
+                          if (canBeTarget) {
+                            void handleAttackTarget("headquarters", hqId);
+                            return;
+                          }
+
+                          if (owner === humanPlayerId) {
+                            selectAttacker({
+                              type: "headquarters",
+                              id: `${humanPlayerId}_hq`,
+                            });
+                          }
+                        }}
+                      >
+                        <HeadquartersCardView
+                          ownerId={owner}
+                          hp={hq.hp}
+                          attack={hq.attack}
+                          fuelGeneration={hq.fuelGeneration}
+                          actionFuelCost={hq.actionFuelCost}
+                          selected={isSelected}
+                          alreadyAttacked={hq.alreadyAttacked}
+                        />
+
+                        {renderDamageText(hqId)}
+
+                        <AnimatePresence>
+                          {attackEffectId === hqId && (
+                            <motion.span
+                              style={styles.explosionEffect}
+                              initial={{ opacity: 0, scale: 0.2, rotate: 0 }}
+                              animate={{
+                                opacity: [0, 1, 0.85, 0],
+                                scale: [0.2, 1.1, 1.6, 2.2],
+                                rotate: [0, 12, -8, 0],
+                              }}
+                              exit={{ opacity: 0 }}
+                              transition={{ duration: 0.5 }}
+                            />
+                          )}
+                        </AnimatePresence>
+                      </motion.button>
+                    );
+                  }
+
+                  const moveCell = isMoveCell(position);
+
+                  return (
+  <motion.button
+    ref={setCellRef(position)}
+    layout
+    key={`${row}-${col}`}
+    style={{
+      ...styles.cell,
+      ...(spawn ? styles.spawnCell : {}),
+      ...(botSpawn ? styles.botSpawnCell : {}),
+      ...(moveCell ? styles.moveCell : {}),
+    }}
+    whileHover={{ scale: 1.02 }}
+    whileTap={{ scale: 0.97 }}
+    transition={{
+      type: "spring",
+      stiffness: 300,
+      damping: 28,
+    }}
+    onClick={() => handleCellClick(position)}
+    aria-label={`Клетка ${position.row}-${position.col}`}
+  />
+);
+                })
+              )}
+            </motion.div>
+          </section>
+
+          <aside style={styles.rightCommandPanel}>
+  <div style={styles.enemySideColumn}>
+    {renderEnemyDeckWithTimer()}
+  </div>
+
+  <div style={styles.actionSideColumn}>
+    <button
+              style={{
+                ...styles.endTurnButton,
+                opacity:
+                  debugPaused ||
+                  battle.activePlayer !== humanPlayerId ||
+                  battle.status !== "active"
+                    ? 0.45
+                    : 1,
+              }}
+              disabled={
+                debugPaused ||
+                battle.activePlayer !== humanPlayerId ||
+                battle.status !== "active"
+              }
+              onClick={() =>
+                dispatchBattleAction({
+                  type: "END_TURN",
+                  playerId: humanPlayerId,
+                })
+              }
+            >
+              Конец хода
+            </button>
+
+            <button
+              type="button"
+              style={{
+                ...styles.pauseButton,
+                ...(debugPaused ? styles.pauseButtonActive : {}),
+              }}
+              onClick={() => setDebugPaused((current) => !current)}
+            >
+              {debugPaused ? "Продолжить" : "Пауза"}
+            </button>
+
+            <button style={styles.secondaryButton} onClick={reset}>
+              Новый бой
+            </button>
+
+            <div style={styles.actionHint}>
+              {debugPaused && (
+                <span>
+                  Отладочная пауза включена: таймеры, бот и действия игрока
+                  остановлены. ПКМ-просмотр карт работает.
+                </span>
+              )}
+
+              {!debugPaused && selectedCardInstanceId && (
+                <span>Выбрана карта. Нажми на свободный спавн.</span>
+              )}
+
+              {!debugPaused &&
+                selectedAttacker &&
+                selectedAttacker.type === "unit" && (
+                  <span>
+                    Зеленые клетки — движение. Желтые цели — атака. Оба
+                    действия тратят топливо.
+                  </span>
+                )}
+
+              {!debugPaused &&
+                selectedAttacker &&
+                selectedAttacker.type === "headquarters" && (
+                  <span>Выбран штаб. Желтые цели доступны для атаки.</span>
+                )}
+
+              {!debugPaused && !selectedCardInstanceId && !selectedAttacker && (
+                <span>Выбери карту из руки или свой юнит на поле.</span>
+              )}
+            </div>
+            </div>
+          </aside>
+        </section>
+
+        <section style={styles.playerZone}>
+  
+
+          <div
+  ref={(element) => {
+    handRefs.current[humanPlayerId] = element;
+  }}
+  style={styles.hand}
+>
+            <AnimatePresence>
+              {battle[humanPlayerId].hand.map((cardInstance, index) => {
+                const card = getCard(cardInstance.cardId);
+                const selected =
+                  selectedCardInstanceId === cardInstance.instanceId;
+                const isHiddenDrawnCard = hiddenDrawnCardIds.has(
+                  cardInstance.instanceId
+                );
+                const isHiddenSpawningCard = hiddenSpawningCardIds.has(
+                  cardInstance.instanceId
+                );
+
+                return (
+                  <motion.button
+                    key={cardInstance.instanceId}
+                    ref={setHandCardRef("player", cardInstance.instanceId)}
+                    style={{
+                      ...styles.card,
+                      marginLeft: getPlayerHandCardMarginLeft(
+                        index,
+                        battle.player.hand.length
+                      ),
+                      zIndex: selected ? 120 : index + 1,
+                      pointerEvents:
+                        isHiddenDrawnCard || isHiddenSpawningCard
+                          ? "none"
+                          : "auto",
+                    }}
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{
+                      opacity:
+                        isHiddenDrawnCard || isHiddenSpawningCard ? 0 : 1,
+                      y: 0,
+                    }}
+                    exit={{ opacity: 0, y: -16 }}
+                    transition={{
+                      type: "spring",
+                      stiffness: 280,
+                      damping: 24,
+                    }}
+                    whileHover={{ y: -108, scale: 1.08 }}
+                    whileTap={{ scale: 0.97 }}
+                    aria-disabled={
+                      debugPaused ||
+                      battle.status !== "active" ||
+                      battle.activePlayer !== humanPlayerId ||
+                      Boolean(spawningCardInstanceId) ||
+                      isHiddenDrawnCard ||
+                      isHiddenSpawningCard
+                    }
+                    onContextMenu={(event) =>
+                      openCardPreview(event, {
+                        type: "unit",
+                        cardId: card.id,
+                        ownerId: humanPlayerId,
+                      })
+                    }
+                    onClick={() => {
+                      if (debugPaused) return;
+                      if (battle.status !== "active") return;
+                      if (battle.activePlayer !== humanPlayerId) return;
+                      if (spawningCardInstanceId) return;
+                      if (isHiddenDrawnCard || isHiddenSpawningCard) return;
+
+                      selectCard(selected ? null : cardInstance.instanceId);
+                    }}
+                  >
+                    <HandCardView
+                      card={card}
+                      selected={selected}
+                      disabled={
+                        debugPaused ||
+                        battle.activePlayer !== humanPlayerId ||
+                        battle.player.resources < card.cost
+                      }
+                    />
+                  </motion.button>
+                );
+              })}
+            </AnimatePresence>
+          </div>
+        </section>
+
+        <aside style={styles.logPanel}>
+          <h2 style={styles.sectionTitle}>Лог боя</h2>
+
+          <div style={styles.log}>
+            {battle.log.map((item, index) => (
+              <motion.p
+                key={`${item}-${index}`}
+                style={styles.logItem}
+                initial={{ opacity: 0, x: 12 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                {item}
+              </motion.p>
+            ))}
+          </div>
+        </aside>
+      </main>
+
+      <AnimatePresence>
+        {cardPreview && (
+          <motion.div
+            style={styles.cardPreviewOverlay}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            onMouseDown={closeCardPreview}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              closeCardPreview();
+            }}
+          >
+            <motion.div
+              style={styles.cardPreviewPanel}
+              initial={{ opacity: 0, scale: 0.84, y: 18 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 12 }}
+              transition={{
+                type: "spring",
+                stiffness: 260,
+                damping: 24,
+              }}
+              onMouseDown={(event) => event.stopPropagation()}
+              onContextMenu={(event) => event.preventDefault()}
+            >
+              <button
+                type="button"
+                style={styles.cardPreviewClose}
+                onClick={closeCardPreview}
+                aria-label="Закрыть просмотр карты"
+              >
+                ×
+              </button>
+
+              {cardPreview.type === "unit" ? (
+                <HandCardView
+                  card={getCard(cardPreview.cardId)}
+                  ownerId={cardPreview.ownerId}
+                  currentHp={cardPreview.currentHp}
+                  displayMode="preview"
+                />
+              ) : (
+                <HandCardView
+                  ownerId={cardPreview.ownerId}
+                  headquarters={{
+                    hp: cardPreview.hp,
+                    attack: cardPreview.attack,
+                    fuelGeneration: cardPreview.fuelGeneration,
+                    actionFuelCost: cardPreview.actionFuelCost,
+                  }}
+                  displayMode="preview"
+                />
+              )}
+
+              <div style={styles.cardPreviewHint}>
+                ПКМ по фону или Esc — закрыть
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {(battle.status === "player_won" || battle.status === "bot_won") && (
+  <ResultScreen battle={battle} onRestart={reset} />
+)}
+    </div>
+  );
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  page: {
+    minHeight: "100vh",
+    position: "relative",
+    overflow: "hidden",
+    backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.2)), url(${battleTableBackground})`,
+    backgroundSize: "cover",
+    backgroundPosition: "center center",
+    backgroundRepeat: "no-repeat",
+    color: "#eef2f3",
+    padding: 18,
+    fontFamily:
+      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+  },
+
+  vignette: {
+    position: "absolute",
+    inset: 0,
+    pointerEvents: "none",
+    background:
+      "radial-gradient(circle at center, rgba(255,255,255,0.02), rgba(0,0,0,0.58) 82%), linear-gradient(90deg, rgba(0,0,0,0.48), transparent 20%, transparent 80%, rgba(0,0,0,0.48))",
+    zIndex: 0,
+  },
+
+  debugPauseBadge: {
+    position: "fixed",
+    left: "50%",
+    top: 16,
+    zIndex: 650,
+    transform: "translateX(-50%)",
+    padding: "8px 18px",
+    borderRadius: 999,
+    background:
+      "linear-gradient(180deg, rgba(26, 72, 35, 0.96), rgba(7, 17, 8, 0.92))",
+    border: "1px solid rgba(125, 255, 138, 0.56)",
+    color: "#7dff8a",
+    fontSize: 15,
+    fontWeight: 1000,
+    letterSpacing: 2.2,
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.9), 0 0 10px rgba(125,255,138,0.45)",
+    boxShadow:
+      "0 10px 28px rgba(0,0,0,0.45), 0 0 22px rgba(125,255,138,0.18)",
+    pointerEvents: "none",
+  },
+
+  turnBanner: {
+    position: "absolute",
+    left: "35%",
+    top: "50%",
+    transform: "translate(-50%, -50%)",
+    zIndex: 500,
+    color: "#7dff8a",
+    fontSize: 54,
+    fontWeight: 1000,
+    letterSpacing: 4,
+    textTransform: "uppercase",
+    textShadow:
+      "0 3px 0 rgba(0,0,0,0.95), 0 0 14px rgba(125,255,138,0.95), 0 0 34px rgba(125,255,138,0.65)",
+    pointerEvents: "none",
+    whiteSpace: "nowrap",
+  },
+
+  enemyTurnBanner: {
+  color: "#ff4d4d",
+  textShadow:
+    "0 3px 0 rgba(0,0,0,0.95), 0 0 14px rgba(255,77,77,0.95), 0 0 34px rgba(255,77,77,0.65)",
+},
+
+  gameTable: {
+  position: "relative",
+  zIndex: 1,
+  display: "grid",
+  gridTemplateRows: "110px minmax(260px, auto) minmax(210px, auto) 60px",
+  gridTemplateColumns: "1fr",
+  gap: 6,
+  overflow: "visible",
+},
+
+
+  enemyDeckArea: {
+    display: "flex",
+    justifyContent: "flex-start",
+  },
+
+  enemyHand: {
+  height: 82,
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "flex-start",
+  gap: 12,
+  overflow: "visible",
+  position: "relative",
+  transform: "translateY(-15px)",
+  zIndex: 20,
+  background: "transparent",
+  border: "none",
+  boxShadow: "none",
+},
+
+startRollOverlay: {
+  position: "absolute",
+  inset: 0,
+  zIndex: 4000,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  pointerEvents: "none",
+},
+
+startRollPanel: {
+  width: "100%",
+  height: "100%",
+  position: "relative",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+startRollCenterGroup: {
+  position: "relative",
+  display: "grid",
+  gridTemplateRows: "28px 140px 36px",
+  alignItems: "center",
+  justifyItems: "center",
+  gap: 10,
+},
+
+startRollCartridge: {
+  width: 220,
+  height: "auto",
+  gridRow: "2 / 3",
+  filter:
+    "drop-shadow(0 14px 28px rgba(0,0,0,0.55)) drop-shadow(0 0 18px rgba(255,215,120,0.18))",
+  transformOrigin: "50% 50%",
+},
+
+startRollText: {
+  gridRow: "1 / 2",
+  color: "#e6e0cf",
+  fontSize: 18,
+  fontWeight: 800,
+  letterSpacing: 1.2,
+  textTransform: "uppercase",
+  textShadow: "0 2px 10px rgba(0,0,0,0.8)",
+  whiteSpace: "nowrap",
+},
+
+startRollResult: {
+  gridRow: "3 / 4",
+  fontSize: 24,
+  fontWeight: 1000,
+  letterSpacing: 2,
+  textTransform: "uppercase",
+  textShadow: "0 2px 14px rgba(0,0,0,0.9)",
+  whiteSpace: "nowrap",
+},
+
+startRollResultPlayer: {
+  color: "#7dff8a",
+},
+
+startRollResultBot: {
+  color: "#ff6b6b",
+},
+
+enemyHandClip: {
+  height: 82,
+  overflow: "hidden",
+  position: "relative",
+  width: "100%",
+  background: "transparent",
+  border: "none",
+  boxShadow: "none",
+},
+
+enemyHandCardMask: {
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "flex-start",
+  gap: 10,
+  transform: "translateY(-82px)",
+},
+
+enemyThinkingLayer: {
+  position: "absolute",
+  left: 0,
+  right: 0,
+  top: 0,
+  zIndex: 40,
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "flex-start",
+  gap: 12,
+  transform: "translateY(-96px)",
+  pointerEvents: "none",
+},
+
+ enemyInfo: {
+  justifySelf: "end",
+  alignSelf: "start",
+},
+
+  centerBattleArea: {
+  gridColumn: "1 / 2",
+  display: "grid",
+  gridTemplateColumns: "130px 1fr 270px",
+  gap: 8,
+  alignItems: "stretch",
+  transform: "translateY(-62px)",
+},
+
+  leftCommandPanel: {
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+  justifyContent: "flex-start",
+  alignSelf: "stretch",
+  minHeight: 0,
+},
+
+  rightCommandPanel: {
+  display: "grid",
+  gridTemplateColumns: "118px 1fr",
+  gap: 10,
+  alignItems: "start",
+  alignSelf: "start",
+  zIndex: 10,
+},
+
+enemySideColumn: {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "stretch",
+  gap: 8,
+  transform: "translate(-94px, -74px)",
+  zIndex: 30,
+},
+
+actionSideColumn: {
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+  alignItems: "stretch",
+},
+  boardShell: {
+    position: "relative",
+    padding: 0,
+    maxWidth: 720,
+    justifySelf: "center",
+    borderRadius: 0,
+    background: "transparent",
+    border: "none",
+    boxShadow: "none",
+  },
+  boardGlow: {
+    position: "absolute",
+    inset: 0,
+    borderRadius: 0,
+    background: "transparent",
+    pointerEvents: "none",
+  },
+
+ board: {
+  position: "relative",
+  display: "grid",
+  gridTemplateColumns: "repeat(5, minmax(120px, 1fr))",
+  gap: 4,
+  alignItems: "stretch",
+},
+
+  cell: {
+  aspectRatio: "1 / 1",
+  minHeight: 0,
+  position: "relative",
+  overflow: "visible",
+  borderRadius: 10,
+  border: "1px solid rgba(255,255,255,0.12)",
+  background:
+    "linear-gradient(135deg, rgba(17, 24, 26, 0.72), rgba(7, 9, 10, 0.62))",
+  color: "#eef2f3",
+  padding: 3,
+  display: "flex",
+  flexDirection: "column",
+  gap: 0,
+  alignItems: "stretch",
+  justifyContent: "center",
+  cursor: "pointer",
+  textAlign: "left",
+  boxShadow:
+    "inset 0 0 0 1px rgba(255,255,255,0.025), inset 0 0 24px rgba(0,0,0,0.35)",
+},
+
+  spawnCell: {
+    background:
+      "linear-gradient(135deg, rgba(35, 66, 36, 0.48), rgba(8, 13, 8, 0.62))",
+  },
+
+  botSpawnCell: {
+  background:
+    "linear-gradient(135deg, rgba(92, 32, 32, 0.46), rgba(23, 8, 8, 0.64))",
+  boxShadow:
+    "inset 0 0 0 1px rgba(255, 120, 100, 0.08), inset 0 0 24px rgba(120, 20, 20, 0.22)",
+},
+
+  moveCell: {
+    outline: "3px solid rgba(125, 227, 141, 0.86)",
+    background:
+      "linear-gradient(135deg, rgba(32, 92, 42, 0.56), rgba(13, 25, 14, 0.74))",
+  },
+
+  damageCell: {
+    outline: "4px solid #ffdf6e",
+    filter: "brightness(1.25)",
+  },
+
+  playerUnit: {
+    border: "1px solid rgba(255,255,255,0.12)",
+  },
+
+  botUnit: {
+    border: "1px solid rgba(255,255,255,0.12)",
+  },
+
+  hqCell: {
+    padding: 3,
+    background: "transparent",
+    border: "1px solid rgba(225, 214, 184, 0.18)",
+  },
+
+  playerHq: {
+    background: "transparent",
+    border: "1px solid rgba(225, 214, 184, 0.22)",
+  },
+
+  botHq: {
+    background: "transparent",
+    border: "1px solid rgba(225, 214, 184, 0.22)",
+  },
+
+  selectedHqCell: {
+    boxShadow: "0 0 0 3px rgba(247, 215, 116, 0.86)",
+  },
+
+  targetCell: {
+    outline: "3px solid #f7d774",
+  },
+
+  playerZone: {
+  gridColumn: "1 / 2",
+  display: "grid",
+  gridTemplateColumns: "1fr",
+  gap: 14,
+  alignItems: "end",
+  padding: "6px 16px 0px",
+  borderRadius: 0,
+  background: "transparent",
+  border: "none",
+  boxShadow: "none",
+  transform: "translateY(-70px)",
+  overflow: "visible",
+},
+
+  playerFuelBadge: {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 8,
+  padding: "10px 12px",
+  borderRadius: 14,
+  background: "rgba(14, 17, 17, 0.78)",
+  border: "1px solid rgba(255,255,255,0.1)",
+  color: "#d6a84f",
+  fontSize: 13,
+  fontWeight: 800,
+},
+
+ hand: {
+  display: "flex",
+  flexWrap: "nowrap",
+  justifyContent: "center",
+  alignItems: "flex-start",
+  gap: 0,
+  minHeight: 350,
+  overflow: "visible",
+  position: "relative",
+  zIndex: 30,
+},
+
+  card: {
+  flex: "0 0 175px",
+  width: 175,
+  maxWidth: 175,
+  border: "none",
+  background: "transparent",
+  color: "#eef2f3",
+  padding: 0,
+  cursor: "pointer",
+  textAlign: "left",
+  height: "auto",
+  display: "flex",
+  alignItems: "flex-start",
+  overflow: "visible",
+},
+
+  deckPile: {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 5,
+  padding: 8,
+  borderRadius: 12,
+  background: "rgba(7, 9, 9, 0.62)",
+  border: "1px solid rgba(255,255,255,0.08)",
+},
+  playerDeckBottom: {
+    marginTop: "auto",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 0,
+    borderRadius: 0,
+    background: "transparent",
+    border: "none",
+    boxShadow: "none",
+  },
+  playerDeckOnly: {
+    minHeight: 150,
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  cardsLeftInfo: {
+    display: "none",
+  },
+  deckStack: {
+    position: "relative",
+    width: 114,
+    height: 146,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  deckStackCard: {
+    position: "absolute",
+    width: 104,
+    height: 138,
+    borderRadius: 12,
+    backgroundSize: "cover",
+    backgroundPosition: "center center",
+    backgroundRepeat: "no-repeat",
+    border: "none",
+    boxShadow: "0 14px 34px rgba(0,0,0,0.52)",
+    pointerEvents: "none",
+  },
+
+  deckCountBadge: {
+    position: "absolute",
+    left: 9,
+    bottom: 8,
+    zIndex: 10,
+    display: "block",
+    padding: 0,
+    color: "#f6d27a",
+    fontFamily: "'Rajdhani', 'Arial Narrow', Inter, ui-sans-serif, system-ui, sans-serif",
+    fontSize: 22,
+    lineHeight: 1,
+    fontWeight: 900,
+    textShadow:
+      "0 2px 0 rgba(0,0,0,0.95), 0 0 7px rgba(0,0,0,0.95), 0 0 12px rgba(246,210,122,0.45)",
+    pointerEvents: "none",
+  },
+  emptyDeckStack: {
+    position: "relative",
+    width: 104,
+    height: 138,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    pointerEvents: "none",
+  },
+
+  enemyDeckWithTimer: {
+  width: "100%",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "stretch",
+  gap: 4,
+},
+  enemyDeckCompact: {
+    minHeight: 150,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 0,
+    padding: 0,
+    borderRadius: 0,
+    background: "transparent",
+    border: "none",
+    boxShadow: "none",
+  },
+
+  deckLabel: {
+    fontSize: 11,
+    opacity: 0.68,
+    textTransform: "uppercase",
+  },
+
+  cardBack: {
+    width: 104,
+    height: 138,
+    borderRadius: 12,
+    backgroundSize: "cover",
+    backgroundPosition: "center center",
+    backgroundRepeat: "no-repeat",
+    border: "none",
+    boxShadow: "0 14px 34px rgba(0,0,0,0.52)",
+  },
+
+  cardBackSmall: {
+  position: "absolute",
+  width: 96,
+  height: 128,
+  border: "none",
+  boxShadow: "0 10px 24px rgba(0,0,0,0.42)",
+},
+  timerPanel: {
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 4,
+    padding: "7px 10px",
+    borderRadius: 0,
+    background: "transparent",
+    border: "none",
+    boxShadow: "none",
+  },
+
+  playerReminder: {
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: "1.5px",
+    textTransform: "uppercase",
+    marginBottom: 1,
+  },
+
+  timerMainRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    fontSize: 12,
+    lineHeight: 1,
+  },
+
+  hqPanel: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    padding: 12,
+    borderRadius: 15,
+    background: "rgba(10, 12, 12, 0.75)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    boxShadow: "0 18px 44px rgba(0,0,0,0.36)",
+  },
+
+  playerHqPanel: {
+    borderColor: "rgba(122, 162, 255, 0.34)",
+  },
+
+  botHqPanel: {
+    borderColor: "rgba(255, 139, 122, 0.34)",
+  },
+
+  selectedHqPanel: {
+    boxShadow:
+      "0 0 0 3px rgba(247, 215, 116, 0.74), 0 18px 44px rgba(0,0,0,0.36)",
+  },
+
+  hqPanelLabel: {
+    fontSize: 11,
+    textTransform: "uppercase",
+    opacity: 0.64,
+  },
+
+  hqPanelTitle: {
+    fontSize: 22,
+    letterSpacing: 2,
+  },
+
+  hqStats: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 6,
+    fontSize: 12,
+  },
+
+  smallInfoPanel: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 14,
+    background: "rgba(7, 9, 9, 0.62)",
+    border: "1px solid rgba(255,255,255,0.08)",
+  },
+  turnCounterPanel: {
+  minHeight: 64,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 2,
+  padding: "10px 12px",
+  borderRadius: 16,
+  background:
+    "linear-gradient(180deg, rgba(55, 43, 22, 0.92), rgba(12, 10, 7, 0.86))",
+  border: "1px solid rgba(247, 215, 116, 0.42)",
+  boxShadow:
+    "0 0 0 1px rgba(0,0,0,0.55), 0 12px 30px rgba(0,0,0,0.35), inset 0 0 18px rgba(247, 215, 116, 0.08)",
+  color: "#f7d774",
+  textTransform: "uppercase",
+},
+
+turnCounterLabel: {
+  fontSize: 11,
+  letterSpacing: 2,
+  opacity: 0.78,
+},
+
+turnCounterValue: {
+  fontSize: 34,
+  lineHeight: 1,
+  color: "#f7d774",
+  textShadow:
+    "0 2px 0 rgba(0,0,0,0.95), 0 0 14px rgba(247, 215, 116, 0.42)",
+},
+
+  endTurnButton: {
+    minHeight: 74,
+    border: "none",
+    borderRadius: 14,
+    background:
+      "linear-gradient(180deg, #d8b46a, #9d7133), radial-gradient(circle at 50% 0%, rgba(255,255,255,0.35), transparent 60%)",
+    color: "#1d1207",
+    padding: "12px 14px",
+    fontWeight: 900,
+    cursor: "pointer",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    boxShadow: "0 12px 32px rgba(0,0,0,0.42)",
+  },
+
+  secondaryButton: {
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: 12,
+    background: "rgba(12, 14, 14, 0.7)",
+    color: "#eef2f3",
+    padding: "10px 12px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  pauseButton: {
+    border: "1px solid rgba(255, 226, 124, 0.32)",
+    borderRadius: 12,
+    background:
+      "linear-gradient(180deg, rgba(66, 48, 21, 0.88), rgba(18, 14, 8, 0.82))",
+    color: "#f7d774",
+    padding: "10px 12px",
+    fontWeight: 900,
+    cursor: "pointer",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    boxShadow: "inset 0 0 14px rgba(247, 215, 116, 0.08)",
+  },
+
+  pauseButtonActive: {
+    borderColor: "rgba(125, 255, 138, 0.55)",
+    color: "#7dff8a",
+    background:
+      "linear-gradient(180deg, rgba(26, 72, 35, 0.92), rgba(8, 20, 10, 0.86))",
+    boxShadow:
+      "0 0 0 2px rgba(125, 255, 138, 0.16), inset 0 0 18px rgba(125, 255, 138, 0.12)",
+  },
+
+  actionHint: {
+    minHeight: 90,
+    padding: 12,
+    borderRadius: 14,
+    background: "rgba(7, 9, 9, 0.62)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    fontSize: 13,
+    lineHeight: 1.35,
+    color: "rgba(238, 242, 243, 0.78)",
+  },
+
+  logPanel: {
+    gridColumn: "1 / 2",
+    gridRow: "4 / 5",
+    display: "grid",
+    gridTemplateColumns: "110px 1fr",
+    alignItems: "center",
+    gap: 12,
+    background: "rgba(10, 12, 12, 0.74)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 14,
+    padding: "8px 12px",
+    boxShadow: "0 12px 34px rgba(0,0,0,0.32)",
+    overflow: "hidden",
+  },
+
+  sectionTitle: {
+    margin: 0,
+    fontSize: 14,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    opacity: 0.78,
+    whiteSpace: "nowrap",
+  },
+
+  log: {
+    display: "flex",
+    flexDirection: "row",
+    gap: 10,
+    overflowX: "auto",
+    overflowY: "hidden",
+    whiteSpace: "nowrap",
+    paddingBottom: 4,
+  },
+
+  logItem: {
+    margin: 0,
+    flex: "0 0 auto",
+    fontSize: 12,
+    lineHeight: 1.2,
+    opacity: 0.86,
+    padding: "7px 10px",
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.055)",
+    border: "1px solid rgba(255,255,255,0.055)",
+  },
+
+  damageText: {
+    position: "absolute",
+    left: "50%",
+    top: -8,
+    transform: "translateX(-50%)",
+    color: "#ff4d4d",
+    fontSize: 28,
+    fontWeight: 900,
+    lineHeight: 1,
+    textShadow:
+      "0 2px 0 rgba(0, 0, 0, 0.85), 0 0 12px rgba(255, 0, 0, 0.75)",
+    zIndex: 45,
+    pointerEvents: "none",
+  },
+
+  overlayDamageText: {
+    position: "absolute",
+    transform: "translateX(-50%)",
+    color: "#ff4d4d",
+    fontSize: 30,
+    fontWeight: 900,
+    lineHeight: 1,
+    textShadow:
+      "0 2px 0 rgba(0, 0, 0, 0.9), 0 0 14px rgba(255, 0, 0, 0.85)",
+    zIndex: 60,
+    pointerEvents: "none",
+  },
+
+  projectileImage: {
+    position: "absolute",
+    width: 132,
+    height: 38,
+    marginLeft: -66,
+    marginTop: -19,
+    zIndex: 20,
+    pointerEvents: "none",
+    transformOrigin: "center center",
+    objectFit: "contain",
+    filter: "drop-shadow(0 0 8px rgba(255, 209, 102, 0.75))",
+  },
+
+  explosionContainer: {
+    position: "absolute",
+    width: 140,
+    height: 140,
+    marginLeft: -70,
+    marginTop: -70,
+    zIndex: 35,
+    pointerEvents: "none",
+  },
+
+  explosionFlash: {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    mixBlendMode: "screen",
+    filter: "drop-shadow(0 0 18px rgba(255, 229, 120, 0.95))",
+  },
+
+  explosionFireball: {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    mixBlendMode: "screen",
+    filter: "drop-shadow(0 0 22px rgba(255, 104, 20, 0.85))",
+  },
+
+  explosionSmoke: {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    opacity: 0.55,
+    filter: "drop-shadow(0 0 12px rgba(30, 30, 30, 0.65))",
+  },
+  cardsLeftValue: {
+  fontSize: 24,
+  lineHeight: 1,
+  color: "#f7d774",
+  textShadow: "0 2px 0 rgba(0,0,0,0.9)",
+},
+
+drawCardEffect: {
+  position: "fixed",
+  left: 0,
+  top: 0,
+  width: 96,
+  height: 128,
+  marginLeft: -48,
+  marginTop: -64,
+  borderRadius: 12,
+  backgroundSize: "cover",
+  backgroundPosition: "center center",
+  backgroundRepeat: "no-repeat",
+  border: "none",
+  boxShadow:
+    "0 18px 42px rgba(0,0,0,0.64), 0 0 18px rgba(247,215,116,0.18)",
+  zIndex: 2600,
+  pointerEvents: "none",
+  
+},
+
+spawnCardEffect: {
+  position: "fixed",
+  left: 0,
+  top: 0,
+  width: 175,
+  marginLeft: -87,
+  marginTop: -140,
+  zIndex: 2700,
+  pointerEvents: "none",
+  filter: "drop-shadow(0 22px 44px rgba(0,0,0,0.62))",
+},
+
+spawnCardBackEffect: {
+  position: "fixed",
+  left: 0,
+  top: 0,
+  width: 104,
+  height: 138,
+  marginLeft: -52,
+  marginTop: -69,
+  borderRadius: 12,
+  backgroundSize: "cover",
+  backgroundPosition: "center center",
+  backgroundRepeat: "no-repeat",
+  border: "none",
+  boxShadow: "0 18px 42px rgba(0,0,0,0.64)",
+  zIndex: 2700,
+  pointerEvents: "none",
+},
+
+  explosionEffect: {
+    position: "absolute",
+    inset: "50%",
+    width: 26,
+    height: 26,
+    marginLeft: -13,
+    marginTop: -13,
+    borderRadius: "999px",
+    background:
+      "radial-gradient(circle, #fff3a3 0%, #ffb703 35%, #fb5607 62%, rgba(251, 86, 7, 0) 72%)",
+    boxShadow: "0 0 28px 12px rgba(251, 86, 7, 0.8)",
+    zIndex: 10,
+    pointerEvents: "none",
+  },
+
+  cardPreviewOverlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 9000,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    background:
+      "radial-gradient(circle at center, rgba(0,0,0,0.58), rgba(0,0,0,0.86) 74%)",
+    backdropFilter: "blur(6px)",
+  },
+
+  cardPreviewPanel: {
+    position: "relative",
+    width: 390,
+    maxWidth: "82vw",
+    maxHeight: "92vh",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    filter: "drop-shadow(0 28px 58px rgba(0,0,0,0.78))",
+  },
+
+  cardPreviewClose: {
+    position: "absolute",
+    right: -12,
+    top: -12,
+    zIndex: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.18)",
+    background:
+      "linear-gradient(180deg, rgba(38,40,40,0.96), rgba(5,6,6,0.96))",
+    color: "#f3ead0",
+    fontSize: 24,
+    lineHeight: "30px",
+    fontWeight: 800,
+    cursor: "pointer",
+    boxShadow: "0 10px 22px rgba(0,0,0,0.58)",
+  },
+
+  cardPreviewHint: {
+    position: "absolute",
+    left: "50%",
+    bottom: -28,
+    transform: "translateX(-50%)",
+    color: "rgba(238,242,243,0.68)",
+    fontSize: 11,
+    lineHeight: 1,
+    whiteSpace: "nowrap",
+    textShadow: "0 2px 8px rgba(0,0,0,0.85)",
+    pointerEvents: "none",
+  },
+
+};
