@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import type { WebSocket } from "ws";
 import { applyAction } from "../../tank-card-game/src/game/engine";
 import { createInitialBattleState } from "../../tank-card-game/src/game/initialState";
@@ -9,18 +10,32 @@ type RoomPlayer = {
   socket: WebSocket;
 };
 
+type PendingStartRoll = {
+  firstPlayer: PlayerId;
+  startsAt: number;
+  revealAt: number;
+  startTimer: NodeJS.Timeout;
+};
+
 type Room = {
   id: string;
   players: Partial<Record<PlayerId, RoomPlayer>>;
   battle: BattleState | null;
+  pendingStartRoll: PendingStartRoll | null;
 };
+
+const START_ROLL_DURATION_MS = 2800;
+const START_ROLL_RESULT_DELAY_MS = 350;
+const START_ROLL_FINISH_DELAY_MS = 900;
 
 function createRoomId(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let result = "";
+
   for (let index = 0; index < 5; index += 1) {
     result += alphabet[Math.floor(Math.random() * alphabet.length)];
   }
+
   return result;
 }
 
@@ -44,8 +59,11 @@ function overwritePlayerId(action: BattleAction, playerId: PlayerId): BattleActi
   } as BattleAction;
 }
 
-function createStartedBattle(): BattleState {
-  const startingPlayer: PlayerId = Math.random() < 0.5 ? "player" : "bot";
+function getRandomStartingPlayer(): PlayerId {
+  return randomInt(0, 2) === 0 ? "player" : "bot";
+}
+
+function createStartedBattle(startingPlayer: PlayerId): BattleState {
   const battle = createInitialBattleState();
 
   return applyAction(battle, {
@@ -101,6 +119,9 @@ export class RoomManager {
     }
 
     if (!room.players.player && !room.players.bot) {
+      if (room.pendingStartRoll) {
+        clearTimeout(room.pendingStartRoll.startTimer);
+      }
       this.rooms.delete(roomId);
     }
   }
@@ -117,6 +138,7 @@ export class RoomManager {
         player: { id: "player", socket },
       },
       battle: null,
+      pendingStartRoll: null,
     };
 
     this.rooms.set(roomId, room);
@@ -147,18 +169,67 @@ export class RoomManager {
 
     safeSend(socket, { type: "ROOM_JOINED", roomId, playerId: "bot" });
 
-    room.battle = createStartedBattle();
-    this.broadcast(room, {
-      type: "GAME_STARTED",
-      roomId,
+    this.startFirstTurnRoll(room);
+  }
+
+  private startFirstTurnRoll(room: Room) {
+    if (!room.players.player || !room.players.bot) return;
+
+    const firstPlayer = getRandomStartingPlayer();
+    const startsAt = Date.now();
+    const revealAt = startsAt + START_ROLL_DURATION_MS + START_ROLL_RESULT_DELAY_MS;
+    const gameStartDelay = START_ROLL_DURATION_MS + START_ROLL_RESULT_DELAY_MS + START_ROLL_FINISH_DELAY_MS;
+
+    console.log(
+      `[PVP:${room.id}] first turn roll: ${firstPlayer === "player" ? "player 1" : "player 2"}`
+    );
+
+    room.battle = createStartedBattle(firstPlayer);
+
+    room.pendingStartRoll = {
+      firstPlayer,
+      startsAt,
+      revealAt,
+      startTimer: setTimeout(() => {
+        this.finishFirstTurnRoll(room.id);
+      }, gameStartDelay),
+    };
+
+    this.broadcastSame(room, {
+      type: "FIRST_TURN_ROLL",
+      roomId: room.id,
+      firstPlayer,
+      startsAt,
+      revealAt,
       battle: room.battle,
-      playerId: "player",
-    }, {
-      type: "GAME_STARTED",
-      roomId,
-      battle: room.battle,
-      playerId: "bot",
     });
+  }
+
+  private finishFirstTurnRoll(roomId: string) {
+    const room = this.rooms.get(roomId);
+    if (!room || !room.pendingStartRoll) return;
+    if (!room.players.player || !room.players.bot) return;
+
+    if (!room.battle) {
+      room.battle = createStartedBattle(room.pendingStartRoll.firstPlayer);
+    }
+    room.pendingStartRoll = null;
+
+    this.broadcast(
+      room,
+      {
+        type: "GAME_STARTED",
+        roomId,
+        battle: room.battle,
+        playerId: "player",
+      },
+      {
+        type: "GAME_STARTED",
+        roomId,
+        battle: room.battle,
+        playerId: "bot",
+      }
+    );
   }
 
   private applyGameAction(socket: WebSocket, action: BattleAction) {

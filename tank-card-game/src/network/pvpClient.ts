@@ -4,6 +4,14 @@ export type PvpClientMessage =
   | { type: "ROOM_CREATED"; roomId: string; playerId: PlayerId }
   | { type: "ROOM_JOINED"; roomId: string; playerId: PlayerId }
   | { type: "WAITING_FOR_OPPONENT"; roomId: string }
+  | {
+      type: "FIRST_TURN_ROLL";
+      roomId: string;
+      firstPlayer: PlayerId;
+      startsAt: number;
+      revealAt: number;
+      battle: BattleState;
+    }
   | { type: "GAME_STARTED"; roomId: string; battle: BattleState; playerId: PlayerId }
   | { type: "GAME_STATE"; roomId: string; battle: BattleState }
   | { type: "OPPONENT_DISCONNECTED"; roomId: string }
