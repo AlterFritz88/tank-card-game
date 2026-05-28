@@ -11,7 +11,6 @@ type FirstTurnRollOverlayProps = {
   resultVisible: boolean;
   firstPlayer: PlayerId | null;
   localPlayerId: PlayerId;
-  finalRotation?: number;
 };
 
 export function FirstTurnRollOverlay({
@@ -21,12 +20,6 @@ export function FirstTurnRollOverlay({
   localPlayerId,
 }: FirstTurnRollOverlayProps) {
   const isYourFirstTurn = firstPlayer === localPlayerId;
-
-  // В PVP сервер присылает технического победителя жеребьёвки:
-  // "player" — создатель комнаты, "bot" — второй игрок.
-  // Но визуально каждый клиент смотрит на поле со своей перспективы:
-  // свой игрок всегда снизу, противник всегда сверху.
-  // Поэтому финальный угол нельзя брать в абсолютных координатах сервера.
   const viewerTargetAngle = isYourFirstTurn ? 135 : -45;
   const displayFinalRotation = 360 * 8 + viewerTargetAngle;
 
@@ -88,20 +81,26 @@ export function ConnectedFirstTurnRollOverlay() {
   const firstTurnRoll = useBattleStore((state) => state.firstTurnRoll);
   const localPlayerId = useBattleStore((state) => state.localPlayerId);
 
+  // Защита от белого экрана при несовпадении версий файлов:
+  // старый battleStore может ещё не иметь firstTurnRoll, а BattleScreen уже
+  // пытается отрисовать PVP-оверлей жеребьёвки.
+  if (!firstTurnRoll?.visible) {
+    return null;
+  }
+
   return (
     <FirstTurnRollOverlay
       visible={firstTurnRoll.visible}
-      resultVisible={firstTurnRoll.resultVisible}
-      firstPlayer={firstTurnRoll.firstPlayer}
-      localPlayerId={localPlayerId}
-      finalRotation={firstTurnRoll.finalRotation}
+      resultVisible={Boolean(firstTurnRoll.resultVisible)}
+      firstPlayer={firstTurnRoll.firstPlayer ?? null}
+      localPlayerId={localPlayerId ?? "player"}
     />
   );
 }
 
 const styles: Record<string, CSSProperties> = {
   startRollOverlay: {
-    position: "fixed",
+    position: "absolute",
     inset: 0,
     zIndex: 4000,
     display: "flex",

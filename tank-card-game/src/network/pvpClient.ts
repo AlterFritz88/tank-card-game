@@ -1,6 +1,7 @@
 import type { BattleAction, BattleState, PlayerId } from "../game/types";
 
 export type PvpClientMessage =
+  | { type: "MATCHMAKING_STARTED" }
   | { type: "ROOM_CREATED"; roomId: string; playerId: PlayerId }
   | { type: "ROOM_JOINED"; roomId: string; playerId: PlayerId }
   | { type: "WAITING_FOR_OPPONENT"; roomId: string }
@@ -18,6 +19,7 @@ export type PvpClientMessage =
   | { type: "ERROR"; message: string };
 
 export type PvpServerMessage =
+  | { type: "FIND_MATCH" }
   | { type: "CREATE_ROOM" }
   | { type: "JOIN_ROOM"; roomId: string }
   | { type: "GAME_ACTION"; action: BattleAction };
@@ -80,6 +82,10 @@ class PvpClient {
     }
 
     this.socket.send(JSON.stringify(message));
+  }
+
+  findMatch() {
+    this.send({ type: "FIND_MATCH" });
   }
 
   createRoom() {

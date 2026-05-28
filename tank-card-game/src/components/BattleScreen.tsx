@@ -16,6 +16,7 @@ import { HandCardView } from "./HandCardView";
 import { HeadquartersCardView } from "./HeadquartersCardView";
 import { ResultScreen } from "./ResultScreen";
 import { FuelPanel } from "./FuelPanel";
+import { ConnectedFirstTurnRollOverlay } from "./FirstTurnRollOverlay";
 import apShellImage from "../assets/ap-shell.png";
 import explosionFlashImage from "../assets/effects/explosion-flash.png";
 import explosionFireballImage from "../assets/effects/explosion-fireball.png";
@@ -202,10 +203,9 @@ export function BattleScreen() {
   );
   const previousHandIdsRef = useRef<Record<PlayerId, Set<string>>>({
     player: new Set(battle[humanPlayerId].hand.map((card) => card.instanceId)),
-    bot: new Set(battle[opponentPlayerId].hand.map((card) => card.instanceId)),
+    bot: new Set(battle.bot.hand.map((card) => card.instanceId)),
   });
   const previousActivePlayerRef = useRef(battle.activePlayer);
-  const previousHpSnapshotRef = useRef<Map<string, number> | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
   const objectRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const projectileIdRef = useRef(0);
@@ -438,7 +438,7 @@ export function BattleScreen() {
   }, [
     battle.status,
     battle[humanPlayerId].hand.map((card) => card.instanceId).join("|"),
-    battle[opponentPlayerId].hand.map((card) => card.instanceId).join("|"),
+    battle.bot.hand.map((card) => card.instanceId).join("|"),
   ]);
 
   useEffect(() => {
@@ -875,32 +875,17 @@ export function BattleScreen() {
       action.type === "TIMER_TICK";
 
     const before = shouldShowDamage
-      ? createHpSnapshot(useBattleStore.getState().battle!)
+      ? createHpSnapshot(useBattleStore.getState().battle)
       : null;
 
     dispatch(action);
 
     if (!shouldShowDamage || !before) return;
 
-    const nextBattle = useBattleStore.getState().battle;
-
-    if (!nextBattle) return;
-
-    const after = createHpSnapshot(nextBattle);
+    const after = createHpSnapshot(useBattleStore.getState().battle);
 
     showDamageEffectsFromSnapshots(before, after);
   }
-
-  useEffect(() => {
-    const currentSnapshot = createHpSnapshot(battle);
-    const previousSnapshot = previousHpSnapshotRef.current;
-
-    if (mode === "pvp" && previousSnapshot) {
-      showDamageEffectsFromSnapshots(previousSnapshot, currentSnapshot);
-    }
-
-    previousHpSnapshotRef.current = currentSnapshot;
-  }, [battle, mode]);
 
   function playDrawCardAnimation(owner: PlayerId, cardInstanceId: string) {
     const deckElement = deckRefs.current[owner];
@@ -1083,6 +1068,7 @@ export function BattleScreen() {
   }
 
   function renderTimerPanel(owner: PlayerId) {
+    const isLocalPlayer = owner === humanPlayerId;
     const timer = battle.timers?.[owner];
 
     if (!timer) {
@@ -1090,7 +1076,7 @@ export function BattleScreen() {
     }
 
     const active = battle.activePlayer === owner;
-    const isLocalPlayer = owner === humanPlayerId;
+    const isPlayer = owner === humanPlayerId;
     const isLowTime = timer.stepTimeLeftMs <= 4000;
     const showPlayerReminder = isLocalPlayer && active;
 
@@ -1237,9 +1223,9 @@ function renderEnemyDeckWithTimer() {
       {renderTimerPanel(opponentPlayerId)}
 
       <FuelPanel
-        ownerId={opponentPlayerId}
-        currentFuel={battle[opponentPlayerId].resources}
-        nextTurnFuel={getNextTurnFuel(opponentPlayerId)}
+        ownerId="bot"
+        currentFuel={battle.bot.resources}
+        nextTurnFuel={getNextTurnFuel("bot")}
       />
     </div>
   );
@@ -1247,7 +1233,7 @@ function renderEnemyDeckWithTimer() {
 
   function renderHqPanel(owner: PlayerId) {
     const hq = battle.headquarters[owner];
-    const isLocalPlayer = owner === humanPlayerId;
+    const isPlayer = owner === humanPlayerId;
     const selected =
       selectedAttacker?.type === "headquarters" &&
       selectedAttacker.id === `${owner}_hq`;
@@ -1256,7 +1242,7 @@ function renderEnemyDeckWithTimer() {
       <div
         style={{
           ...styles.hqPanel,
-          ...(isLocalPlayer ? styles.playerHqPanel : styles.botHqPanel),
+          ...(isPlayer ? styles.playerHqPanel : styles.botHqPanel),
           ...(selected ? styles.selectedHqPanel : {}),
         }}
       >
@@ -1409,7 +1395,7 @@ function renderEnemyDeckWithTimer() {
      {battle[opponentPlayerId].hand.map((cardInstance, index) => (
   <div
     key={`bot-hand-${cardInstance.instanceId}`}
-    ref={setHandCardRef(opponentPlayerId, cardInstance.instanceId)}
+    ref={setHandCardRef("bot", cardInstance.instanceId)}
     style={{
       opacity:
         hiddenDrawnCardIds.has(cardInstance.instanceId) ||
@@ -1449,9 +1435,9 @@ function renderEnemyDeckWithTimer() {
   {renderTimerPanel(humanPlayerId)}
 
   <FuelPanel
-    ownerId={humanPlayerId}
-    currentFuel={battle[humanPlayerId].resources}
-    nextTurnFuel={getNextTurnFuel(humanPlayerId)}
+    ownerId="player"
+    currentFuel={battle.player.resources}
+    nextTurnFuel={getNextTurnFuel("player")}
   />
 
   <div style={styles.playerDeckBottom}>
@@ -1468,6 +1454,7 @@ function renderEnemyDeckWithTimer() {
 
           <section style={styles.boardShell}>
             <div style={styles.boardGlow} />
+            <ConnectedFirstTurnRollOverlay />
 
       <AnimatePresence>
   {startRollState.visible && (
@@ -1661,12 +1648,8 @@ function renderEnemyDeckWithTimer() {
                     position
                   );
 
-                  const playerSpawn = isPlayerSpawn(position);
+                  const spawn = isPlayerSpawn(position);
                   const botSpawn = isBotSpawn(position);
-                  const ownSpawn =
-                    humanPlayerId === "player" ? playerSpawn : botSpawn;
-                  const enemySpawn =
-                    humanPlayerId === "player" ? botSpawn : playerSpawn;
 
                   if (unit) {
                     const card = getCard(unit.cardId);
@@ -1871,8 +1854,8 @@ function renderEnemyDeckWithTimer() {
     key={`${row}-${col}`}
     style={{
       ...styles.cell,
-      ...(ownSpawn ? styles.spawnCell : {}),
-      ...(enemySpawn ? styles.botSpawnCell : {}),
+      ...(spawn ? styles.spawnCell : {}),
+      ...(botSpawn ? styles.botSpawnCell : {}),
       ...(moveCell ? styles.moveCell : {}),
     }}
     whileHover={{ scale: 1.02 }}
@@ -1996,12 +1979,12 @@ function renderEnemyDeckWithTimer() {
                 return (
                   <motion.button
                     key={cardInstance.instanceId}
-                    ref={setHandCardRef(humanPlayerId, cardInstance.instanceId)}
+                    ref={setHandCardRef("player", cardInstance.instanceId)}
                     style={{
                       ...styles.card,
                       marginLeft: getPlayerHandCardMarginLeft(
                         index,
-                        battle[humanPlayerId].hand.length
+                        battle.player.hand.length
                       ),
                       zIndex: selected ? 120 : index + 1,
                       pointerEvents:
@@ -2054,7 +2037,7 @@ function renderEnemyDeckWithTimer() {
                       disabled={
                         debugPaused ||
                         battle.activePlayer !== humanPlayerId ||
-                        battle[humanPlayerId].resources < card.cost
+                        battle.player.resources < card.cost
                       }
                     />
                   </motion.button>
@@ -2148,7 +2131,7 @@ function renderEnemyDeckWithTimer() {
       </AnimatePresence>
 
       {(battle.status === "player_won" || battle.status === "bot_won") && (
-  <ResultScreen battle={battle} onRestart={reset} />
+  <ResultScreen battle={battle} onRestart={reset} localPlayerId={humanPlayerId} />
 )}
     </div>
   );
@@ -2449,17 +2432,15 @@ actionSideColumn: {
 
   spawnCell: {
     background:
-      "linear-gradient(135deg, rgba(35, 92, 45, 0.56), rgba(8, 18, 9, 0.68))",
-    boxShadow:
-      "inset 0 0 0 1px rgba(125, 227, 141, 0.24), inset 0 0 24px rgba(36, 128, 48, 0.28)",
+      "linear-gradient(135deg, rgba(35, 66, 36, 0.48), rgba(8, 13, 8, 0.62))",
   },
 
   botSpawnCell: {
-    background:
-      "linear-gradient(135deg, rgba(104, 34, 34, 0.54), rgba(26, 8, 8, 0.68))",
-    boxShadow:
-      "inset 0 0 0 1px rgba(255, 120, 100, 0.22), inset 0 0 24px rgba(145, 24, 24, 0.28)",
-  },
+  background:
+    "linear-gradient(135deg, rgba(92, 32, 32, 0.46), rgba(23, 8, 8, 0.64))",
+  boxShadow:
+    "inset 0 0 0 1px rgba(255, 120, 100, 0.08), inset 0 0 24px rgba(120, 20, 20, 0.22)",
+},
 
   moveCell: {
     outline: "3px solid rgba(125, 227, 141, 0.86)",

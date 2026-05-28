@@ -76,6 +76,7 @@ export class RoomManager {
   private rooms = new Map<string, Room>();
   private socketToRoom = new WeakMap<WebSocket, string>();
   private socketToPlayer = new WeakMap<WebSocket, PlayerId>();
+  private waitingRoomId: string | null = null;
 
   handleMessage(socket: WebSocket, rawData: WebSocket.RawData) {
     let message: PvpClientMessage;
@@ -88,6 +89,9 @@ export class RoomManager {
     }
 
     switch (message.type) {
+      case "FIND_MATCH":
+        this.findMatch(socket);
+        break;
       case "CREATE_ROOM":
         this.createRoom(socket);
         break;
@@ -112,6 +116,10 @@ export class RoomManager {
 
     delete room.players[playerId];
 
+    if (this.waitingRoomId === roomId) {
+      this.waitingRoomId = null;
+    }
+
     const opponent = playerId === "player" ? "bot" : "player";
     const opponentSocket = room.players[opponent]?.socket;
     if (opponentSocket) {
@@ -126,7 +134,38 @@ export class RoomManager {
     }
   }
 
-  private createRoom(socket: WebSocket) {
+  private findMatch(socket: WebSocket) {
+    safeSend(socket, { type: "MATCHMAKING_STARTED" });
+
+    const waitingRoom = this.getWaitingRoom();
+
+    if (waitingRoom) {
+      this.joinExistingWaitingRoom(socket, waitingRoom);
+      return;
+    }
+
+    this.createRoom(socket, { makePublicWaiting: true });
+  }
+
+  private getWaitingRoom(): Room | null {
+    if (!this.waitingRoomId) return null;
+
+    const room = this.rooms.get(this.waitingRoomId);
+    if (!room || !room.players.player || room.players.bot || room.battle) {
+      this.waitingRoomId = null;
+      return null;
+    }
+
+    const socket = room.players.player.socket;
+    if (socket.readyState !== socket.OPEN) {
+      this.waitingRoomId = null;
+      return null;
+    }
+
+    return room;
+  }
+
+  private createRoom(socket: WebSocket, options?: { makePublicWaiting?: boolean }) {
     let roomId = createRoomId();
     while (this.rooms.has(roomId)) {
       roomId = createRoomId();
@@ -145,8 +184,24 @@ export class RoomManager {
     this.socketToRoom.set(socket, roomId);
     this.socketToPlayer.set(socket, "player");
 
+    if (options?.makePublicWaiting) {
+      this.waitingRoomId = roomId;
+    }
+
     safeSend(socket, { type: "ROOM_CREATED", roomId, playerId: "player" });
     safeSend(socket, { type: "WAITING_FOR_OPPONENT", roomId });
+  }
+
+  private joinExistingWaitingRoom(socket: WebSocket, room: Room) {
+    this.waitingRoomId = null;
+
+    room.players.bot = { id: "bot", socket };
+    this.socketToRoom.set(socket, room.id);
+    this.socketToPlayer.set(socket, "bot");
+
+    safeSend(socket, { type: "ROOM_JOINED", roomId: room.id, playerId: "bot" });
+
+    this.startFirstTurnRoll(room);
   }
 
   private joinRoom(socket: WebSocket, unsafeRoomId: string) {
@@ -161,6 +216,10 @@ export class RoomManager {
     if (room.players.bot) {
       safeSend(socket, { type: "ERROR", message: "Комната уже заполнена" });
       return;
+    }
+
+    if (this.waitingRoomId === roomId) {
+      this.waitingRoomId = null;
     }
 
     room.players.bot = { id: "bot", socket };
@@ -181,7 +240,7 @@ export class RoomManager {
     const gameStartDelay = START_ROLL_DURATION_MS + START_ROLL_RESULT_DELAY_MS + START_ROLL_FINISH_DELAY_MS;
 
     console.log(
-      `[PVP:${room.id}] first turn roll: ${firstPlayer === "player" ? "player 1" : "player 2"}`
+      `[PVP:${room.id}] match found; first turn roll: ${firstPlayer === "player" ? "player 1" : "player 2"}`,
     );
 
     room.battle = createStartedBattle(firstPlayer);
@@ -228,7 +287,7 @@ export class RoomManager {
         roomId,
         battle: room.battle,
         playerId: "bot",
-      }
+      },
     );
   }
 
@@ -237,7 +296,7 @@ export class RoomManager {
     const playerId = this.socketToPlayer.get(socket);
 
     if (!roomId || !playerId) {
-      safeSend(socket, { type: "ERROR", message: "Сначала создай комнату или подключись к ней" });
+      safeSend(socket, { type: "ERROR", message: "Сначала найди PVP-матч" });
       return;
     }
 

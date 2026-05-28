@@ -1,11 +1,13 @@
 import type { BattleAction, BattleState, PlayerId } from "../../tank-card-game/src/game/types";
 
 export type PvpClientMessage =
+  | { type: "FIND_MATCH" }
   | { type: "CREATE_ROOM" }
   | { type: "JOIN_ROOM"; roomId: string }
   | { type: "GAME_ACTION"; action: BattleAction };
 
 export type PvpServerMessage =
+  | { type: "MATCHMAKING_STARTED" }
   | { type: "ROOM_CREATED"; roomId: string; playerId: PlayerId }
   | { type: "ROOM_JOINED"; roomId: string; playerId: PlayerId }
   | { type: "WAITING_FOR_OPPONENT"; roomId: string }

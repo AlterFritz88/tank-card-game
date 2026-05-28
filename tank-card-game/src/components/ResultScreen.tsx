@@ -1,17 +1,15 @@
 import type React from "react";
-import type { BattleState, BattleKillStats } from "../game/types";
+import type { BattleKillStats, BattleState, PlayerId } from "../game/types";
 import victoryBackground from "../assets/backgrounds/victory-result-bg.png";
 import defeatBackground from "../assets/backgrounds/defeat-result-bg.png";
 
 type ResultScreenProps = {
   battle: BattleState;
   onRestart: () => void;
+  localPlayerId?: PlayerId;
 };
 
-const STAT_ROWS: {
-  key: keyof BattleKillStats;
-  label: string;
-}[] = [
+const STAT_ROWS: { key: keyof BattleKillStats; label: string }[] = [
   { key: "light", label: "Легкие танки" },
   { key: "medium", label: "Средние танки" },
   { key: "heavy", label: "Тяжелые танки" },
@@ -19,70 +17,54 @@ const STAT_ROWS: {
   { key: "spg", label: "САУ" },
 ];
 
+const emptyStats: BattleKillStats = {
+  light: 0,
+  medium: 0,
+  heavy: 0,
+  td: 0,
+  spg: 0,
+};
+
 function getTotal(stats: BattleKillStats): number {
   return STAT_ROWS.reduce((total, row) => total + stats[row.key], 0);
 }
 
-export function ResultScreen({ battle, onRestart }: ResultScreenProps) {
-  const playerWon = battle.status === "player_won";
+export function ResultScreen({
+  battle,
+  onRestart,
+  localPlayerId = "player",
+}: ResultScreenProps) {
+  const winningPlayer: PlayerId | null =
+    battle.status === "player_won"
+      ? "player"
+      : battle.status === "bot_won"
+        ? "bot"
+        : null;
 
-  const title = playerWon ? "ПОБЕДА" : "ПОРАЖЕНИЕ";
-  const backgroundImage = playerWon ? victoryBackground : defeatBackground;
+  const localPlayerWon = winningPlayer === localPlayerId;
+  const title = localPlayerWon ? "ПОБЕДА" : "ПОРАЖЕНИЕ";
+  const backgroundImage = localPlayerWon ? victoryBackground : defeatBackground;
 
-  const playerStats = battle.stats?.destroyedByPlayer ?? {
-    light: 0,
-    medium: 0,
-    heavy: 0,
-    td: 0,
-    spg: 0,
-  };
-
-  const botStats = battle.stats?.destroyedByBot ?? {
-    light: 0,
-    medium: 0,
-    heavy: 0,
-    td: 0,
-    spg: 0,
-  };
+  const playerStats = battle.stats?.destroyedByPlayer ?? emptyStats;
+  const botStats = battle.stats?.destroyedByBot ?? emptyStats;
+  const ownStats = localPlayerId === "player" ? playerStats : botStats;
+  const enemyStats = localPlayerId === "player" ? botStats : playerStats;
 
   return (
-    <div
-      style={{
-        ...styles.overlay,
-        backgroundImage: `linear-gradient(rgba(0,0,0,0.18), rgba(0,0,0,0.38)), url(${backgroundImage})`,
-      }}
-    >
+    <div style={{ ...styles.overlay, backgroundImage: `url(${backgroundImage})` }}>
       <div style={styles.vignette} />
 
-      <h1
-        style={{
-          ...styles.title,
-          color: playerWon ? "#f7d774" : "#c9c9c9",
-          textShadow: playerWon
-            ? "0 3px 0 rgba(0,0,0,0.95), 0 0 24px rgba(247,215,116,0.55)"
-            : "0 3px 0 rgba(0,0,0,0.95), 0 0 24px rgba(255,255,255,0.24)",
-        }}
-      >
-        {title}
-      </h1>
+      <h1 style={styles.title}>{title}</h1>
 
-      <section style={styles.leftStats}>
-        <StatsPanel
-          title="Уничтожено игроком"
-          stats={playerStats}
-          accent="#7dff8a"
-        />
-      </section>
+      <div style={styles.leftStats}>
+        <StatsPanel title="Вы уничтожили" stats={ownStats} accent="#7dff8a" />
+      </div>
 
-      <section style={styles.rightStats}>
-        <StatsPanel
-          title="Уничтожено ботом"
-          stats={botStats}
-          accent="#ff7a6b"
-        />
-      </section>
+      <div style={styles.rightStats}>
+        <StatsPanel title="Противник уничтожил" stats={enemyStats} accent="#ff6b6b" />
+      </div>
 
-      <button style={styles.restartButton} onClick={onRestart}>
+      <button type="button" style={styles.restartButton} onClick={onRestart}>
         Начать бой заново
       </button>
     </div>
@@ -99,23 +81,23 @@ function StatsPanel({
   accent: string;
 }) {
   return (
-    <div style={styles.statsPanel}>
-      <h2 style={styles.statsTitle}>{title}</h2>
+    <section style={styles.statsPanel}>
+      <h2 style={{ ...styles.statsTitle, color: accent }}>{title}</h2>
 
       <div style={styles.statsRows}>
         {STAT_ROWS.map((row) => (
           <div key={row.key} style={styles.statsRow}>
             <span>{row.label}</span>
-            <strong style={{ color: accent }}>{stats[row.key]}</strong>
+            <strong>{stats[row.key]}</strong>
           </div>
         ))}
       </div>
 
       <div style={styles.totalRow}>
         <span>Всего уничтожено</span>
-        <strong style={{ color: accent }}>{getTotal(stats)}</strong>
+        <strong>{getTotal(stats)}</strong>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -152,6 +134,7 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: 8,
     textTransform: "uppercase",
     whiteSpace: "nowrap",
+    textShadow: "0 5px 20px rgba(0,0,0,0.82)",
   },
 
   leftStats: {
@@ -171,8 +154,7 @@ const styles: Record<string, React.CSSProperties> = {
   statsPanel: {
     padding: 18,
     borderRadius: 16,
-    background:
-      "linear-gradient(180deg, rgba(8,10,10,0.86), rgba(0,0,0,0.76))",
+    background: "linear-gradient(180deg, rgba(8,10,10,0.86), rgba(0,0,0,0.76))",
     border: "1px solid rgba(255,255,255,0.14)",
     boxShadow:
       "0 18px 54px rgba(0,0,0,0.56), inset 0 0 30px rgba(0,0,0,0.72)",
@@ -184,7 +166,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 22,
     textTransform: "uppercase",
     letterSpacing: 1,
-    color: "#d8d2be",
     textShadow: "0 2px 0 rgba(0,0,0,0.9)",
   },
 
@@ -230,8 +211,7 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: 62,
     borderRadius: 12,
     border: "1px solid rgba(255, 238, 168, 0.72)",
-    background:
-      "linear-gradient(180deg, rgba(216,180,106,0.96), rgba(117,84,39,0.98))",
+    background: "linear-gradient(180deg, rgba(216,180,106,0.96), rgba(117,84,39,0.98))",
     color: "#1d1207",
     fontSize: 22,
     fontWeight: 1000,

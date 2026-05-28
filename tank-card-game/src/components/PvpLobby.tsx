@@ -1,58 +1,71 @@
-import { useState } from "react";
 import type { CSSProperties } from "react";
 import { useBattleStore } from "../store/battleStore";
 
+function getPvpStatusText(status: string) {
+  switch (status) {
+    case "connecting":
+      return "Подключаемся к серверу...";
+    case "matchmaking":
+      return "Ищем соперника...";
+    case "waiting":
+      return "Ожидаем второго игрока...";
+    case "rolling":
+      return "Жеребьёвка первого хода...";
+    case "connected":
+      return "Соперник найден";
+    case "error":
+      return "Ошибка подключения";
+    default:
+      return "Готово к поиску боя";
+  }
+}
+
 export function PvpLobby() {
-  const [roomCode, setRoomCode] = useState("");
   const {
     mode,
     pvpRoomId,
     pvpStatus,
     pvpError,
-    localPlayerId,
-    createPvpRoom,
-    joinPvpRoom,
+    findPvpMatch,
     startAiBattle,
   } = useBattleStore();
+
+  const pvpBusy =
+    mode === "pvp" &&
+    (pvpStatus === "connecting" ||
+      pvpStatus === "matchmaking" ||
+      pvpStatus === "waiting" ||
+      pvpStatus === "rolling");
 
   return (
     <div style={styles.panel}>
       <div style={styles.title}>Режим игры</div>
+      <div style={styles.subtitle}>Выбери бой. Для PVP код комнаты больше не нужен.</div>
 
       <div style={styles.row}>
         <button type="button" style={styles.button} onClick={startAiBattle}>
           Играть против бота
         </button>
-        <button type="button" style={styles.button} onClick={createPvpRoom}>
-          Создать PVP комнату
-        </button>
       </div>
 
       <div style={styles.row}>
-        <input
-          value={roomCode}
-          onChange={(event) => setRoomCode(event.target.value.toUpperCase())}
-          placeholder="Код комнаты"
-          style={styles.input}
-        />
         <button
           type="button"
-          style={styles.button}
-          onClick={() => joinPvpRoom(roomCode)}
+          style={{ ...styles.button, ...styles.primaryButton }}
+          onClick={findPvpMatch}
+          disabled={pvpBusy}
         >
-          Войти
+          {pvpBusy ? "Поиск соперника..." : "Играть PVP"}
         </button>
       </div>
 
       <div style={styles.status}>
         Режим: {mode === "ai" ? "бот" : "PVP"}
-        {pvpRoomId ? ` · Комната: ${pvpRoomId}` : ""}
-        {mode === "pvp" ? ` · Статус: ${pvpStatus}` : ""}
-        {mode === "pvp" ? ` · Вы: ${localPlayerId}` : ""}
+        {mode === "pvp" ? ` · ${getPvpStatusText(pvpStatus)}` : ""}
       </div>
 
-      {pvpStatus === "waiting" && pvpRoomId ? (
-        <div style={styles.hint}>Передай код комнаты второму игроку: {pvpRoomId}</div>
+      {mode === "pvp" && pvpRoomId && pvpStatus === "waiting" ? (
+        <div style={styles.hint}>Ты в очереди. Как только второй игрок нажмёт “Играть PVP”, бой начнётся автоматически.</div>
       ) : null}
 
       {pvpError ? <div style={styles.error}>{pvpError}</div> : null}
@@ -66,7 +79,7 @@ const styles: Record<string, CSSProperties> = {
     left: 16,
     top: 16,
     zIndex: 1000,
-    width: 320,
+    width: 340,
     padding: 12,
     borderRadius: 12,
     border: "1px solid rgba(220, 184, 96, 0.45)",
@@ -77,6 +90,12 @@ const styles: Record<string, CSSProperties> = {
   },
   title: {
     fontWeight: 700,
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 12,
+    lineHeight: 1.35,
+    opacity: 0.8,
     marginBottom: 10,
   },
   row: {
@@ -86,22 +105,17 @@ const styles: Record<string, CSSProperties> = {
   },
   button: {
     cursor: "pointer",
-    padding: "8px 10px",
+    width: "100%",
+    padding: "9px 10px",
     borderRadius: 8,
     border: "1px solid rgba(220, 184, 96, 0.5)",
     background: "rgba(74, 58, 34, 0.95)",
     color: "#f8e3ae",
     fontWeight: 700,
   },
-  input: {
-    minWidth: 0,
-    flex: 1,
-    padding: "8px 10px",
-    borderRadius: 8,
-    border: "1px solid rgba(220, 184, 96, 0.5)",
-    background: "rgba(0, 0, 0, 0.35)",
-    color: "#fff2cc",
-    textTransform: "uppercase",
+  primaryButton: {
+    background: "rgba(86, 92, 43, 0.96)",
+    color: "#fff0b8",
   },
   status: {
     fontSize: 12,

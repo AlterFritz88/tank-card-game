@@ -37,6 +37,7 @@ type BattleStore = {
 
   setMode: (mode: GameMode) => void;
   startAiBattle: () => void;
+  findPvpMatch: () => void;
   createPvpRoom: () => void;
   joinPvpRoom: (roomId: string) => void;
   startPvpBattle: (roomId?: string) => void;
@@ -102,6 +103,19 @@ function setupPvpSubscriptions() {
     const store = useBattleStore.getState();
 
     switch (message.type) {
+      case "MATCHMAKING_STARTED":
+        useBattleStore.setState({
+          battle: null,
+          mode: "pvp",
+          pvpRoomId: null,
+          pvpStatus: "matchmaking",
+          pvpError: null,
+          selectedCardInstanceId: null,
+          selectedAttacker: null,
+          firstTurnRoll: emptyFirstTurnRoll,
+        });
+        break;
+
       case "ROOM_CREATED":
       case "ROOM_JOINED":
         clearFirstTurnRollTimers();
@@ -278,6 +292,23 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     });
   },
 
+  findPvpMatch: () => {
+    clearFirstTurnRollTimers();
+
+    set({
+      battle: null,
+      mode: "pvp",
+      pvpRoomId: null,
+      pvpStatus: "connecting",
+      pvpError: null,
+      firstTurnRoll: emptyFirstTurnRoll,
+      selectedCardInstanceId: null,
+      selectedAttacker: null,
+    });
+
+    connectAndRun(() => pvpClient.findMatch());
+  },
+
   createPvpRoom: () => {
     clearFirstTurnRollTimers();
 
@@ -325,7 +356,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       return;
     }
 
-    get().createPvpRoom();
+    get().findPvpMatch();
   },
 
   applyRemoteBattleState: (battle) => {
