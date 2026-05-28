@@ -47,6 +47,7 @@ type HandCardViewProps = {
   card?: TankCard;
   headquarters?: HeadquartersHandCardData;
   ownerId?: PlayerId;
+  artOwnerId?: PlayerId;
   currentHp?: number;
   selected?: boolean;
   disabled?: boolean;
@@ -147,6 +148,7 @@ export function HandCardView({
   card,
   headquarters,
   ownerId = "player",
+  artOwnerId,
   currentHp,
   selected = false,
   disabled = false,
@@ -168,7 +170,7 @@ export function HandCardView({
   const unitClass = card ? getClassVisual(card.class) : null;
 
   const tankImage = isHeadquarters
-    ? getHeadquartersImage(ownerId)
+    ? getHeadquartersImage(artOwnerId ?? ownerId)
     : getTankImage(card!.id);
 
   const hqClassIcon = isHeadquarters ? getHeadquartersClassIcon(ownerId) : null;

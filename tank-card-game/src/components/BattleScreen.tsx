@@ -16,7 +16,6 @@ import { HandCardView } from "./HandCardView";
 import { HeadquartersCardView } from "./HeadquartersCardView";
 import { ResultScreen } from "./ResultScreen";
 import { FuelPanel } from "./FuelPanel";
-import { ConnectedFirstTurnRollOverlay } from "./FirstTurnRollOverlay";
 import apShellImage from "../assets/ap-shell.png";
 import explosionFlashImage from "../assets/effects/explosion-flash.png";
 import explosionFireballImage from "../assets/effects/explosion-fireball.png";
@@ -159,6 +158,7 @@ function waitForNextFrame(): Promise<void> {
 }
 
 export function BattleScreen() {
+  const battleStore = useBattleStore();
   const {
     battle: rawBattle,
     mode,
@@ -169,7 +169,18 @@ export function BattleScreen() {
     selectAttacker,
     dispatch,
     reset,
-  } = useBattleStore();
+  } = battleStore;
+
+  const firstTurnRoll = (
+    battleStore as typeof battleStore & {
+      firstTurnRoll?: {
+        visible: boolean;
+        resultVisible: boolean;
+        firstPlayer: PlayerId | null;
+        finalRotation?: number;
+      };
+    }
+  ).firstTurnRoll;
 
   if (!rawBattle) {
     return null;
@@ -182,6 +193,28 @@ export function BattleScreen() {
   const botAiEnabled = mode === "ai";
   const isHumanTurn =
     battle.status === "active" && battle.activePlayer === humanPlayerId;
+
+  function getVisualOwnerId(owner: PlayerId): PlayerId {
+    return owner === humanPlayerId ? "player" : "bot";
+  }
+
+  function getStartRollFinalRotationForViewer(winner: PlayerId): number {
+    const targetAngle = winner === humanPlayerId ? 135 : -45;
+    return 360 * 8 + targetAngle;
+  }
+
+  function getStartRollResultText(winner: PlayerId): string {
+    if (mode === "pvp") {
+      return winner === humanPlayerId
+        ? "ПЕРВЫМ ХОДИШЬ ТЫ"
+        : "ПЕРВЫМ ХОДИТ ВРАГ";
+    }
+
+    return winner === "player"
+      ? "ПЕРВЫМ ХОДИТ ИГРОК"
+      : "ПЕРВЫМ ХОДИТ ВРАГ";
+  }
+
   const DRAW_CARD_ANIMATION_MS = 760;
   const DRAW_CARD_REVEAL_DELAY_MS = 80;
   const SPAWN_CARD_ANIMATION_MS = 620;
@@ -202,7 +235,7 @@ export function BattleScreen() {
     null
   );
   const previousHandIdsRef = useRef<Record<PlayerId, Set<string>>>({
-    player: new Set(battle[humanPlayerId].hand.map((card) => card.instanceId)),
+    player: new Set(battle.player.hand.map((card) => card.instanceId)),
     bot: new Set(battle.bot.hand.map((card) => card.instanceId)),
   });
   const previousActivePlayerRef = useRef(battle.activePlayer);
@@ -212,6 +245,7 @@ export function BattleScreen() {
   const explosionIdRef = useRef(0);
   const damageTextIdRef = useRef(0);
   const lastObjectCentersRef = useRef<Map<string, CellCenter>>(new Map());
+  const previousHpSnapshotRef = useRef<Map<string, number> | null>(null);
   const botTurnRunningRef = useRef(false);
   const [drawCardEffects, setDrawCardEffects] = useState<DrawCardEffect[]>([]);
   const [spawnCardEffects, setSpawnCardEffects] = useState<SpawnCardEffect[]>([]);
@@ -437,7 +471,7 @@ export function BattleScreen() {
     }
   }, [
     battle.status,
-    battle[humanPlayerId].hand.map((card) => card.instanceId).join("|"),
+    battle.player.hand.map((card) => card.instanceId).join("|"),
     battle.bot.hand.map((card) => card.instanceId).join("|"),
   ]);
 
@@ -868,6 +902,17 @@ export function BattleScreen() {
     }
   }
 
+  useEffect(() => {
+    const currentSnapshot = createHpSnapshot(battle);
+    const previousSnapshot = previousHpSnapshotRef.current;
+
+    if (mode === "pvp" && previousSnapshot) {
+      showDamageEffectsFromSnapshots(previousSnapshot, currentSnapshot);
+    }
+
+    previousHpSnapshotRef.current = currentSnapshot;
+  }, [battle, mode]);
+
   function dispatchBattleAction(action: BattleAction) {
     const shouldShowDamage =
       action.type === "ATTACK" ||
@@ -1068,7 +1113,6 @@ export function BattleScreen() {
   }
 
   function renderTimerPanel(owner: PlayerId) {
-    const isLocalPlayer = owner === humanPlayerId;
     const timer = battle.timers?.[owner];
 
     if (!timer) {
@@ -1076,7 +1120,7 @@ export function BattleScreen() {
     }
 
     const active = battle.activePlayer === owner;
-    const isPlayer = owner === humanPlayerId;
+    const isLocalPlayer = owner === humanPlayerId;
     const isLowTime = timer.stepTimeLeftMs <= 4000;
     const showPlayerReminder = isLocalPlayer && active;
 
@@ -1223,9 +1267,9 @@ function renderEnemyDeckWithTimer() {
       {renderTimerPanel(opponentPlayerId)}
 
       <FuelPanel
-        ownerId="bot"
-        currentFuel={battle.bot.resources}
-        nextTurnFuel={getNextTurnFuel("bot")}
+        ownerId={getVisualOwnerId(opponentPlayerId)}
+        currentFuel={battle[opponentPlayerId].resources}
+        nextTurnFuel={getNextTurnFuel(opponentPlayerId)}
       />
     </div>
   );
@@ -1233,7 +1277,7 @@ function renderEnemyDeckWithTimer() {
 
   function renderHqPanel(owner: PlayerId) {
     const hq = battle.headquarters[owner];
-    const isPlayer = owner === humanPlayerId;
+    const isLocalPlayer = owner === humanPlayerId;
     const selected =
       selectedAttacker?.type === "headquarters" &&
       selectedAttacker.id === `${owner}_hq`;
@@ -1242,7 +1286,7 @@ function renderEnemyDeckWithTimer() {
       <div
         style={{
           ...styles.hqPanel,
-          ...(isPlayer ? styles.playerHqPanel : styles.botHqPanel),
+          ...(isLocalPlayer ? styles.playerHqPanel : styles.botHqPanel),
           ...(selected ? styles.selectedHqPanel : {}),
         }}
       >
@@ -1268,6 +1312,22 @@ function renderEnemyDeckWithTimer() {
       </div>
     );
   }
+
+  const pvpStartRollState =
+    mode === "pvp" && firstTurnRoll?.visible && firstTurnRoll.firstPlayer
+      ? {
+          visible: true,
+          winner: firstTurnRoll.firstPlayer,
+          finalRotation: getStartRollFinalRotationForViewer(
+            firstTurnRoll.firstPlayer
+          ),
+          resultVisible: firstTurnRoll.resultVisible,
+        }
+      : null;
+
+  const visibleStartRollState = pvpStartRollState ?? startRollState;
+  const visibleStartRollWinnerIsLocal =
+    visibleStartRollState.winner === humanPlayerId;
 
   return (
     <div style={styles.page}>
@@ -1375,7 +1435,7 @@ function renderEnemyDeckWithTimer() {
           ease: "easeOut",
         }}
       >
-        <HandCardView card={card} />
+        <HandCardView card={card} ownerId={getVisualOwnerId(effect.owner)} />
       </motion.div>
     );
   })}
@@ -1395,7 +1455,7 @@ function renderEnemyDeckWithTimer() {
      {battle[opponentPlayerId].hand.map((cardInstance, index) => (
   <div
     key={`bot-hand-${cardInstance.instanceId}`}
-    ref={setHandCardRef("bot", cardInstance.instanceId)}
+    ref={setHandCardRef(opponentPlayerId, cardInstance.instanceId)}
     style={{
       opacity:
         hiddenDrawnCardIds.has(cardInstance.instanceId) ||
@@ -1435,9 +1495,9 @@ function renderEnemyDeckWithTimer() {
   {renderTimerPanel(humanPlayerId)}
 
   <FuelPanel
-    ownerId="player"
-    currentFuel={battle.player.resources}
-    nextTurnFuel={getNextTurnFuel("player")}
+    ownerId={getVisualOwnerId(humanPlayerId)}
+    currentFuel={battle[humanPlayerId].resources}
+    nextTurnFuel={getNextTurnFuel(humanPlayerId)}
   />
 
   <div style={styles.playerDeckBottom}>
@@ -1454,10 +1514,9 @@ function renderEnemyDeckWithTimer() {
 
           <section style={styles.boardShell}>
             <div style={styles.boardGlow} />
-            <ConnectedFirstTurnRollOverlay />
 
       <AnimatePresence>
-  {startRollState.visible && (
+  {visibleStartRollState.visible && (
     <motion.div
       style={styles.startRollOverlay}
       initial={{ opacity: 0 }}
@@ -1475,7 +1534,7 @@ function renderEnemyDeckWithTimer() {
             style={styles.startRollCartridge}
             initial={{ rotate: 0, scale: 0.9 }}
             animate={{
-              rotate: startRollState.finalRotation,
+              rotate: visibleStartRollState.finalRotation,
               scale: 1,
             }}
             transition={{
@@ -1484,11 +1543,11 @@ function renderEnemyDeckWithTimer() {
             }}
           />
 
-          {startRollState.resultVisible && startRollState.winner && (
+          {visibleStartRollState.resultVisible && visibleStartRollState.winner && (
             <motion.div
               style={{
                 ...styles.startRollResult,
-                ...(startRollState.winner === "player"
+                ...(visibleStartRollWinnerIsLocal
                   ? styles.startRollResultPlayer
                   : styles.startRollResultBot),
               }}
@@ -1496,9 +1555,7 @@ function renderEnemyDeckWithTimer() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={{ duration: 0.25 }}
             >
-              {startRollState.winner === "player"
-                ? "ПЕРВЫМ ХОДИТ ИГРОК"
-                : "ПЕРВЫМ ХОДИТ ВРАГ"}
+              {getStartRollResultText(visibleStartRollState.winner)}
             </motion.div>
           )}
         </div>
@@ -1648,8 +1705,12 @@ function renderEnemyDeckWithTimer() {
                     position
                   );
 
-                  const spawn = isPlayerSpawn(position);
+                  const playerSpawn = isPlayerSpawn(position);
                   const botSpawn = isBotSpawn(position);
+                  const ownSpawn =
+                    humanPlayerId === "player" ? playerSpawn : botSpawn;
+                  const enemySpawn =
+                    humanPlayerId === "player" ? botSpawn : playerSpawn;
 
                   if (unit) {
                     const card = getCard(unit.cardId);
@@ -1718,7 +1779,7 @@ function renderEnemyDeckWithTimer() {
                         <TankCardView
                           card={card}
                           variant="board"
-                          ownerId={unit.ownerId}
+                          ownerId={getVisualOwnerId(unit.ownerId)}
                           currentHp={unit.currentHp}
                           selected={isSelected}
                           alreadyMoved={unit.alreadyMoved}
@@ -1815,7 +1876,8 @@ function renderEnemyDeckWithTimer() {
                         }}
                       >
                         <HeadquartersCardView
-                          ownerId={owner}
+                          ownerId={getVisualOwnerId(owner)}
+                          artOwnerId={owner}
                           hp={hq.hp}
                           attack={hq.attack}
                           fuelGeneration={hq.fuelGeneration}
@@ -1854,8 +1916,8 @@ function renderEnemyDeckWithTimer() {
     key={`${row}-${col}`}
     style={{
       ...styles.cell,
-      ...(spawn ? styles.spawnCell : {}),
-      ...(botSpawn ? styles.botSpawnCell : {}),
+      ...(ownSpawn ? styles.spawnCell : {}),
+      ...(enemySpawn ? styles.botSpawnCell : {}),
       ...(moveCell ? styles.moveCell : {}),
     }}
     whileHover={{ scale: 1.02 }}
@@ -1979,12 +2041,12 @@ function renderEnemyDeckWithTimer() {
                 return (
                   <motion.button
                     key={cardInstance.instanceId}
-                    ref={setHandCardRef("player", cardInstance.instanceId)}
+                    ref={setHandCardRef(humanPlayerId, cardInstance.instanceId)}
                     style={{
                       ...styles.card,
                       marginLeft: getPlayerHandCardMarginLeft(
                         index,
-                        battle.player.hand.length
+                        battle[humanPlayerId].hand.length
                       ),
                       zIndex: selected ? 120 : index + 1,
                       pointerEvents:
@@ -2033,11 +2095,12 @@ function renderEnemyDeckWithTimer() {
                   >
                     <HandCardView
                       card={card}
+                      ownerId={getVisualOwnerId(humanPlayerId)}
                       selected={selected}
                       disabled={
                         debugPaused ||
                         battle.activePlayer !== humanPlayerId ||
-                        battle.player.resources < card.cost
+                        battle[humanPlayerId].resources < card.cost
                       }
                     />
                   </motion.button>
@@ -2105,13 +2168,14 @@ function renderEnemyDeckWithTimer() {
               {cardPreview.type === "unit" ? (
                 <HandCardView
                   card={getCard(cardPreview.cardId)}
-                  ownerId={cardPreview.ownerId}
+                  ownerId={getVisualOwnerId(cardPreview.ownerId)}
                   currentHp={cardPreview.currentHp}
                   displayMode="preview"
                 />
               ) : (
                 <HandCardView
-                  ownerId={cardPreview.ownerId}
+                  ownerId={getVisualOwnerId(cardPreview.ownerId)}
+                  artOwnerId={cardPreview.ownerId}
                   headquarters={{
                     hp: cardPreview.hp,
                     attack: cardPreview.attack,

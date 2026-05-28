@@ -21,6 +21,7 @@ const hqClassIconModules = import.meta.glob(
 
 type HeadquartersCardViewProps = {
   ownerId: PlayerId;
+  artOwnerId?: PlayerId;
   hp: number;
   attack: number;
   fuelGeneration: number;
@@ -96,6 +97,7 @@ function getHeadquartersClassIcon(ownerId: PlayerId): string | null {
 
 export function HeadquartersCardView({
   ownerId,
+  artOwnerId,
   hp,
   attack,
   actionFuelCost,
@@ -103,7 +105,7 @@ export function HeadquartersCardView({
   alreadyAttacked = false,
 }: HeadquartersCardViewProps) {
   const isPlayer = ownerId === "player";
-  const headquartersImage = getHeadquartersImage(ownerId);
+  const headquartersImage = getHeadquartersImage(artOwnerId ?? ownerId);
   const headquartersClassIcon = getHeadquartersClassIcon(ownerId);
 
   return (
