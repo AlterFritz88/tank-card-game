@@ -26,6 +26,8 @@ import { HandCardView } from "./HandCardView";
 import { HeadquartersCardView } from "./HeadquartersCardView";
 import { ResultScreen } from "./ResultScreen";
 import { FuelPanel } from "./FuelPanel";
+import { BattleTimerPanel } from "./BattleTimerPanel";
+import { DeckStack } from "./DeckStack";
 import apShellImage from "../assets/ap-shell.png";
 import explosionFlashImage from "../assets/effects/explosion-flash.png";
 import explosionFireballImage from "../assets/effects/explosion-fireball.png";
@@ -33,7 +35,6 @@ import explosionSmokeImage from "../assets/effects/explosion-smoke.png";
 import battleTableBackground from "../assets/backgrounds/battle-table-bg.png";
 import cardBackImage from "../assets/cards/card-back.png";
 import cartridgeImage from "../assets/effects/rifle-cartridge.png";
-import hourglassWw2Image from "../assets/icons/hourglass-ww2-clean.png";
 
 function samePosition(a: Position, b: Position): boolean {
   return a.row === b.row && a.col === b.col;
@@ -45,14 +46,6 @@ function isPlayerSpawn(position: Position): boolean {
 
 function isBotSpawn(position: Position): boolean {
   return BOT_SPAWN_CELLS.some((cell) => samePosition(cell, position));
-}
-
-function formatTimer(ms: number): string {
-  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 const HAND_LAYOUT_TRANSITION = {
@@ -1177,81 +1170,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     const active =
       mode === "pvp" ? pvpTimer.activePlayer === owner : battle.activePlayer === owner;
     const isLocalPlayer = owner === humanPlayerId;
-    const isLowTime = displayedTimeLeftMs <= 4000;
     const showPlayerReminder = isLocalPlayer && active;
 
     return (
-      <div
-        style={{
-          ...styles.timerPanel,
-        }}
-      >
-        {showPlayerReminder && (
-          <motion.div
-            style={{
-              ...styles.playerReminder,
-              color: isLowTime ? "#ff8a65" : "#f0d9a8",
-            }}
-            animate={{ opacity: [0.65, 1, 0.65] }}
-            transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
-          >
-            ТВОЙ ХОД
-          </motion.div>
-        )}
-
-        <div style={styles.timerMainRow}>
-          <motion.img
-            src={hourglassWw2Image}
-            alt=""
-            style={{
-              width: 50,
-              height: 50,
-              marginRight: 12,
-              marginTop: 0,
-              objectFit: "contain",
-              filter: isLowTime
-                ? "sepia(0.3) saturate(2) hue-rotate(-15deg) brightness(0.9)"
-                : "none",
-              opacity: 0.92,
-            }}
-            animate={
-              active
-                ? { rotate: [0, 180, 360] }
-                : { rotate: 0 }
-            }
-            transition={
-              active
-                ? {
-                    duration: isLowTime ? 1.1 : 2.8,
-                    repeat: Infinity,
-                    ease: "linear",
-                  }
-                : undefined
-            }
-          />
-
-          <motion.strong
-            style={{
-              fontSize: 22,
-              color: isLowTime ? "#ff6b6b" : "#e8e4d9",
-              fontWeight: 600,
-              letterSpacing: "0.5px",
-            }}
-            animate={
-              isLowTime
-                ? { opacity: [1, 0.4, 1] }
-                : { opacity: 1 }
-            }
-            transition={
-              isLowTime
-                ? { duration: 0.55, repeat: Infinity, ease: "easeInOut" }
-                : undefined
-            }
-          >
-            {formatTimer(displayedTimeLeftMs)}
-          </motion.strong>
-        </div>
-      </div>
+      <BattleTimerPanel
+        active={active}
+        showPlayerReminder={showPlayerReminder}
+        timeLeftMs={displayedTimeLeftMs}
+      />
     );
   }
 
@@ -1279,33 +1205,6 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   );
 }
 
-function renderDeckStack(cardCount: number) {
-  if (cardCount <= 0) {
-    return <div style={styles.emptyDeckStack} />;
-  }
-
-  const visibleCardsCount = Math.min(cardCount, 3);
-
-  return (
-    <div style={styles.deckStack}>
-      {Array.from({ length: visibleCardsCount }).map((_, index) => (
-        <div
-          key={`deck-card-${index}`}
-          style={{
-            ...styles.deckStackCard,
-            left: index * 5,
-            top: index * -4,
-            zIndex: index + 1,
-            backgroundImage: `url(${cardBackImage})`,
-          }}
-        />
-      ))}
-
-      <strong style={styles.deckCountBadge}>{cardCount}</strong>
-    </div>
-  );
-}
-
 function renderEnemyDeckWithTimer() {
   return (
     <div style={styles.enemyDeckWithTimer}>
@@ -1315,7 +1214,7 @@ function renderEnemyDeckWithTimer() {
   }}
   style={styles.enemyDeckCompact}
 >
-        {renderDeckStack(getDeckCount(opponentPlayerId))}
+        <DeckStack cardCount={getDeckCount(opponentPlayerId)} />
       </div>
 
       {renderTimerPanel(opponentPlayerId)}
@@ -1556,7 +1455,7 @@ function renderEnemyDeckWithTimer() {
   }}
   style={styles.playerDeckOnly}
 >
-  {renderDeckStack(getDeckCount(humanPlayerId))}
+  <DeckStack cardCount={getDeckCount(humanPlayerId)} />
 </div>
   </div>
 </aside>
@@ -2695,54 +2594,6 @@ actionSideColumn: {
   cardsLeftInfo: {
     display: "none",
   },
-  deckStack: {
-    position: "relative",
-    width: 114,
-    height: 146,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  deckStackCard: {
-    position: "absolute",
-    width: 104,
-    height: 138,
-    borderRadius: 12,
-    backgroundSize: "cover",
-    backgroundPosition: "center center",
-    backgroundRepeat: "no-repeat",
-    border: "none",
-    boxShadow: "0 14px 34px rgba(0,0,0,0.52)",
-    pointerEvents: "none",
-  },
-
-  deckCountBadge: {
-    position: "absolute",
-    left: 9,
-    bottom: 8,
-    zIndex: 10,
-    display: "block",
-    padding: 0,
-    color: "#f6d27a",
-    fontFamily: "'Rajdhani', 'Arial Narrow', Inter, ui-sans-serif, system-ui, sans-serif",
-    fontSize: 22,
-    lineHeight: 1,
-    fontWeight: 900,
-    textShadow:
-      "0 2px 0 rgba(0,0,0,0.95), 0 0 7px rgba(0,0,0,0.95), 0 0 12px rgba(246,210,122,0.45)",
-    pointerEvents: "none",
-  },
-  emptyDeckStack: {
-    position: "relative",
-    width: 104,
-    height: 138,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    pointerEvents: "none",
-  },
-
   enemyDeckWithTimer: {
   width: "100%",
   display: "flex",
@@ -2788,35 +2639,6 @@ actionSideColumn: {
   border: "none",
   boxShadow: "0 10px 24px rgba(0,0,0,0.42)",
 },
-  timerPanel: {
-    width: "100%",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 4,
-    padding: "7px 10px",
-    borderRadius: 0,
-    background: "transparent",
-    border: "none",
-    boxShadow: "none",
-  },
-
-  playerReminder: {
-    fontSize: 10,
-    fontWeight: 600,
-    letterSpacing: "1.5px",
-    textTransform: "uppercase",
-    marginBottom: 1,
-  },
-
-  timerMainRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 4,
-    fontSize: 12,
-    lineHeight: 1,
-  },
-
   hqPanel: {
     display: "flex",
     flexDirection: "column",
