@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import { applyAction } from "../game/engine";
 import { createInitialBattleState } from "../game/initialState";
-import type { GameMode, PvpConnectionState } from "../game/modes";
+import type { GameMode, MatchEndReason, PvpConnectionState } from "../game/modes";
 import type { BattleAction, BattleState, PlayerId } from "../game/types";
 import { pvpClient } from "../network/pvpClient";
 
@@ -34,6 +34,7 @@ type BattleStore = {
   pvpRoomId: string | null;
   pvpStatus: PvpConnectionState;
   pvpError: string | null;
+  matchEndReason: MatchEndReason | null;
   pvpTimer: PvpTimerState;
   firstTurnRoll: FirstTurnRollState;
 
@@ -50,12 +51,16 @@ type BattleStore = {
   joinPvpRoom: (roomId: string) => void;
   startPvpBattle: (roomId?: string) => void;
   applyRemoteBattleState: (battle: BattleState) => void;
+  applyMatchEnded: (winner: PlayerId, reason: MatchEndReason) => void;
   applyPvpTimer: (timer: {
     activePlayer: PlayerId;
     remainingMs: number;
     endsAt: number;
     durationMs: number;
   }) => void;
+  surrenderPvpMatch: () => void;
+  leavePvpMatch: () => void;
+  cancelMatchmaking: () => void;
   setPvpError: (message: string | null) => void;
   hideFirstTurnRoll: () => void;
 
@@ -116,6 +121,22 @@ function getStartRollFinalRotation(firstPlayer: PlayerId): number {
   return 360 * 8 + targetAngle;
 }
 
+function getCleanMenuState() {
+  return {
+    battle: null,
+    mode: "ai" as GameMode,
+    localPlayerId: "player" as PlayerId,
+    pvpRoomId: null,
+    pvpStatus: "idle" as PvpConnectionState,
+    pvpError: null,
+    matchEndReason: null,
+    pvpTimer: emptyPvpTimer,
+    selectedCardInstanceId: null,
+    selectedAttacker: null,
+    firstTurnRoll: emptyFirstTurnRoll,
+  };
+}
+
 function setupPvpSubscriptions() {
   if (pvpSubscriptionsReady) return;
   pvpSubscriptionsReady = true;
@@ -129,8 +150,9 @@ function setupPvpSubscriptions() {
           battle: null,
           mode: "pvp",
           pvpRoomId: null,
-          pvpStatus: "matchmaking",
+          pvpStatus: "searching",
           pvpError: null,
+          matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           selectedCardInstanceId: null,
           selectedAttacker: null,
@@ -146,8 +168,9 @@ function setupPvpSubscriptions() {
           mode: "pvp",
           localPlayerId: message.playerId,
           pvpRoomId: message.roomId,
-          pvpStatus: "waiting",
+          pvpStatus: message.type === "ROOM_JOINED" ? "matched" : "waiting",
           pvpError: null,
+          matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           firstTurnRoll: emptyFirstTurnRoll,
         });
@@ -159,6 +182,7 @@ function setupPvpSubscriptions() {
           pvpRoomId: message.roomId,
           pvpStatus: "waiting",
           pvpError: null,
+          matchEndReason: null,
           pvpTimer: emptyPvpTimer,
         });
         break;
@@ -176,6 +200,7 @@ function setupPvpSubscriptions() {
           pvpRoomId: message.roomId,
           pvpStatus: "rolling",
           pvpError: null,
+          matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           selectedCardInstanceId: null,
           selectedAttacker: null,
@@ -211,8 +236,10 @@ function setupPvpSubscriptions() {
           mode: "pvp",
           localPlayerId: message.playerId,
           pvpRoomId: message.roomId,
-          pvpStatus: "connected",
+          pvpStatus: "inBattle",
           pvpError: null,
+          matchEndReason: null,
+          pvpTimer: emptyPvpTimer,
           selectedCardInstanceId: null,
           selectedAttacker: null,
         });
@@ -226,11 +253,31 @@ function setupPvpSubscriptions() {
         store.applyPvpTimer(message);
         break;
 
+      case "MATCH_ENDED":
+        store.applyMatchEnded(message.winner, message.reason);
+        break;
+
+      case "MATCHMAKING_CANCELLED":
+        clearFirstTurnRollTimers();
+        useBattleStore.setState(getCleanMenuState());
+        break;
+
+      case "OPPONENT_LEFT":
+        useBattleStore.setState({
+          pvpStatus: "finished",
+          matchEndReason: message.reason,
+          pvpError: null,
+          pvpTimer: emptyPvpTimer,
+          firstTurnRoll: emptyFirstTurnRoll,
+        });
+        break;
+
       case "OPPONENT_DISCONNECTED":
         clearFirstTurnRollTimers();
         useBattleStore.setState({
-          pvpStatus: "waiting",
-          pvpError: "Противник отключился",
+          pvpStatus: "finished",
+          pvpError: null,
+          matchEndReason: "disconnect",
           pvpTimer: emptyPvpTimer,
           firstTurnRoll: emptyFirstTurnRoll,
         });
@@ -245,11 +292,12 @@ function setupPvpSubscriptions() {
   pvpClient.onClose(() => {
     const state = useBattleStore.getState();
     if (state.mode !== "pvp") return;
+    if (state.pvpStatus === "finished") return;
 
     clearFirstTurnRollTimers();
 
     useBattleStore.setState({
-      pvpStatus: "offline",
+      pvpStatus: "error",
       pvpError: "Соединение с PVP-сервером закрыто",
       pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
@@ -277,8 +325,9 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   mode: "ai",
   localPlayerId: "player",
   pvpRoomId: null,
-  pvpStatus: "offline",
+  pvpStatus: "idle",
   pvpError: null,
+  matchEndReason: null,
   pvpTimer: emptyPvpTimer,
   firstTurnRoll: emptyFirstTurnRoll,
 
@@ -316,8 +365,9 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       mode: "ai",
       localPlayerId: "player",
       pvpRoomId: null,
-      pvpStatus: "offline",
+      pvpStatus: "idle",
       pvpError: null,
+      matchEndReason: null,
       pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
@@ -334,6 +384,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpRoomId: null,
       pvpStatus: "connecting",
       pvpError: null,
+      matchEndReason: null,
       pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
@@ -352,6 +403,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpRoomId: null,
       pvpStatus: "connecting",
       pvpError: null,
+      matchEndReason: null,
       pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
@@ -377,6 +429,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpRoomId: normalizedRoomId,
       pvpStatus: "connecting",
       pvpError: null,
+      matchEndReason: null,
       pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
@@ -398,9 +451,23 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   applyRemoteBattleState: (battle) => {
     set({
       battle,
-      pvpStatus: "connected",
+      pvpStatus: battle.status === "active" ? "inBattle" : "finished",
       pvpError: null,
       ...(battle.status === "active" ? {} : { pvpTimer: emptyPvpTimer }),
+    });
+  },
+
+  applyMatchEnded: (_winner, reason) => {
+    clearFirstTurnRollTimers();
+
+    set({
+      pvpStatus: "finished",
+      pvpError: null,
+      matchEndReason: reason,
+      pvpTimer: emptyPvpTimer,
+      firstTurnRoll: emptyFirstTurnRoll,
+      selectedCardInstanceId: null,
+      selectedAttacker: null,
     });
   },
 
@@ -413,6 +480,35 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         durationMs: timer.durationMs,
       },
     });
+  },
+
+  surrenderPvpMatch: () => {
+    if (get().mode !== "pvp") return;
+
+    pvpClient.surrender();
+  },
+
+  leavePvpMatch: () => {
+    const state = get();
+    if (state.mode !== "pvp") return;
+
+    pvpClient.leaveMatch();
+
+    if (state.battle?.status === "active") {
+      return;
+    }
+
+    clearFirstTurnRollTimers();
+    pvpClient.disconnect();
+    set(getCleanMenuState());
+  },
+
+  cancelMatchmaking: () => {
+    if (get().mode !== "pvp") return;
+
+    pvpClient.cancelMatchmaking();
+    clearFirstTurnRollTimers();
+    set(getCleanMenuState());
   },
 
   setPvpError: (message) => {

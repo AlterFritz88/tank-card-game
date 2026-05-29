@@ -4,7 +4,16 @@ export type PvpClientMessage =
   | { type: "FIND_MATCH" }
   | { type: "CREATE_ROOM" }
   | { type: "JOIN_ROOM"; roomId: string }
-  | { type: "GAME_ACTION"; action: BattleAction };
+  | { type: "GAME_ACTION"; action: BattleAction }
+  | { type: "SURRENDER" }
+  | { type: "LEAVE_MATCH" }
+  | { type: "CANCEL_MATCHMAKING" };
+
+export type MatchEndReason =
+  | "surrender"
+  | "disconnect"
+  | "leave"
+  | "opponent_left";
 
 export type PvpTurnTimerEvent = {
   type: "TURN_TIMER";
@@ -30,5 +39,8 @@ export type PvpServerMessage =
   | { type: "GAME_STARTED"; roomId: string; battle: BattleState; playerId: PlayerId }
   | { type: "GAME_STATE"; roomId: string; battle: BattleState }
   | PvpTurnTimerEvent
+  | { type: "MATCH_ENDED"; winner: PlayerId; reason: MatchEndReason }
+  | { type: "MATCHMAKING_CANCELLED" }
+  | { type: "OPPONENT_LEFT"; reason: MatchEndReason }
   | { type: "OPPONENT_DISCONNECTED"; roomId: string }
   | { type: "ERROR"; message: string };

@@ -173,12 +173,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     mode,
     localPlayerId,
     pvpTimer,
+    matchEndReason,
     selectedCardInstanceId,
     selectedAttacker,
     selectCard,
     selectAttacker,
     dispatch,
     reset,
+    surrenderPvpMatch,
+    leavePvpMatch,
   } = battleStore;
 
   const firstTurnRoll = battleStore.firstTurnRoll;
@@ -331,6 +334,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
   function closeCardPreview() {
     setCardPreview(null);
+  }
+
+  function handleSurrenderClick() {
+    const confirmed = window.confirm("Сдаться и засчитать поражение?");
+    if (!confirmed) return;
+
+    surrenderPvpMatch();
   }
 
   function getPlayerHandCardMarginLeft(index: number, totalCards: number) {
@@ -1914,6 +1924,16 @@ function renderEnemyDeckWithTimer() {
               {debugPaused ? "Продолжить" : "Пауза"}
             </button>
 
+            {mode === "pvp" && battle.status === "active" ? (
+              <button
+                type="button"
+                style={styles.surrenderButton}
+                onClick={handleSurrenderClick}
+              >
+                Сдаться
+              </button>
+            ) : null}
+
             <button style={styles.secondaryButton} onClick={reset}>
               Новый бой
             </button>
@@ -2131,7 +2151,13 @@ function renderEnemyDeckWithTimer() {
       </AnimatePresence>
 
       {(battle.status === "player_won" || battle.status === "bot_won") && (
-  <ResultScreen battle={battle} onRestart={reset} localPlayerId={humanPlayerId} />
+  <ResultScreen
+    battle={battle}
+    onRestart={mode === "pvp" ? leavePvpMatch : reset}
+    localPlayerId={humanPlayerId}
+    matchEndReason={mode === "pvp" ? matchEndReason : null}
+    restartLabel={mode === "pvp" ? "В меню" : "Начать бой заново"}
+  />
 )}
     </div>
   );
@@ -2823,6 +2849,20 @@ turnCounterValue: {
       "linear-gradient(180deg, rgba(26, 72, 35, 0.92), rgba(8, 20, 10, 0.86))",
     boxShadow:
       "0 0 0 2px rgba(125, 255, 138, 0.16), inset 0 0 18px rgba(125, 255, 138, 0.12)",
+  },
+
+  surrenderButton: {
+    border: "1px solid rgba(255, 138, 138, 0.42)",
+    borderRadius: 12,
+    background:
+      "linear-gradient(180deg, rgba(92, 32, 32, 0.92), rgba(24, 8, 8, 0.86))",
+    color: "#ffd0d0",
+    padding: "10px 12px",
+    fontWeight: 900,
+    cursor: "pointer",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    boxShadow: "inset 0 0 14px rgba(255, 120, 120, 0.08)",
   },
 
   actionHint: {

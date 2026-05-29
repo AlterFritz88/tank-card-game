@@ -1,3 +1,4 @@
+import type { MatchEndReason } from "../game/modes";
 import type { BattleAction, BattleState, PlayerId } from "../game/types";
 
 export type PvpClientMessage =
@@ -22,6 +23,9 @@ export type PvpClientMessage =
       endsAt: number;
       durationMs: number;
     }
+  | { type: "MATCH_ENDED"; winner: PlayerId; reason: MatchEndReason }
+  | { type: "MATCHMAKING_CANCELLED" }
+  | { type: "OPPONENT_LEFT"; reason: MatchEndReason }
   | { type: "OPPONENT_DISCONNECTED"; roomId: string }
   | { type: "ERROR"; message: string };
 
@@ -29,7 +33,10 @@ export type PvpServerMessage =
   | { type: "FIND_MATCH" }
   | { type: "CREATE_ROOM" }
   | { type: "JOIN_ROOM"; roomId: string }
-  | { type: "GAME_ACTION"; action: BattleAction };
+  | { type: "GAME_ACTION"; action: BattleAction }
+  | { type: "SURRENDER" }
+  | { type: "LEAVE_MATCH" }
+  | { type: "CANCEL_MATCHMAKING" };
 
 type PvpMessageHandler = (message: PvpClientMessage) => void;
 type PvpCloseHandler = () => void;
@@ -105,6 +112,18 @@ class PvpClient {
 
   sendAction(action: BattleAction) {
     this.send({ type: "GAME_ACTION", action });
+  }
+
+  surrender() {
+    this.send({ type: "SURRENDER" });
+  }
+
+  leaveMatch() {
+    this.send({ type: "LEAVE_MATCH" });
+  }
+
+  cancelMatchmaking() {
+    this.send({ type: "CANCEL_MATCHMAKING" });
   }
 
   onOpen(handler: PvpOpenHandler) {

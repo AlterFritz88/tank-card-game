@@ -5,14 +5,18 @@ function getPvpStatusText(status: string) {
   switch (status) {
     case "connecting":
       return "Подключаемся к серверу...";
-    case "matchmaking":
+    case "searching":
       return "Ищем соперника...";
     case "waiting":
       return "Ожидаем второго игрока...";
+    case "matched":
+      return "Соперник найден";
     case "rolling":
       return "Жеребьёвка первого хода...";
-    case "connected":
-      return "Соперник найден";
+    case "inBattle":
+      return "Бой идет";
+    case "finished":
+      return "Бой завершен";
     case "error":
       return "Ошибка подключения";
     default:
@@ -28,13 +32,15 @@ export function PvpLobby() {
     pvpError,
     findPvpMatch,
     startAiBattle,
+    cancelMatchmaking,
   } = useBattleStore();
 
   const pvpBusy =
     mode === "pvp" &&
     (pvpStatus === "connecting" ||
-      pvpStatus === "matchmaking" ||
+      pvpStatus === "searching" ||
       pvpStatus === "waiting" ||
+      pvpStatus === "matched" ||
       pvpStatus === "rolling");
 
   return (
@@ -66,6 +72,14 @@ export function PvpLobby() {
 
       {mode === "pvp" && pvpRoomId && pvpStatus === "waiting" ? (
         <div style={styles.hint}>Ты в очереди. Как только второй игрок нажмёт “Играть PVP”, бой начнётся автоматически.</div>
+      ) : null}
+
+      {pvpBusy ? (
+        <div style={styles.row}>
+          <button type="button" style={styles.cancelButton} onClick={cancelMatchmaking}>
+            Отмена
+          </button>
+        </div>
       ) : null}
 
       {pvpError ? <div style={styles.error}>{pvpError}</div> : null}
@@ -116,6 +130,16 @@ const styles: Record<string, CSSProperties> = {
   primaryButton: {
     background: "rgba(86, 92, 43, 0.96)",
     color: "#fff0b8",
+  },
+  cancelButton: {
+    cursor: "pointer",
+    width: "100%",
+    padding: "9px 10px",
+    borderRadius: 8,
+    border: "1px solid rgba(255, 138, 138, 0.55)",
+    background: "rgba(76, 31, 31, 0.95)",
+    color: "#ffd6d6",
+    fontWeight: 800,
   },
   status: {
     fontSize: 12,

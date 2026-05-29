@@ -1,4 +1,5 @@
 import type React from "react";
+import type { MatchEndReason } from "../game/modes";
 import type { BattleKillStats, BattleState, PlayerId } from "../game/types";
 import victoryBackground from "../assets/backgrounds/victory-result-bg.png";
 import defeatBackground from "../assets/backgrounds/defeat-result-bg.png";
@@ -7,6 +8,8 @@ type ResultScreenProps = {
   battle: BattleState;
   onRestart: () => void;
   localPlayerId?: PlayerId;
+  matchEndReason?: MatchEndReason | null;
+  restartLabel?: string;
 };
 
 const STAT_ROWS: { key: keyof BattleKillStats; label: string }[] = [
@@ -33,6 +36,8 @@ export function ResultScreen({
   battle,
   onRestart,
   localPlayerId = "player",
+  matchEndReason = null,
+  restartLabel = "Начать бой заново",
 }: ResultScreenProps) {
   const winningPlayer: PlayerId | null =
     battle.status === "player_won"
@@ -43,6 +48,7 @@ export function ResultScreen({
 
   const localPlayerWon = winningPlayer === localPlayerId;
   const title = localPlayerWon ? "ПОБЕДА" : "ПОРАЖЕНИЕ";
+  const reasonText = getResultReasonText(matchEndReason, localPlayerWon);
   const backgroundImage = localPlayerWon ? victoryBackground : defeatBackground;
 
   const playerStats = battle.stats?.destroyedByPlayer ?? emptyStats;
@@ -56,6 +62,8 @@ export function ResultScreen({
 
       <h1 style={styles.title}>{title}</h1>
 
+      {reasonText ? <div style={styles.reason}>{reasonText}</div> : null}
+
       <div style={styles.leftStats}>
         <StatsPanel title="Вы уничтожили" stats={ownStats} accent="#7dff8a" />
       </div>
@@ -65,10 +73,27 @@ export function ResultScreen({
       </div>
 
       <button type="button" style={styles.restartButton} onClick={onRestart}>
-        Начать бой заново
+        {restartLabel}
       </button>
     </div>
   );
+}
+
+function getResultReasonText(
+  reason: MatchEndReason | null,
+  isVictory: boolean
+): string | null {
+  switch (reason) {
+    case "surrender":
+      return isVictory ? "Противник сдался" : "Вы сдались";
+    case "disconnect":
+      return isVictory ? "Противник покинул бой" : "Соединение потеряно";
+    case "leave":
+    case "opponent_left":
+      return isVictory ? "Противник вышел из боя" : "Вы вышли из боя";
+    default:
+      return null;
+  }
 }
 
 function StatsPanel({
@@ -135,6 +160,23 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: "uppercase",
     whiteSpace: "nowrap",
     textShadow: "0 5px 20px rgba(0,0,0,0.82)",
+  },
+
+  reason: {
+    position: "absolute",
+    left: "50%",
+    top: "18%",
+    transform: "translateX(-50%)",
+    padding: "8px 18px",
+    borderRadius: 999,
+    background: "rgba(0,0,0,0.48)",
+    border: "1px solid rgba(255,255,255,0.14)",
+    color: "#f7d774",
+    fontSize: 24,
+    fontWeight: 900,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    textShadow: "0 3px 12px rgba(0,0,0,0.78)",
   },
 
   leftStats: {

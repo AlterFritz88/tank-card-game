@@ -6,7 +6,7 @@ import {
   STEP_TIME_MS,
 } from "../../tank-card-game/src/game/initialState";
 import type { BattleAction, BattleState, PlayerId } from "../../tank-card-game/src/game/types";
-import type { PvpClientMessage, PvpServerMessage } from "./protocol";
+import type { MatchEndReason, PvpClientMessage, PvpServerMessage } from "./protocol";
 
 type RoomPlayer = {
   id: PlayerId;
@@ -35,6 +35,8 @@ type Room = {
   battle: BattleState | null;
   pendingStartRoll: PendingStartRoll | null;
   turnTimer: PvpTurnTimer | null;
+  ended: boolean;
+  cleanupTimer: NodeJS.Timeout | null;
 };
 
 const START_ROLL_DURATION_MS = 2800;
@@ -42,6 +44,7 @@ const START_ROLL_RESULT_DELAY_MS = 350;
 const START_ROLL_FINISH_DELAY_MS = 900;
 const PVP_TURN_DURATION_MS = STEP_TIME_MS;
 const PVP_TURN_TIMER_BROADCAST_INTERVAL_MS = 500;
+const ROOM_CLEANUP_DELAY_MS = 30_000;
 
 function createRoomId(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -116,6 +119,15 @@ export class RoomManager {
       case "GAME_ACTION":
         this.applyGameAction(socket, message.action);
         break;
+      case "SURRENDER":
+        this.surrenderMatch(socket);
+        break;
+      case "LEAVE_MATCH":
+        this.leaveMatch(socket);
+        break;
+      case "CANCEL_MATCHMAKING":
+        this.cancelMatchmaking(socket);
+        break;
       default:
         safeSend(socket, { type: "ERROR", message: "Неизвестное сообщение" });
     }
@@ -129,28 +141,26 @@ export class RoomManager {
     const room = this.rooms.get(roomId);
     if (!room) return;
 
-    this.clearTurnTimer(room);
+    console.log(`[PVP:${room.id}] player ${playerId} disconnected`);
+    const wasWaitingForOpponent = this.isWaitingForOpponent(room);
+    this.releaseSocket(socket, room, playerId);
 
-    if (room.pendingStartRoll) {
-      clearTimeout(room.pendingStartRoll.startTimer);
-      room.pendingStartRoll = null;
+    if (room.ended) {
+      this.deleteRoomIfEmpty(room);
+      return;
     }
 
-    delete room.players[playerId];
-
-    if (this.waitingRoomId === roomId) {
-      this.waitingRoomId = null;
+    if (wasWaitingForOpponent) {
+      this.cancelWaitingRoom(room);
+      return;
     }
 
-    const opponent = playerId === "player" ? "bot" : "player";
-    const opponentSocket = room.players[opponent]?.socket;
-    if (opponentSocket) {
-      safeSend(opponentSocket, { type: "OPPONENT_DISCONNECTED", roomId });
+    if (room.battle?.status === "active") {
+      this.finishMatchByPlayerExit(room, playerId, "disconnect");
+      return;
     }
 
-    if (!room.players.player && !room.players.bot) {
-      this.rooms.delete(roomId);
-    }
+    this.deleteRoomIfEmpty(room);
   }
 
   private findMatch(socket: WebSocket) {
@@ -198,6 +208,8 @@ export class RoomManager {
       battle: null,
       pendingStartRoll: null,
       turnTimer: null,
+      ended: false,
+      cleanupTimer: null,
     };
 
     this.rooms.set(roomId, room);
@@ -252,6 +264,7 @@ export class RoomManager {
   }
 
   private startFirstTurnRoll(room: Room) {
+    if (room.ended) return;
     if (!room.players.player || !room.players.bot) return;
 
     const firstPlayer = getRandomStartingPlayer();
@@ -287,6 +300,7 @@ export class RoomManager {
   private finishFirstTurnRoll(roomId: string) {
     const room = this.rooms.get(roomId);
     if (!room || !room.pendingStartRoll) return;
+    if (room.ended) return;
     if (!room.players.player || !room.players.bot) return;
 
     if (!room.battle) {
@@ -328,6 +342,11 @@ export class RoomManager {
       return;
     }
 
+    if (room.ended) {
+      safeSend(socket, { type: "ERROR", message: "Бой уже завершен" });
+      return;
+    }
+
     if (room.battle.status !== "active") {
       safeSend(socket, { type: "ERROR", message: "Бой уже завершен" });
       return;
@@ -362,10 +381,211 @@ export class RoomManager {
     }
   }
 
+  private surrenderMatch(socket: WebSocket) {
+    const room = this.getRoomBySocket(socket);
+    const playerId = this.socketToPlayer.get(socket);
+
+    if (!room || !playerId) {
+      safeSend(socket, { type: "ERROR", message: "Сначала найди PVP-матч" });
+      return;
+    }
+
+    if (room.ended) return;
+
+    if (!room.battle || room.battle.status !== "active") {
+      safeSend(socket, { type: "ERROR", message: "Сдаться можно только во время боя" });
+      return;
+    }
+
+    console.log(`[PVP:${room.id}] player ${playerId} surrendered`);
+    this.finishMatchByPlayerExit(room, playerId, "surrender");
+  }
+
+  private leaveMatch(socket: WebSocket) {
+    const room = this.getRoomBySocket(socket);
+    const playerId = this.socketToPlayer.get(socket);
+
+    if (!room || !playerId) {
+      safeSend(socket, { type: "MATCHMAKING_CANCELLED" });
+      return;
+    }
+
+    if (room.ended) {
+      this.releaseSocket(socket, room, playerId);
+      safeSend(socket, { type: "MATCHMAKING_CANCELLED" });
+      this.deleteRoomIfEmpty(room);
+      return;
+    }
+
+    if (this.isWaitingForOpponent(room)) {
+      this.cancelWaitingRoom(room, socket);
+      return;
+    }
+
+    if (room.battle?.status === "active") {
+      console.log(`[PVP:${room.id}] player ${playerId} left`);
+      this.finishMatchByPlayerExit(room, playerId, "leave");
+      return;
+    }
+
+    this.releaseSocket(socket, room, playerId);
+    safeSend(socket, { type: "MATCHMAKING_CANCELLED" });
+    this.deleteRoomIfEmpty(room);
+  }
+
+  private cancelMatchmaking(socket: WebSocket) {
+    const room = this.getRoomBySocket(socket);
+
+    if (!room) {
+      safeSend(socket, { type: "MATCHMAKING_CANCELLED" });
+      return;
+    }
+
+    if (room.ended) {
+      safeSend(socket, { type: "MATCHMAKING_CANCELLED" });
+      return;
+    }
+
+    if (!this.isWaitingForOpponent(room)) {
+      this.leaveMatch(socket);
+      return;
+    }
+
+    this.cancelWaitingRoom(room, socket);
+  }
+
+  private getRoomBySocket(socket: WebSocket): Room | null {
+    const roomId = this.socketToRoom.get(socket);
+    if (!roomId) return null;
+
+    return this.rooms.get(roomId) ?? null;
+  }
+
+  private getOpponent(playerId: PlayerId): PlayerId {
+    return playerId === "player" ? "bot" : "player";
+  }
+
+  private isWaitingForOpponent(room: Room): boolean {
+    return !room.battle && !room.pendingStartRoll && Boolean(room.players.player) && !room.players.bot;
+  }
+
+  private releaseSocket(socket: WebSocket, room: Room, playerId: PlayerId) {
+    if (room.players[playerId]?.socket === socket) {
+      delete room.players[playerId];
+    }
+
+    this.socketToRoom.delete(socket);
+    this.socketToPlayer.delete(socket);
+  }
+
+  private cancelWaitingRoom(room: Room, notifySocket?: WebSocket) {
+    this.clearTurnTimer(room);
+    this.clearPendingStartRoll(room);
+
+    if (this.waitingRoomId === room.id) {
+      this.waitingRoomId = null;
+    }
+
+    console.log(`[PVP:${room.id}] matchmaking cancelled`);
+
+    const sockets = Object.values(room.players).flatMap((player) =>
+      player ? [player.socket] : [],
+    );
+
+    this.rooms.delete(room.id);
+
+    for (const socket of sockets) {
+      safeSend(socket, { type: "MATCHMAKING_CANCELLED" });
+      this.socketToRoom.delete(socket);
+      this.socketToPlayer.delete(socket);
+    }
+
+    if (notifySocket && !sockets.includes(notifySocket)) {
+      safeSend(notifySocket, { type: "MATCHMAKING_CANCELLED" });
+    }
+  }
+
+  private finishMatchByPlayerExit(room: Room, loser: PlayerId, reason: MatchEndReason) {
+    if (room.ended) return;
+    if (!room.battle) return;
+
+    const winner = this.getOpponent(loser);
+    const status = winner === "player" ? "player_won" : "bot_won";
+    const reasonText =
+      reason === "surrender"
+        ? `${loser === "player" ? "Игрок" : "Противник"} сдался.`
+        : reason === "disconnect"
+          ? `${loser === "player" ? "Игрок" : "Противник"} покинул бой.`
+          : `${loser === "player" ? "Игрок" : "Противник"} вышел из боя.`;
+
+    room.ended = true;
+    room.battle = {
+      ...room.battle,
+      status,
+      log: [...room.battle.log, reasonText],
+    };
+
+    this.clearTurnTimer(room);
+    this.clearPendingStartRoll(room);
+    this.broadcastBattleState(room);
+    this.broadcastMatchEnded(room, winner, reason);
+    this.scheduleRoomCleanup(room.id);
+
+    console.log(`[PVP:${room.id}] winner is ${winner}`);
+  }
+
+  private broadcastMatchEnded(room: Room, winner: PlayerId, reason: MatchEndReason) {
+    this.broadcastSame(room, {
+      type: "MATCH_ENDED",
+      winner,
+      reason,
+    });
+  }
+
+  private clearPendingStartRoll(room: Room) {
+    if (!room.pendingStartRoll) return;
+
+    clearTimeout(room.pendingStartRoll.startTimer);
+    room.pendingStartRoll = null;
+  }
+
+  private scheduleRoomCleanup(roomId: string) {
+    const room = this.rooms.get(roomId);
+    if (!room || room.cleanupTimer) return;
+
+    room.cleanupTimer = setTimeout(() => {
+      const currentRoom = this.rooms.get(roomId);
+      if (!currentRoom) return;
+
+      this.clearTurnTimer(currentRoom);
+      this.clearPendingStartRoll(currentRoom);
+      this.rooms.delete(roomId);
+      console.log(`[PVP:${roomId}] room cleaned`);
+    }, ROOM_CLEANUP_DELAY_MS);
+  }
+
+  private deleteRoomIfEmpty(room: Room) {
+    if (room.players.player || room.players.bot) return;
+
+    this.clearTurnTimer(room);
+    this.clearPendingStartRoll(room);
+
+    if (room.cleanupTimer) {
+      clearTimeout(room.cleanupTimer);
+    }
+
+    if (this.waitingRoomId === room.id) {
+      this.waitingRoomId = null;
+    }
+
+    this.rooms.delete(room.id);
+    console.log(`[PVP:${room.id}] room cleaned`);
+  }
+
   private restartTurnTimer(room: Room) {
     this.clearTurnTimer(room);
 
-    if (!room.battle || room.battle.status !== "active") {
+    if (room.ended || !room.battle || room.battle.status !== "active") {
       return;
     }
 
@@ -410,6 +630,7 @@ export class RoomManager {
   }
 
   private broadcastTurnTimer(room: Room) {
+    if (room.ended) return;
     if (!room.turnTimer) return;
 
     this.broadcastSame(room, {
@@ -425,6 +646,7 @@ export class RoomManager {
     const room = this.rooms.get(roomId);
 
     if (!room || !room.battle) return;
+    if (room.ended) return;
     if (room.battle.status !== "active") return;
     if (room.battle.activePlayer !== expectedPlayer) return;
 

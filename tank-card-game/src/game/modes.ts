@@ -1,10 +1,18 @@
 export type GameMode = "ai" | "pvp";
 
+export type MatchEndReason =
+  | "surrender"
+  | "disconnect"
+  | "leave"
+  | "opponent_left";
+
 export type PvpConnectionState =
-  | "offline"
+  | "idle"
   | "connecting"
-  | "matchmaking"
+  | "searching"
   | "waiting"
+  | "matched"
   | "rolling"
-  | "connected"
+  | "inBattle"
+  | "finished"
   | "error";
