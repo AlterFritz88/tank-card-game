@@ -37,6 +37,13 @@ export type CardInstance = {
   cardId: string;
 };
 
+export type HiddenCardInstance = {
+  instanceId: string;
+  hidden: true;
+};
+
+export type ClientCardInstance = CardInstance | HiddenCardInstance;
+
 export type PlayerState = {
   deck: CardInstance[];
   hand: CardInstance[];
@@ -145,6 +152,26 @@ export type BattleState = {
 
   log: string[];
 };
+
+export type PlayerStateView = Omit<PlayerState, "hand" | "deck"> & {
+  hand: ClientCardInstance[];
+  deck: ClientCardInstance[];
+  handCount: number;
+  deckCount: number;
+};
+
+export type BattleStateView = Omit<BattleState, "player" | "bot"> & {
+  player: PlayerStateView;
+  bot: PlayerStateView;
+};
+
+export type ClientBattleState = BattleState | BattleStateView;
+
+export function isHiddenCardInstance(
+  card: ClientCardInstance
+): card is HiddenCardInstance {
+  return "hidden" in card && card.hidden === true;
+}
 
 export type BattleKillStats = {
   light: number;

@@ -1,5 +1,5 @@
 import type { MatchEndReason } from "../game/modes";
-import type { BattleAction, BattleState, PlayerId } from "../game/types";
+import type { BattleAction, BattleStateView, PlayerId } from "../game/types";
 
 export type PvpClientMessage =
   | { type: "MATCHMAKING_STARTED" }
@@ -12,10 +12,10 @@ export type PvpClientMessage =
       firstPlayer: PlayerId;
       startsAt: number;
       revealAt: number;
-      battle: BattleState;
+      battle: BattleStateView;
     }
-  | { type: "GAME_STARTED"; roomId: string; battle: BattleState; playerId: PlayerId }
-  | { type: "GAME_STATE"; roomId: string; battle: BattleState }
+  | { type: "GAME_STARTED"; roomId: string; battle: BattleStateView; playerId: PlayerId }
+  | { type: "GAME_STATE"; roomId: string; battle: BattleStateView }
   | {
       type: "TURN_TIMER";
       activePlayer: PlayerId;

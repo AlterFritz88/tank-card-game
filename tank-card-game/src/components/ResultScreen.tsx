@@ -1,11 +1,11 @@
 import type React from "react";
 import type { MatchEndReason } from "../game/modes";
-import type { BattleKillStats, BattleState, PlayerId } from "../game/types";
+import type { BattleKillStats, ClientBattleState, PlayerId } from "../game/types";
 import victoryBackground from "../assets/backgrounds/victory-result-bg.png";
 import defeatBackground from "../assets/backgrounds/defeat-result-bg.png";
 
 type ResultScreenProps = {
-  battle: BattleState;
+  battle: ClientBattleState;
   onRestart: () => void;
   localPlayerId?: PlayerId;
   matchEndReason?: MatchEndReason | null;

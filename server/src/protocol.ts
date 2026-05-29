@@ -1,4 +1,8 @@
-import type { BattleAction, BattleState, PlayerId } from "../../tank-card-game/src/game/types";
+import type {
+  BattleAction,
+  BattleStateView,
+  PlayerId,
+} from "../../tank-card-game/src/game/types";
 
 export type PvpClientMessage =
   | { type: "FIND_MATCH" }
@@ -34,10 +38,10 @@ export type PvpServerMessage =
       firstPlayer: PlayerId;
       startsAt: number;
       revealAt: number;
-      battle: BattleState;
+      battle: BattleStateView;
     }
-  | { type: "GAME_STARTED"; roomId: string; battle: BattleState; playerId: PlayerId }
-  | { type: "GAME_STATE"; roomId: string; battle: BattleState }
+  | { type: "GAME_STARTED"; roomId: string; battle: BattleStateView; playerId: PlayerId }
+  | { type: "GAME_STATE"; roomId: string; battle: BattleStateView }
   | PvpTurnTimerEvent
   | { type: "MATCH_ENDED"; winner: PlayerId; reason: MatchEndReason }
   | { type: "MATCHMAKING_CANCELLED" }

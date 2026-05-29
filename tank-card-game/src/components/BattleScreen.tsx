@@ -9,7 +9,16 @@ import {
   getAvailableMoveCells,
   getTargetsInRange,
 } from "../game/engine";
-import type { BattleAction, BattleState, PlayerId, Position } from "../game/types";
+import type {
+  BattleAction,
+  BattleState,
+  CardInstance,
+  ClientBattleState,
+  ClientCardInstance,
+  PlayerId,
+  Position,
+} from "../game/types";
+import { isHiddenCardInstance } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
 import { TankCardView } from "./TankCardView";
 import { HandCardView } from "./HandCardView";
@@ -164,7 +173,7 @@ export function BattleScreen() {
 }
 
 type BattleScreenContentProps = {
-  battle: BattleState;
+  battle: ClientBattleState;
 };
 
 function BattleScreenContent({ battle }: BattleScreenContentProps) {
@@ -194,6 +203,19 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
   function getVisualOwnerId(owner: PlayerId): PlayerId {
     return owner === humanPlayerId ? "player" : "bot";
+  }
+
+  function getDeckCount(owner: PlayerId): number {
+    const player = battle[owner];
+    return "deckCount" in player ? player.deckCount : player.deck.length;
+  }
+
+  function getVisibleHand(owner: PlayerId): CardInstance[] {
+    const hand = battle[owner].hand as ClientCardInstance[];
+
+    return hand.filter(
+      (card): card is CardInstance => !isHiddenCardInstance(card)
+    );
   }
 
   function getStartRollFinalRotationForViewer(winner: PlayerId): number {
@@ -648,7 +670,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       while (!cancelled) {
         if (debugPausedRef.current) break;
 
-        const currentBattle = useBattleStore.getState().battle;
+        const currentBattle = useBattleStore.getState().battle as BattleState | null;
 
         if (!currentBattle) break;
         if (currentBattle.status !== "active") break;
@@ -680,7 +702,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         }
 
         if (action.type === "PLAY_CARD") {
-          const latestBattle = useBattleStore.getState().battle;
+          const latestBattle = useBattleStore.getState().battle as BattleState | null;
           const cardInstance = latestBattle?.bot.hand.find(
             (item) => item.instanceId === action.cardInstanceId
           );
@@ -729,7 +751,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     battle.status === "active" &&
     battle.activePlayer === humanPlayerId
       ? getTargetsInRange(
-        battle,
+        battle as BattleState,
         humanPlayerId,
           selectedAttacker.type,
           selectedAttacker.id
@@ -741,7 +763,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     selectedAttacker.type === "unit" &&
     battle.status === "active" &&
     battle.activePlayer === humanPlayerId
-      ? getAvailableMoveCells(battle, humanPlayerId, selectedAttacker.id)
+      ? getAvailableMoveCells(battle as BattleState, humanPlayerId, selectedAttacker.id)
       : [];
 
   function isTarget(targetType: "unit" | "headquarters", targetId: string) {
@@ -808,7 +830,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     );
   }
 
-  function createHpSnapshot(sourceBattle: BattleState): Map<string, number> {
+  function createHpSnapshot(sourceBattle: ClientBattleState): Map<string, number> {
     const hp = new Map<string, number>();
 
     for (const unit of sourceBattle.units) {
@@ -1037,7 +1059,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         (item) => item.instanceId === selectedCardInstanceId
       );
 
-      if (!cardInstance) return;
+      if (!cardInstance || isHiddenCardInstance(cardInstance)) return;
 
       void playSpawnCardAnimation(
         humanPlayerId,
@@ -1244,8 +1266,6 @@ function renderDeckStack(cardCount: number) {
 }
 
 function renderEnemyDeckWithTimer() {
-  const player = battle[opponentPlayerId];
-
   return (
     <div style={styles.enemyDeckWithTimer}>
       <div
@@ -1254,7 +1274,7 @@ function renderEnemyDeckWithTimer() {
   }}
   style={styles.enemyDeckCompact}
 >
-        {renderDeckStack(player.deck.length)}
+        {renderDeckStack(getDeckCount(opponentPlayerId))}
       </div>
 
       {renderTimerPanel(opponentPlayerId)}
@@ -1283,6 +1303,7 @@ function renderEnemyDeckWithTimer() {
   const visibleStartRollState = pvpStartRollState ?? startRollState;
   const visibleStartRollWinnerIsLocal =
     visibleStartRollState.winner === humanPlayerId;
+  const localHand = getVisibleHand(humanPlayerId);
 
   return (
     <div style={styles.page}>
@@ -1462,7 +1483,7 @@ function renderEnemyDeckWithTimer() {
   }}
   style={styles.playerDeckOnly}
 >
-  {renderDeckStack(battle[humanPlayerId].deck.length)}
+  {renderDeckStack(getDeckCount(humanPlayerId))}
 </div>
   </div>
 </aside>
@@ -1983,7 +2004,7 @@ function renderEnemyDeckWithTimer() {
   style={styles.hand}
 >
             <AnimatePresence>
-              {battle[humanPlayerId].hand.map((cardInstance, index) => {
+              {localHand.map((cardInstance, index) => {
                 const card = getCard(cardInstance.cardId);
                 const selected =
                   selectedCardInstanceId === cardInstance.instanceId;
@@ -2002,7 +2023,7 @@ function renderEnemyDeckWithTimer() {
                       ...styles.card,
                       marginLeft: getPlayerHandCardMarginLeft(
                         index,
-                        battle[humanPlayerId].hand.length
+                        localHand.length
                       ),
                       zIndex: selected ? 120 : index + 1,
                       pointerEvents:

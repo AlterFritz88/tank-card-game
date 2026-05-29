@@ -3,7 +3,13 @@ import { create } from "zustand";
 import { applyAction } from "../game/engine";
 import { createInitialBattleState } from "../game/initialState";
 import type { GameMode, MatchEndReason, PvpConnectionState } from "../game/modes";
-import type { BattleAction, BattleState, PlayerId } from "../game/types";
+import type {
+  BattleAction,
+  BattleState,
+  BattleStateView,
+  ClientBattleState,
+  PlayerId,
+} from "../game/types";
 import { pvpClient } from "../network/pvpClient";
 
 type SelectedAttacker = {
@@ -28,7 +34,7 @@ export type PvpTimerState = {
 };
 
 type BattleStore = {
-  battle: BattleState | null;
+  battle: ClientBattleState | null;
   mode: GameMode;
   localPlayerId: PlayerId;
   pvpRoomId: string | null;
@@ -50,7 +56,7 @@ type BattleStore = {
   createPvpRoom: () => void;
   joinPvpRoom: (roomId: string) => void;
   startPvpBattle: (roomId?: string) => void;
-  applyRemoteBattleState: (battle: BattleState) => void;
+  applyRemoteBattleState: (battle: BattleStateView) => void;
   applyMatchEnded: (winner: PlayerId, reason: MatchEndReason) => void;
   applyPvpTimer: (timer: {
     activePlayer: PlayerId;
@@ -534,7 +540,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       return;
     }
 
-    const currentBattle = get().battle;
+    const currentBattle = get().battle as BattleState | null;
 
     if (!currentBattle) {
       return;

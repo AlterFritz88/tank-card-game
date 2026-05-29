@@ -6,6 +6,7 @@ import {
   STEP_TIME_MS,
 } from "../../tank-card-game/src/game/initialState";
 import type { BattleAction, BattleState, PlayerId } from "../../tank-card-game/src/game/types";
+import { createBattleViewForPlayer } from "./battleView";
 import type { MatchEndReason, PvpClientMessage, PvpServerMessage } from "./protocol";
 
 type RoomPlayer = {
@@ -287,14 +288,7 @@ export class RoomManager {
       }, gameStartDelay),
     };
 
-    this.broadcastSame(room, {
-      type: "FIRST_TURN_ROLL",
-      roomId: room.id,
-      firstPlayer,
-      startsAt,
-      revealAt,
-      battle: room.battle,
-    });
+    this.broadcastFirstTurnRoll(room, firstPlayer, startsAt, revealAt);
   }
 
   private finishFirstTurnRoll(roomId: string) {
@@ -308,21 +302,8 @@ export class RoomManager {
     }
     room.pendingStartRoll = null;
 
-    this.broadcast(
-      room,
-      {
-        type: "GAME_STARTED",
-        roomId,
-        battle: room.battle,
-        playerId: "player",
-      },
-      {
-        type: "GAME_STARTED",
-        roomId,
-        battle: room.battle,
-        playerId: "bot",
-      },
-    );
+    this.sendGameStarted(room, "player");
+    this.sendGameStarted(room, "bot");
 
     this.restartTurnTimer(room);
   }
@@ -669,10 +650,60 @@ export class RoomManager {
   private broadcastBattleState(room: Room) {
     if (!room.battle) return;
 
-    this.broadcastSame(room, {
+    this.sendBattleState(room, "player");
+    this.sendBattleState(room, "bot");
+  }
+
+  private broadcastFirstTurnRoll(
+    room: Room,
+    firstPlayer: PlayerId,
+    startsAt: number,
+    revealAt: number
+  ) {
+    this.sendFirstTurnRoll(room, "player", firstPlayer, startsAt, revealAt);
+    this.sendFirstTurnRoll(room, "bot", firstPlayer, startsAt, revealAt);
+  }
+
+  private sendFirstTurnRoll(
+    room: Room,
+    playerId: PlayerId,
+    firstPlayer: PlayerId,
+    startsAt: number,
+    revealAt: number
+  ) {
+    const player = room.players[playerId];
+    if (!player || !room.battle) return;
+
+    safeSend(player.socket, {
+      type: "FIRST_TURN_ROLL",
+      roomId: room.id,
+      firstPlayer,
+      startsAt,
+      revealAt,
+      battle: createBattleViewForPlayer(room.battle, playerId),
+    });
+  }
+
+  private sendGameStarted(room: Room, playerId: PlayerId) {
+    const player = room.players[playerId];
+    if (!player || !room.battle) return;
+
+    safeSend(player.socket, {
+      type: "GAME_STARTED",
+      roomId: room.id,
+      battle: createBattleViewForPlayer(room.battle, playerId),
+      playerId,
+    });
+  }
+
+  private sendBattleState(room: Room, playerId: PlayerId) {
+    const player = room.players[playerId];
+    if (!player || !room.battle) return;
+
+    safeSend(player.socket, {
       type: "GAME_STATE",
       roomId: room.id,
-      battle: room.battle,
+      battle: createBattleViewForPlayer(room.battle, playerId),
     });
   }
 
@@ -682,8 +713,4 @@ export class RoomManager {
     }
   }
 
-  private broadcast(room: Room, playerMessage: PvpServerMessage, botMessage: PvpServerMessage) {
-    if (room.players.player) safeSend(room.players.player.socket, playerMessage);
-    if (room.players.bot) safeSend(room.players.bot.socket, botMessage);
-  }
 }
