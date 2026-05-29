@@ -6,6 +6,8 @@ export type HeadquartersDefinition = {
   subtitle: string;
   description: string;
   faction: string;
+  /** Тип/класс штаба, который отображается под названием на карточке. */
+  type: string;
   hp: number;
   attack: number;
   range: number;
@@ -20,6 +22,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     id: "training_unit",
     title: "Учебная часть",
     subtitle: "Базовый учебный штаб",
+    type: "Учебная часть",
     description: "Стартовая учебная часть с универсальной колодой для освоения механик.",
     faction: "Учебные войска",
     hp: 15,
@@ -35,6 +38,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     id: "trainingslager",
     title: "Trainingslager",
     subtitle: "Немецкий учебный лагерь",
+    type: "Учебная часть",
     description: "Учебный лагерь с немецкой техникой и стартовой немецкой колодой.",
     faction: "Trainingslager",
     hp: 15,

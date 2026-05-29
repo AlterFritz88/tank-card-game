@@ -40,6 +40,7 @@ type HeadquartersHandCardData = {
   attack: number;
   fuelGeneration: number;
   actionFuelCost: number;
+  fuel?: number;
 };
 
 type HandCardDisplayMode = "hand" | "preview";
@@ -54,7 +55,7 @@ type HandCardViewProps = {
   selected?: boolean;
   disabled?: boolean;
   displayMode?: HandCardDisplayMode;
-  showSideLabel?: boolean;
+  previewScale?: number;
 };
 
 function getBoardClassIcon(cardClass: TankCard["class"], ownerId: PlayerId) {
@@ -190,7 +191,7 @@ export function HandCardView({
   selected = false,
   disabled = false,
   displayMode = "hand",
-  showSideLabel = true,
+  previewScale,
 }: HandCardViewProps) {
   const isHeadquarters = Boolean(headquarters);
 
@@ -200,8 +201,8 @@ export function HandCardView({
 
   const isPreview = displayMode === "preview";
   const badgeMode = isPreview ? "preview" : "hand";
-  const previewScale = 390 / 175;
-  const uiScale = isPreview ? previewScale : 1;
+  const defaultPreviewScale = 390 / 175;
+  const uiScale = isPreview ? previewScale ?? defaultPreviewScale : 1;
   const scaled = (value: number) => Math.round(value * uiScale);
 
   const nation = card ? getNationVisual(card.nation) : null;
@@ -225,11 +226,7 @@ export function HandCardView({
     ? headquartersDefinition?.title ?? "Штаб"
     : card!.name;
   const subtitle = isHeadquarters
-    ? showSideLabel
-      ? `${headquartersDefinition?.faction ?? "Командный пункт"} · ${
-          ownerId === "player" ? "Союзник" : "Враг"
-        }`
-      : headquartersDefinition?.faction ?? "Командный пункт"
+    ? headquartersDefinition?.type ?? headquartersDefinition?.subtitle ?? "Командный пункт"
     : `${nation!.label} · ${unitClass!.label}`;
 
   const hpValue = isHeadquarters
@@ -285,17 +282,19 @@ export function HandCardView({
         <div style={styles.artVignette} />
       </div>
 
-      {!isHeadquarters && (
-        <div style={styles.spawnCostBadge}>
-          <StatBadge
-            type="spawnCost"
-            mode={badgeMode}
-            value={card!.cost}
-            title="Стоимость розыгрыша"
-            style={styles.fullBadge}
-          />
-        </div>
-      )}
+      <div style={styles.spawnCostBadge}>
+        <StatBadge
+          type={isHeadquarters ? "fuelGeneration" : "spawnCost"}
+          mode={badgeMode}
+          value={isHeadquarters ? `+${fuelGenerationValue}` : card!.cost}
+          title={
+            isHeadquarters
+              ? "Генерация топлива штабом"
+              : "Стоимость розыгрыша"
+          }
+          style={styles.fullBadge}
+        />
+      </div>
 
       {!isHeadquarters && (
         <div style={styles.spawnFuelGenerationBadge}>
@@ -309,20 +308,23 @@ export function HandCardView({
         </div>
       )}
 
-      <div style={styles.actionCostBadge}>
-        <StatBadge
-          type="actionCost"
-          mode={badgeMode}
-          value={actionCostValue}
-          title="Стоимость действия"
-          style={styles.fullBadge}
-        />
-      </div>
+      {!isHeadquarters && (
+        <div style={styles.actionCostBadge}>
+          <StatBadge
+            type="actionCost"
+            mode={badgeMode}
+            value={actionCostValue}
+            title="Стоимость действия"
+            style={styles.fullBadge}
+          />
+        </div>
+      )}
 
       <div
         style={{
           ...styles.titleArea,
-          ...(isHeadquarters ? styles.titleAreaWithoutSpawnCost : {}),
+          ...(isHeadquarters ? styles.headquartersTitleArea : {}),
+          gap: scaled(4),
         }}
       >
         <strong
@@ -507,8 +509,15 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 5,
     display: "flex",
     flexDirection: "column",
+    alignItems: "flex-start",
     gap: 1,
+    textAlign: "left",
     pointerEvents: "none",
+  },
+
+  headquartersTitleArea: {
+    left: "23.8%",
+    right: "8%",
   },
 
   titleAreaWithoutSpawnCost: {
@@ -521,6 +530,7 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1,
     color: "#f3ead0",
     textShadow: "0 2px 0 rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.85)",
+    textAlign: "left",
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
@@ -532,6 +542,7 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.05,
     color: "#e2c878",
     textShadow: "0 1px 0 rgba(0,0,0,0.92), 0 0 6px rgba(0,0,0,0.78)",
+    textAlign: "left",
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
