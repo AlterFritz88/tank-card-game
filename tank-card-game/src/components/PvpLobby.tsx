@@ -154,7 +154,6 @@ export function PvpLobby() {
                             actionFuelCost: headquarters.actionFuelCost,
                           }}
                           displayMode="hand"
-                          showSideLabel={false}
                         />
                       </div>
                     </div>
@@ -256,7 +255,6 @@ export function PvpLobby() {
                   actionFuelCost: previewHeadquarters.actionFuelCost,
                 }}
                 displayMode="preview"
-                showSideLabel={false}
               />
 
               <div style={styles.cardPreviewHint}>
