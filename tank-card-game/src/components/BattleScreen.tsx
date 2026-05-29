@@ -9,7 +9,7 @@ import {
   getAvailableMoveCells,
   getTargetsInRange,
 } from "../game/engine";
-import type { BattleAction, PlayerId, Position } from "../game/types";
+import type { BattleAction, BattleState, PlayerId, Position } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
 import { TankCardView } from "./TankCardView";
 import { HandCardView } from "./HandCardView";
@@ -35,10 +35,6 @@ function isPlayerSpawn(position: Position): boolean {
 
 function isBotSpawn(position: Position): boolean {
   return BOT_SPAWN_CELLS.some((cell) => samePosition(cell, position));
-}
-
-function positionLabel(position: Position) {
-  return `[${position.row},${position.col}]`;
 }
 
 function formatTimer(ms: number): string {
@@ -158,11 +154,25 @@ function waitForNextFrame(): Promise<void> {
 }
 
 export function BattleScreen() {
+  const battle = useBattleStore((state) => state.battle);
+
+  if (!battle) {
+    return null;
+  }
+
+  return <BattleScreenContent battle={battle} />;
+}
+
+type BattleScreenContentProps = {
+  battle: BattleState;
+};
+
+function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const battleStore = useBattleStore();
   const {
-    battle: rawBattle,
     mode,
     localPlayerId,
+    pvpTimer,
     selectedCardInstanceId,
     selectedAttacker,
     selectCard,
@@ -171,22 +181,7 @@ export function BattleScreen() {
     reset,
   } = battleStore;
 
-  const firstTurnRoll = (
-    battleStore as typeof battleStore & {
-      firstTurnRoll?: {
-        visible: boolean;
-        resultVisible: boolean;
-        firstPlayer: PlayerId | null;
-        finalRotation?: number;
-      };
-    }
-  ).firstTurnRoll;
-
-  if (!rawBattle) {
-    return null;
-  }
-
-  const battle = rawBattle;
+  const firstTurnRoll = battleStore.firstTurnRoll;
   const humanPlayerId: PlayerId = mode === "pvp" ? localPlayerId : "player";
   const opponentPlayerId: PlayerId =
     humanPlayerId === "player" ? "bot" : "player";
@@ -478,7 +473,7 @@ export function BattleScreen() {
   useEffect(() => {
     if (debugPaused) return;
     if (battle.status !== "active") return;
-    if (mode === "pvp" && localPlayerId !== "player") return;
+    if (mode === "pvp") return;
 
     let lastTickTime = Date.now();
 
@@ -497,33 +492,20 @@ export function BattleScreen() {
     return () => {
       window.clearInterval(interval);
     };
-  }, [battle.status, debugPaused, mode, localPlayerId]);
+  }, [battle.status, debugPaused, mode]);
+
+  const canAnimateEnemyThinking =
+    botAiEnabled &&
+    !debugPaused &&
+    battle.status === "active" &&
+    battle.activePlayer === "bot" &&
+    battle.bot.hand.length > 0;
+  const visibleThinkingCardIndex = canAnimateEnemyThinking
+    ? thinkingCardIndex
+    : null;
 
   useEffect(() => {
-    if (!botAiEnabled) {
-      setThinkingCardIndex(null);
-      return;
-    }
-
-    if (debugPaused) {
-      setThinkingCardIndex(null);
-      return;
-    }
-
-    if (battle.status !== "active") {
-      setThinkingCardIndex(null);
-      return;
-    }
-
-    if (battle.activePlayer !== "bot") {
-      setThinkingCardIndex(null);
-      return;
-    }
-
-    if (battle.bot.hand.length === 0) {
-      setThinkingCardIndex(null);
-      return;
-    }
+    if (!canAnimateEnemyThinking) return;
 
     const interval = window.setInterval(() => {
       const shouldRaiseCard = Math.random() < 0.45;
@@ -539,9 +521,8 @@ export function BattleScreen() {
 
     return () => {
       window.clearInterval(interval);
-      setThinkingCardIndex(null);
     };
-  }, [botAiEnabled, battle.activePlayer, battle.status, battle.bot.hand.length]);
+  }, [canAnimateEnemyThinking, battle.bot.hand.length]);
 
 
   useEffect(() => {
@@ -592,8 +573,6 @@ export function BattleScreen() {
     const targetElement = objectRefs.current.get(targetId);
     const boardElement = boardRef.current;
 
-    let targetCenter: CellCenter | null = null;
-
     setAttackingId(attackerId);
 
     if (!attackerElement || !targetElement || !boardElement) {
@@ -612,8 +591,6 @@ export function BattleScreen() {
     const from = getElementCenterRelativeToBoard(boardElement, attackerElement);
     const to = getElementCenterRelativeToBoard(boardElement, targetElement);
 
-    targetCenter = to;
-
     projectileIdRef.current += 1;
 
     setProjectileEffect({
@@ -626,14 +603,12 @@ export function BattleScreen() {
 
     setAttackEffectId(targetId);
 
-    if (targetCenter) {
-      explosionIdRef.current += 1;
+    explosionIdRef.current += 1;
 
-      setExplosionEffect({
-        id: explosionIdRef.current,
-        position: targetCenter,
-      });
-    }
+    setExplosionEffect({
+      id: explosionIdRef.current,
+      position: to,
+    });
 
     window.setTimeout(() => {
       setAttackingId(null);
@@ -665,6 +640,7 @@ export function BattleScreen() {
 
         const currentBattle = useBattleStore.getState().battle;
 
+        if (!currentBattle) break;
         if (currentBattle.status !== "active") break;
         if (currentBattle.activePlayer !== "bot") break;
 
@@ -694,11 +670,10 @@ export function BattleScreen() {
         }
 
         if (action.type === "PLAY_CARD") {
-          const cardInstance = useBattleStore
-            .getState()
-            .battle.bot.hand.find(
-              (item) => item.instanceId === action.cardInstanceId
-            );
+          const latestBattle = useBattleStore.getState().battle;
+          const cardInstance = latestBattle?.bot.hand.find(
+            (item) => item.instanceId === action.cardInstanceId
+          );
 
           if (cardInstance) {
             await playSpawnCardAnimation(
@@ -823,7 +798,7 @@ export function BattleScreen() {
     );
   }
 
-  function createHpSnapshot(sourceBattle: typeof battle): Map<string, number> {
+  function createHpSnapshot(sourceBattle: BattleState): Map<string, number> {
     const hp = new Map<string, number>();
 
     for (const unit of sourceBattle.units) {
@@ -919,15 +894,18 @@ export function BattleScreen() {
       action.type === "END_TURN" ||
       action.type === "TIMER_TICK";
 
-    const before = shouldShowDamage
-      ? createHpSnapshot(useBattleStore.getState().battle)
-      : null;
+    const beforeBattle = useBattleStore.getState().battle;
+    const before =
+      shouldShowDamage && beforeBattle ? createHpSnapshot(beforeBattle) : null;
 
     dispatch(action);
 
     if (!shouldShowDamage || !before) return;
 
-    const after = createHpSnapshot(useBattleStore.getState().battle);
+    const afterBattle = useBattleStore.getState().battle;
+    if (!afterBattle) return;
+
+    const after = createHpSnapshot(afterBattle);
 
     showDamageEffectsFromSnapshots(before, after);
   }
@@ -1114,14 +1092,19 @@ export function BattleScreen() {
 
   function renderTimerPanel(owner: PlayerId) {
     const timer = battle.timers?.[owner];
+    const pvpTimeLeftMs =
+      pvpTimer.activePlayer === owner ? pvpTimer.remainingMs : null;
+    const displayedTimeLeftMs =
+      mode === "pvp" ? pvpTimeLeftMs : timer?.stepTimeLeftMs ?? null;
 
-    if (!timer) {
+    if (displayedTimeLeftMs === null) {
       return null;
     }
 
-    const active = battle.activePlayer === owner;
+    const active =
+      mode === "pvp" ? pvpTimer.activePlayer === owner : battle.activePlayer === owner;
     const isLocalPlayer = owner === humanPlayerId;
-    const isLowTime = timer.stepTimeLeftMs <= 4000;
+    const isLowTime = displayedTimeLeftMs <= 4000;
     const showPlayerReminder = isLocalPlayer && active;
 
     return (
@@ -1192,7 +1175,7 @@ export function BattleScreen() {
                 : undefined
             }
           >
-            {formatTimer(timer.stepTimeLeftMs)}
+            {formatTimer(displayedTimeLeftMs)}
           </motion.strong>
         </div>
       </div>
@@ -1274,44 +1257,6 @@ function renderEnemyDeckWithTimer() {
     </div>
   );
 }
-
-  function renderHqPanel(owner: PlayerId) {
-    const hq = battle.headquarters[owner];
-    const isLocalPlayer = owner === humanPlayerId;
-    const selected =
-      selectedAttacker?.type === "headquarters" &&
-      selectedAttacker.id === `${owner}_hq`;
-
-    return (
-      <div
-        style={{
-          ...styles.hqPanel,
-          ...(isLocalPlayer ? styles.playerHqPanel : styles.botHqPanel),
-          ...(selected ? styles.selectedHqPanel : {}),
-        }}
-      >
-        <span style={styles.hqPanelLabel}>
-          {isLocalPlayer ? "Ваш штаб" : "Штаб врага"}
-        </span>
-        <strong style={styles.hqPanelTitle}>{isLocalPlayer ? "BASE" : "ENEMY"}</strong>
-
-        <div style={styles.hqStats}>
-          <span>
-            HP <strong>{hq.hp}</strong>
-          </span>
-          <span>
-            ATK <strong>{hq.attack}</strong>
-          </span>
-          <span>
-            FUEL <strong>+{hq.fuelGeneration}</strong>
-          </span>
-          <span>
-            ACT <strong>{hq.actionFuelCost}</strong>
-          </span>
-        </div>
-      </div>
-    );
-  }
 
   const pvpStartRollState =
     mode === "pvp" && firstTurnRoll?.visible && firstTurnRoll.firstPlayer
@@ -1470,17 +1415,17 @@ function renderEnemyDeckWithTimer() {
     </div>
   </div>
 
-  {battle.activePlayer === "bot" && thinkingCardIndex !== null && (
+  {visibleThinkingCardIndex !== null && (
     <div style={styles.enemyThinkingLayer}>
       {battle[opponentPlayerId].hand.map((_, index) => (
         <div
           key={`thinking-${index}`}
           style={{
-            opacity: thinkingCardIndex === index ? 1 : 0,
+            opacity: visibleThinkingCardIndex === index ? 1 : 0,
             pointerEvents: "none",
           }}
         >
-          {renderCardBack(index, false, thinkingCardIndex === index)}
+          {renderCardBack(index, false, visibleThinkingCardIndex === index)}
         </div>
       ))}
     </div>
@@ -1945,18 +1890,9 @@ function renderEnemyDeckWithTimer() {
     <button
               style={{
                 ...styles.endTurnButton,
-                opacity:
-                  debugPaused ||
-                  battle.activePlayer !== humanPlayerId ||
-                  battle.status !== "active"
-                    ? 0.45
-                    : 1,
+                opacity: debugPaused || !isHumanTurn ? 0.45 : 1,
               }}
-              disabled={
-                debugPaused ||
-                battle.activePlayer !== humanPlayerId ||
-                battle.status !== "active"
-              }
+              disabled={debugPaused || !isHumanTurn}
               onClick={() =>
                 dispatchBattleAction({
                   type: "END_TURN",

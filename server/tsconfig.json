@@ -1,17 +1,21 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "noEmit": true
+    "noEmit": true,
+    "types": ["node"]
   },
   "include": [
     "src/**/*.ts",
-    "../tank-card-game/src/game/**/*.ts"
+    "../tank-card-game/src/game/cards.ts",
+    "../tank-card-game/src/game/engine.ts",
+    "../tank-card-game/src/game/initialState.ts",
+    "../tank-card-game/src/game/types.ts"
   ]
 }

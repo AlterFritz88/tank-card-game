@@ -9,16 +9,22 @@ export type TankClass = "light" | "medium" | "heavy" | "td" | "spg";
 
 export type Nation = "ussr" | "germany" | "usa" | "uk";
 
+export type TankRarity = "common" | "uncommon" | "rare";
+
 export type TankCard = {
   id: string;
   name: string;
   nation: Nation;
   class: TankClass;
+  rarity: TankRarity;
 
   cost: number;
   attack: number;
   hp: number;
+  armor: number;
   range: number;
+  movement: number;
+  initiative: number;
 
   fuelGeneration: number;
   actionFuelCost: number;
@@ -108,14 +114,20 @@ export type TimerTickAction = {
   elapsedMs: number;
 };
 
+export type BeginBattleAction = {
+  type: "BEGIN_BATTLE";
+  startingPlayer: PlayerId;
+};
+
 export type BattleAction =
+  | BeginBattleAction
   | PlayCardAction
   | MoveUnitAction
   | AttackAction
   | EndTurnAction
   | TimerTickAction;
 
-export type BattleStatus = "active" | "player_won" | "bot_won";
+export type BattleStatus = "starting" | "active" | "player_won" | "bot_won";
 
 export type BattleState = {
   status: BattleStatus;

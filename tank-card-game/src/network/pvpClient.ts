@@ -15,6 +15,13 @@ export type PvpClientMessage =
     }
   | { type: "GAME_STARTED"; roomId: string; battle: BattleState; playerId: PlayerId }
   | { type: "GAME_STATE"; roomId: string; battle: BattleState }
+  | {
+      type: "TURN_TIMER";
+      activePlayer: PlayerId;
+      remainingMs: number;
+      endsAt: number;
+      durationMs: number;
+    }
   | { type: "OPPONENT_DISCONNECTED"; roomId: string }
   | { type: "ERROR"; message: string };
 

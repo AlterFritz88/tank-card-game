@@ -1,6 +1,6 @@
-import { getCard } from "./cards";
-import { applyAction, getFreeSpawnCells, getTargetsInRange } from "./engine";
-import type { BattleState } from "./types";
+import { getCard } from "./game/cards";
+import { applyAction, getFreeSpawnCells, getTargetsInRange } from "./game/engine";
+import type { BattleState } from "./game/types";
 
 export function runBotTurn(state: BattleState): BattleState {
   let nextState = state;

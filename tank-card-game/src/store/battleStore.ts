@@ -20,6 +20,13 @@ export type FirstTurnRollState = {
   finalRotation: number;
 };
 
+export type PvpTimerState = {
+  activePlayer: PlayerId | null;
+  remainingMs: number | null;
+  endsAt: number | null;
+  durationMs: number | null;
+};
+
 type BattleStore = {
   battle: BattleState | null;
   mode: GameMode;
@@ -27,6 +34,7 @@ type BattleStore = {
   pvpRoomId: string | null;
   pvpStatus: PvpConnectionState;
   pvpError: string | null;
+  pvpTimer: PvpTimerState;
   firstTurnRoll: FirstTurnRollState;
 
   selectedCardInstanceId: string | null;
@@ -42,6 +50,12 @@ type BattleStore = {
   joinPvpRoom: (roomId: string) => void;
   startPvpBattle: (roomId?: string) => void;
   applyRemoteBattleState: (battle: BattleState) => void;
+  applyPvpTimer: (timer: {
+    activePlayer: PlayerId;
+    remainingMs: number;
+    endsAt: number;
+    durationMs: number;
+  }) => void;
   setPvpError: (message: string | null) => void;
   hideFirstTurnRoll: () => void;
 
@@ -59,6 +73,13 @@ const emptyFirstTurnRoll: FirstTurnRollState = {
   startsAt: null,
   revealAt: null,
   finalRotation: 0,
+};
+
+const emptyPvpTimer: PvpTimerState = {
+  activePlayer: null,
+  remainingMs: null,
+  endsAt: null,
+  durationMs: null,
 };
 
 let pvpSubscriptionsReady = false;
@@ -110,6 +131,7 @@ function setupPvpSubscriptions() {
           pvpRoomId: null,
           pvpStatus: "matchmaking",
           pvpError: null,
+          pvpTimer: emptyPvpTimer,
           selectedCardInstanceId: null,
           selectedAttacker: null,
           firstTurnRoll: emptyFirstTurnRoll,
@@ -126,6 +148,7 @@ function setupPvpSubscriptions() {
           pvpRoomId: message.roomId,
           pvpStatus: "waiting",
           pvpError: null,
+          pvpTimer: emptyPvpTimer,
           firstTurnRoll: emptyFirstTurnRoll,
         });
         break;
@@ -136,6 +159,7 @@ function setupPvpSubscriptions() {
           pvpRoomId: message.roomId,
           pvpStatus: "waiting",
           pvpError: null,
+          pvpTimer: emptyPvpTimer,
         });
         break;
 
@@ -152,6 +176,7 @@ function setupPvpSubscriptions() {
           pvpRoomId: message.roomId,
           pvpStatus: "rolling",
           pvpError: null,
+          pvpTimer: emptyPvpTimer,
           selectedCardInstanceId: null,
           selectedAttacker: null,
           firstTurnRoll: {
@@ -197,11 +222,16 @@ function setupPvpSubscriptions() {
         store.applyRemoteBattleState(message.battle);
         break;
 
+      case "TURN_TIMER":
+        store.applyPvpTimer(message);
+        break;
+
       case "OPPONENT_DISCONNECTED":
         clearFirstTurnRollTimers();
         useBattleStore.setState({
           pvpStatus: "waiting",
           pvpError: "Противник отключился",
+          pvpTimer: emptyPvpTimer,
           firstTurnRoll: emptyFirstTurnRoll,
         });
         break;
@@ -221,6 +251,7 @@ function setupPvpSubscriptions() {
     useBattleStore.setState({
       pvpStatus: "offline",
       pvpError: "Соединение с PVP-сервером закрыто",
+      pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
     });
   });
@@ -248,6 +279,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   pvpRoomId: null,
   pvpStatus: "offline",
   pvpError: null,
+  pvpTimer: emptyPvpTimer,
   firstTurnRoll: emptyFirstTurnRoll,
 
   selectedCardInstanceId: null,
@@ -286,6 +318,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpRoomId: null,
       pvpStatus: "offline",
       pvpError: null,
+      pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
       selectedAttacker: null,
@@ -301,6 +334,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpRoomId: null,
       pvpStatus: "connecting",
       pvpError: null,
+      pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
       selectedAttacker: null,
@@ -318,6 +352,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpRoomId: null,
       pvpStatus: "connecting",
       pvpError: null,
+      pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
       selectedAttacker: null,
@@ -342,6 +377,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpRoomId: normalizedRoomId,
       pvpStatus: "connecting",
       pvpError: null,
+      pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
       selectedAttacker: null,
@@ -364,6 +400,18 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       battle,
       pvpStatus: "connected",
       pvpError: null,
+      ...(battle.status === "active" ? {} : { pvpTimer: emptyPvpTimer }),
+    });
+  },
+
+  applyPvpTimer: (timer) => {
+    set({
+      pvpTimer: {
+        activePlayer: timer.activePlayer,
+        remainingMs: timer.remainingMs,
+        endsAt: timer.endsAt,
+        durationMs: timer.durationMs,
+      },
     });
   },
 

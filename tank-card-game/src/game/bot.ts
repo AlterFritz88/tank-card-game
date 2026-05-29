@@ -34,7 +34,7 @@ function getBotBoardStrength(state: BattleState): number {
     .filter((unit) => unit.ownerId === "bot")
     .reduce((total, unit) => {
       const card = getCard(unit.cardId);
-      return total + card.attack + card.currentHp + card.fuelGeneration;
+      return total + card.attack + unit.currentHp + card.fuelGeneration;
     }, 0);
 }
 
@@ -135,22 +135,6 @@ function getAttackValue(
   if (!attacker) return 0;
 
   return getCard(attacker.cardId).attack;
-}
-
-function getActionFuelCost(
-  state: BattleState,
-  attackerType: "unit" | "headquarters",
-  attackerId: string
-): number {
-  if (attackerType === "headquarters") {
-    return state.headquarters.bot.actionFuelCost;
-  }
-
-  const attacker = getBotUnitById(state, attackerId);
-
-  if (!attacker) return Number.MAX_SAFE_INTEGER;
-
-  return getCard(attacker.cardId).actionFuelCost;
 }
 
 function chooseBestAttackTarget(

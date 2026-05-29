@@ -1,7 +1,10 @@
 import { randomInt } from "node:crypto";
 import type { WebSocket } from "ws";
 import { applyAction } from "../../tank-card-game/src/game/engine";
-import { createInitialBattleState } from "../../tank-card-game/src/game/initialState";
+import {
+  createInitialBattleState,
+  STEP_TIME_MS,
+} from "../../tank-card-game/src/game/initialState";
 import type { BattleAction, BattleState, PlayerId } from "../../tank-card-game/src/game/types";
 import type { PvpClientMessage, PvpServerMessage } from "./protocol";
 
@@ -17,16 +20,28 @@ type PendingStartRoll = {
   startTimer: NodeJS.Timeout;
 };
 
+type PvpTurnTimer = {
+  activePlayer: PlayerId;
+  startedAt: number;
+  endsAt: number;
+  durationMs: number;
+  timeoutId: NodeJS.Timeout | null;
+  intervalId: NodeJS.Timeout | null;
+};
+
 type Room = {
   id: string;
   players: Partial<Record<PlayerId, RoomPlayer>>;
   battle: BattleState | null;
   pendingStartRoll: PendingStartRoll | null;
+  turnTimer: PvpTurnTimer | null;
 };
 
 const START_ROLL_DURATION_MS = 2800;
 const START_ROLL_RESULT_DELAY_MS = 350;
 const START_ROLL_FINISH_DELAY_MS = 900;
+const PVP_TURN_DURATION_MS = STEP_TIME_MS;
+const PVP_TURN_TIMER_BROADCAST_INTERVAL_MS = 500;
 
 function createRoomId(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -114,6 +129,13 @@ export class RoomManager {
     const room = this.rooms.get(roomId);
     if (!room) return;
 
+    this.clearTurnTimer(room);
+
+    if (room.pendingStartRoll) {
+      clearTimeout(room.pendingStartRoll.startTimer);
+      room.pendingStartRoll = null;
+    }
+
     delete room.players[playerId];
 
     if (this.waitingRoomId === roomId) {
@@ -127,9 +149,6 @@ export class RoomManager {
     }
 
     if (!room.players.player && !room.players.bot) {
-      if (room.pendingStartRoll) {
-        clearTimeout(room.pendingStartRoll.startTimer);
-      }
       this.rooms.delete(roomId);
     }
   }
@@ -178,6 +197,7 @@ export class RoomManager {
       },
       battle: null,
       pendingStartRoll: null,
+      turnTimer: null,
     };
 
     this.rooms.set(roomId, room);
@@ -289,6 +309,8 @@ export class RoomManager {
         playerId: "bot",
       },
     );
+
+    this.restartTurnTimer(room);
   }
 
   private applyGameAction(socket: WebSocket, action: BattleAction) {
@@ -311,17 +333,123 @@ export class RoomManager {
       return;
     }
 
-    if (action.type !== "TIMER_TICK" && room.battle.activePlayer !== playerId) {
+    if (action.type === "TIMER_TICK" || action.type === "BEGIN_BATTLE") {
+      safeSend(socket, { type: "ERROR", message: "Клиент не управляет PVP-таймером" });
+      return;
+    }
+
+    if (room.battle.activePlayer !== playerId) {
       safeSend(socket, { type: "ERROR", message: "Сейчас ход противника" });
       return;
     }
 
+    const previousActivePlayer = room.battle.activePlayer;
     const safeAction = overwritePlayerId(action, playerId);
     room.battle = applyAction(room.battle, safeAction);
 
+    this.broadcastBattleState(room);
+
+    if (room.battle.status !== "active") {
+      this.clearTurnTimer(room);
+      return;
+    }
+
+    if (
+      safeAction.type === "END_TURN" ||
+      room.battle.activePlayer !== previousActivePlayer
+    ) {
+      this.restartTurnTimer(room);
+    }
+  }
+
+  private restartTurnTimer(room: Room) {
+    this.clearTurnTimer(room);
+
+    if (!room.battle || room.battle.status !== "active") {
+      return;
+    }
+
+    const activePlayer = room.battle.activePlayer;
+    const startedAt = Date.now();
+    const timer: PvpTurnTimer = {
+      activePlayer,
+      startedAt,
+      endsAt: startedAt + PVP_TURN_DURATION_MS,
+      durationMs: PVP_TURN_DURATION_MS,
+      timeoutId: null,
+      intervalId: null,
+    };
+
+    room.turnTimer = timer;
+
+    timer.timeoutId = setTimeout(() => {
+      this.handleTurnTimeout(room.id, activePlayer);
+    }, PVP_TURN_DURATION_MS);
+
+    timer.intervalId = setInterval(() => {
+      this.broadcastTurnTimer(room);
+    }, PVP_TURN_TIMER_BROADCAST_INTERVAL_MS);
+
+    console.log(`[PVP:${room.id}] timer started for ${activePlayer}`);
+    this.broadcastTurnTimer(room);
+  }
+
+  private clearTurnTimer(room: Room) {
+    if (!room.turnTimer) return;
+
+    if (room.turnTimer.timeoutId) {
+      clearTimeout(room.turnTimer.timeoutId);
+    }
+
+    if (room.turnTimer.intervalId) {
+      clearInterval(room.turnTimer.intervalId);
+    }
+
+    room.turnTimer = null;
+    console.log(`[PVP:${room.id}] timer cleared`);
+  }
+
+  private broadcastTurnTimer(room: Room) {
+    if (!room.turnTimer) return;
+
+    this.broadcastSame(room, {
+      type: "TURN_TIMER",
+      activePlayer: room.turnTimer.activePlayer,
+      remainingMs: Math.max(0, room.turnTimer.endsAt - Date.now()),
+      endsAt: room.turnTimer.endsAt,
+      durationMs: room.turnTimer.durationMs,
+    });
+  }
+
+  private handleTurnTimeout(roomId: string, expectedPlayer: PlayerId) {
+    const room = this.rooms.get(roomId);
+
+    if (!room || !room.battle) return;
+    if (room.battle.status !== "active") return;
+    if (room.battle.activePlayer !== expectedPlayer) return;
+
+    console.log(`[PVP:${room.id}] timer timeout for ${expectedPlayer}`);
+
+    room.battle = applyAction(room.battle, {
+      type: "END_TURN",
+      playerId: expectedPlayer,
+    });
+
+    this.broadcastBattleState(room);
+
+    if (room.battle.status === "active") {
+      this.restartTurnTimer(room);
+    } else {
+      this.clearTurnTimer(room);
+    }
+  }
+
+  private broadcastBattleState(room: Room) {
+    if (!room.battle) return;
+
     this.broadcastSame(room, {
       type: "GAME_STATE",
-      roomId,
+      roomId: room.id,
       battle: room.battle,
     });
   }
