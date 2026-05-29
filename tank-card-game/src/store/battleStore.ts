@@ -56,6 +56,7 @@ type BattleStore = {
   createPvpRoom: () => void;
   joinPvpRoom: (roomId: string) => void;
   startPvpBattle: (roomId?: string) => void;
+  restorePvpSession: () => void;
   applyRemoteBattleState: (battle: BattleStateView) => void;
   applyMatchEnded: (winner: PlayerId, reason: MatchEndReason) => void;
   applyPvpTimer: (timer: {
@@ -96,6 +97,7 @@ const emptyPvpTimer: PvpTimerState = {
 let pvpSubscriptionsReady = false;
 let firstTurnRollResultTimer: number | null = null;
 let firstTurnRollHideTimer: number | null = null;
+let reconnectTimer: number | null = null;
 
 function clearFirstTurnRollTimers() {
   if (firstTurnRollResultTimer !== null) {
@@ -107,6 +109,13 @@ function clearFirstTurnRollTimers() {
     window.clearTimeout(firstTurnRollHideTimer);
     firstTurnRollHideTimer = null;
   }
+}
+
+function clearReconnectTimer() {
+  if (reconnectTimer === null) return;
+
+  window.clearTimeout(reconnectTimer);
+  reconnectTimer = null;
 }
 
 function shouldClearSelection(action: BattleAction): boolean {
@@ -169,6 +178,8 @@ function setupPvpSubscriptions() {
       case "ROOM_CREATED":
       case "ROOM_JOINED":
         clearFirstTurnRollTimers();
+        clearReconnectTimer();
+        pvpClient.rememberRoom(message.roomId);
         useBattleStore.setState({
           battle: null,
           mode: "pvp",
@@ -183,6 +194,7 @@ function setupPvpSubscriptions() {
         break;
 
       case "WAITING_FOR_OPPONENT":
+        pvpClient.rememberRoom(message.roomId);
         useBattleStore.setState({
           battle: null,
           pvpRoomId: message.roomId,
@@ -195,6 +207,8 @@ function setupPvpSubscriptions() {
 
       case "FIRST_TURN_ROLL": {
         clearFirstTurnRollTimers();
+        clearReconnectTimer();
+        pvpClient.rememberRoom(message.roomId);
 
         const now = Date.now();
         const revealDelay = Math.max(0, message.revealAt - now);
@@ -237,6 +251,8 @@ function setupPvpSubscriptions() {
       }
 
       case "GAME_STARTED":
+        clearReconnectTimer();
+        pvpClient.rememberRoom(message.roomId);
         useBattleStore.setState({
           battle: message.battle,
           mode: "pvp",
@@ -255,6 +271,35 @@ function setupPvpSubscriptions() {
         store.applyRemoteBattleState(message.battle);
         break;
 
+      case "RECONNECTED":
+        clearFirstTurnRollTimers();
+        clearReconnectTimer();
+        pvpClient.rememberRoom(message.roomId);
+        useBattleStore.setState({
+          battle: message.battle,
+          mode: "pvp",
+          localPlayerId: message.playerId,
+          pvpRoomId: message.roomId,
+          pvpStatus: message.battle.status === "active" ? "inBattle" : "finished",
+          pvpError: null,
+          matchEndReason: null,
+          pvpTimer: emptyPvpTimer,
+          selectedCardInstanceId: null,
+          selectedAttacker: null,
+          firstTurnRoll: emptyFirstTurnRoll,
+        });
+        break;
+
+      case "RECONNECT_FAILED":
+        clearFirstTurnRollTimers();
+        clearReconnectTimer();
+        pvpClient.clearSession();
+        useBattleStore.setState({
+          ...getCleanMenuState(),
+          pvpError: message.message,
+        });
+        break;
+
       case "TURN_TIMER":
         store.applyPvpTimer(message);
         break;
@@ -265,6 +310,8 @@ function setupPvpSubscriptions() {
 
       case "MATCHMAKING_CANCELLED":
         clearFirstTurnRollTimers();
+        clearReconnectTimer();
+        pvpClient.clearSession();
         useBattleStore.setState(getCleanMenuState());
         break;
 
@@ -301,6 +348,22 @@ function setupPvpSubscriptions() {
     if (state.pvpStatus === "finished") return;
 
     clearFirstTurnRollTimers();
+
+    if (pvpClient.getStoredRoomId()) {
+      useBattleStore.setState({
+        pvpStatus: "connecting",
+        pvpError: "Соединение потеряно, восстанавливаю PVP-матч...",
+        pvpTimer: emptyPvpTimer,
+        firstTurnRoll: emptyFirstTurnRoll,
+      });
+
+      clearReconnectTimer();
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        connectAndRun(() => pvpClient.reconnect());
+      }, 300);
+      return;
+    }
 
     useBattleStore.setState({
       pvpStatus: "error",
@@ -364,7 +427,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
 
   startAiBattle: () => {
     clearFirstTurnRollTimers();
-    pvpClient.disconnect();
+    clearReconnectTimer();
+    pvpClient.clearSession();
 
     set({
       battle: createFreshBattle(),
@@ -379,10 +443,14 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       selectedCardInstanceId: null,
       selectedAttacker: null,
     });
+
+    pvpClient.disconnect();
   },
 
   findPvpMatch: () => {
     clearFirstTurnRollTimers();
+    clearReconnectTimer();
+    pvpClient.clearSession();
 
     set({
       battle: null,
@@ -402,6 +470,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
 
   createPvpRoom: () => {
     clearFirstTurnRollTimers();
+    clearReconnectTimer();
+    pvpClient.clearSession();
 
     set({
       battle: null,
@@ -428,6 +498,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     }
 
     clearFirstTurnRollTimers();
+    clearReconnectTimer();
+    pvpClient.clearSession();
 
     set({
       battle: null,
@@ -454,6 +526,29 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     get().findPvpMatch();
   },
 
+  restorePvpSession: () => {
+    const roomId = pvpClient.getStoredRoomId();
+    if (!roomId) return;
+
+    clearFirstTurnRollTimers();
+    clearReconnectTimer();
+
+    set({
+      battle: null,
+      mode: "pvp",
+      pvpRoomId: roomId,
+      pvpStatus: "connecting",
+      pvpError: "Восстанавливаю PVP-матч...",
+      matchEndReason: null,
+      pvpTimer: emptyPvpTimer,
+      firstTurnRoll: emptyFirstTurnRoll,
+      selectedCardInstanceId: null,
+      selectedAttacker: null,
+    });
+
+    connectAndRun(() => pvpClient.reconnect());
+  },
+
   applyRemoteBattleState: (battle) => {
     set({
       battle,
@@ -465,6 +560,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
 
   applyMatchEnded: (_winner, reason) => {
     clearFirstTurnRollTimers();
+    clearReconnectTimer();
 
     set({
       pvpStatus: "finished",
@@ -505,8 +601,10 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     }
 
     clearFirstTurnRollTimers();
-    pvpClient.disconnect();
+    clearReconnectTimer();
+    pvpClient.clearSession();
     set(getCleanMenuState());
+    pvpClient.disconnect();
   },
 
   cancelMatchmaking: () => {
@@ -514,6 +612,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
 
     pvpClient.cancelMatchmaking();
     clearFirstTurnRollTimers();
+    clearReconnectTimer();
+    pvpClient.clearSession();
     set(getCleanMenuState());
   },
 

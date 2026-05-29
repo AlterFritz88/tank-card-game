@@ -11,7 +11,10 @@ import type { MatchEndReason, PvpClientMessage, PvpServerMessage } from "./proto
 
 type RoomPlayer = {
   id: PlayerId;
-  socket: WebSocket;
+  sessionId: string;
+  socket: WebSocket | null;
+  disconnectTimer: NodeJS.Timeout | null;
+  disconnectedAt: number | null;
 };
 
 type PendingStartRoll = {
@@ -37,6 +40,8 @@ type Room = {
   pendingStartRoll: PendingStartRoll | null;
   turnTimer: PvpTurnTimer | null;
   ended: boolean;
+  winner: PlayerId | null;
+  endReason: MatchEndReason | null;
   cleanupTimer: NodeJS.Timeout | null;
 };
 
@@ -46,6 +51,7 @@ const START_ROLL_FINISH_DELAY_MS = 900;
 const PVP_TURN_DURATION_MS = STEP_TIME_MS;
 const PVP_TURN_TIMER_BROADCAST_INTERVAL_MS = 500;
 const ROOM_CLEANUP_DELAY_MS = 30_000;
+const RECONNECT_GRACE_MS = Number(process.env.PVP_RECONNECT_GRACE_MS ?? 15_000);
 
 function createRoomId(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -58,8 +64,8 @@ function createRoomId(): string {
   return result;
 }
 
-function safeSend(socket: WebSocket, message: PvpServerMessage) {
-  if (socket.readyState !== socket.OPEN) return;
+function safeSend(socket: WebSocket | null | undefined, message: PvpServerMessage) {
+  if (!socket || socket.readyState !== socket.OPEN) return;
   socket.send(JSON.stringify(message));
 }
 
@@ -93,6 +99,7 @@ function createStartedBattle(startingPlayer: PlayerId): BattleState {
 
 export class RoomManager {
   private rooms = new Map<string, Room>();
+  private sessionToRoom = new Map<string, { roomId: string; playerId: PlayerId }>();
   private socketToRoom = new WeakMap<WebSocket, string>();
   private socketToPlayer = new WeakMap<WebSocket, PlayerId>();
   private waitingRoomId: string | null = null;
@@ -109,13 +116,16 @@ export class RoomManager {
 
     switch (message.type) {
       case "FIND_MATCH":
-        this.findMatch(socket);
+        this.findMatch(socket, message.sessionId);
         break;
       case "CREATE_ROOM":
-        this.createRoom(socket);
+        this.createRoom(socket, message.sessionId);
         break;
       case "JOIN_ROOM":
-        this.joinRoom(socket, message.roomId);
+        this.joinRoom(socket, message.roomId, message.sessionId);
+        break;
+      case "RECONNECT":
+        this.reconnect(socket, message.sessionId, message.roomId);
         break;
       case "GAME_ACTION":
         this.applyGameAction(socket, message.action);
@@ -144,37 +154,32 @@ export class RoomManager {
 
     console.log(`[PVP:${room.id}] player ${playerId} disconnected`);
     const wasWaitingForOpponent = this.isWaitingForOpponent(room);
-    this.releaseSocket(socket, room, playerId);
+    this.detachSocket(socket, room, playerId);
 
     if (room.ended) {
       this.deleteRoomIfEmpty(room);
       return;
     }
 
-    if (wasWaitingForOpponent) {
-      this.cancelWaitingRoom(room);
-      return;
-    }
-
-    if (room.battle?.status === "active") {
-      this.finishMatchByPlayerExit(room, playerId, "disconnect");
+    if (wasWaitingForOpponent || room.battle?.status === "active") {
+      this.schedulePlayerDisconnect(room, playerId, wasWaitingForOpponent);
       return;
     }
 
     this.deleteRoomIfEmpty(room);
   }
 
-  private findMatch(socket: WebSocket) {
+  private findMatch(socket: WebSocket, sessionId: string) {
     safeSend(socket, { type: "MATCHMAKING_STARTED" });
 
     const waitingRoom = this.getWaitingRoom();
 
     if (waitingRoom) {
-      this.joinExistingWaitingRoom(socket, waitingRoom);
+      this.joinExistingWaitingRoom(socket, waitingRoom, sessionId);
       return;
     }
 
-    this.createRoom(socket, { makePublicWaiting: true });
+    this.createRoom(socket, sessionId, { makePublicWaiting: true });
   }
 
   private getWaitingRoom(): Room | null {
@@ -187,7 +192,7 @@ export class RoomManager {
     }
 
     const socket = room.players.player.socket;
-    if (socket.readyState !== socket.OPEN) {
+    if (!socket || socket.readyState !== socket.OPEN) {
       this.waitingRoomId = null;
       return null;
     }
@@ -195,7 +200,11 @@ export class RoomManager {
     return room;
   }
 
-  private createRoom(socket: WebSocket, options?: { makePublicWaiting?: boolean }) {
+  private createRoom(
+    socket: WebSocket,
+    sessionId: string,
+    options?: { makePublicWaiting?: boolean }
+  ) {
     let roomId = createRoomId();
     while (this.rooms.has(roomId)) {
       roomId = createRoomId();
@@ -204,18 +213,20 @@ export class RoomManager {
     const room: Room = {
       id: roomId,
       players: {
-        player: { id: "player", socket },
+        player: this.createRoomPlayer("player", socket, sessionId),
       },
       battle: null,
       pendingStartRoll: null,
       turnTimer: null,
       ended: false,
+      winner: null,
+      endReason: null,
       cleanupTimer: null,
     };
 
     this.rooms.set(roomId, room);
-    this.socketToRoom.set(socket, roomId);
-    this.socketToPlayer.set(socket, "player");
+    this.bindSocket(socket, room, "player");
+    this.sessionToRoom.set(sessionId, { roomId, playerId: "player" });
 
     if (options?.makePublicWaiting) {
       this.waitingRoomId = roomId;
@@ -225,19 +236,19 @@ export class RoomManager {
     safeSend(socket, { type: "WAITING_FOR_OPPONENT", roomId });
   }
 
-  private joinExistingWaitingRoom(socket: WebSocket, room: Room) {
+  private joinExistingWaitingRoom(socket: WebSocket, room: Room, sessionId: string) {
     this.waitingRoomId = null;
 
-    room.players.bot = { id: "bot", socket };
-    this.socketToRoom.set(socket, room.id);
-    this.socketToPlayer.set(socket, "bot");
+    room.players.bot = this.createRoomPlayer("bot", socket, sessionId);
+    this.bindSocket(socket, room, "bot");
+    this.sessionToRoom.set(sessionId, { roomId: room.id, playerId: "bot" });
 
     safeSend(socket, { type: "ROOM_JOINED", roomId: room.id, playerId: "bot" });
 
     this.startFirstTurnRoll(room);
   }
 
-  private joinRoom(socket: WebSocket, unsafeRoomId: string) {
+  private joinRoom(socket: WebSocket, unsafeRoomId: string, sessionId: string) {
     const roomId = unsafeRoomId.trim().toUpperCase();
     const room = this.rooms.get(roomId);
 
@@ -255,9 +266,9 @@ export class RoomManager {
       this.waitingRoomId = null;
     }
 
-    room.players.bot = { id: "bot", socket };
-    this.socketToRoom.set(socket, roomId);
-    this.socketToPlayer.set(socket, "bot");
+    room.players.bot = this.createRoomPlayer("bot", socket, sessionId);
+    this.bindSocket(socket, room, "bot");
+    this.sessionToRoom.set(sessionId, { roomId, playerId: "bot" });
 
     safeSend(socket, { type: "ROOM_JOINED", roomId, playerId: "bot" });
 
@@ -267,6 +278,7 @@ export class RoomManager {
   private startFirstTurnRoll(room: Room) {
     if (room.ended) return;
     if (!room.players.player || !room.players.bot) return;
+    if (!room.players.player.socket || !room.players.bot.socket) return;
 
     const firstPlayer = getRandomStartingPlayer();
     const startsAt = Date.now();
@@ -435,11 +447,149 @@ export class RoomManager {
     this.cancelWaitingRoom(room, socket);
   }
 
+  private reconnect(socket: WebSocket, sessionId: string, requestedRoomId?: string | null) {
+    const match = this.findRoomBySession(sessionId, requestedRoomId);
+
+    if (!match) {
+      safeSend(socket, {
+        type: "RECONNECT_FAILED",
+        message: "PVP-матч для восстановления не найден",
+      });
+      return;
+    }
+
+    const { room, playerId } = match;
+    const player = room.players[playerId];
+
+    if (!player) {
+      safeSend(socket, {
+        type: "RECONNECT_FAILED",
+        message: "Игрок в PVP-комнате не найден",
+      });
+      return;
+    }
+
+    if (player.socket && player.socket !== socket) {
+      this.socketToRoom.delete(player.socket);
+      this.socketToPlayer.delete(player.socket);
+      player.socket.close();
+    }
+
+    player.socket = socket;
+    player.disconnectedAt = null;
+
+    if (player.disconnectTimer) {
+      clearTimeout(player.disconnectTimer);
+      player.disconnectTimer = null;
+    }
+
+    this.bindSocket(socket, room, playerId);
+    this.sessionToRoom.set(sessionId, { roomId: room.id, playerId });
+
+    console.log(`[PVP:${room.id}] player ${playerId} reconnected`);
+
+    if (this.isWaitingForOpponent(room)) {
+      this.waitingRoomId = room.id;
+      safeSend(socket, { type: "ROOM_CREATED", roomId: room.id, playerId });
+      safeSend(socket, { type: "WAITING_FOR_OPPONENT", roomId: room.id });
+      return;
+    }
+
+    if (room.pendingStartRoll && room.battle) {
+      safeSend(socket, {
+        type: playerId === "player" ? "ROOM_CREATED" : "ROOM_JOINED",
+        roomId: room.id,
+        playerId,
+      });
+      this.sendFirstTurnRoll(
+        room,
+        playerId,
+        room.pendingStartRoll.firstPlayer,
+        room.pendingStartRoll.startsAt,
+        room.pendingStartRoll.revealAt,
+      );
+      return;
+    }
+
+    if (!room.battle) {
+      safeSend(socket, {
+        type: "RECONNECT_FAILED",
+        message: "Бой еще не начался",
+      });
+      return;
+    }
+
+    safeSend(socket, {
+      type: "RECONNECTED",
+      roomId: room.id,
+      playerId,
+      battle: createBattleViewForPlayer(room.battle, playerId),
+    });
+
+    this.sendTurnTimer(room, playerId);
+
+    if (room.ended && room.winner && room.endReason) {
+      safeSend(socket, {
+        type: "MATCH_ENDED",
+        winner: room.winner,
+        reason: room.endReason,
+      });
+    }
+  }
+
   private getRoomBySocket(socket: WebSocket): Room | null {
     const roomId = this.socketToRoom.get(socket);
     if (!roomId) return null;
 
     return this.rooms.get(roomId) ?? null;
+  }
+
+  private findRoomBySession(
+    sessionId: string,
+    requestedRoomId?: string | null
+  ): { room: Room; playerId: PlayerId } | null {
+    const binding = this.sessionToRoom.get(sessionId);
+    const roomId = requestedRoomId?.trim().toUpperCase() || binding?.roomId;
+    if (!roomId) return null;
+
+    const room = this.rooms.get(roomId);
+    if (!room) {
+      this.sessionToRoom.delete(sessionId);
+      return null;
+    }
+
+    const playerId = binding?.roomId === roomId ? binding.playerId : null;
+
+    if (playerId && room.players[playerId]?.sessionId === sessionId) {
+      return { room, playerId };
+    }
+
+    for (const candidateId of ["player", "bot"] as const) {
+      if (room.players[candidateId]?.sessionId === sessionId) {
+        return { room, playerId: candidateId };
+      }
+    }
+
+    return null;
+  }
+
+  private createRoomPlayer(
+    id: PlayerId,
+    socket: WebSocket,
+    sessionId: string
+  ): RoomPlayer {
+    return {
+      id,
+      socket,
+      sessionId,
+      disconnectTimer: null,
+      disconnectedAt: null,
+    };
+  }
+
+  private bindSocket(socket: WebSocket, room: Room, playerId: PlayerId) {
+    this.socketToRoom.set(socket, room.id);
+    this.socketToPlayer.set(socket, playerId);
   }
 
   private getOpponent(playerId: PlayerId): PlayerId {
@@ -450,13 +600,98 @@ export class RoomManager {
     return !room.battle && !room.pendingStartRoll && Boolean(room.players.player) && !room.players.bot;
   }
 
-  private releaseSocket(socket: WebSocket, room: Room, playerId: PlayerId) {
-    if (room.players[playerId]?.socket === socket) {
-      delete room.players[playerId];
+  private detachSocket(socket: WebSocket, room: Room, playerId: PlayerId) {
+    const player = room.players[playerId];
+
+    if (player?.socket === socket) {
+      player.socket = null;
+      player.disconnectedAt = Date.now();
     }
 
     this.socketToRoom.delete(socket);
     this.socketToPlayer.delete(socket);
+  }
+
+  private releaseSocket(socket: WebSocket, room: Room, playerId: PlayerId) {
+    const player = room.players[playerId];
+
+    if (player?.disconnectTimer) {
+      clearTimeout(player.disconnectTimer);
+    }
+
+    if (player) {
+      this.sessionToRoom.delete(player.sessionId);
+    }
+
+    delete room.players[playerId];
+    this.socketToRoom.delete(socket);
+    this.socketToPlayer.delete(socket);
+  }
+
+  private schedulePlayerDisconnect(
+    room: Room,
+    playerId: PlayerId,
+    wasWaitingForOpponent: boolean
+  ) {
+    const player = room.players[playerId];
+    if (!player) return;
+
+    if (player.disconnectTimer) {
+      clearTimeout(player.disconnectTimer);
+    }
+
+    player.disconnectTimer = setTimeout(() => {
+      this.handlePlayerDisconnectTimeout(room.id, playerId, wasWaitingForOpponent);
+    }, RECONNECT_GRACE_MS);
+  }
+
+  private handlePlayerDisconnectTimeout(
+    roomId: string,
+    playerId: PlayerId,
+    wasWaitingForOpponent: boolean
+  ) {
+    const room = this.rooms.get(roomId);
+    const player = room?.players[playerId];
+
+    if (!room || !player || player.socket) return;
+
+    player.disconnectTimer = null;
+
+    if (room.ended) {
+      this.deleteRoomIfEmpty(room);
+      return;
+    }
+
+    if (wasWaitingForOpponent || this.isWaitingForOpponent(room)) {
+      this.cancelWaitingRoom(room);
+      return;
+    }
+
+    if (room.battle?.status === "active") {
+      this.finishMatchByPlayerExit(room, playerId, "disconnect");
+      return;
+    }
+
+    this.sessionToRoom.delete(player.sessionId);
+    delete room.players[playerId];
+    this.deleteRoomIfEmpty(room);
+  }
+
+  private clearRoomSessions(room: Room) {
+    for (const player of Object.values(room.players)) {
+      if (!player) continue;
+
+      if (player.disconnectTimer) {
+        clearTimeout(player.disconnectTimer);
+      }
+
+      if (player.socket) {
+        this.socketToRoom.delete(player.socket);
+        this.socketToPlayer.delete(player.socket);
+      }
+
+      this.sessionToRoom.delete(player.sessionId);
+    }
   }
 
   private cancelWaitingRoom(room: Room, notifySocket?: WebSocket) {
@@ -470,9 +705,10 @@ export class RoomManager {
     console.log(`[PVP:${room.id}] matchmaking cancelled`);
 
     const sockets = Object.values(room.players).flatMap((player) =>
-      player ? [player.socket] : [],
+      player?.socket ? [player.socket] : [],
     );
 
+    this.clearRoomSessions(room);
     this.rooms.delete(room.id);
 
     for (const socket of sockets) {
@@ -500,6 +736,8 @@ export class RoomManager {
           : `${loser === "player" ? "Игрок" : "Противник"} вышел из боя.`;
 
     room.ended = true;
+    room.winner = winner;
+    room.endReason = reason;
     room.battle = {
       ...room.battle,
       status,
@@ -540,6 +778,7 @@ export class RoomManager {
 
       this.clearTurnTimer(currentRoom);
       this.clearPendingStartRoll(currentRoom);
+      this.clearRoomSessions(currentRoom);
       this.rooms.delete(roomId);
       console.log(`[PVP:${roomId}] room cleaned`);
     }, ROOM_CLEANUP_DELAY_MS);
@@ -559,6 +798,7 @@ export class RoomManager {
       this.waitingRoomId = null;
     }
 
+    this.clearRoomSessions(room);
     this.rooms.delete(room.id);
     console.log(`[PVP:${room.id}] room cleaned`);
   }
@@ -614,7 +854,15 @@ export class RoomManager {
     if (room.ended) return;
     if (!room.turnTimer) return;
 
-    this.broadcastSame(room, {
+    this.sendTurnTimer(room, "player");
+    this.sendTurnTimer(room, "bot");
+  }
+
+  private sendTurnTimer(room: Room, playerId: PlayerId) {
+    if (room.ended) return;
+    if (!room.turnTimer) return;
+
+    safeSend(room.players[playerId]?.socket, {
       type: "TURN_TIMER",
       activePlayer: room.turnTimer.activePlayer,
       remainingMs: Math.max(0, room.turnTimer.endsAt - Date.now()),

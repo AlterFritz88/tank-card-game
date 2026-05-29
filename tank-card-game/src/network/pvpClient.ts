@@ -5,6 +5,8 @@ export type PvpClientMessage =
   | { type: "MATCHMAKING_STARTED" }
   | { type: "ROOM_CREATED"; roomId: string; playerId: PlayerId }
   | { type: "ROOM_JOINED"; roomId: string; playerId: PlayerId }
+  | { type: "RECONNECTED"; roomId: string; playerId: PlayerId; battle: BattleStateView }
+  | { type: "RECONNECT_FAILED"; message: string }
   | { type: "WAITING_FOR_OPPONENT"; roomId: string }
   | {
       type: "FIRST_TURN_ROLL";
@@ -30,9 +32,10 @@ export type PvpClientMessage =
   | { type: "ERROR"; message: string };
 
 export type PvpServerMessage =
-  | { type: "FIND_MATCH" }
-  | { type: "CREATE_ROOM" }
-  | { type: "JOIN_ROOM"; roomId: string }
+  | { type: "FIND_MATCH"; sessionId: string }
+  | { type: "CREATE_ROOM"; sessionId: string }
+  | { type: "JOIN_ROOM"; roomId: string; sessionId: string }
+  | { type: "RECONNECT"; sessionId: string; roomId?: string | null }
   | { type: "GAME_ACTION"; action: BattleAction }
   | { type: "SURRENDER" }
   | { type: "LEAVE_MATCH" }
@@ -42,6 +45,17 @@ type PvpMessageHandler = (message: PvpClientMessage) => void;
 type PvpCloseHandler = () => void;
 type PvpErrorHandler = (message: string) => void;
 type PvpOpenHandler = () => void;
+
+const PVP_SESSION_ID_KEY = "tank-card-game:pvp-session-id";
+const PVP_ROOM_ID_KEY = "tank-card-game:pvp-room-id";
+
+function createSessionId(): string {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
 
 class PvpClient {
   private socket: WebSocket | null = null;
@@ -98,16 +112,46 @@ class PvpClient {
     this.socket.send(JSON.stringify(message));
   }
 
+  getSessionId() {
+    const existingSessionId = window.sessionStorage.getItem(PVP_SESSION_ID_KEY);
+    if (existingSessionId) return existingSessionId;
+
+    const nextSessionId = createSessionId();
+    window.sessionStorage.setItem(PVP_SESSION_ID_KEY, nextSessionId);
+    return nextSessionId;
+  }
+
+  getStoredRoomId() {
+    return window.sessionStorage.getItem(PVP_ROOM_ID_KEY);
+  }
+
+  rememberRoom(roomId: string) {
+    window.sessionStorage.setItem(PVP_ROOM_ID_KEY, roomId);
+  }
+
+  clearSession() {
+    window.sessionStorage.removeItem(PVP_SESSION_ID_KEY);
+    window.sessionStorage.removeItem(PVP_ROOM_ID_KEY);
+  }
+
   findMatch() {
-    this.send({ type: "FIND_MATCH" });
+    this.send({ type: "FIND_MATCH", sessionId: this.getSessionId() });
   }
 
   createRoom() {
-    this.send({ type: "CREATE_ROOM" });
+    this.send({ type: "CREATE_ROOM", sessionId: this.getSessionId() });
   }
 
   joinRoom(roomId: string) {
-    this.send({ type: "JOIN_ROOM", roomId });
+    this.send({ type: "JOIN_ROOM", roomId, sessionId: this.getSessionId() });
+  }
+
+  reconnect() {
+    this.send({
+      type: "RECONNECT",
+      sessionId: this.getSessionId(),
+      roomId: this.getStoredRoomId(),
+    });
   }
 
   sendAction(action: BattleAction) {

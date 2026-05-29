@@ -5,9 +5,10 @@ import type {
 } from "../../tank-card-game/src/game/types";
 
 export type PvpClientMessage =
-  | { type: "FIND_MATCH" }
-  | { type: "CREATE_ROOM" }
-  | { type: "JOIN_ROOM"; roomId: string }
+  | { type: "FIND_MATCH"; sessionId: string }
+  | { type: "CREATE_ROOM"; sessionId: string }
+  | { type: "JOIN_ROOM"; roomId: string; sessionId: string }
+  | { type: "RECONNECT"; sessionId: string; roomId?: string | null }
   | { type: "GAME_ACTION"; action: BattleAction }
   | { type: "SURRENDER" }
   | { type: "LEAVE_MATCH" }
@@ -31,6 +32,8 @@ export type PvpServerMessage =
   | { type: "MATCHMAKING_STARTED" }
   | { type: "ROOM_CREATED"; roomId: string; playerId: PlayerId }
   | { type: "ROOM_JOINED"; roomId: string; playerId: PlayerId }
+  | { type: "RECONNECTED"; roomId: string; playerId: PlayerId; battle: BattleStateView }
+  | { type: "RECONNECT_FAILED"; message: string }
   | { type: "WAITING_FOR_OPPONENT"; roomId: string }
   | {
       type: "FIRST_TURN_ROLL";
