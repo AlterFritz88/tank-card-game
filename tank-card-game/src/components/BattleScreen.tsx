@@ -28,11 +28,11 @@ import { ResultScreen } from "./ResultScreen";
 import { FuelPanel } from "./FuelPanel";
 import { BattleTimerPanel } from "./BattleTimerPanel";
 import { DeckStack } from "./DeckStack";
+import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
 import apShellImage from "../assets/ap-shell.png";
 import explosionFlashImage from "../assets/effects/explosion-flash.png";
 import explosionFireballImage from "../assets/effects/explosion-fireball.png";
 import explosionSmokeImage from "../assets/effects/explosion-smoke.png";
-import battleTableBackground from "../assets/backgrounds/battle-table-bg.png";
 import cardBackImage from "../assets/cards/card-back.png";
 import cartridgeImage from "../assets/effects/rifle-cartridge.png";
 
@@ -1229,9 +1229,19 @@ function renderEnemyDeckWithTimer() {
   const visibleStartRollWinnerIsLocal =
     visibleStartRollState.winner === humanPlayerId;
   const localHand = getVisibleHand(humanPlayerId);
+  const battleBackground = getBattleBackgroundAsset(battle.backgroundId);
 
   return (
-    <div style={styles.page}>
+    <div
+      style={{
+        ...styles.page,
+        backgroundColor: battleBackground.color,
+        backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.2)), url(${battleBackground.image})`,
+        backgroundSize: `cover, ${battleBackground.size}`,
+        backgroundPosition: `center center, ${battleBackground.position}`,
+        backgroundRepeat: "no-repeat, no-repeat",
+      }}
+    >
       <div style={styles.vignette} />
 
       <AnimatePresence>
@@ -1371,7 +1381,7 @@ function renderEnemyDeckWithTimer() {
                 ...styles.cardBack,
                 ...styles.enemyHandCard,
                 backgroundImage: `url(${cardBackImage})`,
-                marginLeft: index === 0 ? 0 : -58,
+                marginLeft: index === 0 ? 0 : -48,
                 opacity: isHidden ? 0 : 1,
                 zIndex: index + 1,
                 filter: isPulledCard ? "brightness(1.08)" : "none",
@@ -2121,7 +2131,6 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: "100vh",
     position: "relative",
     overflow: "hidden",
-    backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.2)), url(${battleTableBackground})`,
     backgroundSize: "cover",
     backgroundPosition: "center center",
     backgroundRepeat: "no-repeat",
@@ -2208,7 +2217,7 @@ const styles: Record<string, React.CSSProperties> = {
   alignItems: "flex-start",
   overflow: "hidden",
   position: "relative",
-  transform: "translateY(-15px)",
+  transform: "translateY(-18px)",
   zIndex: 20,
   background: "transparent",
   border: "none",

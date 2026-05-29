@@ -1,3 +1,5 @@
+import type { BattleBackgroundId } from "./battleBackgrounds";
+
 export type PlayerId = "player" | "bot";
 
 export type HeadquartersId = "training_unit" | "trainingslager";
@@ -146,6 +148,7 @@ export type BattleState = {
   status: BattleStatus;
   activePlayer: PlayerId;
   turn: number;
+  backgroundId: BattleBackgroundId;
 
   player: PlayerState;
   bot: PlayerState;

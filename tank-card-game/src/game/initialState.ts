@@ -3,6 +3,8 @@ import {
   DEFAULT_PLAYER_HEADQUARTERS_ID,
   getHeadquartersDefinition,
 } from "./headquarters";
+import { DEFAULT_BATTLE_BACKGROUND_ID } from "./battleBackgrounds";
+import type { BattleBackgroundId } from "./battleBackgrounds";
 import type {
   BattleState,
   CardInstance,
@@ -18,6 +20,7 @@ export const STEP_TIME_MS = 15 * 1000;
 export type CreateBattleOptions = {
   playerHeadquartersId?: HeadquartersId;
   botHeadquartersId?: HeadquartersId;
+  backgroundId?: BattleBackgroundId;
 };
 
 const DECK_CARD_IDS: Record<string, string[]> = {
@@ -129,6 +132,7 @@ export function createInitialBattleState(
     status: "starting",
     activePlayer: "player",
     turn: 1,
+    backgroundId: options.backgroundId ?? DEFAULT_BATTLE_BACKGROUND_ID,
 
     player: createPlayerState("player", playerHeadquartersId),
     bot: createPlayerState("bot", botHeadquartersId),

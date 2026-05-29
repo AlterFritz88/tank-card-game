@@ -5,6 +5,7 @@ import {
   DEFAULT_BOT_HEADQUARTERS_ID,
   DEFAULT_PLAYER_HEADQUARTERS_ID,
 } from "../game/headquarters";
+import { getRandomBattleBackgroundId } from "../assets/battleBackgroundAssets";
 import { createInitialBattleState } from "../game/initialState";
 import type { GameMode, MatchEndReason, PvpConnectionState } from "../game/modes";
 import type {
@@ -146,6 +147,7 @@ function createFreshBattle(
   return createInitialBattleState({
     playerHeadquartersId,
     botHeadquartersId,
+    backgroundId: getRandomBattleBackgroundId(),
   });
 }
 

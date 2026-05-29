@@ -5,6 +5,7 @@ import {
   DEFAULT_BOT_HEADQUARTERS_ID,
   DEFAULT_PLAYER_HEADQUARTERS_ID,
 } from "../../tank-card-game/src/game/headquarters";
+import { getRandomBattleBackgroundId } from "./battleBackgrounds";
 import {
   createInitialBattleState,
   STEP_TIME_MS,
@@ -106,6 +107,7 @@ function createStartedBattle(
   const battle = createInitialBattleState({
     playerHeadquartersId,
     botHeadquartersId,
+    backgroundId: getRandomBattleBackgroundId(),
   });
 
   return applyAction(battle, {
