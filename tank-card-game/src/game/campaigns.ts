@@ -19,8 +19,8 @@ export type Campaign = {
 export const CAMPAIGNS: Campaign[] = [
   {
     id: "training-front",
-    title: "Учебный фронт",
-    description: "Первые одиночные операции против Trainingslager.",
+    title: "1. Panzer Div.",
+    description: "Первая учебная кампания с последовательными боями против Trainingslager.",
     missions: [
       {
         id: "training-front-1",

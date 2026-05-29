@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CAMPAIGNS, isCampaignMissionUnlocked } from "../game/campaigns";
+import { CAMPAIGNS } from "../game/campaigns";
 import { HEADQUARTERS } from "../game/headquarters";
 import type { HeadquartersId } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
@@ -42,12 +42,10 @@ export function PvpLobby() {
     pvpRoomId,
     pvpStatus,
     pvpError,
-    completedCampaignMissionIds,
     selectedHeadquartersId,
     setSelectedHeadquartersId,
     openCampaignMenu,
     closeCampaignMenu,
-    startCampaignMission,
     findPvpMatch,
     startAiBattle,
     cancelMatchmaking,
@@ -55,8 +53,15 @@ export function PvpLobby() {
 
   const [previewHeadquartersId, setPreviewHeadquartersId] =
     useState<HeadquartersId | null>(null);
+  const [selectedCampaignId, setSelectedCampaignId] = useState(
+    CAMPAIGNS[0]?.id ?? ""
+  );
 
   const headquartersList = useMemo(() => Object.values(HEADQUARTERS), []);
+  const selectedCampaign =
+    CAMPAIGNS.find((campaign) => campaign.id === selectedCampaignId) ??
+    CAMPAIGNS[0] ??
+    null;
 
   const pvpBusy =
     mode === "pvp" &&
@@ -112,55 +117,49 @@ export function PvpLobby() {
           <header style={styles.header}>
             <div style={styles.kicker}>Одиночные операции</div>
             <h1 style={styles.title}>Компании</h1>
-            <p style={styles.subtitle}>Проходи миссии по порядку и открывай следующие бои</p>
+            <p style={styles.subtitle}>Выбери кампанию</p>
           </header>
 
-          <div style={styles.campaignPanel}>
-            {CAMPAIGNS.map((campaign) => (
-              <section key={campaign.id} style={styles.campaignBlock}>
-                <div style={styles.campaignHeader}>
-                  <h2 style={styles.campaignTitle}>{campaign.title}</h2>
-                  <p style={styles.campaignDescription}>{campaign.description}</p>
-                </div>
+          <div style={styles.carouselViewport} aria-label="Выбор кампании">
+            <div style={styles.campaignCarouselTrack}>
+              {CAMPAIGNS.map((campaign, index) => {
+                const selected = campaign.id === selectedCampaign?.id;
+                const artUrl = `/ui/menu/campaign-${index + 1}-panzer-div.png`;
 
-                <div style={styles.missionGrid}>
-                  {campaign.missions.map((mission, index) => {
-                    const unlocked = isCampaignMissionUnlocked(
-                      campaign,
-                      mission.id,
-                      completedCampaignMissionIds
-                    );
-                    const completed = completedCampaignMissionIds.includes(mission.id);
+                return (
+                  <motion.button
+                    key={campaign.id}
+                    type="button"
+                    style={styles.campaignCardOption}
+                    onClick={() => setSelectedCampaignId(campaign.id)}
+                    whileHover={{ y: -8, scale: 1.035 }}
+                    whileTap={{ scale: 0.985 }}
+                    transition={{ type: "spring", stiffness: 360, damping: 28 }}
+                    aria-pressed={selected}
+                    aria-label={`Выбрать кампанию ${campaign.title}`}
+                  >
+                    <div
+                      style={{
+                        ...styles.selectionGlow,
+                        ...(selected ? styles.selectionGlowVisible : {}),
+                      }}
+                    />
 
-                    return (
-                      <button
-                        key={mission.id}
-                        type="button"
-                        style={{
-                          ...styles.missionCard,
-                          ...(unlocked ? {} : styles.missionCardLocked),
-                          ...(completed ? styles.missionCardCompleted : {}),
-                        }}
-                        disabled={!unlocked}
-                        onClick={() => startCampaignMission(mission.id)}
-                      >
-                        <span style={styles.missionNumber}>
-                          {String(index + 1).padStart(2, "0")}
-                        </span>
-                        <span style={styles.missionTitle}>{mission.title}</span>
-                        <span style={styles.missionDescription}>
-                          {mission.description}
-                        </span>
-                        <span style={styles.missionState}>
-                          {completed ? "Пройдено" : unlocked ? "Доступно" : "Закрыто"}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
+                    <div
+                      style={{
+                        ...styles.campaignArtCard,
+                        backgroundImage: `linear-gradient(180deg, rgba(8, 9, 7, 0.04), rgba(0, 0, 0, 0.25)), url('${artUrl}')`,
+                      }}
+                    >
+                      <span style={styles.campaignArtLabel}>{campaign.title}</span>
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </div>
           </div>
+
+
 
           <button type="button" style={styles.backButton} onClick={closeCampaignMenu}>
             Назад
@@ -187,7 +186,7 @@ export function PvpLobby() {
               const selected = headquarters.id === selectedHeadquartersId;
 
               return (
-                <button
+                <motion.button
                   key={headquarters.id}
                   type="button"
                   style={{
@@ -204,6 +203,9 @@ export function PvpLobby() {
                       headquarters.id as HeadquartersId
                     )
                   }
+                  whileHover={buttonsDisabled ? undefined : { y: -8, scale: 1.035 }}
+                  whileTap={buttonsDisabled ? undefined : { scale: 0.985 }}
+                  transition={{ type: "spring", stiffness: 360, damping: 28 }}
                   aria-pressed={selected}
                   aria-label={`Выбрать штаб ${headquarters.title}`}
                 >
@@ -231,11 +233,11 @@ export function PvpLobby() {
                       </div>
                     </div>
                   </div>
-                </button>
+                </motion.button>
               );
             })}
 
-            <button
+            <motion.button
               type="button"
               style={{
                 ...styles.campaignEntryOption,
@@ -244,14 +246,20 @@ export function PvpLobby() {
               disabled={buttonsDisabled}
               onClick={openCampaignMenu}
               aria-label="Открыть компании"
+              whileHover={buttonsDisabled ? undefined : { y: -8, scale: 1.035 }}
+              whileTap={buttonsDisabled ? undefined : { scale: 0.985 }}
+              transition={{ type: "spring", stiffness: 360, damping: 28 }}
             >
               <div style={styles.campaignEntryCard}>
-                <div style={styles.campaignEntryMark}>I</div>
-                <div style={styles.campaignEntryTitle}>Операции</div>
-                <div style={styles.campaignEntryLine} />
+                <img
+                  src="/ui/menu/campaign-card.png"
+                  alt=""
+                  draggable={false}
+                  style={styles.campaignEntryImage}
+                />
+                <span style={styles.campaignEntryTitleOverlay}>Компании</span>
               </div>
-              <div style={styles.campaignEntryLabel}>Компании</div>
-            </button>
+            </motion.button>
           </div>
         </div>
 
@@ -508,6 +516,32 @@ const styles: Record<string, CSSProperties> = {
       "0 18px 42px rgba(0,0,0,0.52), inset 0 0 36px rgba(255, 223, 128, 0.08)",
   },
 
+  campaignEntryImage: {
+    display: "block",
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    userSelect: "none",
+    pointerEvents: "none",
+  },
+
+  campaignEntryTitleOverlay: {
+    position: "absolute",
+    left: "10%",
+    right: "10%",
+    bottom: "7.5%",
+    zIndex: 2,
+    color: "#f9e7b2",
+    fontSize: 21,
+    fontWeight: 1000,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    textAlign: "left",
+    textShadow:
+      "0 2px 0 rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.9)",
+    pointerEvents: "none",
+  },
+
   campaignEntryMark: {
     position: "absolute",
     left: "50%",
@@ -668,6 +702,64 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 13,
     color: "#ff8a8a",
     textShadow: "0 2px 8px rgba(0,0,0,0.90)",
+  },
+
+  campaignCarouselTrack: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "flex-start",
+    gap: 36,
+    minWidth: "max-content",
+    margin: "0 auto",
+  },
+
+  campaignCardOption: {
+    position: "relative",
+    flex: "0 0 auto",
+    width: MENU_CARD_WIDTH + 44,
+    height: MENU_CARD_HEIGHT + 28,
+    padding: "10px 22px 18px",
+    border: "none",
+    outline: "none",
+    background: "transparent",
+    color: "#f8e3ae",
+    cursor: "pointer",
+    textAlign: "center",
+    scrollSnapAlign: "center",
+    boxSizing: "border-box",
+  },
+
+  campaignArtCard: {
+    position: "relative",
+    zIndex: 2,
+    width: MENU_CARD_WIDTH,
+    height: MENU_CARD_HEIGHT,
+    margin: "0 auto",
+    borderRadius: 18,
+    overflow: "hidden",
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    border: "1px solid rgba(244, 209, 124, 0.42)",
+    boxShadow:
+      "0 18px 42px rgba(0,0,0,0.52), inset 0 0 36px rgba(255, 223, 128, 0.08)",
+  },
+
+  campaignArtLabel: {
+    position: "absolute",
+    left: "10%",
+    right: "10%",
+    bottom: "7.5%",
+    zIndex: 2,
+    color: "#f9e7b2",
+    fontSize: 21,
+    fontWeight: 1000,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    textAlign: "left",
+    textShadow:
+      "0 2px 0 rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.9)",
+    pointerEvents: "none",
   },
 
   campaignPanel: {
