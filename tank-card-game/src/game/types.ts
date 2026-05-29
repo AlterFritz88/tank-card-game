@@ -60,6 +60,7 @@ export type PlayerState = {
 
 export type HeadquartersState = {
   ownerId: PlayerId;
+  headquartersId?: HeadquartersId;
   position: Position;
 
   hp: number;

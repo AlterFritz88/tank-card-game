@@ -54,6 +54,7 @@ type HandCardViewProps = {
   selected?: boolean;
   disabled?: boolean;
   displayMode?: HandCardDisplayMode;
+  showSideLabel?: boolean;
 };
 
 function getBoardClassIcon(cardClass: TankCard["class"], ownerId: PlayerId) {
@@ -189,6 +190,7 @@ export function HandCardView({
   selected = false,
   disabled = false,
   displayMode = "hand",
+  showSideLabel = true,
 }: HandCardViewProps) {
   const isHeadquarters = Boolean(headquarters);
 
@@ -223,9 +225,11 @@ export function HandCardView({
     ? headquartersDefinition?.title ?? "Штаб"
     : card!.name;
   const subtitle = isHeadquarters
-    ? `${headquartersDefinition?.faction ?? "Командный пункт"} · ${
-        ownerId === "player" ? "Союзник" : "Враг"
-      }`
+    ? showSideLabel
+      ? `${headquartersDefinition?.faction ?? "Командный пункт"} · ${
+          ownerId === "player" ? "Союзник" : "Враг"
+        }`
+      : headquartersDefinition?.faction ?? "Командный пункт"
     : `${nation!.label} · ${unitClass!.label}`;
 
   const hpValue = isHeadquarters
@@ -245,9 +249,7 @@ export function HandCardView({
     : card!.fuelGeneration;
 
   const abilityText = isHeadquarters
-    ? `${
-        headquartersDefinition?.description ?? "Командный пункт."
-      } Генерирует топливо: +${fuelGenerationValue}. Потеря штаба означает поражение.`
+    ? headquartersDefinition?.description ?? "Командный пункт."
     : card!.abilityText || "Без особых свойств.";
 
 

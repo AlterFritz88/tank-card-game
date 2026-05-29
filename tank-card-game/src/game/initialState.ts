@@ -103,6 +103,7 @@ function createHeadquarters(
 
   return {
     ownerId,
+    headquartersId,
     position: isPlayer ? { row: 2, col: 0 } : { row: 0, col: 4 },
 
     hp: headquarters.hp,
