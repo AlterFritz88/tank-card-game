@@ -206,7 +206,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const humanPlayerId: PlayerId = mode === "pvp" ? localPlayerId : "player";
   const opponentPlayerId: PlayerId =
     humanPlayerId === "player" ? "bot" : "player";
-  const botAiEnabled = mode === "ai";
+  const botAiEnabled = mode === "ai" || mode === "campaign";
   const isHumanTurn =
     battle.status === "active" && battle.activePlayer === humanPlayerId;
   const playerHand = battle.player.hand;
@@ -1230,6 +1230,12 @@ function renderEnemyDeckWithTimer() {
     visibleStartRollState.winner === humanPlayerId;
   const localHand = getVisibleHand(humanPlayerId);
   const battleBackground = getBattleBackgroundAsset(battle.backgroundId);
+  const resultRestartLabel =
+    mode === "pvp"
+      ? "В меню"
+      : mode === "campaign"
+        ? "В кампании"
+        : "Начать бой заново";
 
   return (
     <div
@@ -2119,7 +2125,7 @@ function renderEnemyDeckWithTimer() {
     onRestart={mode === "pvp" ? leavePvpMatch : reset}
     localPlayerId={humanPlayerId}
     matchEndReason={mode === "pvp" ? matchEndReason : null}
-    restartLabel={mode === "pvp" ? "В меню" : "Начать бой заново"}
+    restartLabel={resultRestartLabel}
   />
 )}
     </div>

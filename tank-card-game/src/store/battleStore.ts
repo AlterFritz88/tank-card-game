@@ -6,8 +6,14 @@ import {
   DEFAULT_PLAYER_HEADQUARTERS_ID,
 } from "../game/headquarters";
 import { getRandomBattleBackgroundId } from "../assets/battleBackgroundAssets";
+import { getCampaignMission, isCampaignMissionUnlocked } from "../game/campaigns";
 import { createInitialBattleState } from "../game/initialState";
-import type { GameMode, MatchEndReason, PvpConnectionState } from "../game/modes";
+import type {
+  GameMode,
+  MainMenuView,
+  MatchEndReason,
+  PvpConnectionState,
+} from "../game/modes";
 import type {
   BattleAction,
   BattleState,
@@ -42,6 +48,7 @@ export type PvpTimerState = {
 type BattleStore = {
   battle: ClientBattleState | null;
   mode: GameMode;
+  menuView: MainMenuView;
   localPlayerId: PlayerId;
   pvpRoomId: string | null;
   pvpStatus: PvpConnectionState;
@@ -50,6 +57,8 @@ type BattleStore = {
   pvpTimer: PvpTimerState;
   firstTurnRoll: FirstTurnRollState;
   selectedHeadquartersId: HeadquartersId;
+  completedCampaignMissionIds: string[];
+  currentCampaignMissionId: string | null;
 
   selectedCardInstanceId: string | null;
   opponentSelectedCardInstanceId: string | null;
@@ -59,7 +68,10 @@ type BattleStore = {
   selectAttacker: (attacker: SelectedAttacker) => void;
 
   setMode: (mode: GameMode) => void;
+  openCampaignMenu: () => void;
+  closeCampaignMenu: () => void;
   startAiBattle: () => void;
+  startCampaignMission: (missionId: string) => void;
   findPvpMatch: () => void;
   createPvpRoom: () => void;
   joinPvpRoom: (roomId: string) => void;
@@ -90,6 +102,7 @@ type BattleStore = {
 
 const PVP_SERVER_URL =
   import.meta.env.VITE_PVP_SERVER_URL ?? "ws://localhost:8787";
+const CAMPAIGN_PROGRESS_KEY = "tank-card-game:campaign-progress";
 
 const emptyFirstTurnRoll: FirstTurnRollState = {
   visible: false,
@@ -111,6 +124,24 @@ let pvpSubscriptionsReady = false;
 let firstTurnRollResultTimer: number | null = null;
 let firstTurnRollHideTimer: number | null = null;
 let reconnectTimer: number | null = null;
+
+function loadCompletedCampaignMissionIds(): string[] {
+  try {
+    const rawValue = window.localStorage.getItem(CAMPAIGN_PROGRESS_KEY);
+    if (!rawValue) return [];
+
+    const parsedValue = JSON.parse(rawValue);
+    if (!Array.isArray(parsedValue)) return [];
+
+    return parsedValue.filter((item): item is string => typeof item === "string");
+  } catch {
+    return [];
+  }
+}
+
+function saveCompletedCampaignMissionIds(missionIds: string[]) {
+  window.localStorage.setItem(CAMPAIGN_PROGRESS_KEY, JSON.stringify(missionIds));
+}
 
 function clearFirstTurnRollTimers() {
   if (firstTurnRollResultTimer !== null) {
@@ -151,6 +182,21 @@ function createFreshBattle(
   });
 }
 
+function createCampaignBattle(
+  missionId: string,
+  playerHeadquartersId: HeadquartersId
+): BattleState | null {
+  const campaignMission = getCampaignMission(missionId);
+
+  if (!campaignMission) return null;
+
+  return createInitialBattleState({
+    playerHeadquartersId,
+    botHeadquartersId: campaignMission.mission.botHeadquartersId,
+    backgroundId: campaignMission.mission.backgroundId ?? getRandomBattleBackgroundId(),
+  });
+}
+
 function getStartRollFinalRotation(firstPlayer: PlayerId): number {
   const targetAngle = firstPlayer === "player" ? 135 : -45;
   return 360 * 8 + targetAngle;
@@ -160,6 +206,7 @@ function getCleanMenuState() {
   return {
     battle: null,
     mode: "ai" as GameMode,
+    menuView: "main" as MainMenuView,
     localPlayerId: "player" as PlayerId,
     pvpRoomId: null,
     pvpStatus: "idle" as PvpConnectionState,
@@ -169,6 +216,7 @@ function getCleanMenuState() {
     selectedCardInstanceId: null,
     opponentSelectedCardInstanceId: null,
     selectedAttacker: null,
+    currentCampaignMissionId: null,
     firstTurnRoll: emptyFirstTurnRoll,
   };
 }
@@ -185,6 +233,7 @@ function setupPvpSubscriptions() {
         useBattleStore.setState({
           battle: null,
           mode: "pvp",
+          menuView: "main",
           pvpRoomId: null,
           pvpStatus: "searching",
           pvpError: null,
@@ -205,6 +254,7 @@ function setupPvpSubscriptions() {
         useBattleStore.setState({
           battle: null,
           mode: "pvp",
+          menuView: "main",
           localPlayerId: message.playerId,
           pvpRoomId: message.roomId,
           pvpStatus: message.type === "ROOM_JOINED" ? "matched" : "waiting",
@@ -245,6 +295,7 @@ function setupPvpSubscriptions() {
         useBattleStore.setState({
           battle: message.battle,
           mode: "pvp",
+          menuView: "main",
           pvpRoomId: message.roomId,
           pvpStatus: "rolling",
           pvpError: null,
@@ -285,6 +336,7 @@ function setupPvpSubscriptions() {
         useBattleStore.setState({
           battle: message.battle,
           mode: "pvp",
+          menuView: "main",
           localPlayerId: message.playerId,
           pvpRoomId: message.roomId,
           pvpStatus: "inBattle",
@@ -308,6 +360,7 @@ function setupPvpSubscriptions() {
         useBattleStore.setState({
           battle: message.battle,
           mode: "pvp",
+          menuView: "main",
           localPlayerId: message.playerId,
           pvpRoomId: message.roomId,
           pvpStatus: message.battle.status === "active" ? "inBattle" : "finished",
@@ -429,6 +482,7 @@ function connectAndRun(onOpen: () => void) {
 export const useBattleStore = create<BattleStore>()((set, get) => ({
   battle: null,
   mode: "ai",
+  menuView: "main",
   localPlayerId: "player",
   pvpRoomId: null,
   pvpStatus: "idle",
@@ -437,6 +491,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   pvpTimer: emptyPvpTimer,
   firstTurnRoll: emptyFirstTurnRoll,
   selectedHeadquartersId: DEFAULT_PLAYER_HEADQUARTERS_ID,
+  completedCampaignMissionIds: loadCompletedCampaignMissionIds(),
+  currentCampaignMissionId: null,
 
   selectedCardInstanceId: null,
   opponentSelectedCardInstanceId: null,
@@ -468,6 +524,22 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({ mode });
   },
 
+  openCampaignMenu: () => {
+    set({
+      menuView: "campaign",
+      mode: "campaign",
+      pvpError: null,
+    });
+  },
+
+  closeCampaignMenu: () => {
+    set({
+      menuView: "main",
+      mode: "ai",
+      currentCampaignMissionId: null,
+    });
+  },
+
   hideFirstTurnRoll: () => {
     set({ firstTurnRoll: emptyFirstTurnRoll });
   },
@@ -484,6 +556,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({
       battle: createFreshBattle(get().selectedHeadquartersId),
       mode: "ai",
+      menuView: "main",
       localPlayerId: "player",
       pvpRoomId: null,
       pvpStatus: "idle",
@@ -494,6 +567,47 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       selectedCardInstanceId: null,
       opponentSelectedCardInstanceId: null,
       selectedAttacker: null,
+      currentCampaignMissionId: null,
+    });
+
+    pvpClient.disconnect();
+  },
+
+  startCampaignMission: (missionId) => {
+    const campaignMission = getCampaignMission(missionId);
+    if (!campaignMission) return;
+
+    const state = get();
+    const unlocked = isCampaignMissionUnlocked(
+      campaignMission.campaign,
+      missionId,
+      state.completedCampaignMissionIds
+    );
+
+    if (!unlocked) return;
+
+    const battle = createCampaignBattle(missionId, state.selectedHeadquartersId);
+    if (!battle) return;
+
+    clearFirstTurnRollTimers();
+    clearReconnectTimer();
+    pvpClient.clearSession();
+
+    set({
+      battle,
+      mode: "campaign",
+      menuView: "campaign",
+      localPlayerId: "player",
+      pvpRoomId: null,
+      pvpStatus: "idle",
+      pvpError: null,
+      matchEndReason: null,
+      pvpTimer: emptyPvpTimer,
+      firstTurnRoll: emptyFirstTurnRoll,
+      selectedCardInstanceId: null,
+      opponentSelectedCardInstanceId: null,
+      selectedAttacker: null,
+      currentCampaignMissionId: missionId,
     });
 
     pvpClient.disconnect();
@@ -507,6 +621,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({
       battle: null,
       mode: "pvp",
+      menuView: "main",
       pvpRoomId: null,
       pvpStatus: "connecting",
       pvpError: null,
@@ -529,6 +644,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({
       battle: null,
       mode: "pvp",
+      menuView: "main",
       pvpRoomId: null,
       pvpStatus: "connecting",
       pvpError: null,
@@ -558,6 +674,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({
       battle: null,
       mode: "pvp",
+      menuView: "main",
       pvpRoomId: normalizedRoomId,
       pvpStatus: "connecting",
       pvpError: null,
@@ -591,6 +708,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({
       battle: null,
       mode: "pvp",
+      menuView: "main",
       pvpRoomId: roomId,
       pvpStatus: "connecting",
       pvpError: "Восстанавливаю PVP-матч...",
@@ -745,7 +863,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   reset: () => {
-    const { mode } = get();
+    const { battle, currentCampaignMissionId, mode } = get();
 
     if (mode === "pvp") {
       pvpClient.selectCard(null);
@@ -753,6 +871,40 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         selectedCardInstanceId: null,
         opponentSelectedCardInstanceId: null,
         selectedAttacker: null,
+      });
+      return;
+    }
+
+    if (mode === "campaign") {
+      let completedCampaignMissionIds = get().completedCampaignMissionIds;
+
+      if (
+        battle?.status === "player_won" &&
+        currentCampaignMissionId &&
+        !completedCampaignMissionIds.includes(currentCampaignMissionId)
+      ) {
+        completedCampaignMissionIds = [
+          ...completedCampaignMissionIds,
+          currentCampaignMissionId,
+        ];
+        saveCompletedCampaignMissionIds(completedCampaignMissionIds);
+      }
+
+      set({
+        battle: null,
+        mode: "campaign",
+        menuView: "campaign",
+        pvpRoomId: null,
+        pvpStatus: "idle",
+        pvpError: null,
+        matchEndReason: null,
+        pvpTimer: emptyPvpTimer,
+        firstTurnRoll: emptyFirstTurnRoll,
+        selectedCardInstanceId: null,
+        opponentSelectedCardInstanceId: null,
+        selectedAttacker: null,
+        currentCampaignMissionId: null,
+        completedCampaignMissionIds,
       });
       return;
     }

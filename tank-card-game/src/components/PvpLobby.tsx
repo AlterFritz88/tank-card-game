@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { CAMPAIGNS, isCampaignMissionUnlocked } from "../game/campaigns";
 import { HEADQUARTERS } from "../game/headquarters";
 import type { HeadquartersId } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
@@ -37,11 +38,16 @@ function getPvpStatusText(status: string) {
 export function PvpLobby() {
   const {
     mode,
+    menuView,
     pvpRoomId,
     pvpStatus,
     pvpError,
+    completedCampaignMissionIds,
     selectedHeadquartersId,
     setSelectedHeadquartersId,
+    openCampaignMenu,
+    closeCampaignMenu,
+    startCampaignMission,
     findPvpMatch,
     startAiBattle,
     cancelMatchmaking,
@@ -96,6 +102,73 @@ export function PvpLobby() {
   const previewHeadquarters = previewHeadquartersId
     ? HEADQUARTERS[previewHeadquartersId]
     : null;
+
+  if (menuView === "campaign") {
+    return (
+      <main style={styles.page}>
+        <div style={styles.backgroundShade} />
+
+        <section style={styles.menuLayer}>
+          <header style={styles.header}>
+            <div style={styles.kicker}>Одиночные операции</div>
+            <h1 style={styles.title}>Компании</h1>
+            <p style={styles.subtitle}>Проходи миссии по порядку и открывай следующие бои</p>
+          </header>
+
+          <div style={styles.campaignPanel}>
+            {CAMPAIGNS.map((campaign) => (
+              <section key={campaign.id} style={styles.campaignBlock}>
+                <div style={styles.campaignHeader}>
+                  <h2 style={styles.campaignTitle}>{campaign.title}</h2>
+                  <p style={styles.campaignDescription}>{campaign.description}</p>
+                </div>
+
+                <div style={styles.missionGrid}>
+                  {campaign.missions.map((mission, index) => {
+                    const unlocked = isCampaignMissionUnlocked(
+                      campaign,
+                      mission.id,
+                      completedCampaignMissionIds
+                    );
+                    const completed = completedCampaignMissionIds.includes(mission.id);
+
+                    return (
+                      <button
+                        key={mission.id}
+                        type="button"
+                        style={{
+                          ...styles.missionCard,
+                          ...(unlocked ? {} : styles.missionCardLocked),
+                          ...(completed ? styles.missionCardCompleted : {}),
+                        }}
+                        disabled={!unlocked}
+                        onClick={() => startCampaignMission(mission.id)}
+                      >
+                        <span style={styles.missionNumber}>
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <span style={styles.missionTitle}>{mission.title}</span>
+                        <span style={styles.missionDescription}>
+                          {mission.description}
+                        </span>
+                        <span style={styles.missionState}>
+                          {completed ? "Пройдено" : unlocked ? "Доступно" : "Закрыто"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+
+          <button type="button" style={styles.backButton} onClick={closeCampaignMenu}>
+            Назад
+          </button>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main style={styles.page}>
@@ -161,6 +234,24 @@ export function PvpLobby() {
                 </button>
               );
             })}
+
+            <button
+              type="button"
+              style={{
+                ...styles.campaignEntryOption,
+                ...(buttonsDisabled ? styles.headquartersOptionDisabled : {}),
+              }}
+              disabled={buttonsDisabled}
+              onClick={openCampaignMenu}
+              aria-label="Открыть компании"
+            >
+              <div style={styles.campaignEntryCard}>
+                <div style={styles.campaignEntryMark}>I</div>
+                <div style={styles.campaignEntryTitle}>Операции</div>
+                <div style={styles.campaignEntryLine} />
+              </div>
+              <div style={styles.campaignEntryLabel}>Компании</div>
+            </button>
           </div>
         </div>
 
@@ -387,6 +478,88 @@ const styles: Record<string, CSSProperties> = {
     opacity: 0.72,
   },
 
+  campaignEntryOption: {
+    position: "relative",
+    flex: "0 0 auto",
+    width: MENU_CARD_WIDTH + 44,
+    height: MENU_CARD_HEIGHT + 28,
+    padding: "10px 22px 18px",
+    border: "none",
+    outline: "none",
+    background: "transparent",
+    color: "#f8e3ae",
+    cursor: "pointer",
+    textAlign: "center",
+    scrollSnapAlign: "center",
+    boxSizing: "border-box",
+  },
+
+  campaignEntryCard: {
+    position: "relative",
+    width: MENU_CARD_WIDTH,
+    height: MENU_CARD_HEIGHT,
+    margin: "0 auto",
+    borderRadius: 18,
+    overflow: "hidden",
+    background:
+      "linear-gradient(160deg, rgba(73, 61, 35, 0.96), rgba(21, 24, 18, 0.98) 58%, rgba(7, 8, 6, 0.98))",
+    border: "1px solid rgba(244, 209, 124, 0.42)",
+    boxShadow:
+      "0 18px 42px rgba(0,0,0,0.52), inset 0 0 36px rgba(255, 223, 128, 0.08)",
+  },
+
+  campaignEntryMark: {
+    position: "absolute",
+    left: "50%",
+    top: "24%",
+    transform: "translateX(-50%)",
+    width: 76,
+    height: 76,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 999,
+    border: "2px solid rgba(244, 209, 124, 0.58)",
+    color: "#ffe9a8",
+    fontSize: 46,
+    fontWeight: 1000,
+    fontFamily: "Georgia, Times New Roman, serif",
+    boxShadow: "inset 0 0 18px rgba(255, 225, 145, 0.12)",
+  },
+
+  campaignEntryTitle: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 46,
+    color: "#d7b665",
+    fontSize: 13,
+    fontWeight: 1000,
+    letterSpacing: 2.4,
+    textTransform: "uppercase",
+    textShadow: "0 2px 10px rgba(0,0,0,0.9)",
+  },
+
+  campaignEntryLine: {
+    position: "absolute",
+    left: 28,
+    right: 28,
+    bottom: 34,
+    height: 1,
+    background:
+      "linear-gradient(90deg, transparent, rgba(244, 209, 124, 0.72), transparent)",
+  },
+
+  campaignEntryLabel: {
+    marginTop: 10,
+    color: "#ffe9a8",
+    fontSize: 18,
+    fontWeight: 1000,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    textShadow: "0 3px 12px rgba(0,0,0,0.9)",
+  },
+
   selectionGlow: {
     position: "absolute",
     left: "50%",
@@ -495,6 +668,121 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 13,
     color: "#ff8a8a",
     textShadow: "0 2px 8px rgba(0,0,0,0.90)",
+  },
+
+  campaignPanel: {
+    width: "min(980px, calc(100vw - 48px))",
+    margin: "8px auto 12px",
+    padding: 18,
+    borderRadius: 16,
+    background: "linear-gradient(180deg, rgba(12,14,12,0.82), rgba(2,3,2,0.72))",
+    border: "1px solid rgba(220, 184, 96, 0.22)",
+    boxShadow: "0 18px 48px rgba(0,0,0,0.42)",
+  },
+
+  campaignBlock: {
+    display: "grid",
+    gap: 14,
+  },
+
+  campaignHeader: {
+    display: "grid",
+    gap: 5,
+  },
+
+  campaignTitle: {
+    margin: 0,
+    color: "#ffe9a8",
+    fontSize: 24,
+    fontWeight: 1000,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+
+  campaignDescription: {
+    margin: 0,
+    color: "rgba(244, 229, 191, 0.78)",
+    fontSize: 14,
+    lineHeight: 1.35,
+  },
+
+  missionGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+    gap: 12,
+  },
+
+  missionCard: {
+    minHeight: 178,
+    display: "grid",
+    gridTemplateRows: "auto auto 1fr auto",
+    gap: 9,
+    padding: 16,
+    borderRadius: 12,
+    border: "1px solid rgba(220, 184, 96, 0.42)",
+    background:
+      "linear-gradient(180deg, rgba(73, 58, 34, 0.94), rgba(29, 26, 18, 0.94))",
+    color: "#f8e3ae",
+    cursor: "pointer",
+    textAlign: "left",
+    boxShadow: "0 12px 28px rgba(0,0,0,0.34)",
+  },
+
+  missionCardLocked: {
+    cursor: "default",
+    opacity: 0.46,
+    filter: "grayscale(0.45)",
+  },
+
+  missionCardCompleted: {
+    borderColor: "rgba(125, 255, 138, 0.44)",
+    background:
+      "linear-gradient(180deg, rgba(54, 75, 39, 0.94), rgba(22, 34, 20, 0.94))",
+  },
+
+  missionNumber: {
+    color: "#d7b665",
+    fontSize: 12,
+    fontWeight: 1000,
+    letterSpacing: 2,
+  },
+
+  missionTitle: {
+    color: "#ffe9a8",
+    fontSize: 18,
+    fontWeight: 1000,
+    textTransform: "uppercase",
+  },
+
+  missionDescription: {
+    color: "rgba(244, 229, 191, 0.78)",
+    fontSize: 13,
+    lineHeight: 1.35,
+  },
+
+  missionState: {
+    color: "#d7b665",
+    fontSize: 12,
+    fontWeight: 900,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+
+  backButton: {
+    cursor: "pointer",
+    display: "block",
+    width: "min(240px, calc(100vw - 48px))",
+    margin: "0 auto",
+    padding: "11px 16px",
+    borderRadius: 10,
+    border: "1px solid rgba(220, 184, 96, 0.48)",
+    background:
+      "linear-gradient(180deg, rgba(74, 58, 34, 0.94), rgba(42, 32, 19, 0.94))",
+    color: "#f8e3ae",
+    fontWeight: 1000,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    boxShadow: "0 10px 22px rgba(0,0,0,0.30)",
   },
 
   cardPreviewOverlay: {
