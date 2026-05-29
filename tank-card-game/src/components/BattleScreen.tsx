@@ -192,6 +192,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     pvpTimer,
     matchEndReason,
     selectedCardInstanceId,
+    opponentSelectedCardInstanceId,
     selectedAttacker,
     selectCard,
     selectAttacker,
@@ -569,23 +570,31 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const visibleThinkingCardIndex = canAnimateEnemyThinking
     ? thinkingCardIndex
     : null;
+  const pvpSelectedOpponentCardIndex =
+    mode === "pvp" && opponentSelectedCardInstanceId
+      ? battle[opponentPlayerId].hand.findIndex(
+          (card) => card.instanceId === opponentSelectedCardInstanceId
+        )
+      : -1;
+  const visibleOpponentPulledCardIndex =
+    pvpSelectedOpponentCardIndex >= 0
+      ? pvpSelectedOpponentCardIndex
+      : visibleThinkingCardIndex;
 
   useEffect(() => {
     if (!canAnimateEnemyThinking) return;
 
+    const firstPickTimeout = window.setTimeout(() => {
+      setThinkingCardIndex(Math.floor(Math.random() * battle.bot.hand.length));
+    }, 80);
+
     const interval = window.setInterval(() => {
-      const shouldRaiseCard = Math.random() < 0.45;
-
-      if (!shouldRaiseCard) {
-        setThinkingCardIndex(null);
-        return;
-      }
-
       const randomIndex = Math.floor(Math.random() * battle.bot.hand.length);
       setThinkingCardIndex(randomIndex);
-    }, 1100);
+    }, 950);
 
     return () => {
+      window.clearTimeout(firstPickTimeout);
       window.clearInterval(interval);
     };
   }, [canAnimateEnemyThinking, battle.bot.hand.length]);
@@ -1181,30 +1190,6 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     );
   }
 
-  function renderCardBack(index: number, small = false, raised = false) {
-  return (
-    <motion.div
-      key={index}
-      style={{
-        ...styles.cardBack,
-        ...(small ? styles.cardBackSmall : {}),
-        backgroundImage: `url(${cardBackImage})`,
-      }}
-      animate={{
-        x: index * -5,
-        y: raised ? 34 : 0,
-        rotate: index * -2,
-        scale: raised ? 1.03 : 1,
-      }}
-      transition={{
-        type: "spring",
-        stiffness: 180,
-        damping: 22,
-      }}
-    />
-  );
-}
-
 function renderEnemyDeckWithTimer() {
   return (
     <div style={styles.enemyDeckWithTimer}>
@@ -1373,6 +1358,9 @@ function renderEnemyDeckWithTimer() {
           const isHidden =
             hiddenDrawnCardIds.has(cardInstance.instanceId) ||
             hiddenSpawningCardIds.has(cardInstance.instanceId);
+          const handCenter = (battle[opponentPlayerId].hand.length - 1) / 2;
+          const rotation = (index - handCenter) * 2.4;
+          const isPulledCard = visibleOpponentPulledCardIndex === index;
 
           return (
             <motion.div
@@ -1381,28 +1369,30 @@ function renderEnemyDeckWithTimer() {
               layout="position"
               style={{
                 ...styles.cardBack,
+                ...styles.enemyHandCard,
                 backgroundImage: `url(${cardBackImage})`,
+                marginLeft: index === 0 ? 0 : -58,
                 opacity: isHidden ? 0 : 1,
+                zIndex: index + 1,
+                filter: isPulledCard ? "brightness(1.08)" : "none",
+                boxShadow: isPulledCard ? "none" : styles.cardBack.boxShadow,
               }}
               initial={{
                 opacity: 0,
-                x: index * -5,
                 y: -10,
-                rotate: index * -2,
+                rotate: rotation,
                 scale: 1,
               }}
               animate={{
                 opacity: isHidden ? 0 : 1,
-                x: index * -5,
-                y: 0,
-                rotate: index * -2,
-                scale: 1,
+                y: isPulledCard ? 31 : 0,
+                rotate: isPulledCard ? rotation * 0.55 : rotation,
+                scale: isPulledCard ? 1.045 : 1,
               }}
               exit={{
                 opacity: 0,
-                x: index * -5,
                 y: -10,
-                rotate: index * -2,
+                rotate: rotation,
                 scale: 1,
               }}
               transition={{
@@ -1417,22 +1407,6 @@ function renderEnemyDeckWithTimer() {
       </AnimatePresence>
     </div>
   </div>
-
-  {visibleThinkingCardIndex !== null && (
-    <div style={styles.enemyThinkingLayer}>
-      {battle[opponentPlayerId].hand.map((_, index) => (
-        <div
-          key={`thinking-${index}`}
-          style={{
-            opacity: visibleThinkingCardIndex === index ? 1 : 0,
-            pointerEvents: "none",
-          }}
-        >
-          {renderCardBack(index, false, visibleThinkingCardIndex === index)}
-        </div>
-      ))}
-    </div>
-  )}
 </div>
 
           <div style={styles.enemyInfo} />
@@ -2062,23 +2036,6 @@ function renderEnemyDeckWithTimer() {
           </div>
         </section>
 
-        <aside style={styles.logPanel}>
-          <h2 style={styles.sectionTitle}>Лог боя</h2>
-
-          <div style={styles.log}>
-            {battle.log.map((item, index) => (
-              <motion.p
-                key={`${item}-${index}`}
-                style={styles.logItem}
-                initial={{ opacity: 0, x: 12 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.2 }}
-              >
-                {item}
-              </motion.p>
-            ))}
-          </div>
-        </aside>
       </main>
 
       <AnimatePresence>
@@ -2232,7 +2189,7 @@ const styles: Record<string, React.CSSProperties> = {
   position: "relative",
   zIndex: 1,
   display: "grid",
-  gridTemplateRows: "110px minmax(260px, auto) minmax(210px, auto) 60px",
+  gridTemplateRows: "110px minmax(260px, auto) minmax(210px, auto)",
   gridTemplateColumns: "1fr",
   gap: 6,
   overflow: "visible",
@@ -2245,12 +2202,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   enemyHand: {
-  height: 82,
+  height: 96,
   display: "flex",
   justifyContent: "center",
   alignItems: "flex-start",
-  gap: 12,
-  overflow: "visible",
+  overflow: "hidden",
   position: "relative",
   transform: "translateY(-15px)",
   zIndex: 20,
@@ -2326,10 +2282,11 @@ startRollResultBot: {
 },
 
 enemyHandClip: {
-  height: 82,
+  height: 96,
   overflow: "hidden",
   position: "relative",
-  width: "100%",
+  width: "min(560px, calc(100vw - 260px))",
+  minWidth: 260,
   background: "transparent",
   border: "none",
   boxShadow: "none",
@@ -2339,22 +2296,13 @@ enemyHandCardMask: {
   display: "flex",
   justifyContent: "center",
   alignItems: "flex-start",
-  gap: 10,
-  transform: "translateY(-82px)",
+  transform: "translateY(-78px)",
+  paddingLeft: 58,
+  paddingRight: 58,
 },
 
-enemyThinkingLayer: {
-  position: "absolute",
-  left: 0,
-  right: 0,
-  top: 0,
-  zIndex: 40,
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "flex-start",
-  gap: 12,
-  transform: "translateY(-96px)",
-  pointerEvents: "none",
+enemyHandCard: {
+  flex: "0 0 auto",
 },
 
  enemyInfo: {
@@ -2632,13 +2580,6 @@ actionSideColumn: {
     boxShadow: "0 14px 34px rgba(0,0,0,0.52)",
   },
 
-  cardBackSmall: {
-  position: "absolute",
-  width: 96,
-  height: 128,
-  border: "none",
-  boxShadow: "0 10px 24px rgba(0,0,0,0.42)",
-},
   hqPanel: {
     display: "flex",
     flexDirection: "column",
@@ -2793,52 +2734,6 @@ turnCounterValue: {
     fontSize: 13,
     lineHeight: 1.35,
     color: "rgba(238, 242, 243, 0.78)",
-  },
-
-  logPanel: {
-    gridColumn: "1 / 2",
-    gridRow: "4 / 5",
-    display: "grid",
-    gridTemplateColumns: "110px 1fr",
-    alignItems: "center",
-    gap: 12,
-    background: "rgba(10, 12, 12, 0.74)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: 14,
-    padding: "8px 12px",
-    boxShadow: "0 12px 34px rgba(0,0,0,0.32)",
-    overflow: "hidden",
-  },
-
-  sectionTitle: {
-    margin: 0,
-    fontSize: 14,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    opacity: 0.78,
-    whiteSpace: "nowrap",
-  },
-
-  log: {
-    display: "flex",
-    flexDirection: "row",
-    gap: 10,
-    overflowX: "auto",
-    overflowY: "hidden",
-    whiteSpace: "nowrap",
-    paddingBottom: 4,
-  },
-
-  logItem: {
-    margin: 0,
-    flex: "0 0 auto",
-    fontSize: 12,
-    lineHeight: 1.2,
-    opacity: 0.86,
-    padding: "7px 10px",
-    borderRadius: 999,
-    background: "rgba(255,255,255,0.055)",
-    border: "1px solid rgba(255,255,255,0.055)",
   },
 
   damageText: {

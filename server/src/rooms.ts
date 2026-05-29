@@ -158,6 +158,9 @@ export class RoomManager {
       case "GAME_ACTION":
         this.applyGameAction(socket, message.action);
         break;
+      case "SELECT_CARD":
+        this.updateCardSelection(socket, message.cardInstanceId);
+        break;
       case "SURRENDER":
         this.surrenderMatch(socket);
         break;
@@ -425,6 +428,8 @@ export class RoomManager {
 
     const previousActivePlayer = room.battle.activePlayer;
     const safeAction = overwritePlayerId(action, playerId);
+    this.broadcastCardSelection(room, playerId, null);
+
     room.battle = applyAction(room.battle, safeAction);
 
     this.broadcastBattleState(room);
@@ -440,6 +445,25 @@ export class RoomManager {
     ) {
       this.restartTurnTimer(room);
     }
+  }
+
+  private updateCardSelection(socket: WebSocket, cardInstanceId: string | null) {
+    const room = this.getRoomBySocket(socket);
+    const playerId = this.socketToPlayer.get(socket);
+
+    if (!room || !playerId || !room.battle) return;
+    if (room.ended) return;
+    if (room.battle.status !== "active") return;
+    if (room.battle.activePlayer !== playerId) return;
+
+    if (
+      cardInstanceId !== null &&
+      !room.battle[playerId].hand.some((card) => card.instanceId === cardInstanceId)
+    ) {
+      return;
+    }
+
+    this.broadcastCardSelection(room, playerId, cardInstanceId);
   }
 
   private surrenderMatch(socket: WebSocket) {
@@ -951,6 +975,8 @@ export class RoomManager {
 
     console.log(`[PVP:${room.id}] timer timeout for ${expectedPlayer}`);
 
+    this.broadcastCardSelection(room, expectedPlayer, null);
+
     room.battle = applyAction(room.battle, {
       type: "END_TURN",
       playerId: expectedPlayer,
@@ -1022,6 +1048,21 @@ export class RoomManager {
       type: "GAME_STATE",
       roomId: room.id,
       battle: createBattleViewForPlayer(room.battle, playerId),
+    });
+  }
+
+  private broadcastCardSelection(
+    room: Room,
+    playerId: PlayerId,
+    cardInstanceId: string | null
+  ) {
+    const opponentId = this.getOpponent(playerId);
+    const opponent = room.players[opponentId];
+
+    safeSend(opponent?.socket, {
+      type: "OPPONENT_CARD_SELECTION",
+      playerId,
+      cardInstanceId,
     });
   }
 

@@ -51,6 +51,7 @@ type BattleStore = {
   selectedHeadquartersId: HeadquartersId;
 
   selectedCardInstanceId: string | null;
+  opponentSelectedCardInstanceId: string | null;
   selectedAttacker: SelectedAttacker;
 
   selectCard: (cardInstanceId: string | null) => void;
@@ -65,6 +66,10 @@ type BattleStore = {
   restorePvpSession: () => void;
   applyRemoteBattleState: (battle: BattleStateView) => void;
   applyMatchEnded: (winner: PlayerId, reason: MatchEndReason) => void;
+  applyOpponentCardSelection: (
+    playerId: PlayerId,
+    cardInstanceId: string | null
+  ) => void;
   applyPvpTimer: (timer: {
     activePlayer: PlayerId;
     remainingMs: number;
@@ -160,6 +165,7 @@ function getCleanMenuState() {
     matchEndReason: null,
     pvpTimer: emptyPvpTimer,
     selectedCardInstanceId: null,
+    opponentSelectedCardInstanceId: null,
     selectedAttacker: null,
     firstTurnRoll: emptyFirstTurnRoll,
   };
@@ -183,6 +189,7 @@ function setupPvpSubscriptions() {
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           selectedCardInstanceId: null,
+          opponentSelectedCardInstanceId: null,
           selectedAttacker: null,
           firstTurnRoll: emptyFirstTurnRoll,
         });
@@ -203,6 +210,9 @@ function setupPvpSubscriptions() {
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           firstTurnRoll: emptyFirstTurnRoll,
+          selectedCardInstanceId: null,
+          opponentSelectedCardInstanceId: null,
+          selectedAttacker: null,
         });
         break;
 
@@ -215,6 +225,9 @@ function setupPvpSubscriptions() {
           pvpError: null,
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
+          selectedCardInstanceId: null,
+          opponentSelectedCardInstanceId: null,
+          selectedAttacker: null,
         });
         break;
 
@@ -236,6 +249,7 @@ function setupPvpSubscriptions() {
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           selectedCardInstanceId: null,
+          opponentSelectedCardInstanceId: null,
           selectedAttacker: null,
           firstTurnRoll: {
             visible: true,
@@ -276,6 +290,7 @@ function setupPvpSubscriptions() {
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           selectedCardInstanceId: null,
+          opponentSelectedCardInstanceId: null,
           selectedAttacker: null,
         });
         break;
@@ -298,6 +313,7 @@ function setupPvpSubscriptions() {
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           selectedCardInstanceId: null,
+          opponentSelectedCardInstanceId: null,
           selectedAttacker: null,
           firstTurnRoll: emptyFirstTurnRoll,
         });
@@ -321,6 +337,10 @@ function setupPvpSubscriptions() {
         store.applyMatchEnded(message.winner, message.reason);
         break;
 
+      case "OPPONENT_CARD_SELECTION":
+        store.applyOpponentCardSelection(message.playerId, message.cardInstanceId);
+        break;
+
       case "MATCHMAKING_CANCELLED":
         clearFirstTurnRollTimers();
         clearReconnectTimer();
@@ -334,6 +354,7 @@ function setupPvpSubscriptions() {
           matchEndReason: message.reason,
           pvpError: null,
           pvpTimer: emptyPvpTimer,
+          opponentSelectedCardInstanceId: null,
           firstTurnRoll: emptyFirstTurnRoll,
         });
         break;
@@ -345,6 +366,7 @@ function setupPvpSubscriptions() {
           pvpError: null,
           matchEndReason: "disconnect",
           pvpTimer: emptyPvpTimer,
+          opponentSelectedCardInstanceId: null,
           firstTurnRoll: emptyFirstTurnRoll,
         });
         break;
@@ -415,9 +437,14 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   selectedHeadquartersId: DEFAULT_PLAYER_HEADQUARTERS_ID,
 
   selectedCardInstanceId: null,
+  opponentSelectedCardInstanceId: null,
   selectedAttacker: null,
 
   selectCard: (cardInstanceId) => {
+    if (get().mode === "pvp") {
+      pvpClient.selectCard(cardInstanceId);
+    }
+
     set({
       selectedCardInstanceId: cardInstanceId,
       selectedAttacker: null,
@@ -425,6 +452,10 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   selectAttacker: (attacker) => {
+    if (get().mode === "pvp") {
+      pvpClient.selectCard(null);
+    }
+
     set({
       selectedAttacker: attacker,
       selectedCardInstanceId: null,
@@ -459,6 +490,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
+      opponentSelectedCardInstanceId: null,
       selectedAttacker: null,
     });
 
@@ -480,6 +512,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
+      opponentSelectedCardInstanceId: null,
       selectedAttacker: null,
     });
 
@@ -501,6 +534,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
+      opponentSelectedCardInstanceId: null,
       selectedAttacker: null,
     });
 
@@ -529,6 +563,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
+      opponentSelectedCardInstanceId: null,
       selectedAttacker: null,
     });
 
@@ -561,6 +596,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
+      opponentSelectedCardInstanceId: null,
       selectedAttacker: null,
     });
 
@@ -568,11 +604,16 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   applyRemoteBattleState: (battle) => {
+    const state = get();
+    const opponentIsActive =
+      battle.status === "active" && battle.activePlayer !== state.localPlayerId;
+
     set({
       battle,
       pvpStatus: battle.status === "active" ? "inBattle" : "finished",
       pvpError: null,
       ...(battle.status === "active" ? {} : { pvpTimer: emptyPvpTimer }),
+      ...(opponentIsActive ? {} : { opponentSelectedCardInstanceId: null }),
     });
   },
 
@@ -587,7 +628,30 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpTimer: emptyPvpTimer,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
+      opponentSelectedCardInstanceId: null,
       selectedAttacker: null,
+    });
+  },
+
+  applyOpponentCardSelection: (playerId, cardInstanceId) => {
+    const state = get();
+
+    if (state.mode !== "pvp") return;
+    if (playerId === state.localPlayerId) return;
+    if (!state.battle || state.battle.activePlayer !== playerId) {
+      set({ opponentSelectedCardInstanceId: null });
+      return;
+    }
+
+    if (
+      cardInstanceId !== null &&
+      !state.battle[playerId].hand.some((card) => card.instanceId === cardInstanceId)
+    ) {
+      return;
+    }
+
+    set({
+      opponentSelectedCardInstanceId: cardInstanceId,
     });
   },
 
@@ -649,6 +713,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpClient.sendAction(action);
 
       if (shouldClearSelection(action)) {
+        pvpClient.selectCard(null);
         set({
           selectedCardInstanceId: null,
           selectedAttacker: null,
@@ -681,8 +746,10 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     const { mode } = get();
 
     if (mode === "pvp") {
+      pvpClient.selectCard(null);
       set({
         selectedCardInstanceId: null,
+        opponentSelectedCardInstanceId: null,
         selectedAttacker: null,
       });
       return;
@@ -691,6 +758,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({
       battle: createFreshBattle(get().selectedHeadquartersId),
       selectedCardInstanceId: null,
+      opponentSelectedCardInstanceId: null,
       selectedAttacker: null,
     });
   },

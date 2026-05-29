@@ -11,6 +11,7 @@ export type PvpClientMessage =
   | { type: "JOIN_ROOM"; roomId: string; sessionId: string; headquartersId: HeadquartersId }
   | { type: "RECONNECT"; sessionId: string; roomId?: string | null }
   | { type: "GAME_ACTION"; action: BattleAction }
+  | { type: "SELECT_CARD"; cardInstanceId: string | null }
   | { type: "SURRENDER" }
   | { type: "LEAVE_MATCH" }
   | { type: "CANCEL_MATCHMAKING" };
@@ -47,6 +48,11 @@ export type PvpServerMessage =
   | { type: "GAME_STARTED"; roomId: string; battle: BattleStateView; playerId: PlayerId }
   | { type: "GAME_STATE"; roomId: string; battle: BattleStateView }
   | PvpTurnTimerEvent
+  | {
+      type: "OPPONENT_CARD_SELECTION";
+      playerId: PlayerId;
+      cardInstanceId: string | null;
+    }
   | { type: "MATCH_ENDED"; winner: PlayerId; reason: MatchEndReason }
   | { type: "MATCHMAKING_CANCELLED" }
   | { type: "OPPONENT_LEFT"; reason: MatchEndReason }

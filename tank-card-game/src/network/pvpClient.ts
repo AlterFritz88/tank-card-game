@@ -30,6 +30,11 @@ export type PvpClientMessage =
       endsAt: number;
       durationMs: number;
     }
+  | {
+      type: "OPPONENT_CARD_SELECTION";
+      playerId: PlayerId;
+      cardInstanceId: string | null;
+    }
   | { type: "MATCH_ENDED"; winner: PlayerId; reason: MatchEndReason }
   | { type: "MATCHMAKING_CANCELLED" }
   | { type: "OPPONENT_LEFT"; reason: MatchEndReason }
@@ -42,6 +47,7 @@ export type PvpServerMessage =
   | { type: "JOIN_ROOM"; roomId: string; sessionId: string; headquartersId: HeadquartersId }
   | { type: "RECONNECT"; sessionId: string; roomId?: string | null }
   | { type: "GAME_ACTION"; action: BattleAction }
+  | { type: "SELECT_CARD"; cardInstanceId: string | null }
   | { type: "SURRENDER" }
   | { type: "LEAVE_MATCH" }
   | { type: "CANCEL_MATCHMAKING" };
@@ -166,6 +172,12 @@ class PvpClient {
 
   sendAction(action: BattleAction) {
     this.send({ type: "GAME_ACTION", action });
+  }
+
+  selectCard(cardInstanceId: string | null) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+
+    this.socket.send(JSON.stringify({ type: "SELECT_CARD", cardInstanceId }));
   }
 
   surrender() {
