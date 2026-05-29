@@ -240,6 +240,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const SPAWN_CARD_ANIMATION_MS = 620;
   const START_ROLL_DURATION_MS = 2800;
   const START_ROLL_RESULT_DELAY_MS = 350;
+  const HAND_LAYOUT_TRANSITION = {
+    type: "spring" as const,
+    stiffness: 360,
+    damping: 30,
+    mass: 0.85,
+  };
   const [damagedIds, setDamagedIds] = useState<Set<DamageId>>(new Set());
   const [attackingId, setAttackingId] = useState<string | null>(null);
   const [attackEffectId, setAttackEffectId] = useState<string | null>(null);
@@ -1420,48 +1426,78 @@ function renderEnemyDeckWithTimer() {
         <section style={styles.enemyZone}>
   <div style={styles.enemyDeckArea} />
 
-  <div
+  <motion.div
   ref={(element) => {
     handRefs.current[opponentPlayerId] = element;
   }}
+  layout="position"
   style={styles.enemyHand}
+  transition={HAND_LAYOUT_TRANSITION}
 >
   <div style={styles.enemyHandClip}>
-    <div style={styles.enemyHandCardMask}>
-     {battle[opponentPlayerId].hand.map((cardInstance, index) => (
-  <div
-    key={`bot-hand-${cardInstance.instanceId}`}
-    ref={setHandCardRef(opponentPlayerId, cardInstance.instanceId)}
-    style={{
-      opacity:
-        hiddenDrawnCardIds.has(cardInstance.instanceId) ||
-        hiddenSpawningCardIds.has(cardInstance.instanceId)
-          ? 0
-          : 1,
-    }}
-  >
-    {renderCardBack(index, false, false)}
-  </div>
-))}
-    </div>
+    <motion.div
+      layout="position"
+      style={styles.enemyHandCardMask}
+      transition={HAND_LAYOUT_TRANSITION}
+    >
+      <AnimatePresence initial={false}>
+        {battle[opponentPlayerId].hand.map((cardInstance, index) => {
+          const isHiddenDrawnCard = hiddenDrawnCardIds.has(
+            cardInstance.instanceId
+          );
+          const isHiddenSpawningCard = hiddenSpawningCardIds.has(
+            cardInstance.instanceId
+          );
+
+          return (
+            <motion.div
+              key={`bot-hand-${cardInstance.instanceId}`}
+              ref={setHandCardRef(opponentPlayerId, cardInstance.instanceId)}
+              layout="position"
+              style={{
+                opacity:
+                  isHiddenDrawnCard || isHiddenSpawningCard ? 0 : 1,
+              }}
+              initial={{ opacity: 0, y: -10, scale: 0.96 }}
+              animate={{
+                opacity:
+                  isHiddenDrawnCard || isHiddenSpawningCard ? 0 : 1,
+                y: 0,
+                scale: 1,
+              }}
+              exit={{ opacity: 0, y: -10, scale: 0.96 }}
+              transition={HAND_LAYOUT_TRANSITION}
+            >
+              {renderCardBack(index, false, false)}
+            </motion.div>
+          );
+        })}
+      </AnimatePresence>
+    </motion.div>
   </div>
 
   {visibleThinkingCardIndex !== null && (
-    <div style={styles.enemyThinkingLayer}>
+    <motion.div
+      layout="position"
+      style={styles.enemyThinkingLayer}
+      transition={HAND_LAYOUT_TRANSITION}
+    >
       {battle[opponentPlayerId].hand.map((_, index) => (
-        <div
+        <motion.div
           key={`thinking-${index}`}
+          layout="position"
           style={{
             opacity: visibleThinkingCardIndex === index ? 1 : 0,
             pointerEvents: "none",
           }}
+          transition={HAND_LAYOUT_TRANSITION}
         >
           {renderCardBack(index, false, visibleThinkingCardIndex === index)}
-        </div>
+        </motion.div>
       ))}
-    </div>
+    </motion.div>
   )}
-</div>
+</motion.div>
 
           <div style={styles.enemyInfo} />
         </section>
@@ -1997,13 +2033,15 @@ function renderEnemyDeckWithTimer() {
         <section style={styles.playerZone}>
   
 
-          <div
+          <motion.div
   ref={(element) => {
     handRefs.current[humanPlayerId] = element;
   }}
+  layout="position"
   style={styles.hand}
+  transition={HAND_LAYOUT_TRANSITION}
 >
-            <AnimatePresence>
+            <AnimatePresence initial={false}>
               {localHand.map((cardInstance, index) => {
                 const card = getCard(cardInstance.cardId);
                 const selected =
@@ -2019,6 +2057,7 @@ function renderEnemyDeckWithTimer() {
                   <motion.button
                     key={cardInstance.instanceId}
                     ref={setHandCardRef(humanPlayerId, cardInstance.instanceId)}
+                    layout="position"
                     style={{
                       ...styles.card,
                       marginLeft: getPlayerHandCardMarginLeft(
@@ -2038,11 +2077,7 @@ function renderEnemyDeckWithTimer() {
                       y: 0,
                     }}
                     exit={{ opacity: 0, y: -16 }}
-                    transition={{
-                      type: "spring",
-                      stiffness: 280,
-                      damping: 24,
-                    }}
+                    transition={HAND_LAYOUT_TRANSITION}
                     whileHover={{ y: -108, scale: 1.08 }}
                     whileTap={{ scale: 0.97 }}
                     aria-disabled={
@@ -2084,7 +2119,7 @@ function renderEnemyDeckWithTimer() {
                 );
               })}
             </AnimatePresence>
-          </div>
+          </motion.div>
         </section>
 
         <aside style={styles.logPanel}>
