@@ -1,13 +1,14 @@
 import type {
   BattleAction,
   BattleStateView,
+  HeadquartersId,
   PlayerId,
 } from "../../tank-card-game/src/game/types";
 
 export type PvpClientMessage =
-  | { type: "FIND_MATCH"; sessionId: string }
-  | { type: "CREATE_ROOM"; sessionId: string }
-  | { type: "JOIN_ROOM"; roomId: string; sessionId: string }
+  | { type: "FIND_MATCH"; sessionId: string; headquartersId: HeadquartersId }
+  | { type: "CREATE_ROOM"; sessionId: string; headquartersId: HeadquartersId }
+  | { type: "JOIN_ROOM"; roomId: string; sessionId: string; headquartersId: HeadquartersId }
   | { type: "RECONNECT"; sessionId: string; roomId?: string | null }
   | { type: "GAME_ACTION"; action: BattleAction }
   | { type: "SURRENDER" }

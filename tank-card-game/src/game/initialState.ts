@@ -1,6 +1,12 @@
+import {
+  DEFAULT_BOT_HEADQUARTERS_ID,
+  DEFAULT_PLAYER_HEADQUARTERS_ID,
+  getHeadquartersDefinition,
+} from "./headquarters";
 import type {
   BattleState,
   CardInstance,
+  HeadquartersId,
   HeadquartersState,
   PlayerId,
   PlayerState,
@@ -9,27 +15,34 @@ import type {
 
 export const STEP_TIME_MS = 15 * 1000;
 
-const PLAYER_DECK_CARD_IDS = [
-  "m4_sherman",
-  "m5_stuart",
-  "churchill",
-  "su_122",
-  "m4_sherman",
-  "m5_stuart",
-  "churchill",
-  "su_122",
-];
+export type CreateBattleOptions = {
+  playerHeadquartersId?: HeadquartersId;
+  botHeadquartersId?: HeadquartersId;
+};
 
-const BOT_DECK_CARD_IDS = [
-  "panzer_iv",
-  "stug_iii",
-  "marder_iii",
-  "wespe",
-  "tiger_i",
-  "panzer_iv",
-  "stug_iii",
-  "marder_iii",
-];
+const DECK_CARD_IDS: Record<string, string[]> = {
+  training_unit_default: [
+    "m4_sherman",
+    "m5_stuart",
+    "churchill",
+    "su_122",
+    "m4_sherman",
+    "m5_stuart",
+    "churchill",
+    "su_122",
+  ],
+
+  trainingslager_default: [
+    "panzer_iv",
+    "stug_iii",
+    "marder_iii",
+    "wespe",
+    "tiger_i",
+    "panzer_iv",
+    "stug_iii",
+    "marder_iii",
+  ],
+};
 
 function createCardInstances(cardIds: string[], owner: PlayerId): CardInstance[] {
   return cardIds.map((cardId, index) => ({
@@ -53,10 +66,17 @@ function shuffleCards<T>(items: T[]): T[] {
   return result;
 }
 
-function createPlayerState(owner: PlayerId, deckCardIds: string[]): PlayerState {
+function createPlayerState(
+  owner: PlayerId,
+  headquartersId: HeadquartersId
+): PlayerState {
+  const headquarters = getHeadquartersDefinition(headquartersId);
+  const deckCardIds = DECK_CARD_IDS[headquarters.defaultDeckId] ?? [];
   const deck = shuffleCards(createCardInstances(deckCardIds, owner));
 
   return {
+    headquartersId,
+    deckId: headquarters.defaultDeckId,
     deck,
     hand: [],
     discard: [],
@@ -74,36 +94,47 @@ function createTimerState(): PlayerTimerState {
   };
 }
 
-function createHeadquarters(ownerId: PlayerId): HeadquartersState {
+function createHeadquarters(
+  ownerId: PlayerId,
+  headquartersId: HeadquartersId
+): HeadquartersState {
   const isPlayer = ownerId === "player";
+  const headquarters = getHeadquartersDefinition(headquartersId);
 
   return {
     ownerId,
     position: isPlayer ? { row: 2, col: 0 } : { row: 0, col: 4 },
 
-    hp: 15,
-    attack: 1,
-    range: 99,
+    hp: headquarters.hp,
+    attack: headquarters.attack,
+    range: headquarters.range,
 
-    fuelGeneration: 3,
-    actionFuelCost: 1,
+    fuelGeneration: headquarters.fuelGeneration,
+    actionFuelCost: headquarters.actionFuelCost,
 
     alreadyAttacked: false,
   };
 }
 
-export function createInitialBattleState(): BattleState {
+export function createInitialBattleState(
+  options: CreateBattleOptions = {}
+): BattleState {
+  const playerHeadquartersId =
+    options.playerHeadquartersId ?? DEFAULT_PLAYER_HEADQUARTERS_ID;
+  const botHeadquartersId =
+    options.botHeadquartersId ?? DEFAULT_BOT_HEADQUARTERS_ID;
+
   const state: BattleState = {
     status: "starting",
     activePlayer: "player",
     turn: 1,
 
-    player: createPlayerState("player", PLAYER_DECK_CARD_IDS),
-    bot: createPlayerState("bot", BOT_DECK_CARD_IDS),
+    player: createPlayerState("player", playerHeadquartersId),
+    bot: createPlayerState("bot", botHeadquartersId),
 
     headquarters: {
-      player: createHeadquarters("player"),
-      bot: createHeadquarters("bot"),
+      player: createHeadquarters("player", playerHeadquartersId),
+      bot: createHeadquarters("bot", botHeadquartersId),
     },
 
     units: [],

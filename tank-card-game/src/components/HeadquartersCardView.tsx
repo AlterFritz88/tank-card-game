@@ -1,5 +1,6 @@
 import type React from "react";
-import type { PlayerId } from "../game/types";
+import { getHeadquartersDefinition } from "../game/headquarters";
+import type { HeadquartersId, PlayerId } from "../game/types";
 import prototypeTankImage from "../assets/tanks/prototype-tank.png";
 import { StatBadge } from "./StatBadge";
 
@@ -21,6 +22,7 @@ const hqClassIconModules = import.meta.glob(
 
 type HeadquartersCardViewProps = {
   ownerId: PlayerId;
+  headquartersId?: HeadquartersId;
   artOwnerId?: PlayerId;
   hp: number;
   attack: number;
@@ -45,7 +47,7 @@ function getOptionalImage(
   return null;
 }
 
-function getHeadquartersImage(ownerId: PlayerId): string {
+function getLegacyHeadquartersImage(ownerId: PlayerId): string {
   const side = ownerId === "player" ? "player" : "enemy";
   const opponentSide = ownerId === "player" ? "friendly" : "bot";
 
@@ -79,6 +81,39 @@ function getHeadquartersImage(ownerId: PlayerId): string {
   );
 }
 
+function getHeadquartersImage(
+  headquartersId: HeadquartersId | undefined,
+  fallbackOwnerId: PlayerId
+): string {
+  if (!headquartersId) {
+    return getLegacyHeadquartersImage(fallbackOwnerId);
+  }
+
+  const headquarters = getHeadquartersDefinition(headquartersId);
+  const artKey = headquarters.artKey;
+
+  return (
+    getOptionalImage(headquartersImageModules, [
+      `headquarters-${artKey}.png`,
+      `headquarters-${artKey}.jpg`,
+      `headquarters-${artKey}.jpeg`,
+      `headquarters-${artKey}.webp`,
+      `hq-${artKey}.png`,
+      `hq-${artKey}.jpg`,
+      `hq-${artKey}.jpeg`,
+      `hq-${artKey}.webp`,
+      "headquarters.png",
+      "headquarters.jpg",
+      "headquarters.jpeg",
+      "headquarters.webp",
+      "hq.png",
+      "hq.jpg",
+      "hq.jpeg",
+      "hq.webp",
+    ]) ?? prototypeTankImage
+  );
+}
+
 function getHeadquartersClassIcon(ownerId: PlayerId): string | null {
   const side = ownerId === "player" ? "player" : "enemy";
   const opponentSide = ownerId === "player" ? "friendly" : "bot";
@@ -97,6 +132,7 @@ function getHeadquartersClassIcon(ownerId: PlayerId): string | null {
 
 export function HeadquartersCardView({
   ownerId,
+  headquartersId,
   artOwnerId,
   hp,
   attack,
@@ -105,7 +141,13 @@ export function HeadquartersCardView({
   alreadyAttacked = false,
 }: HeadquartersCardViewProps) {
   const isPlayer = ownerId === "player";
-  const headquartersImage = getHeadquartersImage(artOwnerId ?? ownerId);
+  const headquarters = headquartersId
+    ? getHeadquartersDefinition(headquartersId)
+    : null;
+  const headquartersImage = getHeadquartersImage(
+    headquartersId,
+    artOwnerId ?? ownerId
+  );
   const headquartersClassIcon = getHeadquartersClassIcon(ownerId);
 
   return (
@@ -117,7 +159,7 @@ export function HeadquartersCardView({
     >
       <img
         src={headquartersImage}
-        alt={isPlayer ? "Штаб игрока" : "Штаб врага"}
+        alt={headquarters?.title ?? (isPlayer ? "Штаб игрока" : "Штаб врага")}
         style={styles.hqImage}
         draggable={false}
       />
@@ -151,7 +193,7 @@ export function HeadquartersCardView({
             </span>
           )}
 
-          <strong style={styles.title}>Штаб</strong>
+          <strong style={styles.title}>{headquarters?.title ?? "Штаб"}</strong>
         </div>
       </div>
 

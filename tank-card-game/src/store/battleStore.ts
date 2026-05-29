@@ -1,11 +1,16 @@
 import { create } from "zustand";
 
 import { applyAction } from "../game/engine";
+import {
+  DEFAULT_BOT_HEADQUARTERS_ID,
+  DEFAULT_PLAYER_HEADQUARTERS_ID,
+} from "../game/headquarters";
 import { createInitialBattleState } from "../game/initialState";
 import type { GameMode, MatchEndReason, PvpConnectionState } from "../game/modes";
 import type {
   BattleAction,
   BattleState,
+  HeadquartersId,
   BattleStateView,
   ClientBattleState,
   PlayerId,
@@ -43,6 +48,7 @@ type BattleStore = {
   matchEndReason: MatchEndReason | null;
   pvpTimer: PvpTimerState;
   firstTurnRoll: FirstTurnRollState;
+  selectedHeadquartersId: HeadquartersId;
 
   selectedCardInstanceId: string | null;
   selectedAttacker: SelectedAttacker;
@@ -70,6 +76,7 @@ type BattleStore = {
   cancelMatchmaking: () => void;
   setPvpError: (message: string | null) => void;
   hideFirstTurnRoll: () => void;
+  setSelectedHeadquartersId: (headquartersId: HeadquartersId) => void;
 
   dispatch: (action: BattleAction) => void;
   reset: () => void;
@@ -127,8 +134,14 @@ function shouldClearSelection(action: BattleAction): boolean {
   );
 }
 
-function createFreshBattle() {
-  return createInitialBattleState();
+function createFreshBattle(
+  playerHeadquartersId: HeadquartersId = DEFAULT_PLAYER_HEADQUARTERS_ID,
+  botHeadquartersId: HeadquartersId = DEFAULT_BOT_HEADQUARTERS_ID
+) {
+  return createInitialBattleState({
+    playerHeadquartersId,
+    botHeadquartersId,
+  });
 }
 
 function getStartRollFinalRotation(firstPlayer: PlayerId): number {
@@ -399,6 +412,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   matchEndReason: null,
   pvpTimer: emptyPvpTimer,
   firstTurnRoll: emptyFirstTurnRoll,
+  selectedHeadquartersId: DEFAULT_PLAYER_HEADQUARTERS_ID,
 
   selectedCardInstanceId: null,
   selectedAttacker: null,
@@ -425,13 +439,17 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({ firstTurnRoll: emptyFirstTurnRoll });
   },
 
+  setSelectedHeadquartersId: (headquartersId) => {
+    set({ selectedHeadquartersId: headquartersId });
+  },
+
   startAiBattle: () => {
     clearFirstTurnRollTimers();
     clearReconnectTimer();
     pvpClient.clearSession();
 
     set({
-      battle: createFreshBattle(),
+      battle: createFreshBattle(get().selectedHeadquartersId),
       mode: "ai",
       localPlayerId: "player",
       pvpRoomId: null,
@@ -465,7 +483,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       selectedAttacker: null,
     });
 
-    connectAndRun(() => pvpClient.findMatch());
+    connectAndRun(() => pvpClient.findMatch(get().selectedHeadquartersId));
   },
 
   createPvpRoom: () => {
@@ -486,7 +504,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       selectedAttacker: null,
     });
 
-    connectAndRun(() => pvpClient.createRoom());
+    connectAndRun(() => pvpClient.createRoom(get().selectedHeadquartersId));
   },
 
   joinPvpRoom: (roomId) => {
@@ -514,7 +532,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       selectedAttacker: null,
     });
 
-    connectAndRun(() => pvpClient.joinRoom(normalizedRoomId));
+    connectAndRun(() => pvpClient.joinRoom(normalizedRoomId, get().selectedHeadquartersId));
   },
 
   startPvpBattle: (roomId) => {
@@ -671,7 +689,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     }
 
     set({
-      battle: createFreshBattle(),
+      battle: createFreshBattle(get().selectedHeadquartersId),
       selectedCardInstanceId: null,
       selectedAttacker: null,
     });

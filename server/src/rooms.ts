@@ -2,15 +2,25 @@ import { randomInt } from "node:crypto";
 import type { WebSocket } from "ws";
 import { applyAction } from "../../tank-card-game/src/game/engine";
 import {
+  DEFAULT_BOT_HEADQUARTERS_ID,
+  DEFAULT_PLAYER_HEADQUARTERS_ID,
+} from "../../tank-card-game/src/game/headquarters";
+import {
   createInitialBattleState,
   STEP_TIME_MS,
 } from "../../tank-card-game/src/game/initialState";
-import type { BattleAction, BattleState, PlayerId } from "../../tank-card-game/src/game/types";
+import type {
+  BattleAction,
+  BattleState,
+  HeadquartersId,
+  PlayerId,
+} from "../../tank-card-game/src/game/types";
 import { createBattleViewForPlayer } from "./battleView";
 import type { MatchEndReason, PvpClientMessage, PvpServerMessage } from "./protocol";
 
 type RoomPlayer = {
   id: PlayerId;
+  headquartersId: HeadquartersId;
   sessionId: string;
   socket: WebSocket | null;
   disconnectTimer: NodeJS.Timeout | null;
@@ -88,13 +98,29 @@ function getRandomStartingPlayer(): PlayerId {
   return randomInt(0, 2) === 0 ? "player" : "bot";
 }
 
-function createStartedBattle(startingPlayer: PlayerId): BattleState {
-  const battle = createInitialBattleState();
+function createStartedBattle(
+  startingPlayer: PlayerId,
+  playerHeadquartersId: HeadquartersId,
+  botHeadquartersId: HeadquartersId
+): BattleState {
+  const battle = createInitialBattleState({
+    playerHeadquartersId,
+    botHeadquartersId,
+  });
 
   return applyAction(battle, {
     type: "BEGIN_BATTLE",
     startingPlayer,
   } as BattleAction);
+}
+
+function normalizeHeadquartersId(
+  headquartersId: HeadquartersId | undefined,
+  fallback: HeadquartersId
+): HeadquartersId {
+  return headquartersId === "training_unit" || headquartersId === "trainingslager"
+    ? headquartersId
+    : fallback;
 }
 
 export class RoomManager {
@@ -116,13 +142,15 @@ export class RoomManager {
 
     switch (message.type) {
       case "FIND_MATCH":
-        this.findMatch(socket, message.sessionId);
+        this.findMatch(socket, message.sessionId, message.headquartersId);
         break;
       case "CREATE_ROOM":
-        this.createRoom(socket, message.sessionId);
+        this.createRoom(socket, message.sessionId, {
+          headquartersId: message.headquartersId,
+        });
         break;
       case "JOIN_ROOM":
-        this.joinRoom(socket, message.roomId, message.sessionId);
+        this.joinRoom(socket, message.roomId, message.sessionId, message.headquartersId);
         break;
       case "RECONNECT":
         this.reconnect(socket, message.sessionId, message.roomId);
@@ -169,17 +197,24 @@ export class RoomManager {
     this.deleteRoomIfEmpty(room);
   }
 
-  private findMatch(socket: WebSocket, sessionId: string) {
+  private findMatch(
+    socket: WebSocket,
+    sessionId: string,
+    headquartersId: HeadquartersId
+  ) {
     safeSend(socket, { type: "MATCHMAKING_STARTED" });
 
     const waitingRoom = this.getWaitingRoom();
 
     if (waitingRoom) {
-      this.joinExistingWaitingRoom(socket, waitingRoom, sessionId);
+      this.joinExistingWaitingRoom(socket, waitingRoom, sessionId, headquartersId);
       return;
     }
 
-    this.createRoom(socket, sessionId, { makePublicWaiting: true });
+    this.createRoom(socket, sessionId, {
+      makePublicWaiting: true,
+      headquartersId,
+    });
   }
 
   private getWaitingRoom(): Room | null {
@@ -203,7 +238,7 @@ export class RoomManager {
   private createRoom(
     socket: WebSocket,
     sessionId: string,
-    options?: { makePublicWaiting?: boolean }
+    options?: { makePublicWaiting?: boolean; headquartersId?: HeadquartersId }
   ) {
     let roomId = createRoomId();
     while (this.rooms.has(roomId)) {
@@ -213,7 +248,12 @@ export class RoomManager {
     const room: Room = {
       id: roomId,
       players: {
-        player: this.createRoomPlayer("player", socket, sessionId),
+        player: this.createRoomPlayer(
+          "player",
+          socket,
+          sessionId,
+          normalizeHeadquartersId(options?.headquartersId, DEFAULT_PLAYER_HEADQUARTERS_ID)
+        ),
       },
       battle: null,
       pendingStartRoll: null,
@@ -236,10 +276,20 @@ export class RoomManager {
     safeSend(socket, { type: "WAITING_FOR_OPPONENT", roomId });
   }
 
-  private joinExistingWaitingRoom(socket: WebSocket, room: Room, sessionId: string) {
+  private joinExistingWaitingRoom(
+    socket: WebSocket,
+    room: Room,
+    sessionId: string,
+    headquartersId: HeadquartersId
+  ) {
     this.waitingRoomId = null;
 
-    room.players.bot = this.createRoomPlayer("bot", socket, sessionId);
+    room.players.bot = this.createRoomPlayer(
+      "bot",
+      socket,
+      sessionId,
+      normalizeHeadquartersId(headquartersId, DEFAULT_BOT_HEADQUARTERS_ID)
+    );
     this.bindSocket(socket, room, "bot");
     this.sessionToRoom.set(sessionId, { roomId: room.id, playerId: "bot" });
 
@@ -248,7 +298,12 @@ export class RoomManager {
     this.startFirstTurnRoll(room);
   }
 
-  private joinRoom(socket: WebSocket, unsafeRoomId: string, sessionId: string) {
+  private joinRoom(
+    socket: WebSocket,
+    unsafeRoomId: string,
+    sessionId: string,
+    headquartersId: HeadquartersId
+  ) {
     const roomId = unsafeRoomId.trim().toUpperCase();
     const room = this.rooms.get(roomId);
 
@@ -266,7 +321,12 @@ export class RoomManager {
       this.waitingRoomId = null;
     }
 
-    room.players.bot = this.createRoomPlayer("bot", socket, sessionId);
+    room.players.bot = this.createRoomPlayer(
+      "bot",
+      socket,
+      sessionId,
+      normalizeHeadquartersId(headquartersId, DEFAULT_BOT_HEADQUARTERS_ID)
+    );
     this.bindSocket(socket, room, "bot");
     this.sessionToRoom.set(sessionId, { roomId, playerId: "bot" });
 
@@ -289,7 +349,11 @@ export class RoomManager {
       `[PVP:${room.id}] match found; first turn roll: ${firstPlayer === "player" ? "player 1" : "player 2"}`,
     );
 
-    room.battle = createStartedBattle(firstPlayer);
+    room.battle = createStartedBattle(
+      firstPlayer,
+      room.players.player.headquartersId,
+      room.players.bot.headquartersId
+    );
 
     room.pendingStartRoll = {
       firstPlayer,
@@ -310,7 +374,11 @@ export class RoomManager {
     if (!room.players.player || !room.players.bot) return;
 
     if (!room.battle) {
-      room.battle = createStartedBattle(room.pendingStartRoll.firstPlayer);
+      room.battle = createStartedBattle(
+        room.pendingStartRoll.firstPlayer,
+        room.players.player.headquartersId,
+        room.players.bot.headquartersId
+      );
     }
     room.pendingStartRoll = null;
 
@@ -576,10 +644,12 @@ export class RoomManager {
   private createRoomPlayer(
     id: PlayerId,
     socket: WebSocket,
-    sessionId: string
+    sessionId: string,
+    headquartersId: HeadquartersId
   ): RoomPlayer {
     return {
       id,
+      headquartersId,
       socket,
       sessionId,
       disconnectTimer: null,

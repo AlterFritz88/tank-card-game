@@ -1,5 +1,10 @@
 import type { MatchEndReason } from "../game/modes";
-import type { BattleAction, BattleStateView, PlayerId } from "../game/types";
+import type {
+  BattleAction,
+  BattleStateView,
+  HeadquartersId,
+  PlayerId,
+} from "../game/types";
 
 export type PvpClientMessage =
   | { type: "MATCHMAKING_STARTED" }
@@ -32,9 +37,9 @@ export type PvpClientMessage =
   | { type: "ERROR"; message: string };
 
 export type PvpServerMessage =
-  | { type: "FIND_MATCH"; sessionId: string }
-  | { type: "CREATE_ROOM"; sessionId: string }
-  | { type: "JOIN_ROOM"; roomId: string; sessionId: string }
+  | { type: "FIND_MATCH"; sessionId: string; headquartersId: HeadquartersId }
+  | { type: "CREATE_ROOM"; sessionId: string; headquartersId: HeadquartersId }
+  | { type: "JOIN_ROOM"; roomId: string; sessionId: string; headquartersId: HeadquartersId }
   | { type: "RECONNECT"; sessionId: string; roomId?: string | null }
   | { type: "GAME_ACTION"; action: BattleAction }
   | { type: "SURRENDER" }
@@ -134,16 +139,21 @@ class PvpClient {
     window.sessionStorage.removeItem(PVP_ROOM_ID_KEY);
   }
 
-  findMatch() {
-    this.send({ type: "FIND_MATCH", sessionId: this.getSessionId() });
+  findMatch(headquartersId: HeadquartersId) {
+    this.send({ type: "FIND_MATCH", sessionId: this.getSessionId(), headquartersId });
   }
 
-  createRoom() {
-    this.send({ type: "CREATE_ROOM", sessionId: this.getSessionId() });
+  createRoom(headquartersId: HeadquartersId) {
+    this.send({ type: "CREATE_ROOM", sessionId: this.getSessionId(), headquartersId });
   }
 
-  joinRoom(roomId: string) {
-    this.send({ type: "JOIN_ROOM", roomId, sessionId: this.getSessionId() });
+  joinRoom(roomId: string, headquartersId: HeadquartersId) {
+    this.send({
+      type: "JOIN_ROOM",
+      roomId,
+      sessionId: this.getSessionId(),
+      headquartersId,
+    });
   }
 
   reconnect() {

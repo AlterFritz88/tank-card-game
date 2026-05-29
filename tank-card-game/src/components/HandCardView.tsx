@@ -1,5 +1,6 @@
 import type React from "react";
-import type { PlayerId, TankCard } from "../game/types";
+import { getHeadquartersDefinition } from "../game/headquarters";
+import type { HeadquartersId, PlayerId, TankCard } from "../game/types";
 import { getClassVisual, getNationVisual } from "../game/cardVisuals";
 import { getTankImage } from "../game/tankImages";
 import prototypeTankImage from "../assets/tanks/prototype-tank.png";
@@ -47,6 +48,7 @@ type HandCardViewProps = {
   card?: TankCard;
   headquarters?: HeadquartersHandCardData;
   ownerId?: PlayerId;
+  headquartersId?: HeadquartersId;
   artOwnerId?: PlayerId;
   currentHp?: number;
   selected?: boolean;
@@ -93,7 +95,7 @@ function getOptionalImage(
   return null;
 }
 
-function getHeadquartersImage(ownerId: PlayerId): string {
+function getLegacyHeadquartersImage(ownerId: PlayerId): string {
   const side = ownerId === "player" ? "player" : "enemy";
   const opponentSide = ownerId === "player" ? "friendly" : "bot";
 
@@ -127,6 +129,39 @@ function getHeadquartersImage(ownerId: PlayerId): string {
   );
 }
 
+function getHeadquartersImage(
+  headquartersId: HeadquartersId | undefined,
+  fallbackOwnerId: PlayerId
+): string {
+  if (!headquartersId) {
+    return getLegacyHeadquartersImage(fallbackOwnerId);
+  }
+
+  const headquarters = getHeadquartersDefinition(headquartersId);
+  const artKey = headquarters.artKey;
+
+  return (
+    getOptionalImage(headquartersImageModules, [
+      `headquarters-${artKey}.png`,
+      `headquarters-${artKey}.jpg`,
+      `headquarters-${artKey}.jpeg`,
+      `headquarters-${artKey}.webp`,
+      `hq-${artKey}.png`,
+      `hq-${artKey}.jpg`,
+      `hq-${artKey}.jpeg`,
+      `hq-${artKey}.webp`,
+      "headquarters.png",
+      "headquarters.jpg",
+      "headquarters.jpeg",
+      "headquarters.webp",
+      "hq.png",
+      "hq.jpg",
+      "hq.jpeg",
+      "hq.webp",
+    ]) ?? prototypeTankImage
+  );
+}
+
 function getHeadquartersClassIcon(ownerId: PlayerId): string | null {
   const side = ownerId === "player" ? "player" : "enemy";
   const opponentSide = ownerId === "player" ? "friendly" : "bot";
@@ -148,6 +183,7 @@ export function HandCardView({
   card,
   headquarters,
   ownerId = "player",
+  headquartersId,
   artOwnerId,
   currentHp,
   selected = false,
@@ -169,8 +205,13 @@ export function HandCardView({
   const nation = card ? getNationVisual(card.nation) : null;
   const unitClass = card ? getClassVisual(card.class) : null;
 
+  const headquartersDefinition =
+    isHeadquarters && headquartersId
+      ? getHeadquartersDefinition(headquartersId)
+      : null;
+
   const tankImage = isHeadquarters
-    ? getHeadquartersImage(artOwnerId ?? ownerId)
+    ? getHeadquartersImage(headquartersId, artOwnerId ?? ownerId)
     : getTankImage(card!.id);
 
   const hqClassIcon = isHeadquarters ? getHeadquartersClassIcon(ownerId) : null;
@@ -178,11 +219,13 @@ export function HandCardView({
     ? hqClassIcon
     : getBoardClassIcon(card!.class, ownerId);
 
-  const title = isHeadquarters ? "Штаб" : card!.name;
+  const title = isHeadquarters
+    ? headquartersDefinition?.title ?? "Штаб"
+    : card!.name;
   const subtitle = isHeadquarters
-    ? ownerId === "player"
-      ? "Командный пункт · Союзник"
-      : "Командный пункт · Враг"
+    ? `${headquartersDefinition?.faction ?? "Командный пункт"} · ${
+        ownerId === "player" ? "Союзник" : "Враг"
+      }`
     : `${nation!.label} · ${unitClass!.label}`;
 
   const hpValue = isHeadquarters
@@ -202,7 +245,9 @@ export function HandCardView({
     : card!.fuelGeneration;
 
   const abilityText = isHeadquarters
-    ? `Командный пункт. Генерирует топливо: +${fuelGenerationValue}. Потеря штаба означает поражение.`
+    ? `${
+        headquartersDefinition?.description ?? "Командный пункт."
+      } Генерирует топливо: +${fuelGenerationValue}. Потеря штаба означает поражение.`
     : card!.abilityText || "Без особых свойств.";
 
 

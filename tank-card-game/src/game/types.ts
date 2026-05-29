@@ -1,5 +1,7 @@
 export type PlayerId = "player" | "bot";
 
+export type HeadquartersId = "training_unit" | "trainingslager";
+
 export type Position = {
   row: number;
   col: number;
@@ -45,6 +47,9 @@ export type HiddenCardInstance = {
 export type ClientCardInstance = CardInstance | HiddenCardInstance;
 
 export type PlayerState = {
+  headquartersId: HeadquartersId;
+  deckId: string;
+
   deck: CardInstance[];
   hand: CardInstance[];
   discard: CardInstance[];
