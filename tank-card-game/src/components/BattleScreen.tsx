@@ -167,6 +167,10 @@ function getRandomBotThinkingDelay(): number {
   return Math.floor(Math.random() * 4000);
 }
 
+function getRandomLocalStartingPlayer(): PlayerId {
+  return Math.random() < 0.5 ? "player" : "bot";
+}
+
 function waitForNextFrame(): Promise<void> {
   return new Promise((resolve) => {
     window.requestAnimationFrame(() => resolve());
@@ -211,6 +215,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const botAiEnabled = mode === "ai";
   const isHumanTurn =
     battle.status === "active" && battle.activePlayer === humanPlayerId;
+  const playerHand = battle.player.hand;
+  const botHand = battle.bot.hand;
 
   function getVisualOwnerId(owner: PlayerId): PlayerId {
     return owner === humanPlayerId ? "player" : "bot";
@@ -325,12 +331,32 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     player: new Map(),
     bot: new Map(),
   });
+  const dispatchBattleActionRef = useRef<(action: BattleAction) => void>(
+    () => undefined
+  );
+  const playDrawCardAnimationRef = useRef<
+    (owner: PlayerId, cardInstanceId: string) => void
+  >(() => undefined);
+  const playSpawnCardAnimationRef = useRef<
+    (
+      owner: PlayerId,
+      cardInstanceId: string,
+      cardId: string,
+      position: Position
+    ) => Promise<void>
+  >(() => Promise.resolve());
 
   const [startRollState, setStartRollState] = useState<StartRollState>({
     visible: false,
     winner: null,
     finalRotation: 0,
     resultVisible: false,
+  });
+
+  useEffect(() => {
+    dispatchBattleActionRef.current = dispatchBattleAction;
+    playDrawCardAnimationRef.current = playDrawCardAnimation;
+    playSpawnCardAnimationRef.current = playSpawnCardAnimation;
   });
 
   function setHandCardRef(owner: PlayerId, cardInstanceId: string) {
@@ -426,7 +452,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     startRollRunningRef.current = true;
 
-    const winner: PlayerId = Math.random() < 0.5 ? "player" : "bot";
+    const winner = getRandomLocalStartingPlayer();
     const targetAngle = winner === "player" ? 135 : -45;
     const finalRotation = 360 * 8 + targetAngle;
 
@@ -445,7 +471,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     }, START_ROLL_DURATION_MS + START_ROLL_RESULT_DELAY_MS);
 
     const finishTimer = window.setTimeout(() => {
-      dispatchBattleAction({
+      dispatchBattleActionRef.current({
         type: "BEGIN_BATTLE",
         startingPlayer: winner,
       });
@@ -472,14 +498,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       window.clearTimeout(finishTimer);
       startRollRunningRef.current = false;
     };
-  }, [battle.status, mode]);
+  }, [battle.status, humanPlayerId, mode]);
 
   useEffect(() => {
     const owners: PlayerId[] = ["player", "bot"];
 
     for (const owner of owners) {
       const previousIds = previousHandIdsRef.current[owner];
-      const currentHand = battle[owner].hand;
+      const currentHand = owner === "player" ? playerHand : botHand;
 
       const newCards = currentHand.filter(
         (card) => !previousIds.has(card.instanceId)
@@ -500,7 +526,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           window.setTimeout(() => {
             window.requestAnimationFrame(() => {
               window.requestAnimationFrame(() => {
-                playDrawCardAnimation(owner, drawnCard.instanceId);
+                playDrawCardAnimationRef.current(owner, drawnCard.instanceId);
               });
             });
           }, index * 140);
@@ -513,8 +539,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     }
   }, [
     battle.status,
-    battle.player.hand.map((card) => card.instanceId).join("|"),
-    battle.bot.hand.map((card) => card.instanceId).join("|"),
+    botHand,
+    playerHand,
   ]);
 
   useEffect(() => {
@@ -530,7 +556,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
       lastTickTime = now;
 
-      dispatchBattleAction({
+      dispatchBattleActionRef.current({
         type: "TIMER_TICK",
         elapsedMs,
       });
@@ -592,7 +618,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   return () => {
     window.clearTimeout(timeout);
   };
-}, [battle.activePlayer, battle.status]);
+}, [battle.activePlayer, battle.status, humanPlayerId]);
 
   function updateLastObjectCenters() {
     const boardElement = boardRef.current;
@@ -705,13 +731,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
           if (cancelled) break;
 
-          dispatchBattleAction(action);
+          dispatchBattleActionRef.current(action);
           await delay(700);
           continue;
         }
 
         if (action.type === "MOVE_UNIT") {
-          dispatchBattleAction(action);
+          dispatchBattleActionRef.current(action);
           await delay(450);
           continue;
         }
@@ -723,7 +749,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           );
 
           if (cardInstance) {
-            await playSpawnCardAnimation(
+            await playSpawnCardAnimationRef.current(
               "bot",
               cardInstance.instanceId,
               cardInstance.cardId,
@@ -731,13 +757,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
             );
           }
 
-          dispatchBattleAction(action);
+          dispatchBattleActionRef.current(action);
           await delay(450);
           continue;
         }
 
         if (action.type === "END_TURN") {
-          dispatchBattleAction(action);
+          dispatchBattleActionRef.current(action);
           await delay(250);
           break;
         }
