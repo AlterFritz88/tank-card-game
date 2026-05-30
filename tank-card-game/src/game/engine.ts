@@ -441,16 +441,6 @@ function getAttackValue(attacker: ReturnType<typeof getAttacker>): number {
   return attacker.attack;
 }
 
-function getActionFuelCost(attacker: ReturnType<typeof getAttacker>): number {
-  if (!attacker) return 0;
-
-  if ("cardId" in attacker) {
-    return getCard(attacker.cardId).actionFuelCost;
-  }
-
-  return attacker.actionFuelCost;
-}
-
 function canUnitAttackTarget(
   attackerCard: TankCard,
   attackerPosition: Position,
@@ -519,12 +509,6 @@ function attack(state: BattleState, action: AttackAction) {
   if (attacker.alreadyAttacked) return;
   if (!canAttackTarget(attacker, target)) return;
 
-  const actionFuelCost = getActionFuelCost(attacker);
-
-  if (!spendFuel(state, action.playerId, actionFuelCost, "атака")) {
-    return;
-  }
-
   const attackValue = getAttackValue(attacker);
 
   const attackerIsUnit = "cardId" in attacker;
@@ -541,7 +525,7 @@ function attack(state: BattleState, action: AttackAction) {
 
     addLog(
       state,
-      `${attackerName} атакует ${targetName} за ${actionFuelCost} топлива и наносит ${attackValue} урона.`
+      `${attackerName} атакует ${targetName} и наносит ${attackValue} урона.`
     );
 
     const targetDestroyed = target.currentHp <= 0;
@@ -584,7 +568,7 @@ function attack(state: BattleState, action: AttackAction) {
 
     addLog(
       state,
-      `${attackerName} атакует штаб за ${actionFuelCost} топлива и наносит ${attackValue} урона.`
+      `${attackerName} атакует штаб и наносит ${attackValue} урона.`
     );
 
     if (target.hp <= 0) {
@@ -695,10 +679,6 @@ function moveUnit(
     return;
   }
 
-  if (!spendFuel(state, action.playerId, card.actionFuelCost, "движение")) {
-    return;
-  }
-
   unit.position = action.position;
 
   if (isLightTank) {
@@ -728,7 +708,7 @@ function moveUnit(
     state,
     `${action.playerId === "player" ? "Игрок" : "Бот"} перемещает ${
       card.name
-    } за ${card.actionFuelCost} топлива на [${action.position.row},${
+    } на [${action.position.row},${
       action.position.col
     }].`
   );
@@ -909,10 +889,6 @@ export function getTargetsInRange(
 
   if (!attacker || attacker.alreadyAttacked) return [];
 
-  const actionFuelCost = getActionFuelCost(attacker);
-
-  if (state[playerId].resources < actionFuelCost) return [];
-
   const opponent = getOpponent(playerId);
 
   const enemyUnits = state.units.filter(
@@ -950,8 +926,6 @@ export function getAvailableMoveCells(
   if (unit.alreadyMoved) return [];
 
   const card = getCard(unit.cardId);
-
-  if (state[playerId].resources < card.actionFuelCost) return [];
 
   const result: Position[] = [];
 

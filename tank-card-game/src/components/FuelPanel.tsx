@@ -1,4 +1,5 @@
 import type React from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import type { PlayerId } from "../game/types";
 import { StatBadge } from "./StatBadge";
 
@@ -8,6 +9,31 @@ type FuelPanelProps = {
   nextTurnFuel: number;
   title?: string;
 };
+
+function SplitFlapNumber({ value }: { value: number }) {
+  const digits = String(Math.max(0, Math.floor(value)));
+
+  return (
+    <span style={styles.flapNumber} aria-label={String(value)}>
+      {Array.from(digits).map((digit, index) => (
+        <span key={`${digits.length}-${index}`} style={styles.flapCell}>
+          <AnimatePresence initial={false}>
+            <motion.span
+              key={digit}
+              style={styles.flapDigit}
+              initial={{ y: "-82%", rotateX: 72, opacity: 0 }}
+              animate={{ y: "0%", rotateX: 0, opacity: 1 }}
+              exit={{ y: "82%", rotateX: -72, opacity: 0 }}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            >
+              {digit}
+            </motion.span>
+          </AnimatePresence>
+        </span>
+      ))}
+    </span>
+  );
+}
 
 export function FuelPanel({
   ownerId,
@@ -29,7 +55,7 @@ export function FuelPanel({
         <StatBadge
           type="spawnCost"
           mode="hand"
-          value={currentFuel}
+          value={<SplitFlapNumber value={currentFuel} />}
           title="Осталось топлива в этом ходу"
           style={styles.currentFuelBadge}
           valueStyle={styles.currentFuelValue}
@@ -42,7 +68,7 @@ export function FuelPanel({
         <StatBadge
           type="fuelGeneration"
           mode="hand"
-          value={nextTurnFuel}
+          value={<SplitFlapNumber value={nextTurnFuel} />}
           title="Придет топлива в следующем ходу"
           style={styles.nextFuelBadge}
           valueStyle={styles.nextFuelValue}
@@ -116,4 +142,32 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 16,
     fontWeight: 800,
   },
+
+  flapNumber: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 1,
+    fontVariantNumeric: "tabular-nums",
+  },
+
+  flapCell: {
+    position: "relative",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "0.68em",
+    height: "1.04em",
+    overflow: "hidden",
+    perspective: 70,
+  },
+
+  flapDigit: {
+    position: "absolute",
+    inset: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transformOrigin: "center center",
+  },
+
 };

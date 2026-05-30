@@ -2,7 +2,13 @@ import type { BattleBackgroundId } from "./battleBackgrounds";
 
 export type PlayerId = "player" | "bot";
 
-export type HeadquartersId = "training_unit" | "trainingslager";
+export type HeadquartersId =
+  | "training_unit"
+  | "trainingslager"
+  | "polish_border_guard"
+  | "polish_army_lodz"
+  | "polish_army_prusy"
+  | "polish_warsaw_defense";
 
 export type Position = {
   row: number;
@@ -11,7 +17,7 @@ export type Position = {
 
 export type TankClass = "light" | "medium" | "heavy" | "td" | "spg";
 
-export type Nation = "ussr" | "germany" | "usa" | "uk";
+export type Nation = "ussr" | "germany" | "usa" | "uk" | "poland" | "france";
 
 export type TankRarity = "common" | "uncommon" | "rare";
 
@@ -31,7 +37,6 @@ export type TankCard = {
   initiative: number;
 
   fuelGeneration: number;
-  actionFuelCost: number;
 
   abilityText?: string;
 };
@@ -70,7 +75,6 @@ export type HeadquartersState = {
   range: number;
 
   fuelGeneration: number;
-  actionFuelCost: number;
 
   alreadyAttacked: boolean;
 };

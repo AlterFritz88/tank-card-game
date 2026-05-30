@@ -1,16 +1,13 @@
 import type React from "react";
 import { getHeadquartersDefinition } from "../game/headquarters";
+import {
+  getHeadquartersImageAsset,
+  getLegacyHeadquartersImageAsset,
+} from "../game/headquartersImages";
+import { getNationFlagStyle, getNationVisual } from "../game/cardVisuals";
 import type { HeadquartersId, PlayerId } from "../game/types";
 import prototypeTankImage from "../assets/tanks/prototype-tank.png";
 import { StatBadge } from "./StatBadge";
-
-const headquartersImageModules = import.meta.glob(
-  "../assets/headquarters/*.{png,jpg,jpeg,webp}",
-  {
-    eager: true,
-    import: "default",
-  }
-) as Record<string, string>;
 
 const hqClassIconModules = import.meta.glob(
   "../assets/icons/classes/class-hq-*.{png,jpg,jpeg,webp}",
@@ -27,7 +24,6 @@ type HeadquartersCardViewProps = {
   hp: number;
   attack: number;
   fuelGeneration: number;
-  actionFuelCost: number;
   selected?: boolean;
   alreadyAttacked?: boolean;
 };
@@ -48,37 +44,7 @@ function getOptionalImage(
 }
 
 function getLegacyHeadquartersImage(ownerId: PlayerId): string {
-  const side = ownerId === "player" ? "player" : "enemy";
-  const opponentSide = ownerId === "player" ? "friendly" : "bot";
-
-  return (
-    getOptionalImage(headquartersImageModules, [
-      `headquarters-${side}.png`,
-      `headquarters-${side}.jpg`,
-      `headquarters-${side}.jpeg`,
-      `headquarters-${side}.webp`,
-      `hq-${side}.png`,
-      `hq-${side}.jpg`,
-      `hq-${side}.jpeg`,
-      `hq-${side}.webp`,
-      `headquarters-${opponentSide}.png`,
-      `headquarters-${opponentSide}.jpg`,
-      `headquarters-${opponentSide}.jpeg`,
-      `headquarters-${opponentSide}.webp`,
-      `hq-${opponentSide}.png`,
-      `hq-${opponentSide}.jpg`,
-      `hq-${opponentSide}.jpeg`,
-      `hq-${opponentSide}.webp`,
-      "headquarters.png",
-      "headquarters.jpg",
-      "headquarters.jpeg",
-      "headquarters.webp",
-      "hq.png",
-      "hq.jpg",
-      "hq.jpeg",
-      "hq.webp",
-    ]) ?? prototypeTankImage
-  );
+  return getLegacyHeadquartersImageAsset(ownerId) ?? prototypeTankImage;
 }
 
 function getHeadquartersImage(
@@ -89,29 +55,13 @@ function getHeadquartersImage(
     return getLegacyHeadquartersImage(fallbackOwnerId);
   }
 
-  const headquarters = getHeadquartersDefinition(headquartersId);
-  const artKey = headquarters.artKey;
+  const headquartersImage = getHeadquartersImageAsset(headquartersId);
 
-  return (
-    getOptionalImage(headquartersImageModules, [
-      `headquarters-${artKey}.png`,
-      `headquarters-${artKey}.jpg`,
-      `headquarters-${artKey}.jpeg`,
-      `headquarters-${artKey}.webp`,
-      `hq-${artKey}.png`,
-      `hq-${artKey}.jpg`,
-      `hq-${artKey}.jpeg`,
-      `hq-${artKey}.webp`,
-      "headquarters.png",
-      "headquarters.jpg",
-      "headquarters.jpeg",
-      "headquarters.webp",
-      "hq.png",
-      "hq.jpg",
-      "hq.jpeg",
-      "hq.webp",
-    ]) ?? prototypeTankImage
-  );
+  if (headquartersImage) {
+    return headquartersImage;
+  }
+
+  return getLegacyHeadquartersImage(fallbackOwnerId);
 }
 
 function getHeadquartersClassIcon(ownerId: PlayerId): string | null {
@@ -136,7 +86,6 @@ export function HeadquartersCardView({
   artOwnerId,
   hp,
   attack,
-  actionFuelCost,
   selected = false,
   alreadyAttacked = false,
 }: HeadquartersCardViewProps) {
@@ -149,6 +98,7 @@ export function HeadquartersCardView({
     artOwnerId ?? ownerId
   );
   const headquartersClassIcon = getHeadquartersClassIcon(ownerId);
+  const nation = headquarters ? getNationVisual(headquarters.nation) : null;
 
   return (
     <div
@@ -170,6 +120,15 @@ export function HeadquartersCardView({
           ...(isPlayer ? styles.friendlyGradient : styles.enemyGradient),
         }}
       />
+
+      {nation ? (
+        <div
+          style={{
+            ...styles.nationFlag,
+            ...getNationFlagStyle(nation),
+          }}
+        />
+      ) : null}
 
       <div style={styles.titleArea}>
         <div style={styles.titleRow}>
@@ -195,15 +154,6 @@ export function HeadquartersCardView({
 
           <strong style={styles.title}>{headquarters?.title ?? "Штаб"}</strong>
         </div>
-      </div>
-
-      <div style={styles.actionCost}>
-        <StatBadge
-          type="actionCost"
-          mode="board"
-          value={actionFuelCost}
-          title="Стоимость действия"
-        />
       </div>
 
       <div style={styles.combatStats}>
@@ -284,6 +234,17 @@ const styles: Record<string, React.CSSProperties> = {
       "linear-gradient(315deg, rgba(255, 70, 55, 0.30) 0%, rgba(255, 70, 55, 0.12) 25%, rgba(255, 70, 55, 0.03) 48%, rgba(255, 70, 55, 0) 72%), radial-gradient(circle at 100% 100%, rgba(255,70,55,0.13), transparent 48%)",
   },
 
+  nationFlag: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 23,
+    zIndex: 5,
+    opacity: 0.15,
+    pointerEvents: "none",
+  },
+
   titleArea: {
     position: "absolute",
     left: 4,
@@ -335,46 +296,6 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1,
     fontWeight: 900,
     textShadow: "0 1px 3px rgba(0,0,0,0.85)",
-  },
-
-  actionCost: {
-    position: "absolute",
-    right: -7,
-    top: -3,
-    zIndex: 7,
-    width: 30,
-    height: 30,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    pointerEvents: "none",
-  },
-
-  actionCostIcon: {
-    position: "absolute",
-    inset: 0,
-    width: "100%",
-    height: "100%",
-    objectFit: "contain",
-    pointerEvents: "none",
-    userSelect: "none",
-    filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.66))",
-  },
-
-  actionCostValue: {
-    position: "absolute",
-    left: "50%",
-    top: "50%",
-    zIndex: 2,
-    transform: "translate(-50%, -50%)",
-    fontSize: 14,
-    lineHeight: 1,
-    color: "#f6d27a",
-    fontFamily: "'Rajdhani', 'Arial Narrow', sans-serif",
-    fontWeight: 600,
-    textAlign: "center",
-    textShadow:
-      "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
   },
 
   combatStats: {

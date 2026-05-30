@@ -15,12 +15,11 @@ import attackBadgeImage from "../assets/icons/badge-attack.png";
 import healthBadgeImage from "../assets/icons/badge-health.png";
 import fuelCanisterIcon from "../assets/icons/fuel-canister-icon.png";
 import fuelGenerationCanisterIcon from "../assets/icons/fuel-generation-canister.png";
-import actionCostBadgeImage from "../assets/icons/badge-action-cost.png";
 
 type StatBadgeProps = {
   type: CardStatBadge;
   mode: CardViewMode;
-  value: string | number;
+  value: React.ReactNode;
   ownerId?: PlayerId;
   dimmed?: boolean;
   title?: string;
@@ -34,7 +33,6 @@ const badgeImages: Record<CardStatBadge, string> = {
   health: healthBadgeImage,
   fuel: fuelCanisterIcon,
   fuelGeneration: fuelGenerationCanisterIcon,
-  actionCost: actionCostBadgeImage,
   spawnCost: fuelCanisterIcon,
 };
 
@@ -56,7 +54,7 @@ function getValueColor(type: CardStatBadge, mode: CardViewMode, ownerId: PlayerI
   if (type === "fuelGeneration") return CARD_UI.colors.fuelGeneration;
   if (type === "spawnCost") return CARD_UI.colors.spawnCost;
 
-  return CARD_UI.colors.actionCost;
+  return CARD_UI.colors.spawnCost;
 }
 
 function getAttackTint(ownerId: PlayerId) {

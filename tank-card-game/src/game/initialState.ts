@@ -20,6 +20,8 @@ export const STEP_TIME_MS = 15 * 1000;
 export type CreateBattleOptions = {
   playerHeadquartersId?: HeadquartersId;
   botHeadquartersId?: HeadquartersId;
+  playerDeckId?: string;
+  botDeckId?: string;
   backgroundId?: BattleBackgroundId;
 };
 
@@ -44,6 +46,146 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "panzer_iv",
     "stug_iii",
     "marder_iii",
+  ],
+
+  first_panzer_division_campaign: [
+    "panzer_iv",
+    "panzer_iv",
+    "panzer_iv",
+    "panzer_iv",
+    "panzer_iv",
+    "panzer_iv",
+    "panzer_iv",
+    "panzer_iv",
+    "stug_iii",
+    "stug_iii",
+    "stug_iii",
+    "stug_iii",
+    "stug_iii",
+    "marder_iii",
+    "marder_iii",
+    "marder_iii",
+    "marder_iii",
+    "marder_iii",
+    "wespe",
+    "wespe",
+    "wespe",
+    "wespe",
+    "tiger_i",
+    "tiger_i",
+    "tiger_i",
+  ],
+
+  polish_border_guard_campaign: [
+    "tk_3",
+    "tk_3",
+    "tk_3",
+    "tk_3",
+    "tk_3",
+    "tks",
+    "tks",
+    "tks",
+    "tks",
+    "tks",
+    "tkf",
+    "tkf",
+    "tkf",
+    "tkf",
+    "renault_ft",
+    "renault_ft",
+    "renault_ft",
+    "vickers_e_type_a",
+    "vickers_e_type_a",
+    "vickers_e_type_a",
+    "tp7_dwuwiezowy",
+    "tp7_dwuwiezowy",
+    "tks_nkm_20mm",
+    "tks_nkm_20mm",
+    "tkd",
+  ],
+
+  polish_army_lodz_campaign: [
+    "tk_3",
+    "tk_3",
+    "tks",
+    "tks",
+    "tks",
+    "tkf",
+    "tkf",
+    "tkw",
+    "tkw",
+    "tks_nkm_20mm",
+    "tks_nkm_20mm",
+    "tks_nkm_20mm",
+    "tks_d",
+    "tks_d",
+    "tkd",
+    "tkd",
+    "tp7_dwuwiezowy",
+    "tp7_dwuwiezowy",
+    "tp7_jednowiezowy",
+    "tp7_jednowiezowy",
+    "vickers_e_type_a",
+    "vickers_e_type_b",
+    "renault_ft",
+    "renault_r35",
+    "hotchkiss_h35",
+  ],
+
+  polish_army_prusy_campaign: [
+    "tks",
+    "tks",
+    "tkf",
+    "tkf",
+    "tkw",
+    "tks_nkm_20mm",
+    "tks_nkm_20mm",
+    "tks_d",
+    "tks_d",
+    "tkd",
+    "tkd",
+    "tp7_dwuwiezowy",
+    "tp7_dwuwiezowy",
+    "tp7_jednowiezowy",
+    "tp7_jednowiezowy",
+    "tp7_jednowiezowy",
+    "tp7_wzmocniony",
+    "tp7_wzmocniony",
+    "tp9",
+    "tp9",
+    "tp10",
+    "vickers_e_type_b",
+    "renault_r35",
+    "hotchkiss_h35",
+    "pociag_pancerny_danuta",
+  ],
+
+  polish_warsaw_defense_campaign: [
+    "tks_nkm_20mm",
+    "tks_nkm_20mm",
+    "tks_d",
+    "tks_d",
+    "tkd",
+    "tkd",
+    "tp7_jednowiezowy",
+    "tp7_jednowiezowy",
+    "tp7_wzmocniony",
+    "tp7_wzmocniony",
+    "tp7_wzmocniony",
+    "tp9",
+    "tp9",
+    "tp9",
+    "tp10",
+    "tp10",
+    "tp10",
+    "tp14",
+    "tp14",
+    "renault_r35",
+    "hotchkiss_h35",
+    "pociag_pancerny_danuta",
+    "pociag_pancerny_danuta",
+    "pociag_pancerny_smialy",
+    "pociag_pancerny_smialy",
   ],
 };
 
@@ -71,15 +213,17 @@ function shuffleCards<T>(items: T[]): T[] {
 
 function createPlayerState(
   owner: PlayerId,
-  headquartersId: HeadquartersId
+  headquartersId: HeadquartersId,
+  deckId?: string
 ): PlayerState {
   const headquarters = getHeadquartersDefinition(headquartersId);
-  const deckCardIds = DECK_CARD_IDS[headquarters.defaultDeckId] ?? [];
+  const resolvedDeckId = deckId ?? headquarters.defaultDeckId;
+  const deckCardIds = DECK_CARD_IDS[resolvedDeckId] ?? [];
   const deck = shuffleCards(createCardInstances(deckCardIds, owner));
 
   return {
     headquartersId,
-    deckId: headquarters.defaultDeckId,
+    deckId: resolvedDeckId,
     deck,
     hand: [],
     discard: [],
@@ -114,7 +258,6 @@ function createHeadquarters(
     range: headquarters.range,
 
     fuelGeneration: headquarters.fuelGeneration,
-    actionFuelCost: headquarters.actionFuelCost,
 
     alreadyAttacked: false,
   };
@@ -134,8 +277,8 @@ export function createInitialBattleState(
     turn: 1,
     backgroundId: options.backgroundId ?? DEFAULT_BATTLE_BACKGROUND_ID,
 
-    player: createPlayerState("player", playerHeadquartersId),
-    bot: createPlayerState("bot", botHeadquartersId),
+    player: createPlayerState("player", playerHeadquartersId, options.playerDeckId),
+    bot: createPlayerState("bot", botHeadquartersId, options.botDeckId),
 
     headquarters: {
       player: createHeadquarters("player", playerHeadquartersId),

@@ -1,6 +1,16 @@
-import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CAMPAIGNS } from "../game/campaigns";
+import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
+import { CAMPAIGNS, isCampaignMissionUnlocked } from "../game/campaigns";
 import { HEADQUARTERS } from "../game/headquarters";
 import type { HeadquartersId } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
@@ -11,6 +21,62 @@ const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
 const MENU_CARD_SCALE = 1.18;
 const MENU_CARD_WIDTH = Math.round(HAND_CARD_BASE_WIDTH * MENU_CARD_SCALE);
 const MENU_CARD_HEIGHT = Math.round(HAND_CARD_BASE_HEIGHT * MENU_CARD_SCALE);
+
+function scrollCarousel(
+  viewportRef: RefObject<HTMLDivElement | null>,
+  direction: -1 | 1
+) {
+  const viewport = viewportRef.current;
+  if (!viewport) return;
+
+  viewport.scrollBy({
+    left: direction * Math.max(280, viewport.clientWidth * 0.72),
+    behavior: "smooth",
+  });
+}
+
+function CarouselTapFrame({
+  children,
+  viewportRef,
+  viewportStyle,
+  ariaLabel,
+}: {
+  children: ReactNode;
+  viewportRef: RefObject<HTMLDivElement | null>;
+  viewportStyle: CSSProperties;
+  ariaLabel: string;
+}) {
+  return (
+    <div style={styles.carouselShell}>
+      <button
+        type="button"
+        style={{ ...styles.carouselTapZone, ...styles.carouselTapZoneLeft }}
+        onClick={() => scrollCarousel(viewportRef, -1)}
+        aria-label="Прокрутить влево"
+      >
+        <span style={styles.carouselTapArrow}>‹</span>
+      </button>
+
+      <div
+        ref={viewportRef}
+        className="menu-carousel-scroll"
+        style={viewportStyle}
+        aria-label={ariaLabel}
+      >
+        {children}
+      </div>
+
+      <button
+        type="button"
+        style={{ ...styles.carouselTapZone, ...styles.carouselTapZoneRight }}
+        onClick={() => scrollCarousel(viewportRef, 1)}
+        aria-label="Прокрутить вправо"
+      >
+        <span style={styles.carouselTapArrow}>›</span>
+      </button>
+    </div>
+  );
+}
 
 function getPvpStatusText(status: string) {
   switch (status) {
@@ -42,10 +108,15 @@ export function PvpLobby() {
     pvpRoomId,
     pvpStatus,
     pvpError,
+    completedCampaignMissionIds,
+    selectedCampaignId: storedSelectedCampaignId,
     selectedHeadquartersId,
     setSelectedHeadquartersId,
     openCampaignMenu,
+    openCampaignMissions,
+    closeCampaignMissions,
     closeCampaignMenu,
+    startCampaignMission,
     findPvpMatch,
     startAiBattle,
     cancelMatchmaking,
@@ -56,12 +127,45 @@ export function PvpLobby() {
   const [selectedCampaignId, setSelectedCampaignId] = useState(
     CAMPAIGNS[0]?.id ?? ""
   );
+  const [selectedMissionId, setSelectedMissionId] = useState("");
+  const headquartersCarouselRef = useRef<HTMLDivElement>(null);
+  const campaignsCarouselRef = useRef<HTMLDivElement>(null);
+  const missionsCarouselRef = useRef<HTMLDivElement>(null);
 
-  const headquartersList = useMemo(() => Object.values(HEADQUARTERS), []);
+  const headquartersList = useMemo(
+    () =>
+      Object.values(HEADQUARTERS).filter(
+        (headquarters) => headquarters.availableInMainMenu !== false
+      ),
+    []
+  );
   const selectedCampaign =
     CAMPAIGNS.find((campaign) => campaign.id === selectedCampaignId) ??
     CAMPAIGNS[0] ??
     null;
+  const missionCampaign =
+    CAMPAIGNS.find((campaign) => campaign.id === storedSelectedCampaignId) ??
+    selectedCampaign;
+  const firstUnlockedMission =
+    missionCampaign?.missions.find(
+      (mission) =>
+        isCampaignMissionUnlocked(
+          missionCampaign,
+          mission.id,
+          completedCampaignMissionIds
+        ) && !completedCampaignMissionIds.includes(mission.id)
+    ) ??
+    missionCampaign?.missions.find((mission) =>
+      isCampaignMissionUnlocked(
+        missionCampaign,
+        mission.id,
+        completedCampaignMissionIds
+      )
+    ) ??
+    null;
+  const selectedMission =
+    missionCampaign?.missions.find((mission) => mission.id === selectedMissionId) ??
+    firstUnlockedMission;
 
   const pvpBusy =
     mode === "pvp" &&
@@ -89,6 +193,51 @@ export function PvpLobby() {
 
   function closeHeadquartersPreview() {
     setPreviewHeadquartersId(null);
+  }
+
+  function openSelectedCampaign() {
+    if (!selectedCampaign) return;
+
+    const firstAvailableMission =
+      selectedCampaign.missions.find(
+        (mission) =>
+          isCampaignMissionUnlocked(
+            selectedCampaign,
+            mission.id,
+            completedCampaignMissionIds
+          ) && !completedCampaignMissionIds.includes(mission.id)
+      ) ??
+      selectedCampaign.missions.find((mission) =>
+        isCampaignMissionUnlocked(
+          selectedCampaign,
+          mission.id,
+          completedCampaignMissionIds
+        )
+      );
+
+    setSelectedMissionId(firstAvailableMission?.id ?? "");
+    openCampaignMissions(selectedCampaign.id);
+  }
+
+  function selectMission(missionId: string) {
+    if (!missionCampaign) return;
+    if (
+      !isCampaignMissionUnlocked(
+        missionCampaign,
+        missionId,
+        completedCampaignMissionIds
+      )
+    ) {
+      return;
+    }
+
+    setSelectedMissionId(missionId);
+  }
+
+  function startSelectedMission() {
+    if (!selectedMission) return;
+
+    startCampaignMission(selectedMission.id);
   }
 
   useEffect(() => {
@@ -120,7 +269,11 @@ export function PvpLobby() {
             <p style={styles.subtitle}>Выбери кампанию</p>
           </header>
 
-          <div style={styles.carouselViewport} aria-label="Выбор кампании">
+          <CarouselTapFrame
+            viewportRef={campaignsCarouselRef}
+            viewportStyle={styles.carouselViewport}
+            ariaLabel="Выбор кампании"
+          >
             <div style={styles.campaignCarouselTrack}>
               {CAMPAIGNS.map((campaign, index) => {
                 const selected = campaign.id === selectedCampaign?.id;
@@ -157,13 +310,132 @@ export function PvpLobby() {
                 );
               })}
             </div>
+          </CarouselTapFrame>
+
+
+          <div style={styles.menuActionsRow}>
+            <button type="button" style={styles.backButton} onClick={closeCampaignMenu}>
+              Назад
+            </button>
+            <button
+              type="button"
+              style={{ ...styles.backButton, ...styles.primaryMenuButton }}
+              onClick={openSelectedCampaign}
+              disabled={!selectedCampaign}
+            >
+              Выбрать компанию
+            </button>
           </div>
+        </section>
+      </main>
+    );
+  }
 
+  if (menuView === "missions" && missionCampaign) {
+    return (
+      <main style={styles.page}>
+        <div style={styles.backgroundShade} />
 
+        <section style={styles.menuLayer}>
+          <header style={styles.header}>
+            <div style={styles.kicker}>Выбор операции</div>
+            <h1 style={styles.title}>{missionCampaign.title}</h1>
+            <p style={styles.subtitle}>{missionCampaign.description}</p>
+          </header>
 
-          <button type="button" style={styles.backButton} onClick={closeCampaignMenu}>
-            Назад
-          </button>
+          <CarouselTapFrame
+            viewportRef={missionsCarouselRef}
+            viewportStyle={styles.missionCarouselViewport}
+            ariaLabel="Выбор миссии"
+          >
+            <div style={styles.missionCarouselTrack}>
+              {missionCampaign.missions.map((mission, index) => {
+                const available = mission.available !== false;
+                const unlocked = isCampaignMissionUnlocked(
+                  missionCampaign,
+                  mission.id,
+                  completedCampaignMissionIds
+                );
+                const completed = completedCampaignMissionIds.includes(mission.id);
+                const selected = mission.id === selectedMission?.id;
+                const missionBackground = getBattleBackgroundAsset(
+                  mission.backgroundId
+                );
+
+                return (
+                  <motion.button
+                    key={mission.id}
+                    type="button"
+                    style={{
+                      ...styles.missionCardOption,
+                      ...(unlocked ? {} : styles.missionCardOptionLocked),
+                    }}
+                    disabled={!unlocked}
+                    onClick={() => selectMission(mission.id)}
+                    whileHover={unlocked ? { y: -8, scale: 1.025 } : undefined}
+                    whileTap={unlocked ? { scale: 0.985 } : undefined}
+                    transition={{ type: "spring", stiffness: 360, damping: 28 }}
+                    aria-pressed={selected}
+                    aria-label={`Выбрать миссию ${mission.title}`}
+                  >
+                    <div
+                      style={{
+                        ...styles.selectionGlow,
+                        ...(selected ? styles.selectionGlowVisible : {}),
+                      }}
+                    />
+
+                    <div style={styles.missionArtCard}>
+                      <div
+                        style={{
+                          ...styles.missionArtImage,
+                          backgroundImage: `linear-gradient(180deg, rgba(8, 9, 7, 0.02), rgba(0, 0, 0, 0.46)), url('${missionBackground.image}')`,
+                        }}
+                      />
+                      <div style={styles.missionArtContent}>
+                        <span style={styles.missionNumber}>
+                          Операция {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <span style={styles.missionChapter}>{mission.chapter}</span>
+                        <span style={styles.missionTitle}>{mission.title}</span>
+                        <span style={styles.missionDescription}>
+                          {mission.description}
+                        </span>
+                        <span
+                          style={{
+                            ...styles.missionState,
+                            ...(completed ? styles.missionStateCompleted : {}),
+                          }}
+                        >
+                          {completed
+                            ? "Пройдено"
+                            : !available
+                              ? "Скоро"
+                              : unlocked
+                                ? "Доступно"
+                                : "Закрыто"}
+                        </span>
+                      </div>
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </CarouselTapFrame>
+
+          <div style={styles.menuActionsRow}>
+            <button type="button" style={styles.backButton} onClick={closeCampaignMissions}>
+              Назад
+            </button>
+            <button
+              type="button"
+              style={{ ...styles.backButton, ...styles.primaryMenuButton }}
+              onClick={startSelectedMission}
+              disabled={!selectedMission}
+            >
+              Начать миссию
+            </button>
+          </div>
         </section>
       </main>
     );
@@ -180,8 +452,36 @@ export function PvpLobby() {
           <p style={styles.subtitle}>Выбери штаб для боя</p>
         </header>
 
-        <div style={styles.carouselViewport} aria-label="Выбор штаба">
+        <CarouselTapFrame
+          viewportRef={headquartersCarouselRef}
+          viewportStyle={styles.carouselViewport}
+          ariaLabel="Выбор штаба"
+        >
           <div style={styles.carouselTrack}>
+            <motion.button
+              type="button"
+              style={{
+                ...styles.campaignEntryOption,
+                ...(buttonsDisabled ? styles.headquartersOptionDisabled : {}),
+              }}
+              disabled={buttonsDisabled}
+              onClick={openCampaignMenu}
+              aria-label="Открыть компании"
+              whileHover={buttonsDisabled ? undefined : { y: -8, scale: 1.035 }}
+              whileTap={buttonsDisabled ? undefined : { scale: 0.985 }}
+              transition={{ type: "spring", stiffness: 360, damping: 28 }}
+            >
+              <div style={styles.campaignEntryCard}>
+                <img
+                  src="/ui/menu/campaign-card.png"
+                  alt=""
+                  draggable={false}
+                  style={styles.campaignEntryImage}
+                />
+                <span style={styles.campaignEntryTitleOverlay}>Компании</span>
+              </div>
+            </motion.button>
+
             {headquartersList.map((headquarters) => {
               const selected = headquarters.id === selectedHeadquartersId;
 
@@ -226,7 +526,6 @@ export function PvpLobby() {
                             hp: headquarters.hp,
                             attack: headquarters.attack,
                             fuelGeneration: headquarters.fuelGeneration,
-                            actionFuelCost: headquarters.actionFuelCost,
                           }}
                           displayMode="hand"
                         />
@@ -237,31 +536,8 @@ export function PvpLobby() {
               );
             })}
 
-            <motion.button
-              type="button"
-              style={{
-                ...styles.campaignEntryOption,
-                ...(buttonsDisabled ? styles.headquartersOptionDisabled : {}),
-              }}
-              disabled={buttonsDisabled}
-              onClick={openCampaignMenu}
-              aria-label="Открыть компании"
-              whileHover={buttonsDisabled ? undefined : { y: -8, scale: 1.035 }}
-              whileTap={buttonsDisabled ? undefined : { scale: 0.985 }}
-              transition={{ type: "spring", stiffness: 360, damping: 28 }}
-            >
-              <div style={styles.campaignEntryCard}>
-                <img
-                  src="/ui/menu/campaign-card.png"
-                  alt=""
-                  draggable={false}
-                  style={styles.campaignEntryImage}
-                />
-                <span style={styles.campaignEntryTitleOverlay}>Компании</span>
-              </div>
-            </motion.button>
           </div>
-        </div>
+        </CarouselTapFrame>
 
         <div style={styles.actionsGrid}>
           <button
@@ -351,7 +627,6 @@ export function PvpLobby() {
                   hp: previewHeadquarters.hp,
                   attack: previewHeadquarters.attack,
                   fuelGeneration: previewHeadquarters.fuelGeneration,
-                  actionFuelCost: previewHeadquarters.actionFuelCost,
                 }}
                 displayMode="preview"
               />
@@ -452,8 +727,45 @@ const styles: Record<string, CSSProperties> = {
     boxSizing: "border-box",
     WebkitOverflowScrolling: "touch",
     scrollSnapType: "x mandatory",
-    scrollbarWidth: "thin",
-    scrollbarColor: "rgba(247, 215, 116, 0.55) transparent",
+    scrollbarWidth: "none",
+  },
+
+  carouselShell: {
+    position: "relative",
+    width: "100%",
+  },
+
+  carouselTapZone: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    zIndex: 12,
+    width: 54,
+    padding: 0,
+    border: "none",
+    background: "transparent",
+    color: "rgba(255, 233, 168, 0.76)",
+    cursor: "pointer",
+  },
+
+  carouselTapZoneLeft: {
+    left: 0,
+    background:
+      "linear-gradient(90deg, rgba(0,0,0,0.32), rgba(0,0,0,0.04), transparent)",
+  },
+
+  carouselTapZoneRight: {
+    right: 0,
+    background:
+      "linear-gradient(270deg, rgba(0,0,0,0.32), rgba(0,0,0,0.04), transparent)",
+  },
+
+  carouselTapArrow: {
+    display: "block",
+    fontSize: 42,
+    fontWeight: 700,
+    lineHeight: 1,
+    textShadow: "0 3px 12px rgba(0,0,0,0.9)",
   },
 
   carouselTrack: {
@@ -762,6 +1074,78 @@ const styles: Record<string, CSSProperties> = {
     pointerEvents: "none",
   },
 
+  missionCarouselViewport: {
+    width: "100%",
+    overflowX: "auto",
+    overflowY: "hidden",
+    padding: "18px 8px 24px",
+    boxSizing: "border-box",
+    WebkitOverflowScrolling: "touch",
+    scrollSnapType: "x mandatory",
+    scrollbarWidth: "none",
+  },
+
+  missionCarouselTrack: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "flex-start",
+    gap: 28,
+    minWidth: "max-content",
+    margin: "0 auto",
+  },
+
+  missionCardOption: {
+    position: "relative",
+    flex: "0 0 auto",
+    width: 286,
+    minHeight: 352,
+    padding: 12,
+    border: "none",
+    outline: "none",
+    background: "transparent",
+    color: "#f8e3ae",
+    cursor: "pointer",
+    textAlign: "left",
+    scrollSnapAlign: "center",
+    boxSizing: "border-box",
+  },
+
+  missionCardOptionLocked: {
+    cursor: "default",
+    opacity: 0.5,
+    filter: "grayscale(0.72)",
+  },
+
+  missionArtCard: {
+    position: "relative",
+    zIndex: 2,
+    height: 328,
+    display: "grid",
+    gridTemplateRows: "126px 1fr",
+    overflow: "hidden",
+    borderRadius: 14,
+    border: "1px solid rgba(244, 209, 124, 0.42)",
+    background: "linear-gradient(180deg, rgba(47, 42, 28, 0.98), rgba(14, 16, 12, 0.98))",
+    boxShadow:
+      "0 18px 42px rgba(0,0,0,0.52), inset 0 0 28px rgba(255, 223, 128, 0.06)",
+  },
+
+  missionArtImage: {
+    width: "100%",
+    height: "100%",
+    backgroundSize: "cover",
+    backgroundPosition: "center center",
+    backgroundRepeat: "no-repeat",
+    borderBottom: "1px solid rgba(244, 209, 124, 0.24)",
+  },
+
+  missionArtContent: {
+    display: "grid",
+    gridTemplateRows: "auto auto auto 1fr auto",
+    gap: 5,
+    padding: "12px 14px 13px",
+  },
+
   campaignPanel: {
     width: "min(980px, calc(100vw - 48px))",
     margin: "8px auto 12px",
@@ -839,17 +1223,36 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: 2,
   },
 
+  missionChapter: {
+    minHeight: 22,
+    color: "rgba(244, 229, 191, 0.74)",
+    fontSize: 10,
+    fontWeight: 800,
+    lineHeight: 1.12,
+    letterSpacing: 0.45,
+    textTransform: "uppercase",
+  },
+
   missionTitle: {
     color: "#ffe9a8",
-    fontSize: 18,
+    display: "-webkit-box",
+    overflow: "hidden",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 2,
+    fontSize: 16,
     fontWeight: 1000,
+    lineHeight: 1.08,
     textTransform: "uppercase",
   },
 
   missionDescription: {
+    display: "-webkit-box",
+    overflow: "hidden",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 4,
     color: "rgba(244, 229, 191, 0.78)",
-    fontSize: 13,
-    lineHeight: 1.35,
+    fontSize: 12,
+    lineHeight: 1.25,
   },
 
   missionState: {
@@ -860,11 +1263,23 @@ const styles: Record<string, CSSProperties> = {
     textTransform: "uppercase",
   },
 
+  missionStateCompleted: {
+    color: "#8ee894",
+  },
+
+  menuActionsRow: {
+    width: "min(520px, calc(100vw - 48px))",
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 12,
+    margin: "0 auto",
+  },
+
   backButton: {
     cursor: "pointer",
     display: "block",
-    width: "min(240px, calc(100vw - 48px))",
-    margin: "0 auto",
+    width: "100%",
+    margin: 0,
     padding: "11px 16px",
     borderRadius: 10,
     border: "1px solid rgba(220, 184, 96, 0.48)",
@@ -875,6 +1290,13 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: 0.4,
     textTransform: "uppercase",
     boxShadow: "0 10px 22px rgba(0,0,0,0.30)",
+  },
+
+  primaryMenuButton: {
+    borderColor: "rgba(219, 211, 116, 0.62)",
+    background:
+      "linear-gradient(180deg, rgba(92, 98, 44, 0.96), rgba(48, 57, 31, 0.96))",
+    color: "#fff0b8",
   },
 
   cardPreviewOverlay: {

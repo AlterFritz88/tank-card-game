@@ -1,4 +1,4 @@
-import type { HeadquartersId } from "./types";
+import type { HeadquartersId, Nation } from "./types";
 
 export type HeadquartersDefinition = {
   id: HeadquartersId;
@@ -6,15 +6,15 @@ export type HeadquartersDefinition = {
   subtitle: string;
   description: string;
   faction: string;
+  nation: Nation;
   /** Тип/класс штаба, который отображается под названием на карточке. */
   type: string;
   hp: number;
   attack: number;
   range: number;
   fuelGeneration: number;
-  actionFuelCost: number;
-  artKey: string;
   defaultDeckId: string;
+  availableInMainMenu?: boolean;
 };
 
 export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
@@ -25,12 +25,11 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     type: "Учебная часть",
     description: "Стартовая учебная часть с универсальной колодой для освоения механик.",
     faction: "Учебные войска",
+    nation: "ussr",
     hp: 15,
     attack: 1,
     range: 99,
     fuelGeneration: 3,
-    actionFuelCost: 1,
-    artKey: "player",
     defaultDeckId: "training_unit_default",
   },
 
@@ -41,13 +40,80 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     type: "Учебная часть",
     description: "Учебный лагерь с немецкой техникой и стартовой немецкой колодой.",
     faction: "Trainingslager",
+    nation: "germany",
     hp: 15,
     attack: 1,
     range: 99,
     fuelGeneration: 3,
-    actionFuelCost: 1,
-    artKey: "enemy",
     defaultDeckId: "trainingslager_default",
+  },
+
+  polish_border_guard: {
+    id: "polish_border_guard",
+    title: "Пограничники",
+    subtitle: "Передовой польский гарнизон",
+    type: "Полевой штаб",
+    description:
+      "Передовая позиция польской армии. Лёгкая техника и танкетки быстро занимают ключевые клетки.",
+    faction: "Wojsko Polskie",
+    nation: "poland",
+    hp: 13,
+    attack: 1,
+    range: 99,
+    fuelGeneration: 3,
+    defaultDeckId: "polish_border_guard_campaign",
+    availableInMainMenu: false,
+  },
+
+  polish_army_lodz: {
+    id: "polish_army_lodz",
+    title: "Armia Łódź",
+    subtitle: "Штаб армии «Лодзь»",
+    type: "Армейский штаб",
+    description:
+      "Укреплённый штаб с поддержкой 7TP и противотанковых танкеток. Сильнее держит оборонительный рубеж.",
+    faction: "Wojsko Polskie",
+    nation: "poland",
+    hp: 15,
+    attack: 1,
+    range: 99,
+    fuelGeneration: 3,
+    defaultDeckId: "polish_army_lodz_campaign",
+    availableInMainMenu: false,
+  },
+
+  polish_army_prusy: {
+    id: "polish_army_prusy",
+    title: "Armia Prusy",
+    subtitle: "Резервная армия «Прусы»",
+    type: "Резервный штаб",
+    description:
+      "Резервное соединение с усиленными танками и самоходной артиллерией. Наращивает давление в затяжном бою.",
+    faction: "Wojsko Polskie",
+    nation: "poland",
+    hp: 16,
+    attack: 1,
+    range: 99,
+    fuelGeneration: 4,
+    defaultDeckId: "polish_army_prusy_campaign",
+    availableInMainMenu: false,
+  },
+
+  polish_warsaw_defense: {
+    id: "polish_warsaw_defense",
+    title: "Оборона Варшавы",
+    subtitle: "Варшавский оборонительный штаб",
+    type: "Укреплённый штаб",
+    description:
+      "Последний рубеж обороны. Бронепоезда, резервные танки и повышенная генерация топлива делают его самым опасным польским штабом.",
+    faction: "Wojsko Polskie",
+    nation: "poland",
+    hp: 18,
+    attack: 2,
+    range: 99,
+    fuelGeneration: 4,
+    defaultDeckId: "polish_warsaw_defense_campaign",
+    availableInMainMenu: false,
   },
 };
 

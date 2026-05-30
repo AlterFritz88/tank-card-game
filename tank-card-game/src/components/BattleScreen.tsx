@@ -112,7 +112,6 @@ type CardPreview =
       hp: number;
       attack: number;
       fuelGeneration: number;
-      actionFuelCost: number;
     };
 
 function setObjectRef(
@@ -1792,7 +1791,6 @@ function renderEnemyDeckWithTimer() {
                             hp: hq.hp,
                             attack: hq.attack,
                             fuelGeneration: hq.fuelGeneration,
-                            actionFuelCost: hq.actionFuelCost,
                           })
                         }
                         onClick={() => {
@@ -1820,7 +1818,6 @@ function renderEnemyDeckWithTimer() {
                           hp={hq.hp}
                           attack={hq.attack}
                           fuelGeneration={hq.fuelGeneration}
-                          actionFuelCost={hq.actionFuelCost}
                           selected={isSelected}
                           alreadyAttacked={hq.alreadyAttacked}
                         />
@@ -2105,7 +2102,6 @@ function renderEnemyDeckWithTimer() {
                     hp: cardPreview.hp,
                     attack: cardPreview.attack,
                     fuelGeneration: cardPreview.fuelGeneration,
-                    actionFuelCost: cardPreview.actionFuelCost,
                   }}
                   displayMode="preview"
                 />

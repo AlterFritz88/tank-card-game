@@ -58,6 +58,7 @@ type BattleStore = {
   firstTurnRoll: FirstTurnRollState;
   selectedHeadquartersId: HeadquartersId;
   completedCampaignMissionIds: string[];
+  selectedCampaignId: string | null;
   currentCampaignMissionId: string | null;
 
   selectedCardInstanceId: string | null;
@@ -69,6 +70,8 @@ type BattleStore = {
 
   setMode: (mode: GameMode) => void;
   openCampaignMenu: () => void;
+  openCampaignMissions: (campaignId: string) => void;
+  closeCampaignMissions: () => void;
   closeCampaignMenu: () => void;
   startAiBattle: () => void;
   startCampaignMission: (missionId: string) => void;
@@ -182,17 +185,19 @@ function createFreshBattle(
   });
 }
 
-function createCampaignBattle(
-  missionId: string,
-  playerHeadquartersId: HeadquartersId
-): BattleState | null {
+function createCampaignBattle(missionId: string): BattleState | null {
   const campaignMission = getCampaignMission(missionId);
 
   if (!campaignMission) return null;
+  if (campaignMission.mission.available === false) return null;
+  if (!campaignMission.mission.botHeadquartersId) return null;
+  if (!campaignMission.mission.botDeckId) return null;
 
   return createInitialBattleState({
-    playerHeadquartersId,
+    playerHeadquartersId: campaignMission.campaign.playerHeadquartersId,
     botHeadquartersId: campaignMission.mission.botHeadquartersId,
+    playerDeckId: campaignMission.campaign.playerDeckId,
+    botDeckId: campaignMission.mission.botDeckId,
     backgroundId: campaignMission.mission.backgroundId ?? getRandomBattleBackgroundId(),
   });
 }
@@ -216,6 +221,7 @@ function getCleanMenuState() {
     selectedCardInstanceId: null,
     opponentSelectedCardInstanceId: null,
     selectedAttacker: null,
+    selectedCampaignId: null,
     currentCampaignMissionId: null,
     firstTurnRoll: emptyFirstTurnRoll,
   };
@@ -492,6 +498,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   firstTurnRoll: emptyFirstTurnRoll,
   selectedHeadquartersId: DEFAULT_PLAYER_HEADQUARTERS_ID,
   completedCampaignMissionIds: loadCompletedCampaignMissionIds(),
+  selectedCampaignId: null,
   currentCampaignMissionId: null,
 
   selectedCardInstanceId: null,
@@ -532,10 +539,28 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     });
   },
 
+  openCampaignMissions: (campaignId) => {
+    set({
+      menuView: "missions",
+      mode: "campaign",
+      selectedCampaignId: campaignId,
+      pvpError: null,
+    });
+  },
+
+  closeCampaignMissions: () => {
+    set({
+      menuView: "campaign",
+      mode: "campaign",
+      currentCampaignMissionId: null,
+    });
+  },
+
   closeCampaignMenu: () => {
     set({
       menuView: "main",
       mode: "ai",
+      selectedCampaignId: null,
       currentCampaignMissionId: null,
     });
   },
@@ -586,7 +611,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
 
     if (!unlocked) return;
 
-    const battle = createCampaignBattle(missionId, state.selectedHeadquartersId);
+    const battle = createCampaignBattle(missionId);
     if (!battle) return;
 
     clearFirstTurnRollTimers();
@@ -608,6 +633,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       opponentSelectedCardInstanceId: null,
       selectedAttacker: null,
       currentCampaignMissionId: missionId,
+      selectedCampaignId: campaignMission.campaign.id,
     });
 
     pvpClient.disconnect();
@@ -893,7 +919,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       set({
         battle: null,
         mode: "campaign",
-        menuView: "campaign",
+        menuView: "missions",
         pvpRoomId: null,
         pvpStatus: "idle",
         pvpError: null,

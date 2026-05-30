@@ -4,6 +4,7 @@ import { applyAction } from "../../tank-card-game/src/game/engine";
 import {
   DEFAULT_BOT_HEADQUARTERS_ID,
   DEFAULT_PLAYER_HEADQUARTERS_ID,
+  HEADQUARTERS,
 } from "../../tank-card-game/src/game/headquarters";
 import { getRandomBattleBackgroundId } from "./battleBackgrounds";
 import {
@@ -120,9 +121,7 @@ function normalizeHeadquartersId(
   headquartersId: HeadquartersId | undefined,
   fallback: HeadquartersId
 ): HeadquartersId {
-  return headquartersId === "training_unit" || headquartersId === "trainingslager"
-    ? headquartersId
-    : fallback;
+  return headquartersId && headquartersId in HEADQUARTERS ? headquartersId : fallback;
 }
 
 export class RoomManager {

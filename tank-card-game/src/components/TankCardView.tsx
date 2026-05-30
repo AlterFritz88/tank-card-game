@@ -1,6 +1,10 @@
 import type React from "react";
 import type { PlayerId, TankCard } from "../game/types";
-import { getClassVisual, getNationVisual } from "../game/cardVisuals";
+import {
+  getClassVisual,
+  getNationFlagStyle,
+  getNationVisual,
+} from "../game/cardVisuals";
 import { getTankImage } from "../game/tankImages";
 import { StatBadge } from "./StatBadge";
 import ussrCardBackground from "../assets/cards/nation-ussr-bg.png";
@@ -136,15 +140,6 @@ export function TankCardView({
           </div>
         </div>
 
-        <div style={styles.boardActionCost}>
-          <StatBadge
-            type="actionCost"
-            mode="board"
-            value={card.actionFuelCost}
-            title="Стоимость действия"
-          />
-        </div>
-
         <div style={styles.boardCombatStats}>
           <StatBadge
             type="attack"
@@ -164,14 +159,6 @@ export function TankCardView({
           />
         </div>
 
-        {(alreadyMoved || alreadyAttacked) && (
-          <div style={styles.boardStatusRow}>
-            {alreadyMoved && <span style={styles.boardStatusBadge}>MOVE</span>}
-            {alreadyAttacked && (
-              <span style={styles.boardStatusBadge}>FIRE</span>
-            )}
-          </div>
-        )}
       </div>
     );
   }
@@ -233,6 +220,12 @@ export function TankCardView({
       </div>
 
       <header style={styles.handHeader}>
+        <div
+          style={{
+            ...styles.nationFlag,
+            ...getNationFlagStyle(nation),
+          }}
+        />
         <strong style={styles.handTitle}>{card.name}</strong>
         <span style={styles.subtitle}>
           {nation.label} · {unitClass.label}
@@ -269,29 +262,8 @@ export function TankCardView({
         <div style={styles.imageVignette} />
       </section>
 
-      <div style={styles.handBottomStats}>
-        <StatChip label="ACT" value={card.actionFuelCost} tone="#d6a84f" />
-      </div>
-
       {card.abilityText && <p style={styles.abilityText}>{card.abilityText}</p>}
     </div>
-  );
-}
-
-function StatChip({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string | number;
-  tone: string;
-}) {
-  return (
-    <span style={{ ...styles.statChip, borderColor: `${tone}aa` }}>
-      <small style={{ color: tone }}>{label}</small>
-      <strong>{value}</strong>
-    </span>
   );
 }
 
@@ -408,7 +380,21 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "center",
   },
 
+  nationFlag: {
+    position: "absolute",
+    left: "6.5%",
+    right: "7%",
+    top: "3.5%",
+    height: "11%",
+    zIndex: 0,
+    opacity: 0.15,
+    filter: "saturate(0.88)",
+    pointerEvents: "none",
+  },
+
   handTitle: {
+    position: "relative",
+    zIndex: 1,
     fontSize: 20,
     lineHeight: 1,
     letterSpacing: 0.2,
@@ -416,6 +402,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   subtitle: {
+    position: "relative",
+    zIndex: 1,
     marginTop: 2,
     fontSize: 8,
     opacity: 0.72,
@@ -508,30 +496,6 @@ const styles: Record<string, React.CSSProperties> = {
     pointerEvents: "none",
   },
 
-  handBottomStats: {
-    position: "relative",
-    zIndex: 2,
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 8,
-    margin: "9px 12px 0 52px",
-  },
-
-  statChip: {
-    minHeight: 22,
-    borderRadius: 7,
-    border: "1px solid",
-    background:
-      "linear-gradient(180deg, rgba(12, 13, 13, 0.88), rgba(0, 0, 0, 0.78))",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 4,
-    padding: "2px 5px",
-    boxShadow: "inset 0 0 12px rgba(0,0,0,0.65)",
-    fontSize: 10,
-  },
-
   abilityText: {
     position: "relative",
     zIndex: 2,
@@ -603,6 +567,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   boardTitleRow: {
+    position: "relative",
+    zIndex: 1,
     display: "flex",
     alignItems: "center",
     gap: 3,
@@ -645,45 +611,6 @@ const styles: Record<string, React.CSSProperties> = {
     "brightness(1.28) saturate(1.35) contrast(1.58) drop-shadow(0 1px 3px rgba(0,0,0,0.85))",
     pointerEvents: "none",
     userSelect: "none",
-  },
-
-  boardActionCost: {
-    position: "absolute",
-    right: -7,
-    top: -3,
-    zIndex: 7,
-    width: 30,
-    height: 30,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    pointerEvents: "none",
-  },
-
-  boardActionCostIcon: {
-    position: "absolute",
-    inset: 0,
-    width: "100%",
-    height: "100%",
-    objectFit: "contain",
-    pointerEvents: "none",
-    userSelect: "none",
-    filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.66))",
-  },
-
-  boardActionCostValue: {
-    position: "absolute",
-    left: "50%",
-    top: "50%",
-    zIndex: 2,
-    transform: "translate(-50%, -50%)",
-    fontSize: 14,
-    lineHeight: 1,
-    color: "#f6d27a",
-    fontWeight: 1000,
-    textAlign: "center",
-    textShadow:
-      "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
   },
 
   boardCombatStats: {
@@ -808,26 +735,4 @@ const styles: Record<string, React.CSSProperties> = {
     textShadow: "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
   },
 
-  boardStatusRow: {
-    position: "absolute",
-    right: 3,
-    bottom: 3,
-    zIndex: 9,
-    display: "flex",
-    flexDirection: "column",
-    gap: 2,
-    alignItems: "flex-end",
-    pointerEvents: "none",
-  },
-
-  boardStatusBadge: {
-    padding: "2px 4px",
-    borderRadius: 999,
-    background: "rgba(0,0,0,0.68)",
-    border: "1px solid rgba(255,255,255,0.14)",
-    color: "rgba(238,242,243,0.72)",
-    fontSize: 7,
-    fontWeight: 900,
-    letterSpacing: 0.4,
-  },
 };

@@ -1,6 +1,6 @@
 export type GameMode = "ai" | "pvp" | "campaign";
 
-export type MainMenuView = "main" | "campaign";
+export type MainMenuView = "main" | "campaign" | "missions";
 
 export type MatchEndReason =
   | "surrender"

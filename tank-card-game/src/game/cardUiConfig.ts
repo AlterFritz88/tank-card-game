@@ -5,7 +5,6 @@ export type CardStatBadge =
   | "health"
   | "fuel"
   | "fuelGeneration"
-  | "actionCost"
   | "spawnCost";
 
 type BadgeModeOverride = {
@@ -43,7 +42,6 @@ export const CARD_UI = {
     health: "#ffe4d8",
     fuel: "#f6d27a",
     fuelGeneration: "#f6d27a",
-    actionCost: "#f6d27a",
     spawnCost: "#f6d27a",
 
     playerAttackTint: "rgba(63, 220, 92, 0.10)",
@@ -111,19 +109,6 @@ export const CARD_UI = {
       fontWeight: 700,
     },
 
-    actionCost: {
-      width: 30,
-      height: 30,
-      valueTop: "60%",
-      fontSize: 14,
-      fontWeight: 700,
-      modes: {
-        board: {
-          fontWeight: 600,
-        },
-      },
-    },
-
     spawnCost: {
       width: 58,
       height: 64,
@@ -139,10 +124,6 @@ export const CARD_UI = {
       aspectRatio: "1 / 1.12",
     },
 
-    actionCost: {
-      width: "11%",
-      aspectRatio: "1 / 1",
-    },
   },
 
   tint: {

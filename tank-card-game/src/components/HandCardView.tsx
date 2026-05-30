@@ -1,7 +1,15 @@
 import type React from "react";
 import { getHeadquartersDefinition } from "../game/headquarters";
+import {
+  getHeadquartersImageAsset,
+  getLegacyHeadquartersImageAsset,
+} from "../game/headquartersImages";
 import type { HeadquartersId, PlayerId, TankCard } from "../game/types";
-import { getClassVisual, getNationVisual } from "../game/cardVisuals";
+import {
+  getClassVisual,
+  getNationFlagStyle,
+  getNationVisual,
+} from "../game/cardVisuals";
 import { getTankImage } from "../game/tankImages";
 import prototypeTankImage from "../assets/tanks/prototype-tank.png";
 import { StatBadge } from "./StatBadge";
@@ -18,14 +26,6 @@ import classTdEnemyIcon from "../assets/icons/classes/class-td-enemy.png";
 import classSpgPlayerIcon from "../assets/icons/classes/class-spg-player.png";
 import classSpgEnemyIcon from "../assets/icons/classes/class-spg-enemy.png";
 
-const headquartersImageModules = import.meta.glob(
-  "../assets/headquarters/*.{png,jpg,jpeg,webp}",
-  {
-    eager: true,
-    import: "default",
-  }
-) as Record<string, string>;
-
 const hqClassIconModules = import.meta.glob(
   "../assets/icons/classes/class-hq-*.{png,jpg,jpeg,webp}",
   {
@@ -39,7 +39,6 @@ type HeadquartersHandCardData = {
   hp: number;
   attack: number;
   fuelGeneration: number;
-  actionFuelCost: number;
   fuel?: number;
 };
 
@@ -98,37 +97,7 @@ function getOptionalImage(
 }
 
 function getLegacyHeadquartersImage(ownerId: PlayerId): string {
-  const side = ownerId === "player" ? "player" : "enemy";
-  const opponentSide = ownerId === "player" ? "friendly" : "bot";
-
-  return (
-    getOptionalImage(headquartersImageModules, [
-      `headquarters-${side}.png`,
-      `headquarters-${side}.jpg`,
-      `headquarters-${side}.jpeg`,
-      `headquarters-${side}.webp`,
-      `hq-${side}.png`,
-      `hq-${side}.jpg`,
-      `hq-${side}.jpeg`,
-      `hq-${side}.webp`,
-      `headquarters-${opponentSide}.png`,
-      `headquarters-${opponentSide}.jpg`,
-      `headquarters-${opponentSide}.jpeg`,
-      `headquarters-${opponentSide}.webp`,
-      `hq-${opponentSide}.png`,
-      `hq-${opponentSide}.jpg`,
-      `hq-${opponentSide}.jpeg`,
-      `hq-${opponentSide}.webp`,
-      "headquarters.png",
-      "headquarters.jpg",
-      "headquarters.jpeg",
-      "headquarters.webp",
-      "hq.png",
-      "hq.jpg",
-      "hq.jpeg",
-      "hq.webp",
-    ]) ?? prototypeTankImage
-  );
+  return getLegacyHeadquartersImageAsset(ownerId) ?? prototypeTankImage;
 }
 
 function getHeadquartersImage(
@@ -139,29 +108,13 @@ function getHeadquartersImage(
     return getLegacyHeadquartersImage(fallbackOwnerId);
   }
 
-  const headquarters = getHeadquartersDefinition(headquartersId);
-  const artKey = headquarters.artKey;
+  const headquartersImage = getHeadquartersImageAsset(headquartersId);
 
-  return (
-    getOptionalImage(headquartersImageModules, [
-      `headquarters-${artKey}.png`,
-      `headquarters-${artKey}.jpg`,
-      `headquarters-${artKey}.jpeg`,
-      `headquarters-${artKey}.webp`,
-      `hq-${artKey}.png`,
-      `hq-${artKey}.jpg`,
-      `hq-${artKey}.jpeg`,
-      `hq-${artKey}.webp`,
-      "headquarters.png",
-      "headquarters.jpg",
-      "headquarters.jpeg",
-      "headquarters.webp",
-      "hq.png",
-      "hq.jpg",
-      "hq.jpeg",
-      "hq.webp",
-    ]) ?? prototypeTankImage
-  );
+  if (headquartersImage) {
+    return headquartersImage;
+  }
+
+  return getLegacyHeadquartersImage(fallbackOwnerId);
 }
 
 function getHeadquartersClassIcon(ownerId: PlayerId): string | null {
@@ -205,12 +158,15 @@ export function HandCardView({
   const uiScale = isPreview ? previewScale ?? defaultPreviewScale : 1;
   const scaled = (value: number) => Math.round(value * uiScale);
 
-  const nation = card ? getNationVisual(card.nation) : null;
   const unitClass = card ? getClassVisual(card.class) : null;
 
   const headquartersDefinition =
     isHeadquarters && headquartersId
       ? getHeadquartersDefinition(headquartersId)
+      : null;
+  const nation =
+    card || headquartersDefinition
+      ? getNationVisual(card?.nation ?? headquartersDefinition!.nation)
       : null;
 
   const tankImage = isHeadquarters
@@ -236,10 +192,6 @@ export function HandCardView({
   const attackValue = isHeadquarters
     ? headquarters!.attack
     : card!.attack;
-
-  const actionCostValue = isHeadquarters
-    ? headquarters!.actionFuelCost
-    : card!.actionFuelCost;
 
   const fuelGenerationValue = isHeadquarters
     ? headquarters!.fuelGeneration
@@ -282,6 +234,15 @@ export function HandCardView({
         <div style={styles.artVignette} />
       </div>
 
+      {nation ? (
+        <div
+          style={{
+            ...styles.nationFlag,
+            ...getNationFlagStyle(nation),
+          }}
+        />
+      ) : null}
+
       <div style={styles.spawnCostBadge}>
         <StatBadge
           type={isHeadquarters ? "fuelGeneration" : "spawnCost"}
@@ -303,18 +264,6 @@ export function HandCardView({
             mode={badgeMode}
             value={`+${fuelGenerationValue}`}
             title="Генерация топлива за ход"
-            style={styles.fullBadge}
-          />
-        </div>
-      )}
-
-      {!isHeadquarters && (
-        <div style={styles.actionCostBadge}>
-          <StatBadge
-            type="actionCost"
-            mode={badgeMode}
-            value={actionCostValue}
-            title="Стоимость действия"
             style={styles.fullBadge}
           />
         </div>
@@ -515,6 +464,18 @@ const styles: Record<string, React.CSSProperties> = {
     pointerEvents: "none",
   },
 
+  nationFlag: {
+    position: "absolute",
+    left: "6.5%",
+    right: "7%",
+    top: "3.5%",
+    height: "11%",
+    zIndex: 4,
+    opacity: 0.35,
+    filter: "saturate(0.88)",
+    pointerEvents: "none",
+  },
+
   headquartersTitleArea: {
     left: "23.8%",
     right: "8%",
@@ -525,6 +486,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   title: {
+    position: "relative",
+    zIndex: 1,
     fontFamily: "inherit",
     fontSize: 15,
     lineHeight: 1,
@@ -538,6 +501,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   subtitle: {
+    position: "relative",
+    zIndex: 1,
     fontSize: 8,
     lineHeight: 1.05,
     color: "#e2c878",
@@ -603,42 +568,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#f6d27a",
     fontWeight: 700,
     textShadow: "0 1px 0 rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85)",
-  },
-
-  actionCostBadge: {
-    position: "absolute",
-    right: "2.7%",
-    top: "2.2%",
-    zIndex: 6,
-    width: "17%",
-    aspectRatio: "1 / 1",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    pointerEvents: "none",
-    filter: "drop-shadow(0 5px 8px rgba(0,0,0,0.72))",
-  },
-
-  actionCostIcon: {
-    position: "absolute",
-    inset: 0,
-    width: "100%",
-    height: "100%",
-    objectFit: "contain",
-  },
-
-  actionCostValue: {
-    position: "absolute",
-    left: "50%",
-    top: "50%",
-    transform: "translate(-50%, -50%)",
-    zIndex: 2,
-    fontFamily: digitFont,
-    fontSize: 14,
-    lineHeight: 1,
-    color: "#f6d27a",
-    fontWeight: 700,
-    textShadow: "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
   },
 
   leftStats: {
