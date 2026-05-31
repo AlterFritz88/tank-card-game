@@ -257,9 +257,9 @@ const styles: Record<string, React.CSSProperties> = {
   titleArea: {
     position: "absolute",
     left: 4,
+    right: 3,
     top: 3,
     zIndex: 6,
-    maxWidth: "calc(100% - 34px)",
     pointerEvents: "none",
   },
 
@@ -268,9 +268,11 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     gap: 3,
     minWidth: 0,
+    width: "100%",
   },
 
   title: {
+    flex: "1 1 auto",
     minWidth: 0,
     overflow: "hidden",
     whiteSpace: "nowrap",

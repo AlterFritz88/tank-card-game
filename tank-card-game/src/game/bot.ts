@@ -1,11 +1,19 @@
 import { getCard } from "./cards";
 import {
+  BOT_SPAWN_CELLS,
   applyAction,
+  getAttackAnimationSequence,
   getAvailableMoveCells,
   getFreeSpawnCells,
   getTargetsInRange,
 } from "./engine";
-import type { BattleAction, BattleState, BoardUnit, Position } from "./types";
+import type {
+  AttackAction,
+  BattleAction,
+  BattleState,
+  BoardUnit,
+  Position,
+} from "./types";
 
 function getDistance(a: Position, b: Position): number {
   return Math.abs(a.row - b.row) + Math.abs(a.col - b.col);
@@ -13,6 +21,10 @@ function getDistance(a: Position, b: Position): number {
 
 function getChebyshevDistance(a: Position, b: Position): number {
   return Math.max(Math.abs(a.row - b.row), Math.abs(a.col - b.col));
+}
+
+function samePosition(a: Position, b: Position): boolean {
+  return a.row === b.row && a.col === b.col;
 }
 
 function canCardAttackPosition(
@@ -184,140 +196,103 @@ function getBestPlayableCard(state: BattleState) {
   return playableCards[0] ?? null;
 }
 
-function getAttackValue(
+type AttackOutcome = {
+  targetDamage: number;
+  attackerDamage: number;
+  targetDestroyed: boolean;
+  attackerDestroyed: boolean;
+  attackerStruck: boolean;
+};
+
+function getAttackOutcome(
   state: BattleState,
-  attackerType: "unit" | "headquarters",
-  attackerId: string
-): number {
-  if (attackerType === "headquarters") {
-    return state.headquarters.bot.attack;
-  }
+  action: AttackAction
+): AttackOutcome | null {
+  const strikes = getAttackAnimationSequence(state, action);
 
-  const attacker = getBotUnitById(state, attackerId);
+  if (strikes.length === 0) return null;
 
-  if (!attacker) return 0;
+  const attackerHp =
+    action.attackerType === "unit"
+      ? getBotUnitById(state, action.attackerId)?.currentHp
+      : state.headquarters.bot.hp;
+  const targetHp =
+    action.targetType === "unit"
+      ? getEnemyUnitById(state, action.targetId)?.currentHp
+      : state.headquarters.player.hp;
 
-  return getCard(attacker.cardId).attack;
+  if (attackerHp === undefined || targetHp === undefined) return null;
+
+  const targetDamage = strikes
+    .filter((strike) => strike.targetId === action.targetId)
+    .reduce((total, strike) => total + strike.damage, 0);
+  const attackerDamage = strikes
+    .filter((strike) => strike.targetId === action.attackerId)
+    .reduce((total, strike) => total + strike.damage, 0);
+
+  return {
+    targetDamage,
+    attackerDamage,
+    targetDestroyed: targetDamage >= targetHp,
+    attackerDestroyed: attackerDamage >= attackerHp,
+    attackerStruck: strikes.some(
+      (strike) =>
+        strike.sourceId === action.attackerId &&
+        strike.targetId === action.targetId
+    ),
+  };
 }
 
-function getCounterDamageRisk(
-  attackValue: number,
-  attackerCardId: string | null,
-  attackerHp: number | null,
-  targetUnit: BoardUnit
-): number {
-  if (!attackerCardId || attackerHp === null) return 0;
+function scoreAttackAction(
+  state: BattleState,
+  action: AttackAction
+): number | null {
+  const outcome = getAttackOutcome(state, action);
 
-  const attackerCard = getCard(attackerCardId);
-  const targetCard = getCard(targetUnit.cardId);
-  const targetDestroyed = targetUnit.currentHp <= attackValue;
-
-  if (attackerCard.class === "spg") return 0;
-  if (targetCard.class === "spg") return 0;
-  if (
-    attackerCard.class === "td" &&
-    targetCard.class !== "td" &&
-    targetDestroyed
-  ) {
-    return 0;
+  // An armed TD can destroy an attacker before it fires. The bot must not
+  // spend a unit on an attack that deals no damage.
+  if (!outcome || !outcome.attackerStruck || outcome.targetDamage <= 0) {
+    return null;
   }
 
-  const wouldDie = attackerHp <= targetCard.attack;
-  const preemptiveTdRisk =
-    targetCard.class === "td" &&
-    attackerCard.class !== "td" &&
-    !targetUnit.tdAmbushUsedThisTurn
-      ? 18
-      : 0;
+  let score = outcome.targetDamage * 5 - outcome.attackerDamage * 4;
 
-  return targetCard.attack * 3 + (wouldDie ? 28 : 0) + preemptiveTdRisk;
+  if (action.targetType === "headquarters") {
+    score += 8;
+  } else {
+    const enemyUnit = getEnemyUnitById(state, action.targetId);
+
+    if (!enemyUnit) return null;
+
+    const enemyCard = getCard(enemyUnit.cardId);
+
+    score +=
+      getUnitThreatScore(state, enemyUnit) +
+      enemyCard.attack * 2 +
+      enemyCard.fuelGeneration * 4;
+  }
+
+  if (outcome.targetDestroyed) score += 28;
+  if (outcome.attackerDestroyed) score -= 26;
+
+  return score;
 }
 
-function chooseBestAttackTarget(
-  state: BattleState,
-  attackerId: string,
-  attackerType: "unit" | "headquarters"
-) {
-  const targets = getTargetsInRange(state, "bot", attackerType, attackerId);
-
-  if (targets.length === 0) return null;
-
-  const attackValue = getAttackValue(state, attackerType, attackerId);
-
-  const playerHqTarget = targets.find(
-    (target) => target.type === "headquarters"
+function getSpgPositionScore(state: BattleState, position: Position): number {
+  const isSpawnCell = BOT_SPAWN_CELLS.some((cell) =>
+    samePosition(cell, position)
   );
+  const isCentralSpawnCell = position.row === 1 && position.col === 3;
+  const backEdgeBonus = position.row === 0 ? 12 : 0;
+  const flankEdgeBonus = position.col === 4 ? 4 : 0;
 
-  if (
-    playerHqTarget &&
-    state.headquarters.player.hp <= attackValue
-  ) {
-    return playerHqTarget;
-  }
-
-  const killableUnitTargets = targets
-    .filter((target) => target.type === "unit")
-    .map((target) => {
-      const enemyUnit = getEnemyUnitById(state, target.id);
-
-      if (!enemyUnit) return null;
-
-      const enemyCard = getCard(enemyUnit.cardId);
-      const overkill = attackValue - enemyUnit.currentHp;
-
-      if (overkill < 0) return null;
-
-      return {
-        target,
-        score:
-          getUnitThreatScore(state, enemyUnit) +
-          enemyCard.attack * 2 +
-          enemyCard.fuelGeneration * 4 +
-          enemyCard.hp -
-          overkill,
-      };
-    })
-    .filter((item): item is NonNullable<typeof item> => item !== null)
-    .sort((a, b) => b.score - a.score);
-
-  if (killableUnitTargets.length > 0) {
-    return killableUnitTargets[0].target;
-  }
-
-  const dangerousUnitTargets = targets
-    .filter((target) => target.type === "unit")
-    .map((target) => {
-      const enemyUnit = getEnemyUnitById(state, target.id);
-
-      if (!enemyUnit) return null;
-
-      const enemyCard = getCard(enemyUnit.cardId);
-      const distanceToBotHq = getDistance(
-        enemyUnit.position,
-        state.headquarters.bot.position
-      );
-
-      return {
-        target,
-        score:
-          getUnitThreatScore(state, enemyUnit) +
-          enemyCard.attack * 2 +
-          enemyUnit.currentHp -
-          distanceToBotHq * 2,
-      };
-    })
-    .filter((item): item is NonNullable<typeof item> => item !== null)
-    .sort((a, b) => b.score - a.score);
-
-  if (dangerousUnitTargets.length > 0) {
-    return dangerousUnitTargets[0].target;
-  }
-
-  if (playerHqTarget) {
-    return playerHqTarget;
-  }
-
-  return targets[0];
+  return (
+    getDistance(position, state.headquarters.player.position) * 4 +
+    backEdgeBonus +
+    flankEdgeBonus -
+    (isSpawnCell ? 5 : 0) -
+    (isCentralSpawnCell ? 14 : 0)
+  );
 }
 
 function getLethalAttackAction(state: BattleState): BattleAction | null {
@@ -327,7 +302,6 @@ function getLethalAttackAction(state: BattleState): BattleAction | null {
     if (unit.alreadyAttacked) continue;
 
     const card = getCard(unit.cardId);
-
     const targets = getTargetsInRange(state, "bot", "unit", unit.instanceId);
 
     const lethalHqTarget = targets.find(
@@ -388,8 +362,6 @@ function getKillUnitAttackAction(state: BattleState): BattleAction | null {
   for (const unit of botUnits) {
     if (unit.alreadyAttacked) continue;
 
-    const card = getCard(unit.cardId);
-
     const targets = getTargetsInRange(state, "bot", "unit", unit.instanceId);
 
     for (const target of targets) {
@@ -400,24 +372,28 @@ function getKillUnitAttackAction(state: BattleState): BattleAction | null {
       if (!enemyUnit) continue;
 
       const enemyCard = getCard(enemyUnit.cardId);
+      const action: AttackAction = {
+        type: "ATTACK",
+        playerId: "bot",
+        attackerType: "unit",
+        attackerId: unit.instanceId,
+        targetType: target.type,
+        targetId: target.id,
+      };
+      const outcome = getAttackOutcome(state, action);
+      const attackScore = scoreAttackAction(state, action);
 
-      if (enemyUnit.currentHp > card.attack) continue;
+      if (!outcome?.targetDestroyed || attackScore === null) continue;
 
       candidates.push({
-        action: {
-          type: "ATTACK",
-          playerId: "bot",
-          attackerType: "unit",
-          attackerId: unit.instanceId,
-          targetType: target.type,
-          targetId: target.id,
-        },
+        action,
         score:
+          attackScore +
           getUnitThreatScore(state, enemyUnit) +
           enemyCard.attack * 3 +
           enemyCard.fuelGeneration * 5 +
           enemyCard.hp * 2 -
-          Math.max(0, card.attack - enemyUnit.currentHp),
+          Math.max(0, outcome.targetDamage - enemyUnit.currentHp),
       });
     }
   }
@@ -438,19 +414,23 @@ function getKillUnitAttackAction(state: BattleState): BattleAction | null {
       if (!enemyUnit) continue;
 
       const enemyCard = getCard(enemyUnit.cardId);
+      const action: AttackAction = {
+        type: "ATTACK",
+        playerId: "bot",
+        attackerType: "headquarters",
+        attackerId: "bot_hq",
+        targetType: target.type,
+        targetId: target.id,
+      };
+      const outcome = getAttackOutcome(state, action);
+      const attackScore = scoreAttackAction(state, action);
 
-      if (enemyUnit.currentHp > state.headquarters.bot.attack) continue;
+      if (!outcome?.targetDestroyed || attackScore === null) continue;
 
       candidates.push({
-        action: {
-          type: "ATTACK",
-          playerId: "bot",
-          attackerType: "headquarters",
-          attackerId: "bot_hq",
-          targetType: target.type,
-          targetId: target.id,
-        },
+        action,
         score:
+          attackScore +
           getUnitThreatScore(state, enemyUnit) +
           enemyCard.attack * 2 +
           enemyCard.fuelGeneration * 5,
@@ -489,10 +469,14 @@ function getStrategicPlayCardAction(state: BattleState): BattleAction | null {
         ? Math.max(0, 5 - distanceToThreat) * 3
         : 0;
       const offensiveBonus = Math.max(0, 7 - distanceToPlayerHq) * 2;
+      const positionScore =
+        card.class === "spg"
+          ? getSpgPositionScore(state, cell)
+          : offensiveBonus + defensiveBonus + economyCardBonus;
 
       return {
         cell,
-        score: offensiveBonus + defensiveBonus + economyCardBonus,
+        score: positionScore,
       };
     })
     .sort((a, b) => b.score - a.score)[0];
@@ -518,70 +502,42 @@ function getNormalAttackAction(state: BattleState): BattleAction | null {
   for (const unit of botUnits) {
     if (unit.alreadyAttacked) continue;
 
-    const card = getCard(unit.cardId);
-    const bestTarget = chooseBestAttackTarget(state, unit.instanceId, "unit");
+    const targets = getTargetsInRange(state, "bot", "unit", unit.instanceId);
 
-    if (!bestTarget) continue;
-
-    let score = card.attack * 2;
-
-    if (bestTarget.type === "headquarters") {
-      score += 4;
-    }
-
-    if (bestTarget.type === "unit") {
-      const enemyUnit = getEnemyUnitById(state, bestTarget.id);
-
-      if (enemyUnit) {
-        const enemyCard = getCard(enemyUnit.cardId);
-        score +=
-          getUnitThreatScore(state, enemyUnit) +
-          enemyCard.attack * 2 +
-          enemyCard.fuelGeneration * 3;
-
-        score -= getCounterDamageRisk(
-          card.attack,
-          unit.cardId,
-          unit.currentHp,
-          enemyUnit
-        );
-      }
-    }
-
-    candidates.push({
-      action: {
+    for (const target of targets) {
+      const action: AttackAction = {
         type: "ATTACK",
         playerId: "bot",
         attackerType: "unit",
         attackerId: unit.instanceId,
-        targetType: bestTarget.type,
-        targetId: bestTarget.id,
-      },
-      score,
-    });
+        targetType: target.type,
+        targetId: target.id,
+      };
+      const score = scoreAttackAction(state, action);
+
+      if (score === null) continue;
+
+      candidates.push({ action, score });
+    }
   }
 
   if (!state.headquarters.bot.alreadyAttacked) {
-    const bestTarget = chooseBestAttackTarget(state, "bot_hq", "headquarters");
+    const targets = getTargetsInRange(state, "bot", "headquarters", "bot_hq");
 
-    if (bestTarget) {
-      candidates.push({
-        action: {
-          type: "ATTACK",
-          playerId: "bot",
-          attackerType: "headquarters",
-          attackerId: "bot_hq",
-          targetType: bestTarget.type,
-          targetId: bestTarget.id,
-        },
-        score:
-          bestTarget.type === "headquarters"
-            ? 3
-            : (() => {
-                const enemyUnit = getEnemyUnitById(state, bestTarget.id);
-                return enemyUnit ? getUnitThreatScore(state, enemyUnit) : 2;
-              })(),
-      });
+    for (const target of targets) {
+      const action: AttackAction = {
+        type: "ATTACK",
+        playerId: "bot",
+        attackerType: "headquarters",
+        attackerId: "bot_hq",
+        targetType: target.type,
+        targetId: target.id,
+      };
+      const score = scoreAttackAction(state, action);
+
+      if (score === null) continue;
+
+      candidates.push({ action, score });
     }
   }
 
@@ -604,6 +560,33 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
 
   for (const unit of botUnits) {
     const card = getCard(unit.cardId);
+    const moveCells = getAvailableMoveCells(state, "bot", unit.instanceId);
+
+    if (moveCells.length === 0) continue;
+
+    if (card.class === "spg") {
+      const currentScore = getSpgPositionScore(state, unit.position);
+      const bestCell = moveCells
+        .map((cell) => ({
+          cell,
+          score: getSpgPositionScore(state, cell),
+        }))
+        .sort((a, b) => b.score - a.score)[0];
+
+      if (!bestCell || bestCell.score <= currentScore) continue;
+
+      candidates.push({
+        action: {
+          type: "MOVE_UNIT",
+          playerId: "bot",
+          unitId: unit.instanceId,
+          position: bestCell.cell,
+        },
+        score: bestCell.score - currentScore + 4,
+      });
+
+      continue;
+    }
 
     const currentTargets = getTargetsInRange(
       state,
@@ -616,10 +599,6 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
     if (!unit.alreadyAttacked && currentTargets.length > 0) {
       continue;
     }
-
-    const moveCells = getAvailableMoveCells(state, "bot", unit.instanceId);
-
-    if (moveCells.length === 0) continue;
 
     const playerHq = state.headquarters.player.position;
     const currentDistance = getDistance(unit.position, playerHq);

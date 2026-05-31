@@ -1848,6 +1848,32 @@ function renderEnemyDeckWithTimer() {
 </AnimatePresence>
 
             <motion.div ref={boardRef} layout style={styles.board}>
+              <div style={styles.boardCellBackdropGrid} aria-hidden="true">
+                {visualRows.map((row) =>
+                  visualCols.map((col) => {
+                    const position: Position = { row, col };
+                    const playerSpawn = isPlayerSpawn(position);
+                    const botSpawn = isBotSpawn(position);
+                    const ownSpawn =
+                      humanPlayerId === "player" ? playerSpawn : botSpawn;
+                    const enemySpawn =
+                      humanPlayerId === "player" ? botSpawn : playerSpawn;
+
+                    return (
+                      <div
+                        key={`backdrop-${row}-${col}`}
+                        style={{
+                          ...styles.cell,
+                          ...styles.boardCellBackdrop,
+                          ...(ownSpawn ? styles.spawnCell : {}),
+                          ...(enemySpawn ? styles.botSpawnCell : {}),
+                        }}
+                      />
+                    );
+                  })
+                )}
+              </div>
+
               <AnimatePresence>
                 {movementArrowEffect &&
                   (() => {
@@ -2860,11 +2886,28 @@ actionSideColumn: {
   alignItems: "stretch",
 },
 
+  boardCellBackdropGrid: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 0,
+    display: "grid",
+    gridTemplateColumns: "repeat(5, minmax(120px, 1fr))",
+    gridTemplateRows: "repeat(3, minmax(0, 1fr))",
+    gap: 4,
+    alignItems: "stretch",
+    pointerEvents: "none",
+  },
+
+  boardCellBackdrop: {
+    cursor: "default",
+    pointerEvents: "none",
+  },
+
   tacticalArrowWrap: {
     position: "absolute",
     zIndex: 4,
-    height: 19,
-    marginTop: -10,
+    height: 27,
+    marginTop: -14,
     transformOrigin: "0 50%",
     pointerEvents: "none",
   },
