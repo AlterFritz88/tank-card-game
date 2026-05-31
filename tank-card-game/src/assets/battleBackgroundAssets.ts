@@ -32,7 +32,7 @@ const BATTLE_BACKGROUND_ASSETS = Object.fromEntries(
         {
           id,
           image,
-          size: "contain",
+          size: "cover",
           position: "center center",
           color: "#11120f",
         },
@@ -43,7 +43,7 @@ const BATTLE_BACKGROUND_ASSETS = Object.fromEntries(
 const fallbackBackgroundAsset: BattleBackgroundAsset = {
   id: DEFAULT_BATTLE_BACKGROUND_ID,
   image: "",
-  size: "contain",
+  size: "cover",
   position: "center center",
   color: "#11120f",
 };

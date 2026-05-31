@@ -213,11 +213,24 @@ function getCounterDamageRisk(
   const targetDestroyed = targetUnit.currentHp <= attackValue;
 
   if (attackerCard.class === "spg") return 0;
-  if (attackerCard.class === "td" && targetDestroyed) return 0;
+  if (targetCard.class === "spg") return 0;
+  if (
+    attackerCard.class === "td" &&
+    targetCard.class !== "td" &&
+    targetDestroyed
+  ) {
+    return 0;
+  }
 
   const wouldDie = attackerHp <= targetCard.attack;
+  const preemptiveTdRisk =
+    targetCard.class === "td" &&
+    attackerCard.class !== "td" &&
+    !targetUnit.tdAmbushUsedThisTurn
+      ? 18
+      : 0;
 
-  return targetCard.attack * 3 + (wouldDie ? 28 : 0);
+  return targetCard.attack * 3 + (wouldDie ? 28 : 0) + preemptiveTdRisk;
 }
 
 function chooseBestAttackTarget(

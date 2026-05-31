@@ -280,6 +280,7 @@ function beginBattle(
     unit.alreadyMoved = false;
     unit.spawnedThisTurn = false;
     unit.moveCountThisTurn = 0;
+    unit.tdAmbushUsedThisTurn = false;
   }
 
   const startingPlayerDrawnCards = drawCardsWithoutPenalty(
@@ -347,6 +348,8 @@ function startTurn(state: BattleState, playerId: PlayerId) {
   }
 
   for (const unit of state.units) {
+    unit.tdAmbushUsedThisTurn = false;
+
     if (unit.ownerId === playerId) {
       unit.alreadyAttacked = false;
       unit.alreadyMoved = false;
@@ -398,6 +401,7 @@ function playCard(
     alreadyMoved: !isLightTank,
     spawnedThisTurn: true,
     moveCountThisTurn: 0,
+    tdAmbushUsedThisTurn: false,
   };
 
   state.units.push(unit);
@@ -472,6 +476,131 @@ function canAttackTarget(
   return canUnitAttackTarget(attackerCard, attacker.position, target.position);
 }
 
+export type AttackAnimationStrike = {
+  sourceId: string;
+  targetId: string;
+  damage: number;
+};
+
+export type UnitCombatPreview = {
+  strikes: AttackAnimationStrike[];
+  attackerHpAfter: number;
+  targetHpAfter: number;
+  tdAmbushTriggered: boolean;
+};
+
+function getCombatObjectId(
+  object: NonNullable<ReturnType<typeof getAttacker>>
+): string {
+  return "cardId" in object ? object.instanceId : `${object.ownerId}_hq`;
+}
+
+export function getUnitCombatPreview(
+  attacker: BoardUnit,
+  target: BoardUnit
+): UnitCombatPreview {
+  const attackerCard = getCard(attacker.cardId);
+  const targetCard = getCard(target.cardId);
+  const strikes: AttackAnimationStrike[] = [];
+  let attackerHpAfter = attacker.currentHp;
+  let targetHpAfter = target.currentHp;
+  let tdAmbushTriggered = false;
+
+  const attackTarget = () => {
+    targetHpAfter -= attackerCard.attack;
+    strikes.push({
+      sourceId: attacker.instanceId,
+      targetId: target.instanceId,
+      damage: attackerCard.attack,
+    });
+  };
+
+  const counterAttack = () => {
+    attackerHpAfter -= targetCard.attack;
+    strikes.push({
+      sourceId: target.instanceId,
+      targetId: attacker.instanceId,
+      damage: targetCard.attack,
+    });
+  };
+
+  const attackerUsesRangedAttack =
+    attackerCard.class === "spg" ||
+    chebyshevDistance(attacker.position, target.position) > 1;
+  const targetCanUseTdAmbush =
+    targetCard.class === "td" &&
+    attackerCard.class !== "td" &&
+    !target.tdAmbushUsedThisTurn &&
+    !attackerUsesRangedAttack;
+
+  if (targetCanUseTdAmbush) {
+    tdAmbushTriggered = true;
+    counterAttack();
+
+    if (attackerHpAfter > 0) {
+      attackTarget();
+    }
+
+    return {
+      strikes,
+      attackerHpAfter,
+      targetHpAfter,
+      tdAmbushTriggered,
+    };
+  }
+
+  attackTarget();
+
+  const targetCanCounterAttack =
+    targetCard.class !== "spg" &&
+    attackerCard.class !== "spg" &&
+    !(
+      attackerCard.class === "td" &&
+      targetCard.class !== "td" &&
+      targetHpAfter <= 0
+    );
+
+  if (targetCanCounterAttack) {
+    counterAttack();
+  }
+
+  return {
+    strikes,
+    attackerHpAfter,
+    targetHpAfter,
+    tdAmbushTriggered,
+  };
+}
+
+export function getAttackAnimationSequence(
+  state: BattleState,
+  action: AttackAction
+): AttackAnimationStrike[] {
+  if (state.status !== "active") return [];
+  if (state.activePlayer !== action.playerId) return [];
+
+  const attacker = getAttacker(state, action);
+  const target = getTarget(state, action);
+
+  if (!attacker || !target) return [];
+  if (attacker.ownerId !== action.playerId) return [];
+  if (target.ownerId === action.playerId) return [];
+  if (attacker.alreadyAttacked) return [];
+  if (!canAttackTarget(attacker, target)) return [];
+
+  if ("cardId" in attacker && "cardId" in target) {
+    return getUnitCombatPreview(attacker, target).strikes;
+  }
+
+  return [
+    {
+      sourceId: getCombatObjectId(attacker),
+      targetId: getCombatObjectId(target),
+      damage: getAttackValue(attacker),
+    },
+  ];
+}
+
 function destroyUnit(
   state: BattleState,
   unit: BoardUnit,
@@ -521,48 +650,61 @@ function attack(state: BattleState, action: AttackAction) {
   const targetName = targetCard ? targetCard.name : "штаб";
 
   if (targetIsUnit) {
-    target.currentHp -= attackValue;
+    if (attackerIsUnit && attackerCard && targetCard) {
+      const preview = getUnitCombatPreview(attacker, target);
 
-    addLog(
-      state,
-      `${attackerName} атакует ${targetName} и наносит ${attackValue} урона.`
-    );
+      attacker.currentHp = preview.attackerHpAfter;
+      target.currentHp = preview.targetHpAfter;
+      target.tdAmbushUsedThisTurn =
+        target.tdAmbushUsedThisTurn || preview.tdAmbushTriggered;
 
-    const targetDestroyed = target.currentHp <= 0;
+      for (const [index, strike] of preview.strikes.entries()) {
+        const isAttackerStrike = strike.sourceId === attacker.instanceId;
+        const isPreemptiveTdStrike =
+          index === 0 && !isAttackerStrike && preview.tdAmbushTriggered;
 
-    const attackerCanReceiveCounterDamage =
-      attackerIsUnit && attackerCard?.class !== "spg";
+        if (isPreemptiveTdStrike) {
+          addLog(
+            state,
+            `${targetName} открывает упреждающий огонь и наносит ${strike.damage} урона.`
+          );
+          continue;
+        }
 
-    const tdAvoidsCounterDamage =
-      attackerCard?.class === "td" && targetDestroyed;
+        if (!isAttackerStrike) {
+          addLog(
+            state,
+            `${targetName} отвечает огнем и наносит ${strike.damage} урона.`
+          );
+          continue;
+        }
 
-    if (
-      attackerCanReceiveCounterDamage &&
-      !tdAvoidsCounterDamage &&
-      targetCard
-    ) {
-      const counterDamage = targetCard.attack;
-
-      attacker.currentHp -= counterDamage;
+        addLog(
+          state,
+          `${attackerName} атакует ${targetName} и наносит ${strike.damage} урона.`
+        );
+      }
+    } else {
+      target.currentHp -= attackValue;
 
       addLog(
         state,
-        `${targetName} отвечает огнем и наносит ${counterDamage} урона.`
+        `${attackerName} атакует ${targetName} и наносит ${attackValue} урона.`
       );
     }
 
-    if (targetDestroyed) {
-  destroyUnit(state, target, "уничтожен.", action.playerId);
-}
+    if (target.currentHp <= 0) {
+      destroyUnit(state, target, "уничтожен.", action.playerId);
+    }
 
-   if (attackerIsUnit && attacker.currentHp <= 0) {
-  destroyUnit(
-    state,
-    attacker,
-    "уничтожен ответным огнем.",
-    getOpponent(action.playerId)
-  );
-}
+    if (attackerIsUnit && attacker.currentHp <= 0) {
+      destroyUnit(
+        state,
+        attacker,
+        "уничтожен ответным огнем.",
+        getOpponent(action.playerId)
+      );
+    }
   } else {
     target.hp -= attackValue;
 

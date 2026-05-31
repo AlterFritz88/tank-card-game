@@ -6,9 +6,11 @@ import { getNextBotAction } from "../game/bot";
 import {
   PLAYER_SPAWN_CELLS,
   BOT_SPAWN_CELLS,
+  getAttackAnimationSequence,
   getAvailableMoveCells,
   getTargetsInRange,
 } from "../game/engine";
+import type { AttackAnimationStrike } from "../game/engine";
 import type {
   BattleAction,
   BattleState,
@@ -33,6 +35,8 @@ import apShellImage from "../assets/ap-shell.png";
 import explosionFlashImage from "../assets/effects/explosion-flash.png";
 import explosionFireballImage from "../assets/effects/explosion-fireball.png";
 import explosionSmokeImage from "../assets/effects/explosion-smoke.png";
+import movementArrowImage from "../assets/effects/arrow.png";
+import burntCardImage from "../assets/effects/burnt-card.png";
 import cardBackImage from "../assets/cards/card-back.png";
 import cartridgeImage from "../assets/effects/rifle-cartridge.png";
 
@@ -57,8 +61,6 @@ const HAND_LAYOUT_TRANSITION = {
   },
 } as const;
 
-type DamageId = string;
-
 type CellCenter = {
   x: number;
   y: number;
@@ -78,9 +80,20 @@ type ExplosionEffect = {
 type DamageTextEffect = {
   id: number;
   amount: number;
-  targetId?: string;
-  position?: CellCenter;
+  targetId: string;
 };
+
+type HitReactionEffect = {
+  id: number;
+  targetId: string;
+  x: number;
+  y: number;
+};
+
+type HoveredAttackTarget = {
+  type: "unit" | "headquarters";
+  id: string;
+} | null;
 
 type DrawCardEffect = {
   id: number;
@@ -96,6 +109,24 @@ type SpawnCardEffect = {
   to: CellCenter;
   cardId: string;
   hiddenCardInstanceId: string;
+};
+
+type MovementArrowEffect = {
+  id: number;
+  owner: PlayerId;
+  from: CellCenter;
+  to: CellCenter;
+  phase: "extending" | "following";
+};
+
+type DestroyedCardEffect = {
+  id: number;
+  targetId: string;
+  from: CellCenter;
+  to: CellCenter;
+  width: number;
+  height: number;
+  rotation: number;
 };
 
 type CardPreview =
@@ -189,6 +220,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     mode,
     localPlayerId,
     pvpTimer,
+    pvpMovementIntent,
+    pvpAttackIntent,
     matchEndReason,
     selectedCardInstanceId,
     opponentSelectedCardInstanceId,
@@ -252,18 +285,25 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const DRAW_CARD_ANIMATION_MS = 760;
   const DRAW_CARD_REVEAL_DELAY_MS = 80;
   const SPAWN_CARD_ANIMATION_MS = 620;
+  const MOVE_ARROW_LEAD_MS = 340;
+  const MOVE_ARROW_FOLLOW_MS = 280;
+  const ATTACK_STRIKE_SETTLE_MS = 620;
+  const DESTROYED_CARD_ANIMATION_MS = 920;
   const START_ROLL_DURATION_MS = 2800;
   const START_ROLL_RESULT_DELAY_MS = 350;
-  const [damagedIds, setDamagedIds] = useState<Set<DamageId>>(new Set());
   const [attackingId, setAttackingId] = useState<string | null>(null);
   const [attackEffectId, setAttackEffectId] = useState<string | null>(null);
   const [projectileEffect, setProjectileEffect] =
     useState<ProjectileEffect | null>(null);
   const [explosionEffect, setExplosionEffect] =
     useState<ExplosionEffect | null>(null);
+  const [hitReactionEffect, setHitReactionEffect] =
+    useState<HitReactionEffect | null>(null);
   const [damageTextEffects, setDamageTextEffects] = useState<
     DamageTextEffect[]
   >([]);
+  const [hoveredAttackTarget, setHoveredAttackTarget] =
+    useState<HoveredAttackTarget>(null);
   const [turnBannerText, setTurnBannerText] = useState<string | null>(null);
   const [thinkingCardIndex, setThinkingCardIndex] = useState<number | null>(
     null
@@ -277,12 +317,22 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const objectRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const projectileIdRef = useRef(0);
   const explosionIdRef = useRef(0);
+  const hitReactionIdRef = useRef(0);
   const damageTextIdRef = useRef(0);
-  const lastObjectCentersRef = useRef<Map<string, CellCenter>>(new Map());
   const previousHpSnapshotRef = useRef<Map<string, number> | null>(null);
+  const suppressNextRemoteDamageEffectsRef = useRef(false);
+  const lastPvpAttackIntentIdRef = useRef<string | null>(null);
   const botTurnRunningRef = useRef(false);
   const [drawCardEffects, setDrawCardEffects] = useState<DrawCardEffect[]>([]);
   const [spawnCardEffects, setSpawnCardEffects] = useState<SpawnCardEffect[]>([]);
+  const [movementArrowEffect, setMovementArrowEffect] =
+    useState<MovementArrowEffect | null>(null);
+  const [destroyedCardEffects, setDestroyedCardEffects] = useState<
+    DestroyedCardEffect[]
+  >([]);
+  const [hiddenDestroyedObjectIds, setHiddenDestroyedObjectIds] = useState<
+    Set<string>
+  >(new Set());
   const [hiddenSpawningCardIds, setHiddenSpawningCardIds] = useState<Set<string>>(
     new Set()
   );
@@ -291,6 +341,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   >(null);
   const drawCardEffectIdRef = useRef(0);
   const spawnCardEffectIdRef = useRef(0);
+  const movementArrowEffectIdRef = useRef(0);
+  const destroyedCardEffectIdRef = useRef(0);
+  const movementAnimationRunningRef = useRef(false);
+  const attackSequenceRunningRef = useRef(false);
   const cellRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   type StartRollState = {
@@ -324,9 +378,20 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     player: new Map(),
     bot: new Map(),
   });
-  const dispatchBattleActionRef = useRef<(action: BattleAction) => void>(
+  const dispatchBattleActionRef = useRef<
+    (
+      action: BattleAction,
+      options?: { skipDamageEffects?: boolean }
+    ) => void
+  >(
     () => undefined
   );
+  const playAttackSequenceRef = useRef<
+    (strikes: AttackAnimationStrike[]) => Promise<boolean>
+  >(() => Promise.resolve(false));
+  const showDamageEffectsFromSnapshotsRef = useRef<
+    (before: Map<string, number>, after: Map<string, number>) => void
+  >(() => undefined);
   const playDrawCardAnimationRef = useRef<
     (owner: PlayerId, cardInstanceId: string) => void
   >(() => undefined);
@@ -336,6 +401,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       cardInstanceId: string,
       cardId: string,
       position: Position
+    ) => Promise<void>
+  >(() => Promise.resolve());
+  const playMoveIntentAnimationRef = useRef<
+    (
+      owner: PlayerId,
+      unitId: string,
+      position: Position,
+      durationMs?: number
     ) => Promise<void>
   >(() => Promise.resolve());
 
@@ -348,8 +421,11 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
   useEffect(() => {
     dispatchBattleActionRef.current = dispatchBattleAction;
+    playAttackSequenceRef.current = playAttackSequence;
+    showDamageEffectsFromSnapshotsRef.current = showDamageEffectsFromSnapshots;
     playDrawCardAnimationRef.current = playDrawCardAnimation;
     playSpawnCardAnimationRef.current = playSpawnCardAnimation;
+    playMoveIntentAnimationRef.current = playMoveIntentAnimation;
   });
 
   function setHandCardRef(owner: PlayerId, cardInstanceId: string) {
@@ -545,6 +621,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     const interval = window.setInterval(() => {
       const now = Date.now();
+
+      if (attackSequenceRunningRef.current) {
+        lastTickTime = now;
+        return;
+      }
+
       const elapsedMs = now - lastTickTime;
 
       lastTickTime = now;
@@ -621,24 +703,6 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   };
 }, [battle.activePlayer, battle.status, humanPlayerId]);
 
-  function updateLastObjectCenters() {
-    const boardElement = boardRef.current;
-
-    if (!boardElement) return;
-
-    const nextCenters = new Map<string, CellCenter>();
-
-    for (const [id, element] of objectRefs.current.entries()) {
-      nextCenters.set(id, getElementCenterRelativeToBoard(boardElement, element));
-    }
-
-    lastObjectCentersRef.current = nextCenters;
-  }
-
-  useEffect(() => {
-    updateLastObjectCenters();
-  }, [battle]);
-
   async function playAttackAnimation(attackerId: string, targetId: string) {
     await waitForNextFrame();
     await delay(40);
@@ -684,6 +748,19 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       position: to,
     });
 
+    const impactDistance = Math.max(1, Math.hypot(to.x - from.x, to.y - from.y));
+
+    hitReactionIdRef.current += 1;
+
+    const hitReaction: HitReactionEffect = {
+      id: hitReactionIdRef.current,
+      targetId,
+      x: ((to.x - from.x) / impactDistance) * 17,
+      y: ((to.y - from.y) / impactDistance) * 17,
+    };
+
+    setHitReactionEffect(hitReaction);
+
     window.setTimeout(() => {
       setAttackingId(null);
       setProjectileEffect(null);
@@ -693,6 +770,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       setAttackEffectId(null);
       setExplosionEffect(null);
     }, 940);
+
+    window.setTimeout(() => {
+      setHitReactionEffect((current) =>
+        current?.id === hitReaction.id ? null : current
+      );
+    }, 360);
   }
 
   useEffect(() => {
@@ -728,16 +811,26 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
         if (action.type === "ATTACK") {
           await delay(180);
-          await playAttackAnimation(action.attackerId, action.targetId);
+          const strikes = getAttackAnimationSequence(currentBattle, action);
 
-          if (cancelled) break;
+          const animationPlayed = await playAttackSequenceRef.current(strikes);
 
-          dispatchBattleActionRef.current(action);
+          if (cancelled || !animationPlayed) break;
+
+          dispatchBattleActionRef.current(action, { skipDamageEffects: true });
           await delay(700);
           continue;
         }
 
         if (action.type === "MOVE_UNIT") {
+          await playMoveIntentAnimationRef.current(
+            "bot",
+            action.unitId,
+            action.position
+          );
+
+          if (cancelled) break;
+
           dispatchBattleActionRef.current(action);
           await delay(450);
           continue;
@@ -818,59 +911,170 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     return selectedMoveCells.some((cell) => samePosition(cell, position));
   }
 
-  function renderDamageText(targetId: string) {
+  function getHealthDamageEffect(targetId: string) {
+    for (let index = damageTextEffects.length - 1; index >= 0; index -= 1) {
+      const effect = damageTextEffects[index];
+
+      if (effect.targetId === targetId) {
+        return effect;
+      }
+    }
+
+    return undefined;
+  }
+
+  function showHealthDamageEffect(targetId: string, amount: number) {
+    damageTextIdRef.current += 1;
+
+    const effect: DamageTextEffect = {
+      id: damageTextIdRef.current,
+      targetId,
+      amount,
+    };
+
+    setDamageTextEffects((current) => [...current, effect]);
+
+    window.setTimeout(() => {
+      setDamageTextEffects((current) =>
+        current.filter((item) => item.id !== effect.id)
+      );
+    }, 980);
+  }
+
+  function getCombatObjectOwner(targetId: string): PlayerId | null {
+    if (targetId === "player_hq") return "player";
+    if (targetId === "bot_hq") return "bot";
+
     return (
-      <AnimatePresence>
-        {damageTextEffects
-          .filter((effect) => effect.targetId === targetId)
-          .map((effect) => (
-            <motion.span
-              key={effect.id}
-              style={styles.damageText}
-              initial={{ opacity: 0, y: 6, scale: 0.85 }}
-              animate={{
-                opacity: [0, 1, 1, 0],
-                y: [6, -8, -22, -34],
-                scale: [0.85, 1.25, 1.15, 1],
-              }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.9, ease: "easeOut" }}
-            >
-              -{effect.amount}
-            </motion.span>
-          ))}
-      </AnimatePresence>
+      battle.units.find((unit) => unit.instanceId === targetId)?.ownerId ?? null
     );
   }
 
-  function renderOverlayDamageText() {
-    return (
-      <AnimatePresence>
-        {damageTextEffects
-          .filter((effect) => effect.position)
-          .map((effect) => (
-            <motion.span
-              key={effect.id}
-              style={{
-                ...styles.overlayDamageText,
-                left: effect.position?.x,
-                top: effect.position?.y,
-              }}
-              initial={{ opacity: 0, y: 6, scale: 0.85 }}
-              animate={{
-                opacity: [0, 1, 1, 0],
-                y: [6, -8, -22, -38],
-                scale: [0.85, 1.35, 1.2, 1],
-              }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.9, ease: "easeOut" }}
-            >
-              -{effect.amount}
-            </motion.span>
-          ))}
-      </AnimatePresence>
+  async function playDestroyedCardAnimation(targetId: string): Promise<void> {
+    await waitForNextFrame();
+
+    const targetElement = objectRefs.current.get(targetId);
+    const owner = getCombatObjectOwner(targetId);
+    const deckElement = owner ? deckRefs.current[owner] : null;
+
+    if (!targetElement || !deckElement || !owner) {
+      await delay(DESTROYED_CARD_ANIMATION_MS);
+      return;
+    }
+
+    const targetRect = targetElement.getBoundingClientRect();
+    const from = getElementCenterInViewport(targetElement);
+    const to = getElementCenterInViewport(deckElement);
+
+    destroyedCardEffectIdRef.current += 1;
+
+    const effect: DestroyedCardEffect = {
+      id: destroyedCardEffectIdRef.current,
+      targetId,
+      from,
+      to,
+      width: targetRect.width,
+      height: targetRect.height,
+      rotation: owner === humanPlayerId ? -14 : 14,
+    };
+
+    setDestroyedCardEffects((current) => [...current, effect]);
+
+    window.setTimeout(() => {
+      setHiddenDestroyedObjectIds((current) => {
+        const next = new Set(current);
+        next.add(targetId);
+        return next;
+      });
+    }, 150);
+
+    await delay(DESTROYED_CARD_ANIMATION_MS);
+
+    setDestroyedCardEffects((current) =>
+      current.filter((item) => item.id !== effect.id)
     );
+
+    setHiddenDestroyedObjectIds((current) => {
+      const next = new Set(current);
+      next.delete(targetId);
+      return next;
+    });
   }
+
+  async function playAttackSequence(
+    strikes: AttackAnimationStrike[]
+  ): Promise<boolean> {
+    if (attackSequenceRunningRef.current) return false;
+
+    attackSequenceRunningRef.current = true;
+
+    try {
+      const hp = createHpSnapshot(battle);
+      const damagedTargetIds = new Set<string>();
+
+      for (const strike of strikes) {
+        await playAttackAnimation(strike.sourceId, strike.targetId);
+        showHealthDamageEffect(strike.targetId, strike.damage);
+
+        const currentHp = hp.get(strike.targetId);
+
+        if (currentHp !== undefined) {
+          hp.set(strike.targetId, currentHp - strike.damage);
+          damagedTargetIds.add(strike.targetId);
+        }
+
+        await delay(ATTACK_STRIKE_SETTLE_MS);
+      }
+
+      const destroyedTargetIds = [...damagedTargetIds].filter(
+        (targetId) => (hp.get(targetId) ?? 1) <= 0
+      );
+
+      await Promise.all(
+        destroyedTargetIds.map((targetId) =>
+          playDestroyedCardAnimation(targetId)
+        )
+      );
+
+      return true;
+    } finally {
+      attackSequenceRunningRef.current = false;
+    }
+  }
+
+  function getCombatForecast(): Map<string, number> {
+    const forecast = new Map<string, number>();
+
+    if (!selectedAttacker || !hoveredAttackTarget) return forecast;
+    if (!isTarget(hoveredAttackTarget.type, hoveredAttackTarget.id)) {
+      return forecast;
+    }
+
+    const strikes = getAttackAnimationSequence(battle as BattleState, {
+      type: "ATTACK",
+      playerId: humanPlayerId,
+      attackerType: selectedAttacker.type,
+      attackerId: selectedAttacker.id,
+      targetType: hoveredAttackTarget.type,
+      targetId: hoveredAttackTarget.id,
+    });
+
+    const hp = createHpSnapshot(battle);
+
+    for (const strike of strikes) {
+      const targetHp = hp.get(strike.targetId);
+
+      if (targetHp === undefined) continue;
+
+      const hpAfterStrike = Math.max(0, targetHp - strike.damage);
+      hp.set(strike.targetId, hpAfterStrike);
+      forecast.set(strike.targetId, hpAfterStrike);
+    }
+
+    return forecast;
+  }
+
+  const combatForecast = getCombatForecast();
 
   function createHpSnapshot(sourceBattle: ClientBattleState): Map<string, number> {
     const hp = new Map<string, number>();
@@ -889,65 +1093,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     before: Map<string, number>,
     after: Map<string, number>
   ) {
-    const damaged = new Set<string>();
-    const nextDamageTextEffects: DamageTextEffect[] = [];
-
     for (const [id, currentHp] of after.entries()) {
       const previousHp = before.get(id);
 
       if (previousHp !== undefined && currentHp < previousHp) {
         const amount = previousHp - currentHp;
 
-        damaged.add(id);
-
-        damageTextIdRef.current += 1;
-
-        nextDamageTextEffects.push({
-          id: damageTextIdRef.current,
-          targetId: id,
-          amount,
-        });
+        showHealthDamageEffect(id, amount);
       }
-    }
-
-    for (const [id, previousHp] of before.entries()) {
-      const stillExists = after.has(id);
-      const isHeadquarters = id === "player_hq" || id === "bot_hq";
-
-      if (stillExists || isHeadquarters) continue;
-
-      const lastCenter = lastObjectCentersRef.current.get(id);
-
-      damageTextIdRef.current += 1;
-
-      nextDamageTextEffects.push({
-        id: damageTextIdRef.current,
-        amount: previousHp,
-        position: lastCenter,
-      });
-    }
-
-    if (damaged.size > 0) {
-      setDamagedIds(damaged);
-
-      window.setTimeout(() => {
-        setDamagedIds(new Set());
-      }, 450);
-    }
-
-    if (nextDamageTextEffects.length > 0) {
-      setDamageTextEffects((current) => [
-        ...current,
-        ...nextDamageTextEffects,
-      ]);
-
-      const effectIds = nextDamageTextEffects.map((item) => item.id);
-
-      window.setTimeout(() => {
-        setDamageTextEffects((current) =>
-          current.filter((item) => !effectIds.includes(item.id))
-        );
-      }, 900);
     }
   }
 
@@ -956,13 +1109,20 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     const previousSnapshot = previousHpSnapshotRef.current;
 
     if (mode === "pvp" && previousSnapshot) {
-      showDamageEffectsFromSnapshots(previousSnapshot, currentSnapshot);
+      if (suppressNextRemoteDamageEffectsRef.current) {
+        suppressNextRemoteDamageEffectsRef.current = false;
+      } else {
+        showDamageEffectsFromSnapshotsRef.current(previousSnapshot, currentSnapshot);
+      }
     }
 
     previousHpSnapshotRef.current = currentSnapshot;
   }, [battle, mode]);
 
-  function dispatchBattleAction(action: BattleAction) {
+  function dispatchBattleAction(
+    action: BattleAction,
+    options: { skipDamageEffects?: boolean } = {}
+  ) {
     const shouldShowDamage =
       action.type === "ATTACK" ||
       action.type === "END_TURN" ||
@@ -974,7 +1134,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     dispatch(action);
 
-    if (!shouldShowDamage || !before) return;
+    if (!shouldShowDamage || !before || options.skipDamageEffects) return;
 
     const afterBattle = useBattleStore.getState().battle;
     if (!afterBattle) return;
@@ -1028,7 +1188,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }
 
 
-    function playSpawnCardAnimation(
+  function playSpawnCardAnimation(
     owner: PlayerId,
     cardInstanceId: string,
     cardId: string,
@@ -1086,8 +1246,107 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     });
   }
 
+  async function playMoveIntentAnimation(
+    owner: PlayerId,
+    unitId: string,
+    position: Position,
+    durationMs = MOVE_ARROW_LEAD_MS
+  ): Promise<void> {
+    if (movementAnimationRunningRef.current) return;
+
+    movementAnimationRunningRef.current = true;
+
+    try {
+      await waitForNextFrame();
+      await delay(30);
+
+      const boardElement = boardRef.current;
+      const unitElement = objectRefs.current.get(unitId);
+      const targetCellElement = cellRefs.current.get(positionKey(position));
+
+      if (!boardElement || !unitElement || !targetCellElement) {
+        await delay(durationMs);
+        return;
+      }
+
+      movementArrowEffectIdRef.current += 1;
+
+      const effect: MovementArrowEffect = {
+        id: movementArrowEffectIdRef.current,
+        owner,
+        from: getElementCenterRelativeToBoard(boardElement, unitElement),
+        to: getElementCenterRelativeToBoard(boardElement, targetCellElement),
+        phase: "extending",
+      };
+
+      const targetCellRect = targetCellElement.getBoundingClientRect();
+      const dx = effect.to.x - effect.from.x;
+      const dy = effect.to.y - effect.from.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const unitX = dx / distance;
+      const unitY = dy / distance;
+      const isDiagonalMove = Math.abs(dx) > 1 && Math.abs(dy) > 1;
+      const targetEdgeOffset = isDiagonalMove
+        ? 0
+        : ((Math.abs(unitX) * targetCellRect.width +
+            Math.abs(unitY) * targetCellRect.height) /
+            2) *
+          0.85;
+
+      effect.to = {
+        x: effect.to.x + unitX * targetEdgeOffset,
+        y: effect.to.y + unitY * targetEdgeOffset,
+      };
+
+      setMovementArrowEffect(effect);
+
+      await delay(durationMs);
+
+      setMovementArrowEffect((current) =>
+        current?.id === effect.id
+          ? {
+              ...current,
+              phase: "following",
+            }
+          : current
+      );
+
+      window.setTimeout(() => {
+        setMovementArrowEffect((current) =>
+          current?.id === effect.id ? null : current
+        );
+      }, MOVE_ARROW_FOLLOW_MS);
+    } finally {
+      movementAnimationRunningRef.current = false;
+    }
+  }
+
+  useEffect(() => {
+    if (mode !== "pvp") return;
+    if (!pvpMovementIntent) return;
+
+    void playMoveIntentAnimationRef.current(
+      pvpMovementIntent.playerId,
+      pvpMovementIntent.unitId,
+      pvpMovementIntent.position,
+      pvpMovementIntent.durationMs
+    );
+  }, [mode, pvpMovementIntent]);
+
+  useEffect(() => {
+    if (mode !== "pvp") return;
+    if (!pvpAttackIntent) return;
+    if (lastPvpAttackIntentIdRef.current === pvpAttackIntent.intentId) return;
+
+    lastPvpAttackIntentIdRef.current = pvpAttackIntent.intentId;
+    suppressNextRemoteDamageEffectsRef.current = true;
+
+    void playAttackSequenceRef.current(pvpAttackIntent.strikes);
+  }, [mode, pvpAttackIntent]);
+
   function handleCellClick(position: Position) {
     if (debugPaused) return;
+    if (attackSequenceRunningRef.current) return;
     if (battle.status !== "active") return;
     if (battle.activePlayer !== humanPlayerId) return;
 
@@ -1122,12 +1381,26 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     if (selectedAttacker && selectedAttacker.type === "unit") {
       if (!isMoveCell(position)) return;
+      if (movementAnimationRunningRef.current) return;
 
-      dispatchBattleAction({
-        type: "MOVE_UNIT",
-        playerId: humanPlayerId,
-        unitId: selectedAttacker.id,
-        position,
+      const moveAction: BattleAction = {
+          type: "MOVE_UNIT",
+          playerId: humanPlayerId,
+          unitId: selectedAttacker.id,
+          position,
+        };
+
+      if (mode === "pvp") {
+        dispatchBattleAction(moveAction);
+        return;
+      }
+
+      void playMoveIntentAnimation(
+        humanPlayerId,
+        selectedAttacker.id,
+        position
+      ).then(() => {
+        dispatchBattleAction(moveAction);
       });
     }
   }
@@ -1137,20 +1410,32 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     targetId: string
   ) {
     if (debugPaused) return;
+    if (attackSequenceRunningRef.current) return;
     if (!selectedAttacker) return;
     if (battle.status !== "active") return;
     if (battle.activePlayer !== humanPlayerId) return;
 
-    await playAttackAnimation(selectedAttacker.id, targetId);
-
-    dispatchBattleAction({
+    const attackAction: BattleAction = {
       type: "ATTACK",
       playerId: humanPlayerId,
       attackerType: selectedAttacker.type,
       attackerId: selectedAttacker.id,
       targetType,
       targetId,
-    });
+    };
+
+    if (mode === "pvp") {
+      dispatchBattleAction(attackAction);
+      return;
+    }
+
+    const strikes = getAttackAnimationSequence(battle as BattleState, attackAction);
+
+    const animationPlayed = await playAttackSequence(strikes);
+
+    if (!animationPlayed) return;
+
+    dispatchBattleAction(attackAction, { skipDamageEffects: true });
   }
 
 
@@ -1356,6 +1641,45 @@ function renderEnemyDeckWithTimer() {
     );
   })}
 </AnimatePresence>
+      <AnimatePresence>
+        {destroyedCardEffects.map((effect) => (
+          <motion.img
+            key={effect.id}
+            src={burntCardImage}
+            alt=""
+            style={{
+              ...styles.destroyedCardEffect,
+              left: effect.from.x,
+              top: effect.from.y,
+              width: effect.width,
+              height: effect.height,
+              marginLeft: -effect.width / 2,
+              marginTop: -effect.height / 2,
+            }}
+            initial={{
+              x: 0,
+              y: 0,
+              opacity: 0,
+              scale: 1.04,
+              rotate: 0,
+            }}
+            animate={{
+              x: [0, 0, (effect.to.x - effect.from.x) * 0.16, effect.to.x - effect.from.x],
+              y: [0, 0, (effect.to.y - effect.from.y) * 0.16, effect.to.y - effect.from.y],
+              opacity: [0, 1, 0.96, 0],
+              scale: [1.04, 1, 0.7, 0.24],
+              rotate: [0, -2, effect.rotation * 0.45, effect.rotation],
+            }}
+            exit={{ opacity: 0 }}
+            transition={{
+              duration: DESTROYED_CARD_ANIMATION_MS / 1000,
+              times: [0, 0.2, 0.54, 1],
+              ease: "easeInOut",
+            }}
+            draggable={false}
+          />
+        ))}
+      </AnimatePresence>
       <main style={styles.gameTable}>
         <section style={styles.enemyZone}>
   <div style={styles.enemyDeckArea} />
@@ -1525,6 +1849,77 @@ function renderEnemyDeckWithTimer() {
 
             <motion.div ref={boardRef} layout style={styles.board}>
               <AnimatePresence>
+                {movementArrowEffect &&
+                  (() => {
+                    const dx =
+                      movementArrowEffect.to.x - movementArrowEffect.from.x;
+                    const dy =
+                      movementArrowEffect.to.y - movementArrowEffect.from.y;
+                    const length = Math.max(1, Math.hypot(dx, dy));
+                    const rotationDegrees =
+                      (Math.atan2(dy, dx) * 180) / Math.PI;
+                    const isFollowing =
+                      movementArrowEffect.phase === "following";
+
+                    return (
+                      <div
+                        key={movementArrowEffect.id}
+                        style={{
+                          ...styles.tacticalArrowWrap,
+                          left: movementArrowEffect.from.x,
+                          top: movementArrowEffect.from.y,
+                          width: length,
+                          transform: `rotate(${rotationDegrees}deg)`,
+                        }}
+                      >
+                        <motion.img
+                          src={movementArrowImage}
+                          alt=""
+                          style={{
+                            ...styles.tacticalArrowImage,
+                            filter:
+                              movementArrowEffect.owner === humanPlayerId
+                                ? styles.tacticalArrowFriendly.filter
+                                : styles.tacticalArrowEnemy.filter,
+                          }}
+                          initial={{
+                            opacity: 0,
+                            scaleX: 0.04,
+                            clipPath: "inset(0 0 0 0%)",
+                          }}
+                          animate={
+                            isFollowing
+                              ? {
+                                  opacity: [0.38, 0.28, 0],
+                                  scaleX: 1,
+                                  clipPath: [
+                                    "inset(0 0 0 0%)",
+                                    "inset(0 0 0 54%)",
+                                    "inset(0 0 0 100%)",
+                                  ],
+                                }
+                              : {
+                                  opacity: [0, 0.4, 0.38],
+                                  scaleX: [0.04, 0.76, 1],
+                                  clipPath: "inset(0 0 0 0%)",
+                                }
+                          }
+                          exit={{ opacity: 0 }}
+                          transition={{
+                            duration:
+                              (isFollowing
+                                ? MOVE_ARROW_FOLLOW_MS
+                                : MOVE_ARROW_LEAD_MS) / 1000,
+                            ease: "easeOut",
+                          }}
+                          draggable={false}
+                        />
+                      </div>
+                    );
+                  })()}
+              </AnimatePresence>
+
+              <AnimatePresence>
                 {projectileEffect && (
                   <motion.img
                     key={projectileEffect.id}
@@ -1623,8 +2018,6 @@ function renderEnemyDeckWithTimer() {
                 )}
               </AnimatePresence>
 
-              {renderOverlayDamageText()}
-
               {visualRows.map((row) => visualCols.map((col) => {
                   const position: Position = { row, col };
 
@@ -1652,8 +2045,11 @@ function renderEnemyDeckWithTimer() {
                   if (unit) {
                     const card = getCard(unit.cardId);
                     const canBeTarget = isTarget("unit", unit.instanceId);
-                    const isDamaged = damagedIds.has(unit.instanceId);
                     const isAttacking = attackingId === unit.instanceId;
+                    const hitReaction =
+                      hitReactionEffect?.targetId === unit.instanceId
+                        ? hitReactionEffect
+                        : null;
                     const isSelected =
                       selectedAttacker?.type === "unit" &&
                       selectedAttacker.id === unit.instanceId;
@@ -1666,26 +2062,50 @@ function renderEnemyDeckWithTimer() {
                         key={unit.instanceId}
                         style={{
                           ...styles.cell,
+                          zIndex: 6,
                           ...(unit.ownerId === humanPlayerId
                             ? styles.playerUnit
                             : styles.botUnit),
                           ...(canBeTarget ? styles.targetCell : {}),
-                          ...(isDamaged ? styles.damageCell : {}),
                         }}
                         initial={{ scale: 0.88, opacity: 0 }}
                         animate={{
-                          scale: isDamaged ? [1, 1.08, 1] : 1,
+                          scale: 1,
                           opacity: 1,
-                          x: isAttacking ? [0, 10, -6, 0] : 0,
+                          x: isAttacking
+                            ? [0, 10, -6, 0]
+                            : hitReaction
+                              ? [0, hitReaction.x, -hitReaction.x * 0.32, 0]
+                              : 0,
+                          y: hitReaction
+                            ? [0, hitReaction.y, -hitReaction.y * 0.32, 0]
+                            : 0,
                         }}
                         exit={{ scale: 0.75, opacity: 0 }}
-                        transition={{
-                          type: "spring",
-                          stiffness: 320,
-                          damping: 26,
-                        }}
+                        transition={
+                          hitReaction
+                            ? { duration: 0.34, ease: "easeOut" }
+                            : {
+                                type: "spring",
+                                stiffness: 320,
+                                damping: 26,
+                              }
+                        }
                         whileHover={{ scale: 1.03 }}
                         whileTap={{ scale: 0.97 }}
+                        onMouseEnter={() => {
+                          if (!canBeTarget) return;
+
+                          setHoveredAttackTarget({
+                            type: "unit",
+                            id: unit.instanceId,
+                          });
+                        }}
+                        onMouseLeave={() => {
+                          setHoveredAttackTarget((current) =>
+                            current?.id === unit.instanceId ? null : current
+                          );
+                        }}
                         onContextMenu={(event) =>
                           openCardPreview(event, {
                             type: "unit",
@@ -1713,33 +2133,49 @@ function renderEnemyDeckWithTimer() {
                           }
                         }}
                       >
-                        <TankCardView
-                          card={card}
-                          variant="board"
-                          ownerId={getVisualOwnerId(unit.ownerId)}
-                          currentHp={unit.currentHp}
-                          selected={isSelected}
-                          alreadyMoved={unit.alreadyMoved}
-                          alreadyAttacked={unit.alreadyAttacked}
-                        />
+                        <motion.div
+                          style={styles.boardCardContent}
+                          animate={{
+                            opacity: hiddenDestroyedObjectIds.has(
+                              unit.instanceId
+                            )
+                              ? 0
+                              : 1,
+                          }}
+                          transition={{ duration: 0.18 }}
+                        >
+                          <TankCardView
+                            card={card}
+                            variant="board"
+                            ownerId={getVisualOwnerId(unit.ownerId)}
+                            currentHp={unit.currentHp}
+                            selected={isSelected}
+                            alreadyMoved={unit.alreadyMoved}
+                            alreadyAttacked={unit.alreadyAttacked}
+                            healthDamageEffect={getHealthDamageEffect(
+                              unit.instanceId
+                            )}
+                            healthPreviewValue={combatForecast.get(
+                              unit.instanceId
+                            )}
+                          />
 
-                        {renderDamageText(unit.instanceId)}
-
-                        <AnimatePresence>
-                          {attackEffectId === unit.instanceId && (
-                            <motion.span
-                              style={styles.explosionEffect}
-                              initial={{ opacity: 0, scale: 0.2, rotate: 0 }}
-                              animate={{
-                                opacity: [0, 1, 0.85, 0],
-                                scale: [0.2, 1.1, 1.6, 2.2],
-                                rotate: [0, 12, -8, 0],
-                              }}
-                              exit={{ opacity: 0 }}
-                              transition={{ duration: 0.5 }}
-                            />
-                          )}
-                        </AnimatePresence>
+                          <AnimatePresence>
+                            {attackEffectId === unit.instanceId && (
+                              <motion.span
+                                style={styles.explosionEffect}
+                                initial={{ opacity: 0, scale: 0.2, rotate: 0 }}
+                                animate={{
+                                  opacity: [0, 1, 0.85, 0],
+                                  scale: [0.2, 1.1, 1.6, 2.2],
+                                  rotate: [0, 12, -8, 0],
+                                }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.5 }}
+                              />
+                            )}
+                          </AnimatePresence>
+                        </motion.div>
                       </motion.button>
                     );
                   }
@@ -1749,8 +2185,11 @@ function renderEnemyDeckWithTimer() {
                     const hq = battle.headquarters[owner];
                     const hqId = `${owner}_hq`;
                     const canBeTarget = isTarget("headquarters", hqId);
-                    const isDamaged = damagedIds.has(hqId);
                     const isAttacking = attackingId === hqId;
+                    const hitReaction =
+                      hitReactionEffect?.targetId === hqId
+                        ? hitReactionEffect
+                        : null;
                     const isSelected =
                       selectedAttacker?.type === "headquarters" &&
                       selectedAttacker.id === hqId;
@@ -1763,26 +2202,50 @@ function renderEnemyDeckWithTimer() {
                         key={hqId}
                         style={{
                           ...styles.cell,
+                          zIndex: 6,
                           ...(owner === humanPlayerId
                             ? styles.playerUnit
                             : styles.botUnit),
                           ...(canBeTarget ? styles.targetCell : {}),
-                          ...(isDamaged ? styles.damageCell : {}),
                         }}
                         initial={{ scale: 0.88, opacity: 0 }}
                         animate={{
-                          scale: isDamaged ? [1, 1.08, 1] : 1,
+                          scale: 1,
                           opacity: 1,
-                          x: isAttacking ? [0, 10, -6, 0] : 0,
+                          x: isAttacking
+                            ? [0, 10, -6, 0]
+                            : hitReaction
+                              ? [0, hitReaction.x, -hitReaction.x * 0.32, 0]
+                              : 0,
+                          y: hitReaction
+                            ? [0, hitReaction.y, -hitReaction.y * 0.32, 0]
+                            : 0,
                         }}
                         exit={{ scale: 0.75, opacity: 0 }}
-                        transition={{
-                          type: "spring",
-                          stiffness: 320,
-                          damping: 26,
-                        }}
+                        transition={
+                          hitReaction
+                            ? { duration: 0.34, ease: "easeOut" }
+                            : {
+                                type: "spring",
+                                stiffness: 320,
+                                damping: 26,
+                              }
+                        }
                         whileHover={{ scale: 1.03 }}
                         whileTap={{ scale: 0.97 }}
+                        onMouseEnter={() => {
+                          if (!canBeTarget) return;
+
+                          setHoveredAttackTarget({
+                            type: "headquarters",
+                            id: hqId,
+                          });
+                        }}
+                        onMouseLeave={() => {
+                          setHoveredAttackTarget((current) =>
+                            current?.id === hqId ? null : current
+                          );
+                        }}
                         onContextMenu={(event) =>
                           openCardPreview(event, {
                             type: "headquarters",
@@ -1812,33 +2275,41 @@ function renderEnemyDeckWithTimer() {
                           }
                         }}
                       >
-                        <HeadquartersCardView
-                          ownerId={getVisualOwnerId(owner)}
-                          headquartersId={getHeadquartersIdForOwner(owner)}
-                          hp={hq.hp}
-                          attack={hq.attack}
-                          fuelGeneration={hq.fuelGeneration}
-                          selected={isSelected}
-                          alreadyAttacked={hq.alreadyAttacked}
-                        />
+                        <motion.div
+                          style={styles.boardCardContent}
+                          animate={{
+                            opacity: hiddenDestroyedObjectIds.has(hqId) ? 0 : 1,
+                          }}
+                          transition={{ duration: 0.18 }}
+                        >
+                          <HeadquartersCardView
+                            ownerId={getVisualOwnerId(owner)}
+                            headquartersId={getHeadquartersIdForOwner(owner)}
+                            hp={hq.hp}
+                            attack={hq.attack}
+                            fuelGeneration={hq.fuelGeneration}
+                            selected={isSelected}
+                            alreadyAttacked={hq.alreadyAttacked}
+                            healthDamageEffect={getHealthDamageEffect(hqId)}
+                            healthPreviewValue={combatForecast.get(hqId)}
+                          />
 
-                        {renderDamageText(hqId)}
-
-                        <AnimatePresence>
-                          {attackEffectId === hqId && (
-                            <motion.span
-                              style={styles.explosionEffect}
-                              initial={{ opacity: 0, scale: 0.2, rotate: 0 }}
-                              animate={{
-                                opacity: [0, 1, 0.85, 0],
-                                scale: [0.2, 1.1, 1.6, 2.2],
-                                rotate: [0, 12, -8, 0],
-                              }}
-                              exit={{ opacity: 0 }}
-                              transition={{ duration: 0.5 }}
-                            />
-                          )}
-                        </AnimatePresence>
+                          <AnimatePresence>
+                            {attackEffectId === hqId && (
+                              <motion.span
+                                style={styles.explosionEffect}
+                                initial={{ opacity: 0, scale: 0.2, rotate: 0 }}
+                                animate={{
+                                  opacity: [0, 1, 0.85, 0],
+                                  scale: [0.2, 1.1, 1.6, 2.2],
+                                  rotate: [0, 12, -8, 0],
+                                }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.5 }}
+                              />
+                            )}
+                          </AnimatePresence>
+                        </motion.div>
                       </motion.button>
                     );
                   }
@@ -2389,6 +2860,34 @@ actionSideColumn: {
   alignItems: "stretch",
 },
 
+  tacticalArrowWrap: {
+    position: "absolute",
+    zIndex: 4,
+    height: 19,
+    marginTop: -10,
+    transformOrigin: "0 50%",
+    pointerEvents: "none",
+  },
+
+  tacticalArrowImage: {
+    display: "block",
+    width: "100%",
+    height: "100%",
+    objectFit: "fill",
+    transformOrigin: "0 50%",
+    pointerEvents: "none",
+  },
+
+  tacticalArrowFriendly: {
+    filter:
+      "brightness(0) saturate(100%) invert(62%) sepia(48%) saturate(420%) hue-rotate(74deg) brightness(94%) contrast(82%) drop-shadow(1px 0 0 rgba(18, 35, 19, 0.58)) drop-shadow(-1px 0 0 rgba(18, 35, 19, 0.58)) drop-shadow(0 1px 0 rgba(18, 35, 19, 0.58)) drop-shadow(0 -1px 0 rgba(18, 35, 19, 0.58))",
+  },
+
+  tacticalArrowEnemy: {
+    filter:
+      "brightness(0) saturate(100%) invert(42%) sepia(60%) saturate(980%) hue-rotate(326deg) brightness(94%) contrast(82%) drop-shadow(1px 0 0 rgba(48, 17, 17, 0.58)) drop-shadow(-1px 0 0 rgba(48, 17, 17, 0.58)) drop-shadow(0 1px 0 rgba(48, 17, 17, 0.58)) drop-shadow(0 -1px 0 rgba(48, 17, 17, 0.58))",
+  },
+
   cell: {
   aspectRatio: "1 / 1",
   minHeight: 0,
@@ -2411,6 +2910,13 @@ actionSideColumn: {
     "inset 0 0 0 1px rgba(255,255,255,0.025), inset 0 0 24px rgba(0,0,0,0.35)",
 },
 
+  boardCardContent: {
+    position: "relative",
+    width: "100%",
+    height: "100%",
+    minHeight: 0,
+  },
+
   spawnCell: {
     background:
       "linear-gradient(135deg, rgba(35, 66, 36, 0.48), rgba(8, 13, 8, 0.62))",
@@ -2427,11 +2933,6 @@ actionSideColumn: {
     outline: "3px solid rgba(125, 227, 141, 0.86)",
     background:
       "linear-gradient(135deg, rgba(32, 92, 42, 0.56), rgba(13, 25, 14, 0.74))",
-  },
-
-  damageCell: {
-    outline: "4px solid #ffdf6e",
-    filter: "brightness(1.25)",
   },
 
   playerUnit: {
@@ -2747,34 +3248,6 @@ turnCounterValue: {
     color: "rgba(238, 242, 243, 0.78)",
   },
 
-  damageText: {
-    position: "absolute",
-    left: "50%",
-    top: -8,
-    transform: "translateX(-50%)",
-    color: "#ff4d4d",
-    fontSize: 28,
-    fontWeight: 900,
-    lineHeight: 1,
-    textShadow:
-      "0 2px 0 rgba(0, 0, 0, 0.85), 0 0 12px rgba(255, 0, 0, 0.75)",
-    zIndex: 45,
-    pointerEvents: "none",
-  },
-
-  overlayDamageText: {
-    position: "absolute",
-    transform: "translateX(-50%)",
-    color: "#ff4d4d",
-    fontSize: 30,
-    fontWeight: 900,
-    lineHeight: 1,
-    textShadow:
-      "0 2px 0 rgba(0, 0, 0, 0.9), 0 0 14px rgba(255, 0, 0, 0.85)",
-    zIndex: 60,
-    pointerEvents: "none",
-  },
-
   projectileImage: {
     position: "absolute",
     width: 132,
@@ -2882,6 +3355,16 @@ spawnCardBackEffect: {
   boxShadow: "0 18px 42px rgba(0,0,0,0.64)",
   zIndex: 2700,
   pointerEvents: "none",
+},
+
+destroyedCardEffect: {
+  position: "fixed",
+  zIndex: 2800,
+  pointerEvents: "none",
+  objectFit: "cover",
+  borderRadius: 10,
+  filter:
+    "drop-shadow(0 18px 34px rgba(0,0,0,0.68)) saturate(0.86) contrast(1.08)",
 },
 
   explosionEffect: {

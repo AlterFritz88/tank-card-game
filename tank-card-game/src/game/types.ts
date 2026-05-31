@@ -92,6 +92,7 @@ export type BoardUnit = {
 
   spawnedThisTurn: boolean;
   moveCountThisTurn: number;
+  tdAmbushUsedThisTurn: boolean;
 };
 
 export type PlayerTimerState = {

@@ -1,6 +1,9 @@
 import { randomInt } from "node:crypto";
 import type { WebSocket } from "ws";
-import { applyAction } from "../../tank-card-game/src/game/engine";
+import {
+  applyAction,
+  getAttackAnimationSequence,
+} from "../../tank-card-game/src/game/engine";
 import {
   DEFAULT_BOT_HEADQUARTERS_ID,
   DEFAULT_PLAYER_HEADQUARTERS_ID,
@@ -45,11 +48,27 @@ type PvpTurnTimer = {
   intervalId: NodeJS.Timeout | null;
 };
 
+type PendingMovement = {
+  intentId: string;
+  playerId: PlayerId;
+  action: Extract<BattleAction, { type: "MOVE_UNIT" }>;
+  timeoutId: NodeJS.Timeout;
+};
+
+type PendingAttack = {
+  intentId: string;
+  playerId: PlayerId;
+  action: Extract<BattleAction, { type: "ATTACK" }>;
+  timeoutId: NodeJS.Timeout;
+};
+
 type Room = {
   id: string;
   players: Partial<Record<PlayerId, RoomPlayer>>;
   battle: BattleState | null;
   pendingStartRoll: PendingStartRoll | null;
+  pendingMovement: PendingMovement | null;
+  pendingAttack: PendingAttack | null;
   turnTimer: PvpTurnTimer | null;
   ended: boolean;
   winner: PlayerId | null;
@@ -62,6 +81,9 @@ const START_ROLL_RESULT_DELAY_MS = 350;
 const START_ROLL_FINISH_DELAY_MS = 900;
 const PVP_TURN_DURATION_MS = STEP_TIME_MS;
 const PVP_TURN_TIMER_BROADCAST_INTERVAL_MS = 500;
+const PVP_MOVE_INTENT_DURATION_MS = 520;
+const PVP_ATTACK_STRIKE_DURATION_MS = 960;
+const PVP_DESTROYED_CARD_ANIMATION_MS = 920;
 const ROOM_CLEANUP_DELAY_MS = 30_000;
 const RECONNECT_GRACE_MS = Number(process.env.PVP_RECONNECT_GRACE_MS ?? 15_000);
 
@@ -130,6 +152,8 @@ export class RoomManager {
   private socketToRoom = new WeakMap<WebSocket, string>();
   private socketToPlayer = new WeakMap<WebSocket, PlayerId>();
   private waitingRoomId: string | null = null;
+  private movementIntentSequence = 0;
+  private attackIntentSequence = 0;
 
   handleMessage(socket: WebSocket, rawData: WebSocket.RawData) {
     let message: PvpClientMessage;
@@ -261,6 +285,8 @@ export class RoomManager {
       },
       battle: null,
       pendingStartRoll: null,
+      pendingMovement: null,
+      pendingAttack: null,
       turnTimer: null,
       ended: false,
       winner: null,
@@ -427,11 +453,33 @@ export class RoomManager {
       return;
     }
 
-    const previousActivePlayer = room.battle.activePlayer;
     const safeAction = overwritePlayerId(action, playerId);
+
+    if (room.pendingMovement || room.pendingAttack) {
+      safeSend(socket, { type: "ERROR", message: "Дождитесь завершения текущей анимации" });
+      return;
+    }
+
+    if (safeAction.type === "MOVE_UNIT") {
+      this.scheduleMovement(room, playerId, safeAction);
+      return;
+    }
+
+    if (safeAction.type === "ATTACK") {
+      this.scheduleAttack(room, playerId, safeAction);
+      return;
+    }
+
+    this.commitGameAction(room, playerId, safeAction);
+  }
+
+  private commitGameAction(room: Room, playerId: PlayerId, action: BattleAction) {
+    if (!room.battle) return;
+
+    const previousActivePlayer = room.battle.activePlayer;
     this.broadcastCardSelection(room, playerId, null);
 
-    room.battle = applyAction(room.battle, safeAction);
+    room.battle = applyAction(room.battle, action);
 
     this.broadcastBattleState(room);
 
@@ -441,11 +489,139 @@ export class RoomManager {
     }
 
     if (
-      safeAction.type === "END_TURN" ||
+      action.type === "END_TURN" ||
       room.battle.activePlayer !== previousActivePlayer
     ) {
       this.restartTurnTimer(room);
     }
+  }
+
+  private scheduleMovement(
+    room: Room,
+    playerId: PlayerId,
+    action: Extract<BattleAction, { type: "MOVE_UNIT" }>
+  ) {
+    if (!room.battle) return;
+
+    const unitBeforeMove = room.battle.units.find(
+      (unit) => unit.instanceId === action.unitId
+    );
+    const nextBattle = applyAction(room.battle, action);
+    const unitAfterMove = nextBattle.units.find(
+      (unit) => unit.instanceId === action.unitId
+    );
+
+    if (!unitBeforeMove || !unitAfterMove) return;
+    if (
+      unitBeforeMove.position.row === unitAfterMove.position.row &&
+      unitBeforeMove.position.col === unitAfterMove.position.col
+    ) {
+      return;
+    }
+
+    this.broadcastCardSelection(room, playerId, null);
+
+    this.movementIntentSequence += 1;
+    const intentId = `${room.id}-${this.movementIntentSequence}`;
+
+    room.pendingMovement = {
+      intentId,
+      playerId,
+      action,
+      timeoutId: setTimeout(() => {
+        this.commitMovement(room.id, intentId);
+      }, PVP_MOVE_INTENT_DURATION_MS),
+    };
+
+    this.broadcastSame(room, {
+      type: "MOVE_INTENT",
+      intentId,
+      playerId,
+      unitId: action.unitId,
+      position: action.position,
+      durationMs: PVP_MOVE_INTENT_DURATION_MS,
+    });
+  }
+
+  private commitMovement(roomId: string, intentId: string) {
+    const room = this.rooms.get(roomId);
+
+    if (!room || !room.battle) return;
+    if (!room.pendingMovement || room.pendingMovement.intentId !== intentId) return;
+
+    const { playerId, action } = room.pendingMovement;
+    room.pendingMovement = null;
+
+    if (room.ended) return;
+    if (room.battle.status !== "active") return;
+    if (room.battle.activePlayer !== playerId) return;
+
+    this.commitGameAction(room, playerId, action);
+  }
+
+  private scheduleAttack(
+    room: Room,
+    playerId: PlayerId,
+    action: Extract<BattleAction, { type: "ATTACK" }>
+  ) {
+    if (!room.battle) return;
+
+    const strikes = getAttackAnimationSequence(room.battle, action);
+
+    if (strikes.length === 0) return;
+
+    const nextBattle = applyAction(room.battle, action);
+    const unitWasDestroyed = room.battle.units.some(
+      (unit) =>
+        !nextBattle.units.some(
+          (nextUnit) => nextUnit.instanceId === unit.instanceId
+        )
+    );
+    const headquartersWasDestroyed =
+      room.battle.status === "active" && nextBattle.status !== "active";
+
+    this.broadcastCardSelection(room, playerId, null);
+
+    this.attackIntentSequence += 1;
+    const intentId = `${room.id}-attack-${this.attackIntentSequence}`;
+    const durationMs =
+      strikes.length * PVP_ATTACK_STRIKE_DURATION_MS +
+      (unitWasDestroyed || headquartersWasDestroyed
+        ? PVP_DESTROYED_CARD_ANIMATION_MS
+        : 0);
+
+    room.pendingAttack = {
+      intentId,
+      playerId,
+      action,
+      timeoutId: setTimeout(() => {
+        this.commitAttack(room.id, intentId);
+      }, durationMs),
+    };
+
+    this.broadcastSame(room, {
+      type: "ATTACK_INTENT",
+      intentId,
+      playerId,
+      strikes,
+      durationMs,
+    });
+  }
+
+  private commitAttack(roomId: string, intentId: string) {
+    const room = this.rooms.get(roomId);
+
+    if (!room || !room.battle) return;
+    if (!room.pendingAttack || room.pendingAttack.intentId !== intentId) return;
+
+    const { playerId, action } = room.pendingAttack;
+    room.pendingAttack = null;
+
+    if (room.ended) return;
+    if (room.battle.status !== "active") return;
+    if (room.battle.activePlayer !== playerId) return;
+
+    this.commitGameAction(room, playerId, action);
   }
 
   private updateCardSelection(socket: WebSocket, cardInstanceId: string | null) {
@@ -792,6 +968,8 @@ export class RoomManager {
   private cancelWaitingRoom(room: Room, notifySocket?: WebSocket) {
     this.clearTurnTimer(room);
     this.clearPendingStartRoll(room);
+    this.clearPendingMovement(room);
+    this.clearPendingAttack(room);
 
     if (this.waitingRoomId === room.id) {
       this.waitingRoomId = null;
@@ -841,6 +1019,8 @@ export class RoomManager {
 
     this.clearTurnTimer(room);
     this.clearPendingStartRoll(room);
+    this.clearPendingMovement(room);
+    this.clearPendingAttack(room);
     this.broadcastBattleState(room);
     this.broadcastMatchEnded(room, winner, reason);
     this.scheduleRoomCleanup(room.id);
@@ -863,6 +1043,20 @@ export class RoomManager {
     room.pendingStartRoll = null;
   }
 
+  private clearPendingMovement(room: Room) {
+    if (!room.pendingMovement) return;
+
+    clearTimeout(room.pendingMovement.timeoutId);
+    room.pendingMovement = null;
+  }
+
+  private clearPendingAttack(room: Room) {
+    if (!room.pendingAttack) return;
+
+    clearTimeout(room.pendingAttack.timeoutId);
+    room.pendingAttack = null;
+  }
+
   private scheduleRoomCleanup(roomId: string) {
     const room = this.rooms.get(roomId);
     if (!room || room.cleanupTimer) return;
@@ -873,6 +1067,8 @@ export class RoomManager {
 
       this.clearTurnTimer(currentRoom);
       this.clearPendingStartRoll(currentRoom);
+      this.clearPendingMovement(currentRoom);
+      this.clearPendingAttack(currentRoom);
       this.clearRoomSessions(currentRoom);
       this.rooms.delete(roomId);
       console.log(`[PVP:${roomId}] room cleaned`);
@@ -884,6 +1080,8 @@ export class RoomManager {
 
     this.clearTurnTimer(room);
     this.clearPendingStartRoll(room);
+    this.clearPendingMovement(room);
+    this.clearPendingAttack(room);
 
     if (room.cleanupTimer) {
       clearTimeout(room.cleanupTimer);
@@ -974,8 +1172,20 @@ export class RoomManager {
     if (room.battle.status !== "active") return;
     if (room.battle.activePlayer !== expectedPlayer) return;
 
+    if (room.pendingAttack) {
+      if (room.turnTimer) {
+        room.turnTimer.timeoutId = setTimeout(() => {
+          this.handleTurnTimeout(room.id, expectedPlayer);
+        }, 100);
+      }
+
+      return;
+    }
+
     console.log(`[PVP:${room.id}] timer timeout for ${expectedPlayer}`);
 
+    this.clearPendingMovement(room);
+    this.clearPendingAttack(room);
     this.broadcastCardSelection(room, expectedPlayer, null);
 
     room.battle = applyAction(room.battle, {

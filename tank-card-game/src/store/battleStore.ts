@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import { applyAction } from "../game/engine";
+import type { AttackAnimationStrike } from "../game/engine";
 import {
   DEFAULT_BOT_HEADQUARTERS_ID,
   DEFAULT_PLAYER_HEADQUARTERS_ID,
@@ -45,6 +46,24 @@ export type PvpTimerState = {
   durationMs: number | null;
 };
 
+export type PvpMovementIntent = {
+  intentId: string;
+  playerId: PlayerId;
+  unitId: string;
+  position: {
+    row: number;
+    col: number;
+  };
+  durationMs: number;
+};
+
+export type PvpAttackIntent = {
+  intentId: string;
+  playerId: PlayerId;
+  strikes: AttackAnimationStrike[];
+  durationMs: number;
+};
+
 type BattleStore = {
   battle: ClientBattleState | null;
   mode: GameMode;
@@ -55,6 +74,8 @@ type BattleStore = {
   pvpError: string | null;
   matchEndReason: MatchEndReason | null;
   pvpTimer: PvpTimerState;
+  pvpMovementIntent: PvpMovementIntent | null;
+  pvpAttackIntent: PvpAttackIntent | null;
   firstTurnRoll: FirstTurnRollState;
   selectedHeadquartersId: HeadquartersId;
   completedCampaignMissionIds: string[];
@@ -92,6 +113,8 @@ type BattleStore = {
     endsAt: number;
     durationMs: number;
   }) => void;
+  applyPvpMovementIntent: (intent: PvpMovementIntent) => void;
+  applyPvpAttackIntent: (intent: PvpAttackIntent) => void;
   surrenderPvpMatch: () => void;
   leavePvpMatch: () => void;
   cancelMatchmaking: () => void;
@@ -218,6 +241,8 @@ function getCleanMenuState() {
     pvpError: null,
     matchEndReason: null,
     pvpTimer: emptyPvpTimer,
+    pvpMovementIntent: null,
+    pvpAttackIntent: null,
     selectedCardInstanceId: null,
     opponentSelectedCardInstanceId: null,
     selectedAttacker: null,
@@ -245,6 +270,8 @@ function setupPvpSubscriptions() {
           pvpError: null,
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
+          pvpMovementIntent: null,
+          pvpAttackIntent: null,
           selectedCardInstanceId: null,
           opponentSelectedCardInstanceId: null,
           selectedAttacker: null,
@@ -267,6 +294,8 @@ function setupPvpSubscriptions() {
           pvpError: null,
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
+          pvpMovementIntent: null,
+          pvpAttackIntent: null,
           firstTurnRoll: emptyFirstTurnRoll,
           selectedCardInstanceId: null,
           opponentSelectedCardInstanceId: null,
@@ -283,6 +312,8 @@ function setupPvpSubscriptions() {
           pvpError: null,
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
+          pvpMovementIntent: null,
+          pvpAttackIntent: null,
           selectedCardInstanceId: null,
           opponentSelectedCardInstanceId: null,
           selectedAttacker: null,
@@ -307,6 +338,8 @@ function setupPvpSubscriptions() {
           pvpError: null,
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
+          pvpMovementIntent: null,
+          pvpAttackIntent: null,
           selectedCardInstanceId: null,
           opponentSelectedCardInstanceId: null,
           selectedAttacker: null,
@@ -349,6 +382,8 @@ function setupPvpSubscriptions() {
           pvpError: null,
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
+          pvpMovementIntent: null,
+          pvpAttackIntent: null,
           selectedCardInstanceId: null,
           opponentSelectedCardInstanceId: null,
           selectedAttacker: null,
@@ -373,6 +408,8 @@ function setupPvpSubscriptions() {
           pvpError: null,
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
+          pvpMovementIntent: null,
+          pvpAttackIntent: null,
           selectedCardInstanceId: null,
           opponentSelectedCardInstanceId: null,
           selectedAttacker: null,
@@ -392,6 +429,14 @@ function setupPvpSubscriptions() {
 
       case "TURN_TIMER":
         store.applyPvpTimer(message);
+        break;
+
+      case "MOVE_INTENT":
+        store.applyPvpMovementIntent(message);
+        break;
+
+      case "ATTACK_INTENT":
+        store.applyPvpAttackIntent(message);
         break;
 
       case "MATCH_ENDED":
@@ -415,6 +460,8 @@ function setupPvpSubscriptions() {
           matchEndReason: message.reason,
           pvpError: null,
           pvpTimer: emptyPvpTimer,
+          pvpMovementIntent: null,
+          pvpAttackIntent: null,
           opponentSelectedCardInstanceId: null,
           firstTurnRoll: emptyFirstTurnRoll,
         });
@@ -427,6 +474,8 @@ function setupPvpSubscriptions() {
           pvpError: null,
           matchEndReason: "disconnect",
           pvpTimer: emptyPvpTimer,
+          pvpMovementIntent: null,
+          pvpAttackIntent: null,
           opponentSelectedCardInstanceId: null,
           firstTurnRoll: emptyFirstTurnRoll,
         });
@@ -450,6 +499,8 @@ function setupPvpSubscriptions() {
         pvpStatus: "connecting",
         pvpError: "Соединение потеряно, восстанавливаю PVP-матч...",
         pvpTimer: emptyPvpTimer,
+        pvpMovementIntent: null,
+        pvpAttackIntent: null,
         firstTurnRoll: emptyFirstTurnRoll,
       });
 
@@ -465,6 +516,8 @@ function setupPvpSubscriptions() {
       pvpStatus: "error",
       pvpError: "Соединение с PVP-сервером закрыто",
       pvpTimer: emptyPvpTimer,
+      pvpMovementIntent: null,
+      pvpAttackIntent: null,
       firstTurnRoll: emptyFirstTurnRoll,
     });
   });
@@ -495,6 +548,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   pvpError: null,
   matchEndReason: null,
   pvpTimer: emptyPvpTimer,
+  pvpMovementIntent: null,
+  pvpAttackIntent: null,
   firstTurnRoll: emptyFirstTurnRoll,
   selectedHeadquartersId: DEFAULT_PLAYER_HEADQUARTERS_ID,
   completedCampaignMissionIds: loadCompletedCampaignMissionIds(),
@@ -588,6 +643,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpError: null,
       matchEndReason: null,
       pvpTimer: emptyPvpTimer,
+      pvpMovementIntent: null,
+      pvpAttackIntent: null,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
       opponentSelectedCardInstanceId: null,
@@ -628,6 +685,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpError: null,
       matchEndReason: null,
       pvpTimer: emptyPvpTimer,
+      pvpMovementIntent: null,
+      pvpAttackIntent: null,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
       opponentSelectedCardInstanceId: null,
@@ -653,6 +712,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpError: null,
       matchEndReason: null,
       pvpTimer: emptyPvpTimer,
+      pvpMovementIntent: null,
+      pvpAttackIntent: null,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
       opponentSelectedCardInstanceId: null,
@@ -676,6 +737,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpError: null,
       matchEndReason: null,
       pvpTimer: emptyPvpTimer,
+      pvpMovementIntent: null,
+      pvpAttackIntent: null,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
       opponentSelectedCardInstanceId: null,
@@ -706,6 +769,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpError: null,
       matchEndReason: null,
       pvpTimer: emptyPvpTimer,
+      pvpMovementIntent: null,
+      pvpAttackIntent: null,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
       opponentSelectedCardInstanceId: null,
@@ -740,6 +805,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpError: "Восстанавливаю PVP-матч...",
       matchEndReason: null,
       pvpTimer: emptyPvpTimer,
+      pvpMovementIntent: null,
+      pvpAttackIntent: null,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
       opponentSelectedCardInstanceId: null,
@@ -759,6 +826,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpStatus: battle.status === "active" ? "inBattle" : "finished",
       pvpError: null,
       ...(battle.status === "active" ? {} : { pvpTimer: emptyPvpTimer }),
+      pvpMovementIntent: null,
+      pvpAttackIntent: null,
       ...(opponentIsActive ? {} : { opponentSelectedCardInstanceId: null }),
     });
   },
@@ -772,6 +841,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpError: null,
       matchEndReason: reason,
       pvpTimer: emptyPvpTimer,
+      pvpMovementIntent: null,
+      pvpAttackIntent: null,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
       opponentSelectedCardInstanceId: null,
@@ -810,6 +881,23 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         durationMs: timer.durationMs,
       },
     });
+  },
+
+  applyPvpMovementIntent: (intent) => {
+    set({ pvpMovementIntent: intent });
+  },
+
+  applyPvpAttackIntent: (intent) => {
+    set({ pvpAttackIntent: intent });
+
+    window.setTimeout(() => {
+      set((state) => ({
+        pvpAttackIntent:
+          state.pvpAttackIntent?.intentId === intent.intentId
+            ? null
+            : state.pvpAttackIntent,
+      }));
+    }, intent.durationMs);
   },
 
   surrenderPvpMatch: () => {

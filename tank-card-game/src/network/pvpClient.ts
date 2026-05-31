@@ -5,6 +5,7 @@ import type {
   HeadquartersId,
   PlayerId,
 } from "../game/types";
+import type { AttackAnimationStrike } from "../game/engine";
 
 export type PvpClientMessage =
   | { type: "MATCHMAKING_STARTED" }
@@ -28,6 +29,21 @@ export type PvpClientMessage =
       activePlayer: PlayerId;
       remainingMs: number;
       endsAt: number;
+      durationMs: number;
+    }
+  | {
+      type: "MOVE_INTENT";
+      intentId: string;
+      playerId: PlayerId;
+      unitId: string;
+      position: { row: number; col: number };
+      durationMs: number;
+    }
+  | {
+      type: "ATTACK_INTENT";
+      intentId: string;
+      playerId: PlayerId;
+      strikes: AttackAnimationStrike[];
       durationMs: number;
     }
   | {

@@ -31,6 +31,11 @@ type TankCardViewProps = {
   disabled?: boolean;
   alreadyMoved?: boolean;
   alreadyAttacked?: boolean;
+  healthDamageEffect?: {
+    id: number;
+    amount: number;
+  };
+  healthPreviewValue?: number;
   onClick?: () => void;
 };
 
@@ -67,6 +72,8 @@ export function TankCardView({
   disabled = false,
   alreadyMoved = false,
   alreadyAttacked = false,
+  healthDamageEffect,
+  healthPreviewValue,
   onClick,
 }: TankCardViewProps) {
   const nation = getNationVisual(card.nation);
@@ -156,6 +163,8 @@ export function TankCardView({
             value={hpValue}
             title="Здоровье"
             style={styles.boardHealthBadgeOffset}
+            damageEffect={healthDamageEffect}
+            previewValue={healthPreviewValue}
           />
         </div>
 

@@ -26,6 +26,11 @@ type HeadquartersCardViewProps = {
   fuelGeneration: number;
   selected?: boolean;
   alreadyAttacked?: boolean;
+  healthDamageEffect?: {
+    id: number;
+    amount: number;
+  };
+  healthPreviewValue?: number;
 };
 
 function getOptionalImage(
@@ -88,6 +93,8 @@ export function HeadquartersCardView({
   attack,
   selected = false,
   alreadyAttacked = false,
+  healthDamageEffect,
+  healthPreviewValue,
 }: HeadquartersCardViewProps) {
   const isPlayer = ownerId === "player";
   const headquarters = headquartersId
@@ -172,6 +179,8 @@ export function HeadquartersCardView({
           value={hp}
           title="Здоровье"
           style={styles.healthBadgeOffset}
+          damageEffect={healthDamageEffect}
+          previewValue={healthPreviewValue}
         />
       </div>
 

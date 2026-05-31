@@ -4,6 +4,7 @@ import type {
   HeadquartersId,
   PlayerId,
 } from "../../tank-card-game/src/game/types";
+import type { AttackAnimationStrike } from "../../tank-card-game/src/game/engine";
 
 export type PvpClientMessage =
   | { type: "FIND_MATCH"; sessionId: string; headquartersId: HeadquartersId }
@@ -30,6 +31,23 @@ export type PvpTurnTimerEvent = {
   durationMs: number;
 };
 
+export type PvpMoveIntentEvent = {
+  type: "MOVE_INTENT";
+  intentId: string;
+  playerId: PlayerId;
+  unitId: string;
+  position: { row: number; col: number };
+  durationMs: number;
+};
+
+export type PvpAttackIntentEvent = {
+  type: "ATTACK_INTENT";
+  intentId: string;
+  playerId: PlayerId;
+  strikes: AttackAnimationStrike[];
+  durationMs: number;
+};
+
 export type PvpServerMessage =
   | { type: "MATCHMAKING_STARTED" }
   | { type: "ROOM_CREATED"; roomId: string; playerId: PlayerId }
@@ -48,6 +66,8 @@ export type PvpServerMessage =
   | { type: "GAME_STARTED"; roomId: string; battle: BattleStateView; playerId: PlayerId }
   | { type: "GAME_STATE"; roomId: string; battle: BattleStateView }
   | PvpTurnTimerEvent
+  | PvpMoveIntentEvent
+  | PvpAttackIntentEvent
   | {
       type: "OPPONENT_CARD_SELECTION";
       playerId: PlayerId;
