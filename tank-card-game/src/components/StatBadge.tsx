@@ -31,6 +31,10 @@ type StatBadgeProps = {
     id: number;
     amount: number;
   };
+  gainEffect?: {
+    id: number;
+    amount: number;
+  };
   previewValue?: number;
 };
 
@@ -80,11 +84,13 @@ export function StatBadge({
   valueStyle,
   iconStyle,
   damageEffect,
+  gainEffect,
   previewValue,
 }: StatBadgeProps) {
   const size = getStatBadgeSize(type, mode);
   const showAttackTint = type === "attack";
   const showHealthDamage = type === "health" && damageEffect;
+  const showHealthGain = type === "health" && gainEffect;
   const showHealthPreview = type === "health" && previewValue !== undefined;
 
   return (
@@ -97,14 +103,24 @@ export function StatBadge({
         ...style,
       }}
     >
-      <img
+      <motion.img
+        key={showHealthGain ? `gain-icon-${gainEffect.id}` : "idle-icon"}
         src={badgeImages[type]}
         alt=""
         style={{
           ...styles.icon,
-          ...(showHealthDamage ? styles.damagedBaseIcon : {}),
           ...iconStyle,
         }}
+        animate={
+          showHealthGain
+            ? {
+                scale: [1, 1.28, 1.16, 1],
+              }
+            : {
+                scale: 1,
+              }
+        }
+        transition={{ duration: showHealthGain ? 0.86 : 0.12, ease: "easeOut" }}
         draggable={false}
       />
 
@@ -129,8 +145,48 @@ export function StatBadge({
           ...valueStyle,
         }}
       >
-        {value}
+        <motion.span
+          key={showHealthGain ? `gain-${gainEffect.id}` : "value"}
+          style={styles.animatedValue}
+          animate={
+            showHealthGain
+              ? {
+                  scale: [1, 1.36, 1.18, 1],
+                  color: [
+                    getValueColor(type, mode, ownerId),
+                    "#75ff98",
+                    "#9affb1",
+                    getValueColor(type, mode, ownerId),
+                  ],
+                }
+              : undefined
+          }
+          transition={
+            showHealthGain ? { duration: 0.86, ease: "easeOut" } : undefined
+          }
+        >
+          {value}
+        </motion.span>
       </strong>
+
+      <AnimatePresence>
+        {showHealthGain && (
+          <motion.strong
+            key={gainEffect.id}
+            style={styles.gainValue}
+            initial={{ opacity: 0, y: 3, scale: 0.82 }}
+            animate={{
+              opacity: [0, 1, 1, 0],
+              y: [3, -4, -12, -20],
+              scale: [0.82, 1.12, 1, 0.92],
+            }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.86, ease: "easeOut" }}
+          >
+            +{gainEffect.amount}
+          </motion.strong>
+        )}
+      </AnimatePresence>
 
       {showHealthPreview && (
         <motion.div
@@ -155,10 +211,16 @@ export function StatBadge({
           <motion.div
             key={damageEffect.id}
             style={styles.damageOverlay}
-            initial={{ opacity: 0, scale: 0.96 }}
+            initial={{ opacity: 0, scale: 1 }}
             animate={{
               opacity: [0, 1, 1, 0],
-              scale: [0.96, 1.24, 1.42, 1.3],
+              scale: [1, 1.12, 1.48, 1.36],
+              filter: [
+                "brightness(1)",
+                "brightness(1.42) drop-shadow(0 0 5px rgba(255, 233, 190, 0.52))",
+                "brightness(1.78) drop-shadow(0 0 10px rgba(255, 222, 168, 0.78))",
+                "brightness(1.22)",
+              ],
             }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.88, ease: "easeOut" }}
@@ -222,10 +284,6 @@ const styles: Record<string, React.CSSProperties> = {
     userSelect: "none",
   },
 
-  damagedBaseIcon: {
-    opacity: 0.26,
-  },
-
   damageOverlay: {
     position: "absolute",
     inset: 0,
@@ -255,6 +313,21 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     textShadow:
       "0 1px 0 rgba(0,0,0,0.96), 0 0 6px rgba(120, 0, 0, 0.94)",
+    whiteSpace: "nowrap",
+  },
+
+  gainValue: {
+    position: "absolute",
+    left: "56%",
+    top: "8%",
+    zIndex: 7,
+    color: "#75ff98",
+    fontFamily: CARD_UI.digitFont,
+    fontSize: 15,
+    lineHeight: 1,
+    fontWeight: 800,
+    textShadow:
+      "0 1px 0 rgba(0,0,0,0.96), 0 0 7px rgba(20, 115, 48, 0.92)",
     whiteSpace: "nowrap",
   },
 
@@ -310,6 +383,11 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1,
     textAlign: "center",
     textShadow: "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
+  },
+
+  animatedValue: {
+    display: "inline-block",
+    transformOrigin: "center center",
   },
 
   dimmed: {

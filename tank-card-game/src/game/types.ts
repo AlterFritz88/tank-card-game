@@ -5,6 +5,7 @@ export type PlayerId = "player" | "bot";
 export type HeadquartersId =
   | "training_unit"
   | "trainingslager"
+  | "first_panzer_division"
   | "polish_border_guard"
   | "polish_army_lodz"
   | "polish_army_prusy"
@@ -39,6 +40,14 @@ export type TankCard = {
   fuelGeneration: number;
 
   abilityText?: string;
+
+  /** New mechanics - only for low-stat units */
+  onPlayEffects?: {
+    /** Number of cards the owner draws when this unit enters the battlefield */
+    draw?: number;
+    /** Headquarters health added when this unit enters the battlefield */
+    hqProtection?: number;
+  };
 };
 
 export type CardInstance = {

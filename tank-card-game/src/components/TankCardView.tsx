@@ -88,29 +88,14 @@ export function TankCardView({
   if (!isHand) {
     return (
       <div
-        role="button"
-        tabIndex={disabled ? -1 : 0}
         style={{
           ...styles.card,
           ...styles.boardCard,
-          borderColor: selected ? "#f7d774" : "rgba(225, 214, 184, 0.28)",
-          boxShadow: selected
-            ? "0 0 0 3px rgba(247, 215, 116, 0.9), 0 12px 28px rgba(0, 0, 0, 0.55)"
-            : "0 0 0 1px rgba(255,255,255,0.06), 0 10px 24px rgba(0, 0, 0, 0.46)",
+          borderColor: "rgba(225, 214, 184, 0.28)",
+          boxShadow:
+            "0 0 0 1px rgba(255,255,255,0.06), 0 10px 24px rgba(0, 0, 0, 0.46)",
           opacity: disabled ? 0.46 : 1,
           cursor: disabled ? "not-allowed" : "pointer",
-        }}
-        onClick={() => {
-          if (disabled) return;
-          onClick?.();
-        }}
-        onKeyDown={(event) => {
-          if (disabled) return;
-
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onClick?.();
-          }
         }}
       >
         <img
@@ -272,6 +257,22 @@ export function TankCardView({
       </section>
 
       {card.abilityText && <p style={styles.abilityText}>{card.abilityText}</p>}
+
+      {/* On-play mechanics badges */}
+      {card.onPlayEffects && (
+        <div style={styles.mechanicsLine}>
+          {card.onPlayEffects.draw && card.onPlayEffects.draw > 0 && (
+            <span style={styles.mechanicBadge} title="Разведка: при выходе добираете карту.">
+              Разведка +{card.onPlayEffects.draw}
+            </span>
+          )}
+          {card.onPlayEffects.hqProtection && card.onPlayEffects.hqProtection > 0 && (
+            <span style={styles.mechanicBadge} title="Прикрытие: штаб получает дополнительные очки здоровья при выходе.">
+              Прикрытие +{card.onPlayEffects.hqProtection}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -518,6 +519,27 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     lineHeight: 1.28,
     color: "rgba(238, 242, 243, 0.76)",
+  },
+
+  mechanicsLine: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 4,
+    margin: "2px 12px 8px",
+    zIndex: 2,
+    pointerEvents: "auto",
+  },
+
+  mechanicBadge: {
+    fontSize: 11,
+    lineHeight: "1.1",
+    padding: "2px 6px",
+    borderRadius: 4,
+    background: "rgba(180, 160, 90, 0.18)",
+    color: "rgba(236, 229, 204, 0.85)",
+    border: "1px solid rgba(200, 180, 110, 0.25)",
+    whiteSpace: "nowrap",
+    cursor: "help",
   },
 
   boardTankImage: {

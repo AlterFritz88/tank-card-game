@@ -4,6 +4,7 @@ import {
   applyAction,
   getAttackAnimationSequence,
 } from "../../tank-card-game/src/game/engine";
+import { getCard } from "../../tank-card-game/src/game/cards";
 import {
   DEFAULT_BOT_HEADQUARTERS_ID,
   DEFAULT_PLAYER_HEADQUARTERS_ID,
@@ -52,6 +53,7 @@ type PendingMovement = {
   intentId: string;
   playerId: PlayerId;
   action: Extract<BattleAction, { type: "MOVE_UNIT" }>;
+  queuedActions: Extract<BattleAction, { type: "MOVE_UNIT" }>[];
   timeoutId: NodeJS.Timeout;
 };
 
@@ -86,6 +88,22 @@ const PVP_ATTACK_STRIKE_DURATION_MS = 960;
 const PVP_DESTROYED_CARD_ANIMATION_MS = 920;
 const ROOM_CLEANUP_DELAY_MS = 30_000;
 const RECONNECT_GRACE_MS = Number(process.env.PVP_RECONNECT_GRACE_MS ?? 15_000);
+
+function getStraightTwoCellIntermediate(
+  from: { row: number; col: number },
+  to: { row: number; col: number }
+): { row: number; col: number } | null {
+  const rowDistance = Math.abs(from.row - to.row);
+  const colDistance = Math.abs(from.col - to.col);
+
+  if (rowDistance + colDistance !== 2) return null;
+  if (rowDistance > 0 && colDistance > 0) return null;
+
+  return {
+    row: from.row + Math.sign(to.row - from.row),
+    col: from.col + Math.sign(to.col - from.col),
+  };
+}
 
 function createRoomId(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -499,22 +517,52 @@ export class RoomManager {
   private scheduleMovement(
     room: Room,
     playerId: PlayerId,
-    action: Extract<BattleAction, { type: "MOVE_UNIT" }>
+    action: Extract<BattleAction, { type: "MOVE_UNIT" }>,
+    queuedActions: Extract<BattleAction, { type: "MOVE_UNIT" }>[] = []
   ) {
     if (!room.battle) return;
 
     const unitBeforeMove = room.battle.units.find(
       (unit) => unit.instanceId === action.unitId
     );
-    const nextBattle = applyAction(room.battle, action);
-    const unitAfterMove = nextBattle.units.find(
+    const validatedBattle = applyAction(room.battle, action);
+    const validatedUnitAfterMove = validatedBattle.units.find(
       (unit) => unit.instanceId === action.unitId
     );
 
-    if (!unitBeforeMove || !unitAfterMove) return;
+    if (!unitBeforeMove || !validatedUnitAfterMove) return;
     if (
-      unitBeforeMove.position.row === unitAfterMove.position.row &&
-      unitBeforeMove.position.col === unitAfterMove.position.col
+      unitBeforeMove.position.row === validatedUnitAfterMove.position.row &&
+      unitBeforeMove.position.col === validatedUnitAfterMove.position.col
+    ) {
+      return;
+    }
+
+    const intermediate =
+      getCard(unitBeforeMove.cardId).class === "light"
+        ? getStraightTwoCellIntermediate(
+            unitBeforeMove.position,
+            action.position
+          )
+        : null;
+    const stepAction = intermediate
+      ? {
+          ...action,
+          position: intermediate,
+        }
+      : action;
+    const remainingActions = intermediate
+      ? [action, ...queuedActions]
+      : queuedActions;
+    const nextBattle = applyAction(room.battle, stepAction);
+    const unitAfterStep = nextBattle.units.find(
+      (unit) => unit.instanceId === action.unitId
+    );
+
+    if (!unitAfterStep) return;
+    if (
+      unitBeforeMove.position.row === unitAfterStep.position.row &&
+      unitBeforeMove.position.col === unitAfterStep.position.col
     ) {
       return;
     }
@@ -527,7 +575,8 @@ export class RoomManager {
     room.pendingMovement = {
       intentId,
       playerId,
-      action,
+      action: stepAction,
+      queuedActions: remainingActions,
       timeoutId: setTimeout(() => {
         this.commitMovement(room.id, intentId);
       }, PVP_MOVE_INTENT_DURATION_MS),
@@ -538,7 +587,7 @@ export class RoomManager {
       intentId,
       playerId,
       unitId: action.unitId,
-      position: action.position,
+      position: stepAction.position,
       durationMs: PVP_MOVE_INTENT_DURATION_MS,
     });
   }
@@ -549,7 +598,7 @@ export class RoomManager {
     if (!room || !room.battle) return;
     if (!room.pendingMovement || room.pendingMovement.intentId !== intentId) return;
 
-    const { playerId, action } = room.pendingMovement;
+    const { playerId, action, queuedActions } = room.pendingMovement;
     room.pendingMovement = null;
 
     if (room.ended) return;
@@ -557,6 +606,12 @@ export class RoomManager {
     if (room.battle.activePlayer !== playerId) return;
 
     this.commitGameAction(room, playerId, action);
+
+    const nextAction = queuedActions[0];
+
+    if (nextAction && room.battle?.status === "active") {
+      this.scheduleMovement(room, playerId, nextAction, queuedActions.slice(1));
+    }
   }
 
   private scheduleAttack(

@@ -48,6 +48,23 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     defaultDeckId: "trainingslager_default",
   },
 
+  first_panzer_division: {
+    id: "first_panzer_division",
+    title: "1. Panzer-Div.",
+    subtitle: "Передовое танковое соединение",
+    type: "Танковая дивизия",
+    description:
+      "Высокая мобильность и мощная поддержка бронетехники.",
+    faction: "Wehrmacht",
+    nation: "germany",
+    hp: 16,
+    attack: 2,
+    range: 99,
+    fuelGeneration: 4,
+    defaultDeckId: "first_panzer_division_default",
+    availableInMainMenu: true,
+  },
+
   polish_border_guard: {
     id: "polish_border_guard",
     title: "Пограничники",

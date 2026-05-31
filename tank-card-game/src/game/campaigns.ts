@@ -8,6 +8,7 @@ export type CampaignMission = {
   description: string;
   botHeadquartersId?: HeadquartersId;
   botDeckId?: string;
+  playerDeckId?: string; // allows progressive player decks per mission
   backgroundId?: BattleBackgroundId;
   available?: boolean;
 };
@@ -27,7 +28,7 @@ export const CAMPAIGNS: Campaign[] = [
     title: "1. Panzer Div.",
     description:
       "Польская кампания 1939 года. Проведи 1-ю танковую дивизию через четыре последовательных боя.",
-    playerHeadquartersId: "trainingslager",
+    playerHeadquartersId: "first_panzer_division",
     playerDeckId: "first_panzer_division_campaign",
     missions: [
       {
@@ -38,6 +39,7 @@ export const CAMPAIGNS: Campaign[] = [
           "1–3 сентября 1939. Прорвать укрепления и выйти к реке Варта. Противник: части 7-й польской пехотной дивизии и кавалерийские бригады.",
         botHeadquartersId: "polish_border_guard",
         botDeckId: "polish_border_guard_campaign",
+        playerDeckId: "first_panzer_m1",
         backgroundId: "base_1",
       },
       {
@@ -45,9 +47,10 @@ export const CAMPAIGNS: Campaign[] = [
         chapter: "Польша 1939 · Fall Weiß",
         title: "Бои за Радом",
         description:
-          "5–8 сентября 1939. Окружить польскую армию «Прусы». Противник: 25-я польская пехотная дивизия и остатки кавалерии.",
+          "5–8 сентября 1939. Окружить польскую армию «Прусы». Противник: 25-я польской пехотной дивизии и остатки кавалерии.",
         botHeadquartersId: "polish_army_lodz",
         botDeckId: "polish_army_lodz_campaign",
+        playerDeckId: "first_panzer_m2",
         backgroundId: "german_1",
       },
       {
@@ -58,6 +61,7 @@ export const CAMPAIGNS: Campaign[] = [
           "16–20 сентября 1939. Форсировать реку и уничтожить польскую группировку. Противник: части армии «Поможе».",
         botHeadquartersId: "polish_army_prusy",
         botDeckId: "polish_army_prusy_campaign",
+        playerDeckId: "first_panzer_m3",
         backgroundId: "german_city",
       },
       {
@@ -68,6 +72,7 @@ export const CAMPAIGNS: Campaign[] = [
           "20–28 сентября 1939. Захватить пригороды и поддержать 18-ю пехотную дивизию. Противник: 1-я и 13-я польские пехотные дивизии.",
         botHeadquartersId: "polish_warsaw_defense",
         botDeckId: "polish_warsaw_defense_campaign",
+        playerDeckId: "first_panzer_m4",
         backgroundId: "german_city",
       },
       {

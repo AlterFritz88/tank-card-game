@@ -357,6 +357,39 @@ export function HandCardView({
         >
           {abilityText}
         </p>
+
+        {/* New mechanics badges (only for select low-stat units) */}
+        {card && card.onPlayEffects && (
+          <div
+            style={{
+              ...styles.mechanicsLine,
+              ...(isPreview ? {} : styles.compactMechanicsLine),
+            }}
+          >
+            {card.onPlayEffects.draw && card.onPlayEffects.draw > 0 && (
+              <span
+                style={{
+                  ...styles.mechanicBadge,
+                  ...(isPreview ? {} : styles.compactMechanicBadge),
+                }}
+                title="Разведка: при выходе на поле боя вы добираете карту."
+              >
+                {isPreview ? "Разведка" : "РАЗВ"} +{card.onPlayEffects.draw}
+              </span>
+            )}
+            {card.onPlayEffects.hqProtection && card.onPlayEffects.hqProtection > 0 && (
+              <span
+                style={{
+                  ...styles.mechanicBadge,
+                  ...(isPreview ? {} : styles.compactMechanicBadge),
+                }}
+                title="Прикрытие: при выходе на поле боя ваш штаб получает дополнительные очки здоровья."
+              >
+                {isPreview ? "Прикрытие" : "ПРИКР"} +{card.onPlayEffects.hqProtection}
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -707,6 +740,41 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: "left",
     overflowWrap: "break-word",
     wordBreak: "normal",
+  },
+
+  mechanicsLine: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 3,
+    marginTop: 2,
+    pointerEvents: "auto",
+  },
+
+  mechanicBadge: {
+    fontSize: 11,
+    lineHeight: "1.1",
+    padding: "2px 6px",
+    borderRadius: 4,
+    background: "rgba(180, 160, 90, 0.18)",
+    color: "rgba(236, 229, 204, 0.85)",
+    border: "1px solid rgba(200, 180, 110, 0.25)",
+    whiteSpace: "nowrap",
+    cursor: "help",
+  },
+
+  compactMechanicsLine: {
+    flexWrap: "nowrap",
+    gap: 2,
+    marginTop: 1,
+  },
+
+  compactMechanicBadge: {
+    flex: "0 1 auto",
+    minWidth: 0,
+    padding: "1px 3px",
+    fontSize: 7,
+    lineHeight: 1,
+    letterSpacing: 0,
   },
 
   bottomMeta: {

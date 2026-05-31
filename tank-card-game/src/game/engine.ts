@@ -88,6 +88,28 @@ function isAdjacentAnyDirection(from: Position, to: Position): boolean {
   return chebyshevDistance(from, to) === 1;
 }
 
+function getIntermediateCell(from: Position, to: Position): Position | null {
+  const manhattan = manhattanDistance(from, to);
+  if (manhattan !== 2) return null;
+
+  if (!isStraightMove(from, to)) return null;
+
+  const dRow = Math.sign(to.row - from.row);
+  const dCol = Math.sign(to.col - from.col);
+
+  return {
+    row: from.row + dRow,
+    col: from.col + dCol,
+  };
+}
+
+function isPathClear(state: BattleState, from: Position, to: Position): boolean {
+  const intermediate = getIntermediateCell(from, to);
+  if (!intermediate) return true;
+
+  return !isCellOccupied(state, intermediate);
+}
+
 function addLog(state: BattleState, message: string) {
   state.log = [message, ...state.log].slice(0, 12);
 }
@@ -406,6 +428,31 @@ function playCard(
 
   state.units.push(unit);
 
+  // Apply on-play effects (new mechanics for low-stat units)
+  if (card.onPlayEffects) {
+    const effects = card.onPlayEffects;
+    const owner = action.playerId;
+
+    // Card draw
+    if (effects.draw && effects.draw > 0) {
+      for (let i = 0; i < effects.draw; i++) {
+        const drawn = player.deck[0];
+        if (drawn) {
+          player.hand.push(drawn);
+          player.deck = player.deck.slice(1);
+          addLog(state, `${owner === "player" ? "Игрок" : "Бот"} добирает карту (Разведка).`);
+        }
+      }
+    }
+
+    // HQ protection reinforces the headquarters immediately.
+    if (effects.hqProtection && effects.hqProtection > 0) {
+      const hq = state.headquarters[owner];
+      hq.hp += effects.hqProtection;
+      addLog(state, `${owner === "player" ? "Игрок" : "Бот"} укрепляет штаб на +${effects.hqProtection}.`);
+    }
+  }
+
   markSuccessfulAction(state, action.playerId);
 
   addLog(
@@ -706,12 +753,9 @@ function attack(state: BattleState, action: AttackAction) {
       );
     }
   } else {
-    target.hp -= attackValue;
-
-    addLog(
-      state,
-      `${attackerName} атакует штаб и наносит ${attackValue} урона.`
-    );
+    const incoming = attackValue;
+    target.hp -= incoming;
+    addLog(state, `${attackerName} атакует штаб и наносит ${incoming} урона.`);
 
     if (target.hp <= 0) {
       state.status = target.ownerId === "player" ? "bot_won" : "player_won";
@@ -776,6 +820,7 @@ function canUnitMoveTo(
     if (moveCost === null) return false;
 
     if (isSpawnBonusMove) {
+      // Spawn bonus is only 1 cell straight
       return straight && manhattan === 1;
     }
 
@@ -819,6 +864,15 @@ function moveUnit(
     )
   ) {
     return;
+  }
+
+  // Extra pathing rule for light tanks doing 2-cell straight moves:
+  // they cannot jump over any unit (friendly or enemy)
+  const lightManhattan = manhattanDistance(fromPosition, action.position);
+  if (isLightTank && lightManhattan === 2 && isStraightMove(fromPosition, action.position)) {
+    if (!isPathClear(state, fromPosition, action.position)) {
+      return;
+    }
   }
 
   unit.position = action.position;
@@ -1093,6 +1147,14 @@ export function getAvailableMoveCells(
         )
       ) {
         continue;
+      }
+
+      // For light tanks considering 2-cell straight moves, hide the target if intermediate is blocked
+      const manh = manhattanDistance(unit.position, position);
+      if (card.class === "light" && manh === 2 && isStraightMove(unit.position, position)) {
+        if (!isPathClear(state, unit.position, position)) {
+          continue;
+        }
       }
 
       result.push(position);

@@ -30,6 +30,10 @@ type HeadquartersCardViewProps = {
     id: number;
     amount: number;
   };
+  healthGainEffect?: {
+    id: number;
+    amount: number;
+  };
   healthPreviewValue?: number;
 };
 
@@ -94,6 +98,7 @@ export function HeadquartersCardView({
   selected = false,
   alreadyAttacked = false,
   healthDamageEffect,
+  healthGainEffect,
   healthPreviewValue,
 }: HeadquartersCardViewProps) {
   const isPlayer = ownerId === "player";
@@ -180,6 +185,7 @@ export function HeadquartersCardView({
           title="Здоровье"
           style={styles.healthBadgeOffset}
           damageEffect={healthDamageEffect}
+          gainEffect={healthGainEffect}
           previewValue={healthPreviewValue}
         />
       </div>

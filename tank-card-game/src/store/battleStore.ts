@@ -219,7 +219,8 @@ function createCampaignBattle(missionId: string): BattleState | null {
   return createInitialBattleState({
     playerHeadquartersId: campaignMission.campaign.playerHeadquartersId,
     botHeadquartersId: campaignMission.mission.botHeadquartersId,
-    playerDeckId: campaignMission.campaign.playerDeckId,
+    playerDeckId:
+      campaignMission.mission.playerDeckId ?? campaignMission.campaign.playerDeckId,
     botDeckId: campaignMission.mission.botDeckId,
     backgroundId: campaignMission.mission.backgroundId ?? getRandomBattleBackgroundId(),
   });
