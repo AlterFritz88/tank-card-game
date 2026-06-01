@@ -6,9 +6,14 @@ import { getNextBotAction } from "../game/bot";
 import {
   PLAYER_SPAWN_CELLS,
   BOT_SPAWN_CELLS,
+  SUPPORT_SLOTS,
   getAttackAnimationSequence,
   getAvailableMoveCells,
+  getFreeSupportSlots,
+  getHeadquartersAttackValue,
   getTargetsInRange,
+  isBattlefieldUnit,
+  isSupportUnit,
 } from "../game/engine";
 import type { AttackAnimationStrike } from "../game/engine";
 import type {
@@ -20,6 +25,7 @@ import type {
   HeadquartersId,
   PlayerId,
   Position,
+  SupportSlot,
 } from "../game/types";
 import { isHiddenCardInstance } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
@@ -84,6 +90,12 @@ type DamageTextEffect = {
 };
 
 type HealthGainEffect = {
+  id: number;
+  amount: number;
+  targetId: string;
+};
+
+type AttackChangeEffect = {
   id: number;
   amount: number;
   targetId: string;
@@ -373,6 +385,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const [healthGainEffects, setHealthGainEffects] = useState<
     HealthGainEffect[]
   >([]);
+  const [attackChangeEffects, setAttackChangeEffects] = useState<
+    AttackChangeEffect[]
+  >([]);
   const [hoveredAttackTarget, setHoveredAttackTarget] =
     useState<HoveredAttackTarget>(null);
   const [turnBannerText, setTurnBannerText] = useState<string | null>(null);
@@ -391,7 +406,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const hitReactionIdRef = useRef(0);
   const damageTextIdRef = useRef(0);
   const healthGainEffectIdRef = useRef(0);
+  const attackChangeEffectIdRef = useRef(0);
   const previousHpSnapshotRef = useRef<Map<string, number> | null>(null);
+  const previousAttackSnapshotRef = useRef<Map<string, number> | null>(null);
   const suppressNextRemoteDamageEffectsRef = useRef(false);
   const lastPvpAttackIntentIdRef = useRef<string | null>(null);
   const botTurnRunningRef = useRef(false);
@@ -418,6 +435,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const movementAnimationRunningRef = useRef(false);
   const attackSequenceRunningRef = useRef(false);
   const cellRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const supportCellRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   type StartRollState = {
     visible: boolean;
@@ -464,6 +482,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const showDamageEffectsFromSnapshotsRef = useRef<
     (before: Map<string, number>, after: Map<string, number>) => void
   >(() => undefined);
+  const showAttackChangesFromSnapshotsRef = useRef<
+    (before: Map<string, number>, after: Map<string, number>) => void
+  >(() => undefined);
   const playDrawCardAnimationRef = useRef<
     (owner: PlayerId, cardInstanceId: string) => void
   >(() => undefined);
@@ -473,6 +494,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       cardInstanceId: string,
       cardId: string,
       position: Position
+    ) => Promise<void>
+  >(() => Promise.resolve());
+  const playSupportSpawnCardAnimationRef = useRef<
+    (
+      owner: PlayerId,
+      cardInstanceId: string,
+      cardId: string,
+      supportSlot: SupportSlot
     ) => Promise<void>
   >(() => Promise.resolve());
   const playMoveIntentAnimationRef = useRef<
@@ -501,8 +530,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     dispatchBattleActionRef.current = dispatchBattleAction;
     playAttackSequenceRef.current = playAttackSequence;
     showDamageEffectsFromSnapshotsRef.current = showDamageEffectsFromSnapshots;
+    showAttackChangesFromSnapshotsRef.current = showAttackChangesFromSnapshots;
     playDrawCardAnimationRef.current = playDrawCardAnimation;
     playSpawnCardAnimationRef.current = playSpawnCardAnimation;
+    playSupportSpawnCardAnimationRef.current = playSupportSpawnCardAnimation;
     playMoveIntentAnimationRef.current = playMoveIntentAnimation;
     playAndDispatchLocalMovementRef.current = playAndDispatchLocalMovement;
   });
@@ -530,6 +561,33 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       } else {
         cellRefs.current.delete(key);
       }
+    };
+  }
+
+  function supportCellKey(owner: PlayerId, supportSlot: SupportSlot) {
+    return `${owner}-${supportSlot}`;
+  }
+
+  function setSupportCellRef(owner: PlayerId, supportSlot: SupportSlot) {
+    return (element: HTMLButtonElement | null) => {
+      const key = supportCellKey(owner, supportSlot);
+
+      if (element) {
+        supportCellRefs.current.set(key, element);
+      } else {
+        supportCellRefs.current.delete(key);
+      }
+    };
+  }
+
+  function setSupportUnitRef(
+    owner: PlayerId,
+    supportSlot: SupportSlot,
+    unitId: string
+  ) {
+    return (element: HTMLButtonElement | null) => {
+      setSupportCellRef(owner, supportSlot)(element);
+      setObjectRef(objectRefs, unitId)(element);
     };
   }
 
@@ -946,6 +1004,26 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           continue;
         }
 
+        if (action.type === "PLAY_SUPPORT_CARD") {
+          const latestBattle = useBattleStore.getState().battle as BattleState | null;
+          const cardInstance = latestBattle?.bot.hand.find(
+            (item) => item.instanceId === action.cardInstanceId
+          );
+
+          if (cardInstance) {
+            await playSupportSpawnCardAnimationRef.current(
+              "bot",
+              cardInstance.instanceId,
+              cardInstance.cardId,
+              action.supportSlot
+            );
+          }
+
+          dispatchBattleActionRef.current(action);
+          await delay(450);
+          continue;
+        }
+
         if (action.type === "END_TURN") {
           dispatchBattleActionRef.current(action);
           await delay(250);
@@ -1056,6 +1134,36 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     window.setTimeout(() => {
       setHealthGainEffects((current) =>
+        current.filter((item) => item.id !== effect.id)
+      );
+    }, 920);
+  }
+
+  function getAttackChangeEffect(targetId: string) {
+    for (let index = attackChangeEffects.length - 1; index >= 0; index -= 1) {
+      const effect = attackChangeEffects[index];
+
+      if (effect.targetId === targetId) {
+        return effect;
+      }
+    }
+
+    return undefined;
+  }
+
+  function showAttackChangeEffect(targetId: string, amount: number) {
+    attackChangeEffectIdRef.current += 1;
+
+    const effect: AttackChangeEffect = {
+      id: attackChangeEffectIdRef.current,
+      targetId,
+      amount,
+    };
+
+    setAttackChangeEffects((current) => [...current, effect]);
+
+    window.setTimeout(() => {
+      setAttackChangeEffects((current) =>
         current.filter((item) => item.id !== effect.id)
       );
     }, 920);
@@ -1209,6 +1317,31 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     return hp;
   }
 
+  function createAttackSnapshot(
+    sourceBattle: ClientBattleState
+  ): Map<string, number> {
+    return new Map([
+      [
+        "player_hq",
+        getHeadquartersAttackValue(sourceBattle as BattleState, "player"),
+      ],
+      ["bot_hq", getHeadquartersAttackValue(sourceBattle as BattleState, "bot")],
+    ]);
+  }
+
+  function showAttackChangesFromSnapshots(
+    before: Map<string, number>,
+    after: Map<string, number>
+  ) {
+    for (const [id, currentAttack] of after.entries()) {
+      const previousAttack = before.get(id);
+
+      if (previousAttack !== undefined && currentAttack !== previousAttack) {
+        showAttackChangeEffect(id, currentAttack - previousAttack);
+      }
+    }
+  }
+
   function showDamageEffectsFromSnapshots(
     before: Map<string, number>,
     after: Map<string, number>
@@ -1233,6 +1366,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   useEffect(() => {
     const currentSnapshot = createHpSnapshot(battle);
     const previousSnapshot = previousHpSnapshotRef.current;
+    const currentAttackSnapshot = createAttackSnapshot(battle);
+    const previousAttackSnapshot = previousAttackSnapshotRef.current;
 
     if (mode === "pvp" && previousSnapshot) {
       if (suppressNextRemoteDamageEffectsRef.current) {
@@ -1242,7 +1377,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       }
     }
 
+    if (mode === "pvp" && previousAttackSnapshot) {
+      showAttackChangesFromSnapshotsRef.current(
+        previousAttackSnapshot,
+        currentAttackSnapshot
+      );
+    }
+
     previousHpSnapshotRef.current = currentSnapshot;
+    previousAttackSnapshotRef.current = currentAttackSnapshot;
   }, [battle, mode]);
 
   function dispatchBattleAction(
@@ -1252,19 +1395,26 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     const shouldShowDamage =
       action.type === "ATTACK" ||
       action.type === "PLAY_CARD" ||
+      action.type === "PLAY_SUPPORT_CARD" ||
       action.type === "END_TURN" ||
       action.type === "TIMER_TICK";
 
     const beforeBattle = useBattleStore.getState().battle;
     const before =
       shouldShowDamage && beforeBattle ? createHpSnapshot(beforeBattle) : null;
+    const beforeAttack =
+      beforeBattle ? createAttackSnapshot(beforeBattle) : null;
 
     dispatch(action);
 
-    if (!shouldShowDamage || !before || options.skipDamageEffects) return;
-
     const afterBattle = useBattleStore.getState().battle;
     if (!afterBattle) return;
+
+    if (beforeAttack) {
+      showAttackChangesFromSnapshots(beforeAttack, createAttackSnapshot(afterBattle));
+    }
+
+    if (!shouldShowDamage || !before || options.skipDamageEffects) return;
 
     const after = createHpSnapshot(afterBattle);
 
@@ -1321,8 +1471,41 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     cardId: string,
     position: Position
   ): Promise<void> {
-    const sourceCardElement = handCardRefs.current[owner].get(cardInstanceId);
     const targetCellElement = cellRefs.current.get(positionKey(position));
+
+    return playSpawnCardAnimationToElement(
+      owner,
+      cardInstanceId,
+      cardId,
+      targetCellElement
+    );
+  }
+
+  function playSupportSpawnCardAnimation(
+    owner: PlayerId,
+    cardInstanceId: string,
+    cardId: string,
+    supportSlot: SupportSlot
+  ): Promise<void> {
+    const targetCellElement = supportCellRefs.current.get(
+      supportCellKey(owner, supportSlot)
+    );
+
+    return playSpawnCardAnimationToElement(
+      owner,
+      cardInstanceId,
+      cardId,
+      targetCellElement
+    );
+  }
+
+  function playSpawnCardAnimationToElement(
+    owner: PlayerId,
+    cardInstanceId: string,
+    cardId: string,
+    targetCellElement: HTMLButtonElement | undefined
+  ): Promise<void> {
+    const sourceCardElement = handCardRefs.current[owner].get(cardInstanceId);
 
     if (!sourceCardElement || !targetCellElement) {
       return Promise.resolve();
@@ -1537,6 +1720,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       );
 
       if (!cardInstance || isHiddenCardInstance(cardInstance)) return;
+      if (getCard(cardInstance.cardId).deploymentZone === "support") return;
 
       void playSpawnCardAnimation(
         humanPlayerId,
@@ -1573,6 +1757,44 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
       void playAndDispatchLocalMovement(battle as BattleState, moveAction);
     }
+  }
+
+  function handleSupportSlotClick(owner: PlayerId, supportSlot: SupportSlot) {
+    if (debugPaused) return;
+    if (attackSequenceRunningRef.current) return;
+    if (battle.status !== "active") return;
+    if (battle.activePlayer !== humanPlayerId) return;
+    if (owner !== humanPlayerId) return;
+    if (!selectedCardInstanceId) return;
+    if (spawningCardInstanceId) return;
+
+    const cardInstance = battle[humanPlayerId].hand.find(
+      (item) => item.instanceId === selectedCardInstanceId
+    );
+
+    if (!cardInstance || isHiddenCardInstance(cardInstance)) return;
+    if (getCard(cardInstance.cardId).deploymentZone !== "support") return;
+    if (
+      !getFreeSupportSlots(battle as BattleState, humanPlayerId).includes(
+        supportSlot
+      )
+    ) {
+      return;
+    }
+
+    void playSupportSpawnCardAnimation(
+      humanPlayerId,
+      cardInstance.instanceId,
+      cardInstance.cardId,
+      supportSlot
+    ).then(() => {
+      dispatchBattleAction({
+        type: "PLAY_SUPPORT_CARD",
+        playerId: humanPlayerId,
+        cardInstanceId: cardInstance.instanceId,
+        supportSlot,
+      });
+    });
   }
 
   async function handleAttackTarget(
@@ -1614,7 +1836,16 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     const unitsFuel = battle.units
       .filter((unit) => unit.ownerId === owner)
-      .reduce((sum, unit) => sum + getCard(unit.cardId).fuelGeneration, 0);
+      .reduce((sum, unit) => {
+        const card = getCard(unit.cardId);
+
+        return (
+          sum +
+          (isSupportUnit(unit)
+            ? card.supportEffects?.fuelPerTurn ?? 0
+            : card.fuelGeneration)
+        );
+      }, 0);
 
     return headquartersFuel + unitsFuel;
   }
@@ -1653,7 +1884,10 @@ function renderEnemyDeckWithTimer() {
   }}
   style={styles.enemyDeckCompact}
 >
-        <DeckStack cardCount={getDeckCount(opponentPlayerId)} />
+        <DeckStack
+          cardCount={getDeckCount(opponentPlayerId)}
+          countPosition="right"
+        />
       </div>
 
       {renderTimerPanel(opponentPlayerId)}
@@ -1666,6 +1900,149 @@ function renderEnemyDeckWithTimer() {
     </div>
   );
 }
+
+  function renderSupportLine(owner: PlayerId) {
+    const selectedCard = selectedCardInstanceId
+      ? battle[humanPlayerId].hand.find(
+          (card) => card.instanceId === selectedCardInstanceId
+        )
+      : null;
+    const selectedCardDefinition =
+      selectedCard && !isHiddenCardInstance(selectedCard)
+        ? getCard(selectedCard.cardId)
+        : null;
+    const placingSupport =
+      owner === humanPlayerId &&
+      selectedCardDefinition?.deploymentZone === "support";
+    const freeSlots = placingSupport
+      ? getFreeSupportSlots(battle as BattleState, owner)
+      : [];
+
+    return (
+      <div
+        style={{
+          ...styles.supportLine,
+          ...(owner === humanPlayerId
+            ? styles.supportLineFriendly
+            : styles.supportLineEnemy),
+        }}
+      >
+        <span style={styles.supportLineLabel}>SUPPORT</span>
+
+        {SUPPORT_SLOTS.map((supportSlot) => {
+          const unit = battle.units.find(
+            (item) =>
+              item.ownerId === owner &&
+              isSupportUnit(item) &&
+              item.supportSlot === supportSlot
+          );
+          const canPlace = freeSlots.includes(supportSlot);
+
+          if (!unit) {
+            return (
+              <motion.button
+                key={`${owner}-support-${supportSlot}`}
+                type="button"
+                ref={setSupportCellRef(owner, supportSlot)}
+                style={{
+                  ...styles.supportCell,
+                  ...(canPlace ? styles.supportCellAvailable : {}),
+                }}
+                animate={
+                  canPlace
+                    ? {
+                        boxShadow: [
+                          "inset 0 0 7px rgba(102, 226, 123, 0.16), 0 0 3px rgba(102, 226, 123, 0.12)",
+                          "inset 0 0 14px rgba(124, 246, 145, 0.34), 0 0 8px rgba(102, 226, 123, 0.24)",
+                          "inset 0 0 7px rgba(102, 226, 123, 0.16), 0 0 3px rgba(102, 226, 123, 0.12)",
+                        ],
+                      }
+                    : {}
+                }
+                transition={{
+                  duration: 2.5,
+                  ease: "easeInOut",
+                  repeat: Infinity,
+                }}
+                onMouseDown={preventPersistentBattleFocus}
+                onClick={() => handleSupportSlotClick(owner, supportSlot)}
+                aria-label={`Support slot ${supportSlot + 1}`}
+              />
+            );
+          }
+
+          const card = getCard(unit.cardId);
+          const canBeTarget = isTarget("unit", unit.instanceId);
+
+          return (
+            <motion.button
+              key={unit.instanceId}
+              ref={setSupportUnitRef(owner, supportSlot, unit.instanceId)}
+              type="button"
+              style={{
+                ...styles.supportCell,
+                ...styles.supportUnitCell,
+                ...(canBeTarget ? styles.targetCell : {}),
+              }}
+              initial={{ opacity: 0, scale: 0.82 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.72 }}
+              whileHover={{ scale: 1.06 }}
+              whileTap={{ scale: 0.96 }}
+              onMouseEnter={() => {
+                if (!canBeTarget) return;
+
+                setHoveredAttackTarget({
+                  type: "unit",
+                  id: unit.instanceId,
+                });
+              }}
+              onMouseLeave={() => {
+                setHoveredAttackTarget((current) =>
+                  current?.id === unit.instanceId ? null : current
+                );
+              }}
+              onMouseDown={preventPersistentBattleFocus}
+              onContextMenu={(event) =>
+                openCardPreview(event, {
+                  type: "unit",
+                  cardId: unit.cardId,
+                  ownerId: unit.ownerId,
+                  currentHp: unit.currentHp,
+                })
+              }
+              onClick={() => {
+                if (canBeTarget) {
+                  void handleAttackTarget("unit", unit.instanceId);
+                }
+              }}
+            >
+              <motion.div
+                style={styles.boardCardContent}
+                animate={{
+                  opacity: hiddenDestroyedObjectIds.has(unit.instanceId) ? 0 : 1,
+                }}
+              >
+                <TankCardView
+                  card={card}
+                  variant="board"
+                  ownerId={getVisualOwnerId(unit.ownerId)}
+                  currentHp={unit.currentHp}
+                  alreadyMoved
+                  alreadyAttacked
+                  healthDamageEffect={getHealthDamageEffect(unit.instanceId)}
+                  healthGainEffect={getHealthGainEffect(unit.instanceId)}
+                  healthPreviewValue={combatForecast.get(unit.instanceId)}
+                />
+              </motion.div>
+
+              {canBeTarget && <AttackTargetGlow />}
+            </motion.button>
+          );
+        })}
+      </div>
+    );
+  }
 
   const pvpStartRollState =
     mode === "pvp" && firstTurnRoll?.visible && firstTurnRoll.firstPlayer
@@ -2018,6 +2395,9 @@ function renderEnemyDeckWithTimer() {
   )}
 </AnimatePresence>
 
+            {renderSupportLine(humanPlayerId)}
+            {renderSupportLine(opponentPlayerId)}
+
             <motion.div ref={boardRef} layout style={styles.board}>
               <div style={styles.boardCellBackdropGrid} aria-hidden="true">
                 {visualRows.map((row) =>
@@ -2219,7 +2599,7 @@ function renderEnemyDeckWithTimer() {
                   const position: Position = { row, col };
 
                   const unit = battle.units.find((item) =>
-                    samePosition(item.position, position)
+                    isBattlefieldUnit(item) && samePosition(item.position, position)
                   );
 
                   const isPlayerHq = samePosition(
@@ -2358,6 +2738,9 @@ function renderEnemyDeckWithTimer() {
                             healthDamageEffect={getHealthDamageEffect(
                               unit.instanceId
                             )}
+                            healthGainEffect={getHealthGainEffect(
+                              unit.instanceId
+                            )}
                             healthPreviewValue={combatForecast.get(
                               unit.instanceId
                             )}
@@ -2459,7 +2842,10 @@ function renderEnemyDeckWithTimer() {
                             ownerId: owner,
                             headquartersId: getHeadquartersIdForOwner(owner),
                             hp: hq.hp,
-                            attack: hq.attack,
+                            attack: getHeadquartersAttackValue(
+                              battle as BattleState,
+                              owner
+                            ),
                             fuelGeneration: hq.fuelGeneration,
                           })
                         }
@@ -2498,11 +2884,15 @@ function renderEnemyDeckWithTimer() {
                             ownerId={getVisualOwnerId(owner)}
                             headquartersId={getHeadquartersIdForOwner(owner)}
                             hp={hq.hp}
-                            attack={hq.attack}
+                            attack={getHeadquartersAttackValue(
+                              battle as BattleState,
+                              owner
+                            )}
                             fuelGeneration={hq.fuelGeneration}
                             alreadyAttacked={hq.alreadyAttacked}
                             healthDamageEffect={getHealthDamageEffect(hqId)}
                             healthGainEffect={getHealthGainEffect(hqId)}
+                            attackChangeEffect={getAttackChangeEffect(hqId)}
                             healthPreviewValue={combatForecast.get(hqId)}
                           />
 
@@ -3071,7 +3461,7 @@ enemySideColumn: {
   flexDirection: "column",
   alignItems: "stretch",
   gap: 8,
-  transform: "translate(-94px, -74px)",
+  transform: "translate(-2px, -74px)",
   zIndex: 30,
 },
 
@@ -3097,6 +3487,59 @@ actionSideColumn: {
     borderRadius: 0,
     background: "transparent",
     pointerEvents: "none",
+  },
+
+  supportLine: {
+    position: "absolute",
+    top: "50%",
+    zIndex: 12,
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    transform: "translateY(-50%)",
+  },
+
+  supportLineFriendly: {
+    left: -111,
+  },
+
+  supportLineEnemy: {
+    right: -111,
+  },
+
+  supportLineLabel: {
+    alignSelf: "center",
+    color: "rgba(228, 218, 184, 0.56)",
+    fontFamily: "'Rajdhani', 'Arial Narrow', sans-serif",
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: 0.8,
+    lineHeight: 1,
+    textShadow: "0 1px 3px rgba(0,0,0,0.9)",
+    pointerEvents: "none",
+  },
+
+  supportCell: {
+    position: "relative",
+    width: 91,
+    height: 91,
+    padding: 0,
+    overflow: "visible",
+    borderRadius: 7,
+    border: "1px solid rgba(213, 203, 168, 0.28)",
+    background: "rgba(19, 22, 20, 0.3)",
+    boxShadow: "inset 0 0 9px rgba(0,0,0,0.48)",
+    cursor: "pointer",
+  },
+
+  supportCellAvailable: {
+    borderColor: "rgba(111, 228, 132, 0.58)",
+    background: "rgba(42, 96, 54, 0.24)",
+  },
+
+  supportUnitCell: {
+    borderColor: "rgba(213, 203, 168, 0.28)",
+    background: "rgba(19, 22, 20, 0.3)",
   },
 
  board: {

@@ -34,6 +34,10 @@ type HeadquartersCardViewProps = {
     id: number;
     amount: number;
   };
+  attackChangeEffect?: {
+    id: number;
+    amount: number;
+  };
   healthPreviewValue?: number;
 };
 
@@ -99,6 +103,7 @@ export function HeadquartersCardView({
   alreadyAttacked = false,
   healthDamageEffect,
   healthGainEffect,
+  attackChangeEffect,
   healthPreviewValue,
 }: HeadquartersCardViewProps) {
   const isPlayer = ownerId === "player";
@@ -175,6 +180,7 @@ export function HeadquartersCardView({
           ownerId={ownerId}
           value={attack}
           dimmed={alreadyAttacked}
+          gainEffect={attackChangeEffect}
           title="Атака"
         />
 

@@ -35,6 +35,10 @@ type TankCardViewProps = {
     id: number;
     amount: number;
   };
+  healthGainEffect?: {
+    id: number;
+    amount: number;
+  };
   healthPreviewValue?: number;
   onClick?: () => void;
 };
@@ -73,6 +77,7 @@ export function TankCardView({
   alreadyMoved = false,
   alreadyAttacked = false,
   healthDamageEffect,
+  healthGainEffect,
   healthPreviewValue,
   onClick,
 }: TankCardViewProps) {
@@ -149,6 +154,7 @@ export function TankCardView({
             title="Здоровье"
             style={styles.boardHealthBadgeOffset}
             damageEffect={healthDamageEffect}
+            gainEffect={healthGainEffect}
             previewValue={healthPreviewValue}
           />
         </div>

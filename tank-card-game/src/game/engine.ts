@@ -6,10 +6,13 @@ import type {
   BoardUnit,
   PlayerId,
   Position,
+  SupportSlot,
   TankCard,
 } from "./types";
 
 const STEP_TIME_MS = 15 * 1000;
+
+export const SUPPORT_SLOTS: SupportSlot[] = [0, 1, 2];
 
 export const PLAYER_SPAWN_CELLS: Position[] = [
   { row: 1, col: 0 },
@@ -40,6 +43,7 @@ function isSpawnCell(playerId: PlayerId, position: Position): boolean {
 
 function isCellOccupied(state: BattleState, position: Position): boolean {
   const unitOnCell = state.units.some((unit) =>
+    isBattlefieldUnit(unit) &&
     samePosition(unit.position, position)
   );
 
@@ -47,6 +51,27 @@ function isCellOccupied(state: BattleState, position: Position): boolean {
   const botHq = samePosition(state.headquarters.bot.position, position);
 
   return unitOnCell || playerHq || botHq;
+}
+
+export function isSupportUnit(unit: BoardUnit): boolean {
+  return unit.zone === "support";
+}
+
+export function isBattlefieldUnit(unit: BoardUnit): boolean {
+  return !isSupportUnit(unit);
+}
+
+function isSupportSlotOccupied(
+  state: BattleState,
+  playerId: PlayerId,
+  supportSlot: SupportSlot
+): boolean {
+  return state.units.some(
+    (unit) =>
+      unit.ownerId === playerId &&
+      isSupportUnit(unit) &&
+      unit.supportSlot === supportSlot
+  );
 }
 
 function getOpponent(playerId: PlayerId): PlayerId {
@@ -161,10 +186,65 @@ function calculateFuelGeneration(
     .filter((unit) => unit.ownerId === playerId)
     .reduce((total, unit) => {
       const card = getCard(unit.cardId);
-      return total + card.fuelGeneration;
+      const generatedFuel = isSupportUnit(unit)
+        ? card.supportEffects?.fuelPerTurn ?? 0
+        : card.fuelGeneration;
+
+      return total + generatedFuel;
     }, 0);
 
   return headquartersFuel + unitsFuel;
+}
+
+function getSupportUnits(state: BattleState, playerId: PlayerId): BoardUnit[] {
+  return state.units.filter(
+    (unit) => unit.ownerId === playerId && isSupportUnit(unit)
+  );
+}
+
+function applySupportTurnEffects(state: BattleState, playerId: PlayerId) {
+  const supportUnits = getSupportUnits(state, playerId);
+  const battlefieldUnits = state.units.filter(
+    (unit) => unit.ownerId === playerId && isBattlefieldUnit(unit)
+  );
+
+  for (const supportUnit of supportUnits) {
+    const card = getCard(supportUnit.cardId);
+    const effects = card.supportEffects;
+
+    if (!effects) continue;
+
+    if (effects.drawEveryTurns && state.turn % effects.drawEveryTurns === 0) {
+      drawCardsWithEmptyDeckPenalty(state, playerId, 1);
+
+      if (state.status !== "active") return;
+    }
+
+    if (effects.hqHealPerTurn) {
+      state.headquarters[playerId].hp += effects.hqHealPerTurn;
+    }
+
+    if (effects.healRandomUnitPerTurn) {
+      const damagedUnits = battlefieldUnits.filter((unit) => {
+        const unitCard = getCard(unit.cardId);
+
+        return (
+          unit.currentHp < unitCard.hp &&
+          (!effects.healClass || unitCard.class === effects.healClass)
+        );
+      });
+      const target =
+        damagedUnits[Math.floor(Math.random() * damagedUnits.length)];
+
+      if (target) {
+        const targetCard = getCard(target.cardId);
+        target.currentHp = Math.min(
+          targetCard.hp,
+          target.currentHp + effects.healRandomUnitPerTurn
+        );
+      }
+    }
+  }
 }
 
 function spendFuel(
@@ -271,6 +351,27 @@ function drawCardsWithoutPenalty(
   return drawnCount;
 }
 
+function drawCardsWithEmptyDeckPenalty(
+  state: BattleState,
+  playerId: PlayerId,
+  count: number
+) {
+  let drawnCount = 0;
+
+  for (let index = 0; index < count; index += 1) {
+    if (drawOneCardWithoutPenalty(state, playerId)) {
+      drawnCount += 1;
+      continue;
+    }
+
+    damageHeadquartersFromEmptyDeck(state, playerId);
+
+    if (state.status !== "active") break;
+  }
+
+  return drawnCount;
+}
+
 function beginBattle(
   state: BattleState,
   action: Extract<BattleAction, { type: "BEGIN_BATTLE" }>
@@ -298,8 +399,8 @@ function beginBattle(
   }
 
   for (const unit of state.units) {
-    unit.alreadyAttacked = false;
-    unit.alreadyMoved = false;
+    unit.alreadyAttacked = isSupportUnit(unit);
+    unit.alreadyMoved = isSupportUnit(unit);
     unit.spawnedThisTurn = false;
     unit.moveCountThisTurn = 0;
     unit.tdAmbushUsedThisTurn = false;
@@ -369,12 +470,18 @@ function startTurn(state: BattleState, playerId: PlayerId) {
     }
   }
 
+  applySupportTurnEffects(state, playerId);
+
+  if (state.status !== "active") {
+    return;
+  }
+
   for (const unit of state.units) {
     unit.tdAmbushUsedThisTurn = false;
 
     if (unit.ownerId === playerId) {
-      unit.alreadyAttacked = false;
-      unit.alreadyMoved = false;
+      unit.alreadyAttacked = isSupportUnit(unit);
+      unit.alreadyMoved = isSupportUnit(unit);
       unit.spawnedThisTurn = false;
       unit.moveCountThisTurn = 0;
     }
@@ -401,6 +508,7 @@ function playCard(
   if (!cardInHand) return;
 
   const card = getCard(cardInHand.cardId);
+  if (card.deploymentZone === "support") return;
 
   if (!spendFuel(state, action.playerId, card.cost, "размещение юнита")) {
     return;
@@ -417,6 +525,7 @@ function playCard(
     cardId: card.id,
     ownerId: action.playerId,
     position: action.position,
+    zone: "battlefield",
     currentHp: card.hp,
 
     alreadyAttacked: !isLightTank,
@@ -435,14 +544,17 @@ function playCard(
 
     // Card draw
     if (effects.draw && effects.draw > 0) {
-      for (let i = 0; i < effects.draw; i++) {
-        const drawn = player.deck[0];
-        if (drawn) {
-          player.hand.push(drawn);
-          player.deck = player.deck.slice(1);
-          addLog(state, `${owner === "player" ? "Игрок" : "Бот"} добирает карту (Разведка).`);
-        }
+      const drawnCount = drawCardsWithEmptyDeckPenalty(
+        state,
+        owner,
+        effects.draw
+      );
+
+      if (drawnCount > 0) {
+        addLog(state, `${owner === "player" ? "Игрок" : "Бот"} добирает карту (Разведка).`);
       }
+
+      if (state.status !== "active") return;
     }
 
     // HQ protection reinforces the headquarters immediately.
@@ -465,6 +577,51 @@ function playCard(
   );
 }
 
+function playSupportCard(
+  state: BattleState,
+  action: Extract<BattleAction, { type: "PLAY_SUPPORT_CARD" }>
+) {
+  if (state.status !== "active") return;
+  if (state.activePlayer !== action.playerId) return;
+  if (!SUPPORT_SLOTS.includes(action.supportSlot)) return;
+  if (isSupportSlotOccupied(state, action.playerId, action.supportSlot)) return;
+
+  const player = state[action.playerId];
+  const cardInHand = player.hand.find(
+    (card) => card.instanceId === action.cardInstanceId
+  );
+
+  if (!cardInHand) return;
+
+  const card = getCard(cardInHand.cardId);
+
+  if (card.deploymentZone !== "support" || !card.supportRole) return;
+  if (!spendFuel(state, action.playerId, card.cost, "support deployment")) {
+    return;
+  }
+
+  player.hand = player.hand.filter(
+    (item) => item.instanceId !== action.cardInstanceId
+  );
+
+  state.units.push({
+    instanceId: action.cardInstanceId,
+    cardId: card.id,
+    ownerId: action.playerId,
+    position: state.headquarters[action.playerId].position,
+    zone: "support",
+    supportSlot: action.supportSlot,
+    currentHp: card.hp,
+    alreadyAttacked: true,
+    alreadyMoved: true,
+    spawnedThisTurn: true,
+    moveCountThisTurn: 0,
+    tdAmbushUsedThisTurn: false,
+  });
+
+  markSuccessfulAction(state, action.playerId);
+}
+
 function getAttacker(state: BattleState, action: AttackAction) {
   if (action.attackerType === "headquarters") {
     return state.headquarters[action.playerId];
@@ -482,14 +639,30 @@ function getTarget(state: BattleState, action: AttackAction) {
   return state.units.find((unit) => unit.instanceId === action.targetId);
 }
 
-function getAttackValue(attacker: ReturnType<typeof getAttacker>): number {
+function getAttackValue(
+  state: BattleState,
+  attacker: ReturnType<typeof getAttacker>
+): number {
   if (!attacker) return 0;
 
   if ("cardId" in attacker) {
     return getCard(attacker.cardId).attack;
   }
 
-  return attacker.attack;
+  return getHeadquartersAttackValue(state, attacker.ownerId);
+}
+
+export function getHeadquartersAttackValue(
+  state: BattleState,
+  ownerId: PlayerId
+): number {
+  const supportBonus = getSupportUnits(state, ownerId).reduce(
+    (total, unit) =>
+      total + (getCard(unit.cardId).supportEffects?.hqAttackBonus ?? 0),
+    0
+  );
+
+  return state.headquarters[ownerId].attack + supportBonus;
 }
 
 function canUnitAttackTarget(
@@ -509,10 +682,23 @@ function canUnitAttackTarget(
 }
 
 function canAttackTarget(
+  state: BattleState,
   attacker: ReturnType<typeof getAttacker>,
   target: ReturnType<typeof getTarget>
 ): boolean {
   if (!attacker || !target) return false;
+  if ("cardId" in attacker && isSupportUnit(attacker)) return false;
+
+  if ("cardId" in target && isSupportUnit(target)) {
+    if (!("cardId" in attacker)) return true;
+
+    const attackerCard = getCard(attacker.cardId);
+
+    return (
+      attackerCard.class === "spg" ||
+      attacker.position.col === state.headquarters[target.ownerId].position.col
+    );
+  }
 
   if (!("cardId" in attacker)) {
     return manhattanDistance(attacker.position, target.position) <= attacker.range;
@@ -575,6 +761,7 @@ export function getUnitCombatPreview(
     attackerCard.class === "spg" ||
     chebyshevDistance(attacker.position, target.position) > 1;
   const targetCanUseTdAmbush =
+    isBattlefieldUnit(target) &&
     targetCard.class === "td" &&
     attackerCard.class !== "td" &&
     !target.tdAmbushUsedThisTurn &&
@@ -599,6 +786,7 @@ export function getUnitCombatPreview(
   attackTarget();
 
   const targetCanCounterAttack =
+    isBattlefieldUnit(target) &&
     targetCard.class !== "spg" &&
     attackerCard.class !== "spg" &&
     !(
@@ -619,6 +807,37 @@ export function getUnitCombatPreview(
   };
 }
 
+type HeadquartersDamageDistribution = {
+  redirected: { unit: BoardUnit; damage: number }[];
+  headquartersDamage: number;
+};
+
+function getHeadquartersDamageDistribution(
+  state: BattleState,
+  targetOwnerId: PlayerId,
+  incomingDamage: number
+): HeadquartersDamageDistribution {
+  let remainingDamage = incomingDamage;
+  const redirected: HeadquartersDamageDistribution["redirected"] = [];
+
+  for (const unit of getSupportUnits(state, targetOwnerId)) {
+    const redirectLimit = getCard(unit.cardId).supportEffects?.hqDamageRedirect ?? 0;
+    const damage = Math.min(remainingDamage, redirectLimit, unit.currentHp);
+
+    if (damage <= 0) continue;
+
+    redirected.push({ unit, damage });
+    remainingDamage -= damage;
+
+    if (remainingDamage <= 0) break;
+  }
+
+  return {
+    redirected,
+    headquartersDamage: remainingDamage,
+  };
+}
+
 export function getAttackAnimationSequence(
   state: BattleState,
   action: AttackAction
@@ -633,17 +852,45 @@ export function getAttackAnimationSequence(
   if (attacker.ownerId !== action.playerId) return [];
   if (target.ownerId === action.playerId) return [];
   if (attacker.alreadyAttacked) return [];
-  if (!canAttackTarget(attacker, target)) return [];
+  if (!canAttackTarget(state, attacker, target)) return [];
 
   if ("cardId" in attacker && "cardId" in target) {
     return getUnitCombatPreview(attacker, target).strikes;
   }
 
+  const sourceId = getCombatObjectId(attacker);
+  const attackValue = getAttackValue(state, attacker);
+
+  if (!("cardId" in target)) {
+    const distribution = getHeadquartersDamageDistribution(
+      state,
+      target.ownerId,
+      attackValue
+    );
+
+    return [
+      ...distribution.redirected.map(({ unit, damage }) => ({
+        sourceId,
+        targetId: unit.instanceId,
+        damage,
+      })),
+      ...(distribution.headquartersDamage > 0
+        ? [
+            {
+              sourceId,
+              targetId: getCombatObjectId(target),
+              damage: distribution.headquartersDamage,
+            },
+          ]
+        : []),
+    ];
+  }
+
   return [
     {
-      sourceId: getCombatObjectId(attacker),
+      sourceId,
       targetId: getCombatObjectId(target),
-      damage: getAttackValue(attacker),
+      damage: attackValue,
     },
   ];
 }
@@ -683,9 +930,9 @@ function attack(state: BattleState, action: AttackAction) {
   if (attacker.ownerId !== action.playerId) return;
   if (target.ownerId === action.playerId) return;
   if (attacker.alreadyAttacked) return;
-  if (!canAttackTarget(attacker, target)) return;
+  if (!canAttackTarget(state, attacker, target)) return;
 
-  const attackValue = getAttackValue(attacker);
+  const attackValue = getAttackValue(state, attacker);
 
   const attackerIsUnit = "cardId" in attacker;
   const targetIsUnit = "cardId" in target;
@@ -753,7 +1000,21 @@ function attack(state: BattleState, action: AttackAction) {
       );
     }
   } else {
-    const incoming = attackValue;
+    const distribution = getHeadquartersDamageDistribution(
+      state,
+      target.ownerId,
+      attackValue
+    );
+
+    for (const { unit, damage } of distribution.redirected) {
+      unit.currentHp -= damage;
+
+      if (unit.currentHp <= 0) {
+        destroyUnit(state, unit, "destroyed while covering headquarters.", action.playerId);
+      }
+    }
+
+    const incoming = distribution.headquartersDamage;
     target.hp -= incoming;
     addLog(state, `${attackerName} атакует штаб и наносит ${incoming} урона.`);
 
@@ -845,6 +1106,7 @@ function moveUnit(
 
   if (!unit) return;
   if (unit.ownerId !== action.playerId) return;
+  if (isSupportUnit(unit)) return;
   if (unit.alreadyMoved) return;
   if (isCellOccupied(state, action.position)) return;
 
@@ -1032,6 +1294,10 @@ export function applyAction(
       playCard(nextState, action);
       break;
 
+    case "PLAY_SUPPORT_CARD":
+      playSupportCard(nextState, action);
+      break;
+
     case "MOVE_UNIT":
       moveUnit(nextState, action);
       break;
@@ -1066,6 +1332,15 @@ export function getFreeSpawnCells(
   return spawnCells.filter((cell) => !isCellOccupied(state, cell));
 }
 
+export function getFreeSupportSlots(
+  state: BattleState,
+  playerId: PlayerId
+): SupportSlot[] {
+  return SUPPORT_SLOTS.filter(
+    (supportSlot) => !isSupportSlotOccupied(state, playerId, supportSlot)
+  );
+}
+
 export function getTargetsInRange(
   state: BattleState,
   playerId: PlayerId,
@@ -1088,11 +1363,11 @@ export function getTargetsInRange(
   const opponent = getOpponent(playerId);
 
   const enemyUnits = state.units.filter(
-    (unit) => unit.ownerId === opponent && canAttackTarget(attacker, unit)
+    (unit) => unit.ownerId === opponent && canAttackTarget(state, attacker, unit)
   );
 
   const enemyHq = state.headquarters[opponent];
-  const hqInRange = canAttackTarget(attacker, enemyHq);
+  const hqInRange = canAttackTarget(state, attacker, enemyHq);
 
   return [
     ...enemyUnits.map((unit) => ({
@@ -1119,6 +1394,7 @@ export function getAvailableMoveCells(
 
   if (!unit) return [];
   if (unit.ownerId !== playerId) return [];
+  if (isSupportUnit(unit)) return [];
   if (unit.alreadyMoved) return [];
 
   const card = getCard(unit.cardId);

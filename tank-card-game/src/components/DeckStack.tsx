@@ -3,9 +3,13 @@ import cardBackImage from "../assets/cards/card-back.png";
 
 type DeckStackProps = {
   cardCount: number;
+  countPosition?: "left" | "right";
 };
 
-export function DeckStack({ cardCount }: DeckStackProps) {
+export function DeckStack({
+  cardCount,
+  countPosition = "left",
+}: DeckStackProps) {
   if (cardCount <= 0) {
     return <div style={styles.emptyDeckStack} />;
   }
@@ -27,7 +31,14 @@ export function DeckStack({ cardCount }: DeckStackProps) {
         />
       ))}
 
-      <strong style={styles.deckCountBadge}>{cardCount}</strong>
+      <strong
+        style={{
+          ...styles.deckCountBadge,
+          ...(countPosition === "right" ? styles.deckCountBadgeRight : {}),
+        }}
+      >
+        {cardCount}
+      </strong>
     </div>
   );
 }
@@ -58,7 +69,7 @@ const styles: Record<string, React.CSSProperties> = {
   deckCountBadge: {
     position: "absolute",
     left: 9,
-    bottom: 8,
+    bottom: 11,
     zIndex: 10,
     display: "block",
     padding: 0,
@@ -71,6 +82,11 @@ const styles: Record<string, React.CSSProperties> = {
     textShadow:
       "0 2px 0 rgba(0,0,0,0.95), 0 0 7px rgba(0,0,0,0.95), 0 0 12px rgba(246,210,122,0.45)",
     pointerEvents: "none",
+  },
+
+  deckCountBadgeRight: {
+    left: "auto",
+    right: 5,
   },
 
   emptyDeckStack: {

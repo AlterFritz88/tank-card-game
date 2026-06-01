@@ -22,6 +22,29 @@ export type Nation = "ussr" | "germany" | "usa" | "uk" | "poland" | "france";
 
 export type TankRarity = "common" | "uncommon" | "rare";
 
+export type UnitZone = "battlefield" | "support";
+
+export type SupportSlot = 0 | 1 | 2;
+
+export type SupportRole = "artillery" | "transport" | "medical";
+
+export type SupportEffects = {
+  /** Extra damage dealt by this side's headquarters. */
+  hqAttackBonus?: number;
+  /** Incoming headquarters damage redirected into this support unit. */
+  hqDamageRedirect?: number;
+  /** Additional fuel generated at the beginning of this side's turn. */
+  fuelPerTurn?: number;
+  /** Draw one additional card every N own turns. */
+  drawEveryTurns?: number;
+  /** Restore health to a damaged battlefield unit at the beginning of the turn. */
+  healRandomUnitPerTurn?: number;
+  /** Restrict battlefield healing to one tank class. */
+  healClass?: TankClass;
+  /** Restore headquarters health at the beginning of the turn. */
+  hqHealPerTurn?: number;
+};
+
 export type TankCard = {
   id: string;
   name: string;
@@ -40,6 +63,11 @@ export type TankCard = {
   fuelGeneration: number;
 
   abilityText?: string;
+
+  /** Support cards deploy into the three-slot line beside the headquarters. */
+  deploymentZone?: UnitZone;
+  supportRole?: SupportRole;
+  supportEffects?: SupportEffects;
 
   /** New mechanics - only for low-stat units */
   onPlayEffects?: {
@@ -93,6 +121,9 @@ export type BoardUnit = {
   cardId: string;
   ownerId: PlayerId;
   position: Position;
+  /** Missing values in older states are treated as battlefield placement. */
+  zone?: UnitZone;
+  supportSlot?: SupportSlot;
 
   currentHp: number;
 
@@ -115,6 +146,13 @@ export type PlayCardAction = {
   playerId: PlayerId;
   cardInstanceId: string;
   position: Position;
+};
+
+export type PlaySupportCardAction = {
+  type: "PLAY_SUPPORT_CARD";
+  playerId: PlayerId;
+  cardInstanceId: string;
+  supportSlot: SupportSlot;
 };
 
 export type MoveUnitAction = {
@@ -151,6 +189,7 @@ export type BeginBattleAction = {
 export type BattleAction =
   | BeginBattleAction
   | PlayCardAction
+  | PlaySupportCardAction
   | MoveUnitAction
   | AttackAction
   | EndTurnAction

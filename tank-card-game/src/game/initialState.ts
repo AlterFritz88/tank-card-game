@@ -35,6 +35,9 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "m5_stuart",
     "churchill",
     "su_122",
+    "lefh_18_battery",
+    "opel_blitz_column",
+    "sanitaetskraftwagen",
   ],
 
   trainingslager_default: [
@@ -46,6 +49,9 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "panzer_iv",
     "stug_iii",
     "marder_iii",
+    "lefh_18_battery",
+    "opel_blitz_column",
+    "sanitaetskraftwagen",
   ],
 
   first_panzer_division_default: [
@@ -64,6 +70,9 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "stug_iii",
     "marder_iii",
     "wespe",
+    "lefh_18_battery",
+    "opel_blitz_column",
+    "sanitaetskraftwagen",
   ],
 
   // === Прогрессивные колоды 1. Panzer-Division (Польша 1939) ===
@@ -90,6 +99,9 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "panzerjaeger_i",
     "panzerjaeger_i",
     "sig_33_pzi",
+    "lefh_18_battery",
+    "opel_blitz_column",
+    "sanitaetskraftwagen",
   ],
 
   // Миссия 2 — Бои за Радом (против армии «Лодзь»)

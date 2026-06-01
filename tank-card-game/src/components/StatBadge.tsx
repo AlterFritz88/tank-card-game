@@ -90,7 +90,10 @@ export function StatBadge({
   const size = getStatBadgeSize(type, mode);
   const showAttackTint = type === "attack";
   const showHealthDamage = type === "health" && damageEffect;
-  const showHealthGain = type === "health" && gainEffect;
+  const showStatChange =
+    (type === "health" || type === "attack") && gainEffect;
+  const statChangeColor =
+    gainEffect && gainEffect.amount < 0 ? "#ff7770" : "#75ff98";
   const showHealthPreview = type === "health" && previewValue !== undefined;
 
   return (
@@ -104,7 +107,7 @@ export function StatBadge({
       }}
     >
       <motion.img
-        key={showHealthGain ? `gain-icon-${gainEffect.id}` : "idle-icon"}
+        key={showStatChange ? `gain-icon-${gainEffect.id}` : "idle-icon"}
         src={badgeImages[type]}
         alt=""
         style={{
@@ -112,7 +115,7 @@ export function StatBadge({
           ...iconStyle,
         }}
         animate={
-          showHealthGain
+          showStatChange
             ? {
                 scale: [1, 1.28, 1.16, 1],
               }
@@ -120,7 +123,7 @@ export function StatBadge({
                 scale: 1,
               }
         }
-        transition={{ duration: showHealthGain ? 0.86 : 0.12, ease: "easeOut" }}
+        transition={{ duration: showStatChange ? 0.86 : 0.12, ease: "easeOut" }}
         draggable={false}
       />
 
@@ -146,23 +149,23 @@ export function StatBadge({
         }}
       >
         <motion.span
-          key={showHealthGain ? `gain-${gainEffect.id}` : "value"}
+          key={showStatChange ? `gain-${gainEffect.id}` : "value"}
           style={styles.animatedValue}
           animate={
-            showHealthGain
+            showStatChange
               ? {
                   scale: [1, 1.36, 1.18, 1],
                   color: [
                     getValueColor(type, mode, ownerId),
-                    "#75ff98",
-                    "#9affb1",
+                    statChangeColor,
+                    statChangeColor,
                     getValueColor(type, mode, ownerId),
                   ],
                 }
               : undefined
           }
           transition={
-            showHealthGain ? { duration: 0.86, ease: "easeOut" } : undefined
+            showStatChange ? { duration: 0.86, ease: "easeOut" } : undefined
           }
         >
           {value}
@@ -170,10 +173,13 @@ export function StatBadge({
       </strong>
 
       <AnimatePresence>
-        {showHealthGain && (
+        {showStatChange && (
           <motion.strong
             key={gainEffect.id}
-            style={styles.gainValue}
+            style={{
+              ...styles.gainValue,
+              color: statChangeColor,
+            }}
             initial={{ opacity: 0, y: 3, scale: 0.82 }}
             animate={{
               opacity: [0, 1, 1, 0],
@@ -183,7 +189,7 @@ export function StatBadge({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.86, ease: "easeOut" }}
           >
-            +{gainEffect.amount}
+            {gainEffect.amount > 0 ? `+${gainEffect.amount}` : gainEffect.amount}
           </motion.strong>
         )}
       </AnimatePresence>

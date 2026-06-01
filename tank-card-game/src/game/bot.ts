@@ -5,7 +5,9 @@ import {
   getAttackAnimationSequence,
   getAvailableMoveCells,
   getFreeSpawnCells,
+  getFreeSupportSlots,
   getTargetsInRange,
+  isBattlefieldUnit,
 } from "./engine";
 import type {
   AttackAction,
@@ -139,6 +141,19 @@ function getEconomyGap(state: BattleState): number {
 
 function scoreCardForBot(cardId: string): number {
   const card = getCard(cardId);
+  const supportEffects = card.supportEffects;
+
+  if (card.deploymentZone === "support") {
+    return (
+      (supportEffects?.hqAttackBonus ?? 0) * 9 +
+      (supportEffects?.hqDamageRedirect ?? 0) * 7 +
+      (supportEffects?.fuelPerTurn ?? 0) * 12 +
+      (supportEffects?.drawEveryTurns ? 8 / supportEffects.drawEveryTurns : 0) +
+      (supportEffects?.healRandomUnitPerTurn ?? 0) * 7 +
+      (supportEffects?.hqHealPerTurn ?? 0) * 8 +
+      card.hp
+    );
+  }
 
   const classBonus =
     card.class === "spg"
@@ -180,8 +195,9 @@ function scoreCardForCurrentBattle(state: BattleState, cardId: string): number {
 
 function getBestPlayableCard(state: BattleState) {
   const freeSpawnCells = getFreeSpawnCells(state, "bot");
+  const freeSupportSlots = getFreeSupportSlots(state, "bot");
 
-  if (freeSpawnCells.length === 0) return null;
+  if (freeSpawnCells.length === 0 && freeSupportSlots.length === 0) return null;
 
   const playableCards = state.bot.hand
     .map((cardInstance) => ({
@@ -189,7 +205,13 @@ function getBestPlayableCard(state: BattleState) {
       card: getCard(cardInstance.cardId),
       score: scoreCardForCurrentBattle(state, cardInstance.cardId),
     }))
-    .filter(({ card }) => card.cost <= state.bot.resources)
+    .filter(
+      ({ card }) =>
+        card.cost <= state.bot.resources &&
+        (card.deploymentZone === "support"
+          ? freeSupportSlots.length > 0
+          : freeSpawnCells.length > 0)
+    )
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       return b.card.cost - a.card.cost;
@@ -298,7 +320,9 @@ function getSpgPositionScore(state: BattleState, position: Position): number {
 }
 
 function getLethalAttackAction(state: BattleState): BattleAction | null {
-  const botUnits = state.units.filter((unit) => unit.ownerId === "bot");
+  const botUnits = state.units.filter(
+    (unit) => unit.ownerId === "bot" && isBattlefieldUnit(unit)
+  );
 
   for (const unit of botUnits) {
     if (unit.alreadyAttacked) continue;
@@ -354,7 +378,9 @@ function getLethalAttackAction(state: BattleState): BattleAction | null {
 }
 
 function getKillUnitAttackAction(state: BattleState): BattleAction | null {
-  const botUnits = state.units.filter((unit) => unit.ownerId === "bot");
+  const botUnits = state.units.filter(
+    (unit) => unit.ownerId === "bot" && isBattlefieldUnit(unit)
+  );
 
   const candidates: {
     action: BattleAction;
@@ -450,6 +476,19 @@ function getStrategicPlayCardAction(state: BattleState): BattleAction | null {
 
   if (!bestCard) return null;
 
+  if (bestCard.card.deploymentZone === "support") {
+    const supportSlot = getFreeSupportSlots(state, "bot")[0];
+
+    if (supportSlot === undefined) return null;
+
+    return {
+      type: "PLAY_SUPPORT_CARD",
+      playerId: "bot",
+      cardInstanceId: bestCard.instance.instanceId,
+      supportSlot,
+    };
+  }
+
   const freeSpawnCells = getFreeSpawnCells(state, "bot");
 
   if (freeSpawnCells.length === 0) return null;
@@ -494,7 +533,9 @@ function getStrategicPlayCardAction(state: BattleState): BattleAction | null {
 }
 
 function getNormalAttackAction(state: BattleState): BattleAction | null {
-  const botUnits = state.units.filter((unit) => unit.ownerId === "bot");
+  const botUnits = state.units.filter(
+    (unit) => unit.ownerId === "bot" && isBattlefieldUnit(unit)
+  );
 
   const candidates: {
     action: BattleAction;
@@ -552,7 +593,10 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
   const mostDangerousEnemy = getMostDangerousEnemyUnit(state);
 
   const botUnits = state.units.filter(
-    (unit) => unit.ownerId === "bot" && !unit.alreadyMoved
+    (unit) =>
+      unit.ownerId === "bot" &&
+      isBattlefieldUnit(unit) &&
+      !unit.alreadyMoved
   );
 
   const candidates: {

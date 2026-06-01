@@ -390,6 +390,30 @@ export function HandCardView({
             )}
           </div>
         )}
+
+        {card?.supportRole && (
+          <div
+            style={{
+              ...styles.mechanicsLine,
+              ...(isPreview ? {} : styles.compactMechanicsLine),
+            }}
+          >
+            <span
+              style={{
+                ...styles.mechanicBadge,
+                ...(isPreview ? {} : styles.compactMechanicBadge),
+              }}
+              title="This card deploys into one of the three support-line slots."
+            >
+              {isPreview ? "Support line" : "SUP"} ·{" "}
+              {card.supportRole === "artillery"
+                ? "ART"
+                : card.supportRole === "transport"
+                  ? "LOG"
+                  : "MED"}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -191,6 +191,7 @@ function clearReconnectTimer() {
 function shouldClearSelection(action: BattleAction): boolean {
   return (
     action.type === "PLAY_CARD" ||
+    action.type === "PLAY_SUPPORT_CARD" ||
     action.type === "MOVE_UNIT" ||
     action.type === "ATTACK" ||
     action.type === "END_TURN"
