@@ -112,6 +112,8 @@ export function PvpLobby() {
     selectedCampaignId: storedSelectedCampaignId,
     selectedHeadquartersId,
     setSelectedHeadquartersId,
+    openHeadquartersMenu,
+    closeHeadquartersMenu,
     openCampaignMenu,
     openCampaignMissions,
     closeCampaignMissions,
@@ -124,28 +126,20 @@ export function PvpLobby() {
 
   const [previewHeadquartersId, setPreviewHeadquartersId] =
     useState<HeadquartersId | null>(null);
-  const [selectedCampaignId, setSelectedCampaignId] = useState(
-    CAMPAIGNS[0]?.id ?? ""
-  );
   const [selectedMissionId, setSelectedMissionId] = useState("");
+  const mainMenuCarouselRef = useRef<HTMLDivElement>(null);
   const headquartersCarouselRef = useRef<HTMLDivElement>(null);
   const campaignsCarouselRef = useRef<HTMLDivElement>(null);
   const missionsCarouselRef = useRef<HTMLDivElement>(null);
 
   const headquartersList = useMemo(
-    () =>
-      Object.values(HEADQUARTERS).filter(
-        (headquarters) => headquarters.availableInMainMenu !== false
-      ),
+    () => Object.values(HEADQUARTERS),
     []
   );
-  const selectedCampaign =
-    CAMPAIGNS.find((campaign) => campaign.id === selectedCampaignId) ??
-    CAMPAIGNS[0] ??
-    null;
   const missionCampaign =
     CAMPAIGNS.find((campaign) => campaign.id === storedSelectedCampaignId) ??
-    selectedCampaign;
+    CAMPAIGNS[0] ??
+    null;
   const firstUnlockedMission =
     missionCampaign?.missions.find(
       (mission) =>
@@ -180,6 +174,13 @@ export function PvpLobby() {
   function selectHeadquarters(headquartersId: HeadquartersId) {
     if (buttonsDisabled) return;
     setSelectedHeadquartersId(headquartersId);
+
+    if (mode === "pvp") {
+      findPvpMatch();
+      return;
+    }
+
+    startAiBattle();
   }
 
   function openHeadquartersPreview(
@@ -195,28 +196,29 @@ export function PvpLobby() {
     setPreviewHeadquartersId(null);
   }
 
-  function openSelectedCampaign() {
-    if (!selectedCampaign) return;
+  function openSelectedCampaign(campaignId: string) {
+    const campaign = CAMPAIGNS.find((item) => item.id === campaignId);
+    if (!campaign) return;
 
     const firstAvailableMission =
-      selectedCampaign.missions.find(
+      campaign.missions.find(
         (mission) =>
           isCampaignMissionUnlocked(
-            selectedCampaign,
+            campaign,
             mission.id,
             completedCampaignMissionIds
           ) && !completedCampaignMissionIds.includes(mission.id)
       ) ??
-      selectedCampaign.missions.find((mission) =>
+      campaign.missions.find((mission) =>
         isCampaignMissionUnlocked(
-          selectedCampaign,
+          campaign,
           mission.id,
           completedCampaignMissionIds
         )
       );
 
     setSelectedMissionId(firstAvailableMission?.id ?? "");
-    openCampaignMissions(selectedCampaign.id);
+    openCampaignMissions(campaign.id);
   }
 
   function selectMission(missionId: string) {
@@ -232,12 +234,7 @@ export function PvpLobby() {
     }
 
     setSelectedMissionId(missionId);
-  }
-
-  function startSelectedMission() {
-    if (!selectedMission) return;
-
-    startCampaignMission(selectedMission.id);
+    startCampaignMission(missionId);
   }
 
   useEffect(() => {
@@ -276,7 +273,6 @@ export function PvpLobby() {
           >
             <div style={styles.campaignCarouselTrack}>
               {CAMPAIGNS.map((campaign, index) => {
-                const selected = campaign.id === selectedCampaign?.id;
                 const artUrl = `/ui/menu/campaign-${index + 1}-panzer-div.png`;
 
                 return (
@@ -284,20 +280,12 @@ export function PvpLobby() {
                     key={campaign.id}
                     type="button"
                     style={styles.campaignCardOption}
-                    onClick={() => setSelectedCampaignId(campaign.id)}
+                    onClick={() => openSelectedCampaign(campaign.id)}
                     whileHover={{ y: -8, scale: 1.035 }}
                     whileTap={{ scale: 0.985 }}
                     transition={{ type: "spring", stiffness: 360, damping: 28 }}
-                    aria-pressed={selected}
                     aria-label={`Выбрать кампанию ${campaign.title}`}
                   >
-                    <div
-                      style={{
-                        ...styles.selectionGlow,
-                        ...(selected ? styles.selectionGlowVisible : {}),
-                      }}
-                    />
-
                     <div
                       style={{
                         ...styles.campaignArtCard,
@@ -316,14 +304,6 @@ export function PvpLobby() {
           <div style={styles.menuActionsRow}>
             <button type="button" style={styles.backButton} onClick={closeCampaignMenu}>
               Назад
-            </button>
-            <button
-              type="button"
-              style={{ ...styles.backButton, ...styles.primaryMenuButton }}
-              onClick={openSelectedCampaign}
-              disabled={!selectedCampaign}
-            >
-              Выбрать компанию
             </button>
           </div>
         </section>
@@ -427,48 +407,37 @@ export function PvpLobby() {
             <button type="button" style={styles.backButton} onClick={closeCampaignMissions}>
               Назад
             </button>
-            <button
-              type="button"
-              style={{ ...styles.backButton, ...styles.primaryMenuButton }}
-              onClick={startSelectedMission}
-              disabled={!selectedMission}
-            >
-              Начать миссию
-            </button>
           </div>
         </section>
       </main>
     );
   }
 
-  return (
-    <main style={styles.page}>
-      <div style={styles.backgroundShade} />
+  if (menuView === "main" && !pvpBusy) {
+    return (
+      <main style={styles.page}>
+        <div style={styles.backgroundShade} />
 
-      <section style={styles.menuLayer}>
-        <header style={styles.header}>
-          <div style={styles.kicker}>Карточная тактика</div>
-          <h1 style={styles.title}>PanzerShrek</h1>
-          <p style={styles.subtitle}>Выбери штаб для боя</p>
-        </header>
+        <section style={styles.menuLayer}>
+          <header style={styles.header}>
+            <div style={styles.kicker}>Карточная тактика</div>
+            <h1 style={styles.title}>PanzerShrek</h1>
+            <p style={styles.subtitle}>Выбери режим боя</p>
+          </header>
 
-        <CarouselTapFrame
-          viewportRef={headquartersCarouselRef}
-          viewportStyle={styles.carouselViewport}
-          ariaLabel="Выбор штаба"
-        >
-          <div style={styles.carouselTrack}>
+          <CarouselTapFrame
+            viewportRef={mainMenuCarouselRef}
+            viewportStyle={styles.carouselViewport}
+            ariaLabel="Выбор режима боя"
+          >
+            <div style={styles.mainMenuTrack}>
             <motion.button
               type="button"
-              style={{
-                ...styles.campaignEntryOption,
-                ...(buttonsDisabled ? styles.headquartersOptionDisabled : {}),
-              }}
-              disabled={buttonsDisabled}
+              style={styles.campaignEntryOption}
               onClick={openCampaignMenu}
               aria-label="Открыть компании"
-              whileHover={buttonsDisabled ? undefined : { y: -8, scale: 1.035 }}
-              whileTap={buttonsDisabled ? undefined : { scale: 0.985 }}
+              whileHover={{ y: -8, scale: 1.035 }}
+              whileTap={{ scale: 0.985 }}
               transition={{ type: "spring", stiffness: 360, damping: 28 }}
             >
               <div style={styles.campaignEntryCard}>
@@ -482,6 +451,71 @@ export function PvpLobby() {
               </div>
             </motion.button>
 
+            <motion.button
+              type="button"
+              style={styles.campaignEntryOption}
+              onClick={() => openHeadquartersMenu("pvp")}
+              aria-label="Открыть быстрый бой"
+              whileHover={{ y: -8, scale: 1.035 }}
+              whileTap={{ scale: 0.985 }}
+              transition={{ type: "spring", stiffness: 360, damping: 28 }}
+            >
+              <div style={styles.campaignEntryCard}>
+                <img
+                  src="/ui/menu/PVP.png"
+                  alt=""
+                  draggable={false}
+                  style={styles.campaignEntryImage}
+                />
+                <span style={styles.campaignEntryTitleOverlay}>Быстрый бой</span>
+              </div>
+            </motion.button>
+
+            <motion.button
+              type="button"
+              style={styles.campaignEntryOption}
+              onClick={() => openHeadquartersMenu("ai")}
+              aria-label="Открыть бой против ИИ"
+              whileHover={{ y: -8, scale: 1.035 }}
+              whileTap={{ scale: 0.985 }}
+              transition={{ type: "spring", stiffness: 360, damping: 28 }}
+            >
+              <div style={styles.campaignEntryCard}>
+                <img
+                  src="/ui/menu/PVE.png"
+                  alt=""
+                  draggable={false}
+                  style={styles.campaignEntryImage}
+                />
+                <span style={styles.campaignEntryTitleOverlay}>Бой против ИИ</span>
+              </div>
+            </motion.button>
+            </div>
+          </CarouselTapFrame>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main style={styles.page}>
+      <div style={styles.backgroundShade} />
+
+      <section style={styles.menuLayer}>
+        <header style={styles.header}>
+          <div style={styles.kicker}>
+            {mode === "pvp" ? "Быстрый бой" : "Бой против ИИ"}
+          </div>
+          <h1 style={styles.title}>PanzerShrek</h1>
+          <p style={styles.subtitle}>Выбери штаб для боя</p>
+        </header>
+
+        <CarouselTapFrame
+          viewportRef={headquartersCarouselRef}
+          viewportStyle={styles.carouselViewport}
+          ariaLabel="Выбор штаба"
+        >
+          <div style={styles.carouselTrack}>
             {headquartersList.map((headquarters) => {
               const selected = headquarters.id === selectedHeadquartersId;
 
@@ -539,25 +573,17 @@ export function PvpLobby() {
           </div>
         </CarouselTapFrame>
 
-        <div style={styles.actionsGrid}>
-          <button
-            type="button"
-            style={styles.button}
-            onClick={startAiBattle}
-            disabled={buttonsDisabled}
-          >
-            Играть против бота
-          </button>
-
-          <button
-            type="button"
-            style={{ ...styles.button, ...styles.primaryButton }}
-            onClick={findPvpMatch}
-            disabled={pvpBusy}
-          >
-            {pvpBusy ? "Поиск соперника..." : "Играть PVP"}
-          </button>
-        </div>
+        {!pvpBusy ? (
+          <div style={styles.singleMenuAction}>
+            <button
+              type="button"
+              style={styles.backButton}
+              onClick={closeHeadquartersMenu}
+            >
+              Назад
+            </button>
+          </div>
+        ) : null}
 
         <div style={styles.status}>
           Режим: {mode === "ai" ? "бот" : "PVP"}
@@ -769,6 +795,15 @@ const styles: Record<string, CSSProperties> = {
   },
 
   carouselTrack: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "flex-start",
+    gap: 36,
+    minWidth: "max-content",
+    margin: "0 auto",
+  },
+
+  mainMenuTrack: {
     display: "flex",
     justifyContent: "center",
     alignItems: "flex-start",
@@ -1268,11 +1303,16 @@ const styles: Record<string, CSSProperties> = {
   },
 
   menuActionsRow: {
-    width: "min(520px, calc(100vw - 48px))",
+    width: "min(260px, calc(100vw - 48px))",
     display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gridTemplateColumns: "minmax(0, 1fr)",
     gap: 12,
     margin: "0 auto",
+  },
+
+  singleMenuAction: {
+    width: "min(260px, calc(100vw - 48px))",
+    margin: "0 auto 8px",
   },
 
   backButton: {

@@ -90,6 +90,8 @@ type BattleStore = {
   selectAttacker: (attacker: SelectedAttacker) => void;
 
   setMode: (mode: GameMode) => void;
+  openHeadquartersMenu: (mode: "ai" | "pvp") => void;
+  closeHeadquartersMenu: () => void;
   openCampaignMenu: () => void;
   openCampaignMissions: (campaignId: string) => void;
   closeCampaignMissions: () => void;
@@ -266,7 +268,7 @@ function setupPvpSubscriptions() {
         useBattleStore.setState({
           battle: null,
           mode: "pvp",
-          menuView: "main",
+          menuView: "headquarters",
           pvpRoomId: null,
           pvpStatus: "searching",
           pvpError: null,
@@ -289,7 +291,7 @@ function setupPvpSubscriptions() {
         useBattleStore.setState({
           battle: null,
           mode: "pvp",
-          menuView: "main",
+          menuView: "headquarters",
           localPlayerId: message.playerId,
           pvpRoomId: message.roomId,
           pvpStatus: message.type === "ROOM_JOINED" ? "matched" : "waiting",
@@ -588,6 +590,22 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({ mode });
   },
 
+  openHeadquartersMenu: (mode) => {
+    set({
+      menuView: "headquarters",
+      mode,
+      pvpError: null,
+    });
+  },
+
+  closeHeadquartersMenu: () => {
+    set({
+      menuView: "main",
+      mode: "ai",
+      pvpError: null,
+    });
+  },
+
   openCampaignMenu: () => {
     set({
       menuView: "campaign",
@@ -708,7 +726,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({
       battle: null,
       mode: "pvp",
-      menuView: "main",
+      menuView: "headquarters",
       pvpRoomId: null,
       pvpStatus: "connecting",
       pvpError: null,
@@ -733,7 +751,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({
       battle: null,
       mode: "pvp",
-      menuView: "main",
+      menuView: "headquarters",
       pvpRoomId: null,
       pvpStatus: "connecting",
       pvpError: null,
@@ -765,7 +783,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({
       battle: null,
       mode: "pvp",
-      menuView: "main",
+      menuView: "headquarters",
       pvpRoomId: normalizedRoomId,
       pvpStatus: "connecting",
       pvpError: null,
@@ -801,7 +819,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({
       battle: null,
       mode: "pvp",
-      menuView: "main",
+      menuView: "headquarters",
       pvpRoomId: roomId,
       pvpStatus: "connecting",
       pvpError: "Восстанавливаю PVP-матч...",
