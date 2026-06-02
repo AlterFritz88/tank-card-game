@@ -92,6 +92,8 @@ type BattleStore = {
   setMode: (mode: GameMode) => void;
   openHeadquartersMenu: (mode: "ai" | "pvp") => void;
   closeHeadquartersMenu: () => void;
+  openResearchMenu: () => void;
+  closeResearchMenu: () => void;
   openCampaignMenu: () => void;
   openCampaignMissions: (campaignId: string) => void;
   closeCampaignMissions: () => void;
@@ -599,6 +601,22 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   closeHeadquartersMenu: () => {
+    set({
+      menuView: "main",
+      mode: "ai",
+      pvpError: null,
+    });
+  },
+
+  openResearchMenu: () => {
+    set({
+      menuView: "research",
+      mode: "ai",
+      pvpError: null,
+    });
+  },
+
+  closeResearchMenu: () => {
     set({
       menuView: "main",
       mode: "ai",

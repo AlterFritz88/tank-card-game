@@ -15,6 +15,7 @@ import { HEADQUARTERS } from "../game/headquarters";
 import type { HeadquartersId } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
 import { HandCardView } from "./HandCardView";
+import { ResearchMenu } from "./ResearchMenu";
 
 const HAND_CARD_BASE_WIDTH = 175;
 const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
@@ -114,6 +115,8 @@ export function PvpLobby() {
     setSelectedHeadquartersId,
     openHeadquartersMenu,
     closeHeadquartersMenu,
+    openResearchMenu,
+    closeResearchMenu,
     openCampaignMenu,
     openCampaignMissions,
     closeCampaignMissions,
@@ -413,6 +416,10 @@ export function PvpLobby() {
     );
   }
 
+  if (menuView === "research") {
+    return <ResearchMenu onBack={closeResearchMenu} />;
+  }
+
   if (menuView === "main" && !pvpBusy) {
     return (
       <main style={styles.page}>
@@ -492,6 +499,14 @@ export function PvpLobby() {
             </motion.button>
             </div>
           </CarouselTapFrame>
+
+          <button
+            type="button"
+            style={styles.researchButton}
+            onClick={openResearchMenu}
+          >
+            Исследования
+          </button>
         </section>
       </main>
     );
@@ -1313,6 +1328,23 @@ const styles: Record<string, CSSProperties> = {
   singleMenuAction: {
     width: "min(260px, calc(100vw - 48px))",
     margin: "0 auto 8px",
+  },
+
+  researchButton: {
+    display: "block",
+    minWidth: 226,
+    margin: "2px auto 0",
+    padding: "11px 22px",
+    border: "1px solid rgba(220, 184, 96, 0.54)",
+    borderRadius: 4,
+    background:
+      "linear-gradient(180deg, rgba(69, 65, 43, 0.98), rgba(35, 36, 25, 0.98))",
+    color: "#f8e3ae",
+    cursor: "pointer",
+    fontWeight: 1000,
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    boxShadow: "0 10px 22px rgba(0,0,0,0.3)",
   },
 
   backButton: {
