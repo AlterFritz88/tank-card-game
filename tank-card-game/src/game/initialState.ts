@@ -35,8 +35,10 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "m5_stuart",
     "churchill",
     "su_122",
-    "lefh_18_battery",
-    "opel_blitz_column",
+    "lefh_18",
+    "leig_18",
+    "mercedes_g3a",
+    "adler_type_10_n",
     "sanitaetskraftwagen",
   ],
 
@@ -49,8 +51,10 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "panzer_iv",
     "stug_iii",
     "marder_iii",
-    "lefh_18_battery",
-    "opel_blitz_column",
+    "lefh_18",
+    "leig_18",
+    "mercedes_g3a",
+    "adler_type_10_n",
     "sanitaetskraftwagen",
   ],
 
@@ -70,8 +74,10 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "stug_iii",
     "marder_iii",
     "wespe",
-    "lefh_18_battery",
-    "opel_blitz_column",
+    "lefh_18",
+    "leig_18",
+    "mercedes_g3a",
+    "adler_type_10_n",
     "sanitaetskraftwagen",
   ],
 
@@ -99,8 +105,10 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "panzerjaeger_i",
     "panzerjaeger_i",
     "sig_33_pzi",
-    "lefh_18_battery",
-    "opel_blitz_column",
+    "lefh_18",
+    "leig_18",
+    "mercedes_g3a",
+    "adler_type_10_n",
     "sanitaetskraftwagen",
   ],
 
@@ -129,6 +137,8 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "panzerjaeger_35t",
     "sig_33_pzi",
     "sig_33_pzi",
+    "leig_18",
+    "adler_type_10_n",
   ],
 
   // Миссия 3 — Битва на Бзуре (против «Прусы», появляется бронепоезд)
@@ -239,6 +249,9 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "tks_20mm",
     "tks_20mm",
     "tkd",
+    "fiat_508_junak",
+    "ciagacz_c4p",
+    "karetka_sanitarnaya",
   ],
 
   polish_army_lodz_campaign: [
@@ -267,6 +280,9 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "renault_ft",
     "renault_r35",
     "hotchkiss_h35",
+    "armata_75mm",
+    "fiat_508_junak",
+    "karetka_sanitarnaya",
   ],
 
   polish_army_prusy_campaign: [
@@ -295,6 +311,9 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "renault_r35",
     "hotchkiss_h35",
     "pociag_pancerny_danuta",
+    "armata_75mm",
+    "haubica_100mm",
+    "karetka_sanitarnaya",
   ],
 
   polish_warsaw_defense_campaign: [
@@ -323,6 +342,9 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "pociag_pancerny_danuta",
     "pociag_pancerny_smialy",
     "pociag_pancerny_smialy",
+    "armata_75mm",
+    "haubica_100mm",
+    "karetka_sanitarnaya",
   ],
 };
 
