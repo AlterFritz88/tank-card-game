@@ -5,6 +5,7 @@ import type { AttackAnimationStrike } from "../game/engine";
 import {
   DEFAULT_BOT_HEADQUARTERS_ID,
   DEFAULT_PLAYER_HEADQUARTERS_ID,
+  getTrainingHeadquartersIds,
 } from "../game/headquarters";
 import { getRandomBattleBackgroundId } from "../assets/battleBackgroundAssets";
 import { getCampaignMission, isCampaignMissionUnlocked } from "../game/campaigns";
@@ -92,18 +93,23 @@ type BattleStore = {
   setMode: (mode: GameMode) => void;
   openHeadquartersMenu: (mode: "ai" | "pvp") => void;
   closeHeadquartersMenu: () => void;
+  openDeckBuilderMenu: () => void;
+  closeDeckBuilderMenu: () => void;
+  openDeckSelectionMenu: (headquartersId: HeadquartersId) => void;
+  closeDeckSelectionMenu: () => void;
   openResearchMenu: () => void;
   closeResearchMenu: () => void;
   openCampaignMenu: () => void;
   openCampaignMissions: (campaignId: string) => void;
   closeCampaignMissions: () => void;
   closeCampaignMenu: () => void;
-  startAiBattle: () => void;
+  exitBattleToMenu: () => void;
+  startAiBattle: (deckCardIds?: string[]) => void;
   startCampaignMission: (missionId: string) => void;
-  findPvpMatch: () => void;
-  createPvpRoom: () => void;
-  joinPvpRoom: (roomId: string) => void;
-  startPvpBattle: (roomId?: string) => void;
+  findPvpMatch: (deckCardIds?: string[]) => void;
+  createPvpRoom: (deckCardIds?: string[]) => void;
+  joinPvpRoom: (roomId: string, deckCardIds?: string[]) => void;
+  startPvpBattle: (roomId?: string, deckCardIds?: string[]) => void;
   restorePvpSession: () => void;
   applyRemoteBattleState: (battle: BattleStateView) => void;
   applyMatchEnded: (winner: PlayerId, reason: MatchEndReason) => void;
@@ -204,13 +210,30 @@ function shouldClearSelection(action: BattleAction): boolean {
 
 function createFreshBattle(
   playerHeadquartersId: HeadquartersId = DEFAULT_PLAYER_HEADQUARTERS_ID,
-  botHeadquartersId: HeadquartersId = DEFAULT_BOT_HEADQUARTERS_ID
+  botHeadquartersId?: HeadquartersId,
+  playerDeckCardIds?: string[]
 ) {
+  const resolvedBotHeadquartersId =
+    botHeadquartersId ?? getRandomTrainingOpponentHeadquartersId(playerHeadquartersId);
+
   return createInitialBattleState({
     playerHeadquartersId,
-    botHeadquartersId,
+    botHeadquartersId: resolvedBotHeadquartersId,
+    playerDeckCardIds,
     backgroundId: getRandomBattleBackgroundId(),
   });
+}
+
+function getRandomTrainingOpponentHeadquartersId(
+  playerHeadquartersId: HeadquartersId
+): HeadquartersId {
+  const candidates = getTrainingHeadquartersIds().filter(
+    (headquartersId) => headquartersId !== playerHeadquartersId
+  );
+
+  if (candidates.length === 0) return DEFAULT_BOT_HEADQUARTERS_ID;
+
+  return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
 function createCampaignBattle(missionId: string): BattleState | null {
@@ -608,6 +631,35 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     });
   },
 
+  openDeckBuilderMenu: () => {
+    set({
+      menuView: "deckBuilder",
+      pvpError: null,
+    });
+  },
+
+  closeDeckBuilderMenu: () => {
+    set({
+      menuView: "headquarters",
+      pvpError: null,
+    });
+  },
+
+  openDeckSelectionMenu: (headquartersId) => {
+    set({
+      menuView: "deckSelection",
+      selectedHeadquartersId: headquartersId,
+      pvpError: null,
+    });
+  },
+
+  closeDeckSelectionMenu: () => {
+    set({
+      menuView: "headquarters",
+      pvpError: null,
+    });
+  },
+
   openResearchMenu: () => {
     set({
       menuView: "research",
@@ -658,6 +710,16 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     });
   },
 
+  exitBattleToMenu: () => {
+    clearFirstTurnRollTimers();
+    clearReconnectTimer();
+    pvpClient.selectCard(null);
+    pvpClient.clearSession();
+
+    set(getCleanMenuState());
+    pvpClient.disconnect();
+  },
+
   hideFirstTurnRoll: () => {
     set({ firstTurnRoll: emptyFirstTurnRoll });
   },
@@ -666,13 +728,17 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({ selectedHeadquartersId: headquartersId });
   },
 
-  startAiBattle: () => {
+  startAiBattle: (deckCardIds) => {
     clearFirstTurnRollTimers();
     clearReconnectTimer();
     pvpClient.clearSession();
 
     set({
-      battle: createFreshBattle(get().selectedHeadquartersId),
+      battle: createFreshBattle(
+        get().selectedHeadquartersId,
+        undefined,
+        deckCardIds
+      ),
       mode: "ai",
       menuView: "main",
       localPlayerId: "player",
@@ -736,7 +802,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     pvpClient.disconnect();
   },
 
-  findPvpMatch: () => {
+  findPvpMatch: (deckCardIds) => {
     clearFirstTurnRollTimers();
     clearReconnectTimer();
     pvpClient.clearSession();
@@ -758,10 +824,12 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       selectedAttacker: null,
     });
 
-    connectAndRun(() => pvpClient.findMatch(get().selectedHeadquartersId));
+    connectAndRun(() =>
+      pvpClient.findMatch(get().selectedHeadquartersId, deckCardIds)
+    );
   },
 
-  createPvpRoom: () => {
+  createPvpRoom: (deckCardIds) => {
     clearFirstTurnRollTimers();
     clearReconnectTimer();
     pvpClient.clearSession();
@@ -783,10 +851,12 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       selectedAttacker: null,
     });
 
-    connectAndRun(() => pvpClient.createRoom(get().selectedHeadquartersId));
+    connectAndRun(() =>
+      pvpClient.createRoom(get().selectedHeadquartersId, deckCardIds)
+    );
   },
 
-  joinPvpRoom: (roomId) => {
+  joinPvpRoom: (roomId, deckCardIds) => {
     const normalizedRoomId = roomId.trim().toUpperCase();
 
     if (!normalizedRoomId) {
@@ -815,16 +885,22 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       selectedAttacker: null,
     });
 
-    connectAndRun(() => pvpClient.joinRoom(normalizedRoomId, get().selectedHeadquartersId));
+    connectAndRun(() =>
+      pvpClient.joinRoom(
+        normalizedRoomId,
+        get().selectedHeadquartersId,
+        deckCardIds
+      )
+    );
   },
 
-  startPvpBattle: (roomId) => {
+  startPvpBattle: (roomId, deckCardIds) => {
     if (roomId) {
-      get().joinPvpRoom(roomId);
+      get().joinPvpRoom(roomId, deckCardIds);
       return;
     }
 
-    get().findPvpMatch();
+    get().findPvpMatch(deckCardIds);
   },
 
   restorePvpSession: () => {

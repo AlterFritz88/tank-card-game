@@ -17,13 +17,26 @@ export type HeadquartersDefinition = {
   availableInMainMenu?: boolean;
 };
 
+export function getMainMenuHeadquarters(): HeadquartersDefinition[] {
+  return Object.values(HEADQUARTERS).filter(
+    (headquarters) => headquarters.availableInMainMenu !== false
+  );
+}
+
+export function getTrainingHeadquartersIds(): HeadquartersId[] {
+  return getMainMenuHeadquarters()
+    .filter((headquarters) => headquarters.type === "Учебная часть")
+    .map((headquarters) => headquarters.id);
+}
+
 export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
   training_unit: {
     id: "training_unit",
     title: "Учебная часть",
-    subtitle: "Базовый учебный штаб",
+    subtitle: "Советский учебный штаб",
     type: "Учебная часть",
-    description: "Стартовая учебная часть с универсальной колодой для освоения механик.",
+    description:
+      "Советская учебная часть со средними характеристиками: ровная атака, здоровье и снабжение.",
     faction: "Учебные войска",
     nation: "ussr",
     hp: 15,
@@ -31,6 +44,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     range: 99,
     fuelGeneration: 3,
     defaultDeckId: "training_unit_default",
+    availableInMainMenu: true,
   },
 
   trainingslager: {
@@ -38,14 +52,33 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     title: "Trainingslager",
     subtitle: "Немецкий учебный лагерь",
     type: "Учебная часть",
-    description: "Учебный лагерь с немецкой техникой и стартовой немецкой колодой.",
+    description:
+      "Немецкий учебный лагерь с сильной атакой штаба, средним здоровьем и скромным снабжением.",
     faction: "Trainingslager",
     nation: "germany",
     hp: 15,
+    attack: 2,
+    range: 99,
+    fuelGeneration: 2,
+    defaultDeckId: "trainingslager_default",
+    availableInMainMenu: true,
+  },
+
+  training_camp: {
+    id: "training_camp",
+    title: "Training Camp",
+    subtitle: "Американский учебный лагерь",
+    type: "Учебная часть",
+    description:
+      "Американский учебный лагерь делает ставку на снабжение: высокий прирост топлива при слабой атаке и меньшем запасе здоровья.",
+    faction: "U.S. Armored Forces",
+    nation: "usa",
+    hp: 12,
     attack: 1,
     range: 99,
-    fuelGeneration: 3,
-    defaultDeckId: "trainingslager_default",
+    fuelGeneration: 4,
+    defaultDeckId: "training_camp_default",
+    availableInMainMenu: true,
   },
 
   first_panzer_division: {
@@ -62,7 +95,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     range: 99,
     fuelGeneration: 4,
     defaultDeckId: "first_panzer_division_default",
-    availableInMainMenu: true,
+    availableInMainMenu: false,
   },
 
   polish_border_guard: {

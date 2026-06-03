@@ -5,7 +5,9 @@ export type MainMenuView =
   | "headquarters"
   | "campaign"
   | "missions"
-  | "research";
+  | "research"
+  | "deckBuilder"
+  | "deckSelection";
 
 export type MatchEndReason =
   | "surrender"

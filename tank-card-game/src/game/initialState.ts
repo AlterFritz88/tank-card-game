@@ -16,46 +16,86 @@ import type {
 } from "./types";
 
 export const STEP_TIME_MS = 15 * 1000;
+const TRAINING_DECK_CARD_LIMIT = 20;
 
 export type CreateBattleOptions = {
   playerHeadquartersId?: HeadquartersId;
   botHeadquartersId?: HeadquartersId;
   playerDeckId?: string;
   botDeckId?: string;
+  playerDeckCardIds?: string[];
+  botDeckCardIds?: string[];
   backgroundId?: BattleBackgroundId;
 };
 
 const DECK_CARD_IDS: Record<string, string[]> = {
   training_unit_default: [
-    "m4_sherman",
-    "m5_stuart",
-    "churchill",
-    "su_122",
-    "m4_sherman",
-    "m5_stuart",
-    "churchill",
-    "su_122",
-    "lefh_18",
-    "leig_18",
-    "mercedes_g3a",
-    "adler_type_10_n",
-    "sanitaetskraftwagen",
+    "ms_1_t18",
+    "t26_1931",
+    "t26_1933",
+    "t26_1938",
+    "bt_2",
+    "bt_5",
+    "bt_7",
+    "t37a",
+    "t38",
+    "t40",
+    "t24",
+    "t28",
+    "t35",
+    "t46_1",
+    "ba_10",
+    "ba_20",
+    "su_5_2",
+    "zis_5_supply",
+    "gaz_aa_ammo",
+    "gaz_55_ambulance",
   ],
 
   trainingslager_default: [
-    "panzer_iv",
-    "stug_iii",
-    "marder_iii",
-    "wespe",
-    "tiger_i",
-    "panzer_iv",
-    "stug_iii",
-    "marder_iii",
-    "lefh_18",
+    "pzkpfw_i_ausf_a",
+    "pzkpfw_i_ausf_a",
+    "pzkpfw_i_ausf_a",
+    "pzkpfw_i_ausf_a",
+    "pzkpfw_i_ausf_b",
+    "pzkpfw_i_ausf_b",
+    "pzkpfw_i_ausf_b",
+    "pzkpfw_i_ausf_b",
+    "pzkpfw_ii_ausf_c",
+    "pzkpfw_ii_ausf_c",
+    "pzkpfw_ii_ausf_f",
+    "pzkpfw_ii_ausf_d",
+    "pzkpfw_ii_ausf_d",
+    "pzbef_i",
+    "pzbef_i",
+    "panzer_35t",
+    "panzer_35t",
     "leig_18",
     "mercedes_g3a",
     "adler_type_10_n",
-    "sanitaetskraftwagen",
+  ],
+
+  training_camp_default: [
+    "m1_combat_car",
+    "m1_combat_car",
+    "m1_combat_car",
+    "m1_combat_car",
+    "m2_light_tank",
+    "m2_light_tank",
+    "m2_light_tank",
+    "m2_light_tank",
+    "m3_stuart",
+    "m3_stuart",
+    "m3_stuart",
+    "m2_medium_tank",
+    "m2_medium_tank",
+    "m2_medium_tank",
+    "m3_lee",
+    "m3_lee",
+    "m5_stuart",
+    "m5_stuart",
+    "m3_halftrack",
+    "dodge_wc54",
   ],
 
   first_panzer_division_default: [
@@ -348,6 +388,22 @@ const DECK_CARD_IDS: Record<string, string[]> = {
   ],
 };
 
+const TRAINING_DECK_IDS = new Set([
+  "training_unit_default",
+  "trainingslager_default",
+  "training_camp_default",
+]);
+
+function getDeckCardIds(deckId: string): string[] {
+  const cardIds = DECK_CARD_IDS[deckId] ?? [];
+
+  if (TRAINING_DECK_IDS.has(deckId)) {
+    return cardIds.slice(0, TRAINING_DECK_CARD_LIMIT);
+  }
+
+  return cardIds;
+}
+
 function createCardInstances(cardIds: string[], owner: PlayerId): CardInstance[] {
   return cardIds.map((cardId, index) => ({
     instanceId: `${owner}_${cardId}_${index}`,
@@ -373,11 +429,12 @@ function shuffleCards<T>(items: T[]): T[] {
 function createPlayerState(
   owner: PlayerId,
   headquartersId: HeadquartersId,
-  deckId?: string
+  deckId?: string,
+  customDeckCardIds?: string[]
 ): PlayerState {
   const headquarters = getHeadquartersDefinition(headquartersId);
   const resolvedDeckId = deckId ?? headquarters.defaultDeckId;
-  const deckCardIds = DECK_CARD_IDS[resolvedDeckId] ?? [];
+  const deckCardIds = customDeckCardIds ?? getDeckCardIds(resolvedDeckId);
   const deck = shuffleCards(createCardInstances(deckCardIds, owner));
 
   return {
@@ -435,8 +492,18 @@ export function createInitialBattleState(
     turn: 1,
     backgroundId: options.backgroundId ?? DEFAULT_BATTLE_BACKGROUND_ID,
 
-    player: createPlayerState("player", playerHeadquartersId, options.playerDeckId),
-    bot: createPlayerState("bot", botHeadquartersId, options.botDeckId),
+    player: createPlayerState(
+      "player",
+      playerHeadquartersId,
+      options.playerDeckId,
+      options.playerDeckCardIds
+    ),
+    bot: createPlayerState(
+      "bot",
+      botHeadquartersId,
+      options.botDeckId,
+      options.botDeckCardIds
+    ),
 
     headquarters: {
       player: createHeadquarters("player", playerHeadquartersId),

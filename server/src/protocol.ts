@@ -7,9 +7,25 @@ import type {
 import type { AttackAnimationStrike } from "../../tank-card-game/src/game/engine";
 
 export type PvpClientMessage =
-  | { type: "FIND_MATCH"; sessionId: string; headquartersId: HeadquartersId }
-  | { type: "CREATE_ROOM"; sessionId: string; headquartersId: HeadquartersId }
-  | { type: "JOIN_ROOM"; roomId: string; sessionId: string; headquartersId: HeadquartersId }
+  | {
+      type: "FIND_MATCH";
+      sessionId: string;
+      headquartersId: HeadquartersId;
+      deckCardIds?: string[];
+    }
+  | {
+      type: "CREATE_ROOM";
+      sessionId: string;
+      headquartersId: HeadquartersId;
+      deckCardIds?: string[];
+    }
+  | {
+      type: "JOIN_ROOM";
+      roomId: string;
+      sessionId: string;
+      headquartersId: HeadquartersId;
+      deckCardIds?: string[];
+    }
   | { type: "RECONNECT"; sessionId: string; roomId?: string | null }
   | { type: "GAME_ACTION"; action: BattleAction }
   | { type: "SELECT_CARD"; cardInstanceId: string | null }

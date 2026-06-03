@@ -251,8 +251,14 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
         </div>
       </section>
 
-      <button type="button" style={styles.backButton} onClick={onBack}>
-        Назад
+      <button
+        type="button"
+        style={styles.backButton}
+        onClick={onBack}
+        aria-label="Назад"
+        title="Назад"
+      >
+        ←
       </button>
 
       <AnimatePresence>
@@ -716,16 +722,18 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 6,
     left: 20,
     bottom: 18,
-    width: 132,
-    padding: "10px 14px",
+    width: 48,
+    height: 48,
+    padding: 0,
     border: "1px solid rgba(220, 184, 96, 0.48)",
     borderRadius: 4,
     background: "linear-gradient(180deg, rgba(74, 58, 34, 0.96), rgba(42, 32, 19, 0.96))",
     color: "#f8e3ae",
     cursor: "pointer",
+    fontSize: 27,
     fontWeight: 1000,
-    letterSpacing: 0.7,
-    textTransform: "uppercase",
+    lineHeight: "45px",
+    textAlign: "center",
     boxShadow: "0 10px 22px rgba(0,0,0,0.3)",
   },
 

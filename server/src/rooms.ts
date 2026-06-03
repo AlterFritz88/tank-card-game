@@ -9,6 +9,7 @@ import {
   DEFAULT_BOT_HEADQUARTERS_ID,
   DEFAULT_PLAYER_HEADQUARTERS_ID,
   HEADQUARTERS,
+  getHeadquartersDefinition,
 } from "../../tank-card-game/src/game/headquarters";
 import { getRandomBattleBackgroundId } from "./battleBackgrounds";
 import {
@@ -27,6 +28,7 @@ import type { MatchEndReason, PvpClientMessage, PvpServerMessage } from "./proto
 type RoomPlayer = {
   id: PlayerId;
   headquartersId: HeadquartersId;
+  deckCardIds: string[] | null;
   sessionId: string;
   socket: WebSocket | null;
   disconnectTimer: NodeJS.Timeout | null;
@@ -88,6 +90,8 @@ const PVP_ATTACK_STRIKE_DURATION_MS = 960;
 const PVP_DESTROYED_CARD_ANIMATION_MS = 920;
 const ROOM_CLEANUP_DELAY_MS = 30_000;
 const RECONNECT_GRACE_MS = Number(process.env.PVP_RECONNECT_GRACE_MS ?? 15_000);
+const CUSTOM_DECK_CARD_LIMIT = 40;
+const CUSTOM_DECK_COPY_LIMIT = 4;
 
 function getStraightTwoCellIntermediate(
   from: { row: number; col: number },
@@ -143,11 +147,15 @@ function getRandomStartingPlayer(): PlayerId {
 function createStartedBattle(
   startingPlayer: PlayerId,
   playerHeadquartersId: HeadquartersId,
-  botHeadquartersId: HeadquartersId
+  botHeadquartersId: HeadquartersId,
+  playerDeckCardIds?: string[] | null,
+  botDeckCardIds?: string[] | null
 ): BattleState {
   const battle = createInitialBattleState({
     playerHeadquartersId,
     botHeadquartersId,
+    playerDeckCardIds: playerDeckCardIds ?? undefined,
+    botDeckCardIds: botDeckCardIds ?? undefined,
     backgroundId: getRandomBattleBackgroundId(),
   });
 
@@ -162,6 +170,45 @@ function normalizeHeadquartersId(
   fallback: HeadquartersId
 ): HeadquartersId {
   return headquartersId && headquartersId in HEADQUARTERS ? headquartersId : fallback;
+}
+
+function normalizeCustomDeckCardIds(
+  headquartersId: HeadquartersId,
+  deckCardIds: unknown
+): string[] | null {
+  if (!Array.isArray(deckCardIds)) return null;
+  if (deckCardIds.length !== CUSTOM_DECK_CARD_LIMIT) return null;
+
+  const headquarters = getHeadquartersDefinition(headquartersId);
+  const trainingHeadquarters = headquarters.type === "Учебная часть";
+  const copies = new Map<string, number>();
+  const result: string[] = [];
+
+  for (const cardId of deckCardIds) {
+    if (typeof cardId !== "string") return null;
+
+    let card;
+    try {
+      card = getCard(cardId);
+    } catch {
+      return null;
+    }
+
+    if (!trainingHeadquarters && card.nation !== headquarters.nation) {
+      return null;
+    }
+
+    const nextCopies = (copies.get(cardId) ?? 0) + 1;
+    copies.set(cardId, nextCopies);
+
+    if (nextCopies > CUSTOM_DECK_COPY_LIMIT) {
+      return null;
+    }
+
+    result.push(cardId);
+  }
+
+  return result;
 }
 
 export class RoomManager {
@@ -185,15 +232,27 @@ export class RoomManager {
 
     switch (message.type) {
       case "FIND_MATCH":
-        this.findMatch(socket, message.sessionId, message.headquartersId);
+        this.findMatch(
+          socket,
+          message.sessionId,
+          message.headquartersId,
+          message.deckCardIds
+        );
         break;
       case "CREATE_ROOM":
         this.createRoom(socket, message.sessionId, {
           headquartersId: message.headquartersId,
+          deckCardIds: message.deckCardIds,
         });
         break;
       case "JOIN_ROOM":
-        this.joinRoom(socket, message.roomId, message.sessionId, message.headquartersId);
+        this.joinRoom(
+          socket,
+          message.roomId,
+          message.sessionId,
+          message.headquartersId,
+          message.deckCardIds
+        );
         break;
       case "RECONNECT":
         this.reconnect(socket, message.sessionId, message.roomId);
@@ -246,20 +305,28 @@ export class RoomManager {
   private findMatch(
     socket: WebSocket,
     sessionId: string,
-    headquartersId: HeadquartersId
+    headquartersId: HeadquartersId,
+    deckCardIds?: string[]
   ) {
     safeSend(socket, { type: "MATCHMAKING_STARTED" });
 
     const waitingRoom = this.getWaitingRoom();
 
     if (waitingRoom) {
-      this.joinExistingWaitingRoom(socket, waitingRoom, sessionId, headquartersId);
+      this.joinExistingWaitingRoom(
+        socket,
+        waitingRoom,
+        sessionId,
+        headquartersId,
+        deckCardIds
+      );
       return;
     }
 
     this.createRoom(socket, sessionId, {
       makePublicWaiting: true,
       headquartersId,
+      deckCardIds,
     });
   }
 
@@ -284,12 +351,21 @@ export class RoomManager {
   private createRoom(
     socket: WebSocket,
     sessionId: string,
-    options?: { makePublicWaiting?: boolean; headquartersId?: HeadquartersId }
+    options?: {
+      makePublicWaiting?: boolean;
+      headquartersId?: HeadquartersId;
+      deckCardIds?: string[];
+    }
   ) {
     let roomId = createRoomId();
     while (this.rooms.has(roomId)) {
       roomId = createRoomId();
     }
+
+    const playerHeadquartersId = normalizeHeadquartersId(
+      options?.headquartersId,
+      DEFAULT_PLAYER_HEADQUARTERS_ID
+    );
 
     const room: Room = {
       id: roomId,
@@ -298,7 +374,8 @@ export class RoomManager {
           "player",
           socket,
           sessionId,
-          normalizeHeadquartersId(options?.headquartersId, DEFAULT_PLAYER_HEADQUARTERS_ID)
+          playerHeadquartersId,
+          normalizeCustomDeckCardIds(playerHeadquartersId, options?.deckCardIds)
         ),
       },
       battle: null,
@@ -328,15 +405,21 @@ export class RoomManager {
     socket: WebSocket,
     room: Room,
     sessionId: string,
-    headquartersId: HeadquartersId
+    headquartersId: HeadquartersId,
+    deckCardIds?: string[]
   ) {
     this.waitingRoomId = null;
+    const botHeadquartersId = normalizeHeadquartersId(
+      headquartersId,
+      DEFAULT_BOT_HEADQUARTERS_ID
+    );
 
     room.players.bot = this.createRoomPlayer(
       "bot",
       socket,
       sessionId,
-      normalizeHeadquartersId(headquartersId, DEFAULT_BOT_HEADQUARTERS_ID)
+      botHeadquartersId,
+      normalizeCustomDeckCardIds(botHeadquartersId, deckCardIds)
     );
     this.bindSocket(socket, room, "bot");
     this.sessionToRoom.set(sessionId, { roomId: room.id, playerId: "bot" });
@@ -350,7 +433,8 @@ export class RoomManager {
     socket: WebSocket,
     unsafeRoomId: string,
     sessionId: string,
-    headquartersId: HeadquartersId
+    headquartersId: HeadquartersId,
+    deckCardIds?: string[]
   ) {
     const roomId = unsafeRoomId.trim().toUpperCase();
     const room = this.rooms.get(roomId);
@@ -369,11 +453,17 @@ export class RoomManager {
       this.waitingRoomId = null;
     }
 
+    const botHeadquartersId = normalizeHeadquartersId(
+      headquartersId,
+      DEFAULT_BOT_HEADQUARTERS_ID
+    );
+
     room.players.bot = this.createRoomPlayer(
       "bot",
       socket,
       sessionId,
-      normalizeHeadquartersId(headquartersId, DEFAULT_BOT_HEADQUARTERS_ID)
+      botHeadquartersId,
+      normalizeCustomDeckCardIds(botHeadquartersId, deckCardIds)
     );
     this.bindSocket(socket, room, "bot");
     this.sessionToRoom.set(sessionId, { roomId, playerId: "bot" });
@@ -400,7 +490,9 @@ export class RoomManager {
     room.battle = createStartedBattle(
       firstPlayer,
       room.players.player.headquartersId,
-      room.players.bot.headquartersId
+      room.players.bot.headquartersId,
+      room.players.player.deckCardIds,
+      room.players.bot.deckCardIds
     );
 
     room.pendingStartRoll = {
@@ -425,7 +517,9 @@ export class RoomManager {
       room.battle = createStartedBattle(
         room.pendingStartRoll.firstPlayer,
         room.players.player.headquartersId,
-        room.players.bot.headquartersId
+        room.players.bot.headquartersId,
+        room.players.player.deckCardIds,
+        room.players.bot.deckCardIds
       );
     }
     room.pendingStartRoll = null;
@@ -901,11 +995,13 @@ export class RoomManager {
     id: PlayerId,
     socket: WebSocket,
     sessionId: string,
-    headquartersId: HeadquartersId
+    headquartersId: HeadquartersId,
+    deckCardIds: string[] | null
   ): RoomPlayer {
     return {
       id,
       headquartersId,
+      deckCardIds,
       socket,
       sessionId,
       disconnectTimer: null,

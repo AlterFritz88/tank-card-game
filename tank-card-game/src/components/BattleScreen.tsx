@@ -310,6 +310,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     selectAttacker,
     dispatch,
     reset,
+    exitBattleToMenu,
     surrenderPvpMatch,
     leavePvpMatch,
   } = battleStore;
@@ -3026,6 +3027,16 @@ function renderEnemyDeckWithTimer() {
             <button style={styles.secondaryButton} onClick={reset}>
               Новый бой
             </button>
+
+            {mode !== "pvp" ? (
+              <button
+                type="button"
+                style={styles.secondaryButton}
+                onClick={exitBattleToMenu}
+              >
+                В меню
+              </button>
+            ) : null}
 
             <div style={styles.actionHint}>
               {debugPaused && (

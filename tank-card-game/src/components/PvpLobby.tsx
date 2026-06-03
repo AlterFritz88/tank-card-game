@@ -11,9 +11,17 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
 import { CAMPAIGNS, isCampaignMissionUnlocked } from "../game/campaigns";
-import { HEADQUARTERS } from "../game/headquarters";
+import {
+  DECK_UNIT_LIMIT,
+  getGroupedDeckCards,
+  loadRecentDeckSelectionForHeadquarters,
+  loadSavedDecksForHeadquarters,
+  markRecentDeckSelection,
+} from "../game/customDecks";
+import { HEADQUARTERS, getMainMenuHeadquarters } from "../game/headquarters";
 import type { HeadquartersId } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
+import { DeckBuilder } from "./DeckBuilder";
 import { HandCardView } from "./HandCardView";
 import { ResearchMenu } from "./ResearchMenu";
 
@@ -112,9 +120,12 @@ export function PvpLobby() {
     completedCampaignMissionIds,
     selectedCampaignId: storedSelectedCampaignId,
     selectedHeadquartersId,
-    setSelectedHeadquartersId,
     openHeadquartersMenu,
     closeHeadquartersMenu,
+    openDeckBuilderMenu,
+    closeDeckBuilderMenu,
+    openDeckSelectionMenu,
+    closeDeckSelectionMenu,
     openResearchMenu,
     closeResearchMenu,
     openCampaignMenu,
@@ -129,6 +140,8 @@ export function PvpLobby() {
 
   const [previewHeadquartersId, setPreviewHeadquartersId] =
     useState<HeadquartersId | null>(null);
+  const [hoveredHeadquartersId, setHoveredHeadquartersId] =
+    useState<HeadquartersId | null>(null);
   const [selectedMissionId, setSelectedMissionId] = useState("");
   const mainMenuCarouselRef = useRef<HTMLDivElement>(null);
   const headquartersCarouselRef = useRef<HTMLDivElement>(null);
@@ -136,7 +149,7 @@ export function PvpLobby() {
   const missionsCarouselRef = useRef<HTMLDivElement>(null);
 
   const headquartersList = useMemo(
-    () => Object.values(HEADQUARTERS),
+    () => getMainMenuHeadquarters(),
     []
   );
   const missionCampaign =
@@ -163,6 +176,27 @@ export function PvpLobby() {
   const selectedMission =
     missionCampaign?.missions.find((mission) => mission.id === selectedMissionId) ??
     firstUnlockedMission;
+  const selectedHeadquarters = HEADQUARTERS[selectedHeadquartersId];
+  const savedDecksForSelectedHeadquarters =
+    loadSavedDecksForHeadquarters(selectedHeadquartersId);
+  const recentDeckSelection =
+    loadRecentDeckSelectionForHeadquarters(selectedHeadquartersId);
+  const orderedSavedDecksForSelectedHeadquarters = recentDeckSelection?.deckId
+    ? [
+        ...savedDecksForSelectedHeadquarters.filter(
+          (deck) => deck.id === recentDeckSelection.deckId
+        ),
+        ...savedDecksForSelectedHeadquarters.filter(
+          (deck) => deck.id !== recentDeckSelection.deckId
+        ),
+      ]
+    : savedDecksForSelectedHeadquarters;
+  const defaultDeckFirst =
+    !recentDeckSelection ||
+    recentDeckSelection.deckId === null ||
+    !savedDecksForSelectedHeadquarters.some(
+      (deck) => deck.id === recentDeckSelection.deckId
+    );
 
   const pvpBusy =
     mode === "pvp" &&
@@ -176,14 +210,40 @@ export function PvpLobby() {
 
   function selectHeadquarters(headquartersId: HeadquartersId) {
     if (buttonsDisabled) return;
-    setSelectedHeadquartersId(headquartersId);
+    openDeckSelectionMenu(headquartersId);
+  }
+
+  function startSelectedDeck(deckId: string | null, deckCardIds?: string[]) {
+    markRecentDeckSelection(selectedHeadquartersId, deckId);
 
     if (mode === "pvp") {
-      findPvpMatch();
+      findPvpMatch(deckCardIds);
       return;
     }
 
-    startAiBattle();
+    startAiBattle(deckCardIds);
+  }
+
+  function renderDefaultDeckOption() {
+    return (
+      <motion.button
+        type="button"
+        style={styles.deckSelectionOption}
+        onClick={() => startSelectedDeck(null)}
+        whileHover={{ y: -8, scale: 1.025 }}
+        whileTap={{ scale: 0.985 }}
+        transition={{ type: "spring", stiffness: 360, damping: 28 }}
+        aria-label="Выбрать стартовую колоду"
+      >
+        <div style={styles.deckSelectionCard}>
+          <strong style={styles.deckSelectionTitle}>Стартовая колода</strong>
+          <span style={styles.deckSelectionSubtitle}>
+            Базовый набор штаба
+          </span>
+          <span style={styles.deckSelectionCount}>По умолчанию</span>
+        </div>
+      </motion.button>
+    );
   }
 
   function openHeadquartersPreview(
@@ -420,6 +480,15 @@ export function PvpLobby() {
     return <ResearchMenu onBack={closeResearchMenu} />;
   }
 
+  if (menuView === "deckBuilder") {
+    return (
+      <DeckBuilder
+        onBack={closeDeckBuilderMenu}
+        onSaved={closeHeadquartersMenu}
+      />
+    );
+  }
+
   if (menuView === "main" && !pvpBusy) {
     return (
       <main style={styles.page}>
@@ -512,6 +581,80 @@ export function PvpLobby() {
     );
   }
 
+  if (menuView === "deckSelection" && !pvpBusy) {
+    return (
+      <main style={styles.page}>
+        <div style={styles.backgroundShade} />
+
+        <section style={styles.menuLayer}>
+          <header style={styles.header}>
+            <div style={styles.kicker}>
+              {mode === "pvp" ? "Быстрый бой" : "Бой против ИИ"}
+            </div>
+            <h1 style={styles.title}>Выбор колоды</h1>
+            <p style={styles.subtitle}>{selectedHeadquarters.title}</p>
+          </header>
+
+          <CarouselTapFrame
+            viewportRef={headquartersCarouselRef}
+            viewportStyle={styles.carouselViewport}
+            ariaLabel="Выбор колоды"
+          >
+            <div style={styles.deckSelectionTrack}>
+              {defaultDeckFirst ? renderDefaultDeckOption() : null}
+
+              {orderedSavedDecksForSelectedHeadquarters.map((deck) => {
+                const groupedCards = getGroupedDeckCards(deck.cardIds).slice(0, 4);
+
+                return (
+                  <motion.button
+                    key={deck.id}
+                    type="button"
+                    style={styles.deckSelectionOption}
+                    onClick={() => startSelectedDeck(deck.id, deck.cardIds)}
+                    whileHover={{ y: -8, scale: 1.025 }}
+                    whileTap={{ scale: 0.985 }}
+                    transition={{ type: "spring", stiffness: 360, damping: 28 }}
+                    aria-label={`Выбрать колоду ${deck.name}`}
+                  >
+                    <div style={styles.deckSelectionCard}>
+                      <strong style={styles.deckSelectionTitle}>{deck.name}</strong>
+                      <span style={styles.deckSelectionSubtitle}>
+                        {selectedHeadquarters.title}
+                      </span>
+                      <div style={styles.deckSelectionPreview}>
+                        {groupedCards.map(({ card, count }) => (
+                          <span key={card.id} style={styles.deckSelectionChip}>
+                            {card.name} x{count}
+                          </span>
+                        ))}
+                      </div>
+                      <span style={styles.deckSelectionCount}>
+                        {deck.cardIds.length}/{DECK_UNIT_LIMIT} + штаб
+                      </span>
+                    </div>
+                  </motion.button>
+                );
+              })}
+
+              {!defaultDeckFirst ? renderDefaultDeckOption() : null}
+            </div>
+          </CarouselTapFrame>
+
+          <div style={styles.menuActionsRow}>
+            <button
+              type="button"
+              style={styles.backButton}
+              onClick={closeDeckSelectionMenu}
+            >
+              Назад
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main style={styles.page}>
       <div style={styles.backgroundShade} />
@@ -533,6 +676,7 @@ export function PvpLobby() {
           <div style={styles.carouselTrack}>
             {headquartersList.map((headquarters) => {
               const selected = headquarters.id === selectedHeadquartersId;
+              const highlighted = headquarters.id === hoveredHeadquartersId;
 
               return (
                 <motion.button
@@ -552,6 +696,14 @@ export function PvpLobby() {
                       headquarters.id as HeadquartersId
                     )
                   }
+                  onMouseEnter={() =>
+                    setHoveredHeadquartersId(headquarters.id as HeadquartersId)
+                  }
+                  onMouseLeave={() => setHoveredHeadquartersId(null)}
+                  onFocus={() =>
+                    setHoveredHeadquartersId(headquarters.id as HeadquartersId)
+                  }
+                  onBlur={() => setHoveredHeadquartersId(null)}
                   whileHover={buttonsDisabled ? undefined : { y: -8, scale: 1.035 }}
                   whileTap={buttonsDisabled ? undefined : { scale: 0.985 }}
                   transition={{ type: "spring", stiffness: 360, damping: 28 }}
@@ -561,7 +713,7 @@ export function PvpLobby() {
                   <div
                     style={{
                       ...styles.selectionGlow,
-                      ...(selected ? styles.selectionGlowVisible : {}),
+                      ...(highlighted ? styles.selectionGlowVisible : {}),
                     }}
                   />
 
@@ -584,6 +736,25 @@ export function PvpLobby() {
                 </motion.button>
               );
             })}
+
+            <motion.button
+              type="button"
+              style={{
+                ...styles.campaignEntryOption,
+                ...(buttonsDisabled ? styles.headquartersOptionDisabled : {}),
+              }}
+              disabled={buttonsDisabled}
+              onClick={openDeckBuilderMenu}
+              whileHover={buttonsDisabled ? undefined : { y: -8, scale: 1.035 }}
+              whileTap={buttonsDisabled ? undefined : { scale: 0.985 }}
+              transition={{ type: "spring", stiffness: 360, damping: 28 }}
+              aria-label="Открыть создание колоды"
+            >
+              <div style={styles.deckBuilderEntryCard}>
+                <span style={styles.deckBuilderEntryMark}>+</span>
+                <span style={styles.deckBuilderEntryTitle}>Создать колоду</span>
+              </div>
+            </motion.button>
 
           </div>
         </CarouselTapFrame>
@@ -827,6 +998,91 @@ const styles: Record<string, CSSProperties> = {
     margin: "0 auto",
   },
 
+  deckSelectionTrack: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "flex-start",
+    gap: 26,
+    minWidth: "max-content",
+    margin: "0 auto",
+  },
+
+  deckSelectionOption: {
+    position: "relative",
+    flex: "0 0 auto",
+    width: 264,
+    minHeight: 248,
+    padding: 10,
+    border: "none",
+    outline: "none",
+    background: "transparent",
+    color: "#f8e3ae",
+    cursor: "pointer",
+    textAlign: "left",
+    scrollSnapAlign: "center",
+    boxSizing: "border-box",
+  },
+
+  deckSelectionCard: {
+    position: "relative",
+    zIndex: 2,
+    minHeight: 222,
+    display: "grid",
+    gridTemplateRows: "auto auto 1fr auto",
+    gap: 8,
+    padding: "18px 18px 16px",
+    overflow: "hidden",
+    borderRadius: 12,
+    border: "1px solid rgba(244, 209, 124, 0.42)",
+    background:
+      "linear-gradient(180deg, rgba(61, 52, 31, 0.96), rgba(16, 18, 13, 0.98))",
+    boxShadow:
+      "0 18px 42px rgba(0,0,0,0.52), inset 0 0 28px rgba(255, 223, 128, 0.06)",
+  },
+
+  deckSelectionTitle: {
+    color: "#ffe9a8",
+    fontSize: 20,
+    fontWeight: 1000,
+    lineHeight: 1.05,
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+    textShadow: "0 2px 8px rgba(0,0,0,0.9)",
+  },
+
+  deckSelectionSubtitle: {
+    color: "rgba(244, 229, 191, 0.7)",
+    fontSize: 12,
+    fontWeight: 800,
+  },
+
+  deckSelectionPreview: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+    alignSelf: "center",
+  },
+
+  deckSelectionChip: {
+    overflow: "hidden",
+    padding: "5px 7px",
+    borderRadius: 4,
+    background: "rgba(255,255,255,0.055)",
+    color: "rgba(244, 229, 191, 0.78)",
+    fontSize: 11,
+    fontWeight: 900,
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
+  deckSelectionCount: {
+    color: "#d7b665",
+    fontSize: 12,
+    fontWeight: 1000,
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
+  },
+
   headquartersOption: {
     position: "relative",
     flex: "0 0 auto",
@@ -876,6 +1132,57 @@ const styles: Record<string, CSSProperties> = {
     border: "1px solid rgba(244, 209, 124, 0.42)",
     boxShadow:
       "0 18px 42px rgba(0,0,0,0.52), inset 0 0 36px rgba(255, 223, 128, 0.08)",
+  },
+
+  deckBuilderEntryCard: {
+    position: "relative",
+    width: MENU_CARD_WIDTH,
+    height: MENU_CARD_HEIGHT,
+    margin: "0 auto",
+    borderRadius: 18,
+    overflow: "hidden",
+    background:
+      "linear-gradient(160deg, rgba(73, 61, 35, 0.96), rgba(22, 25, 19, 0.98) 58%, rgba(7, 8, 6, 0.98))",
+    border: "1px solid rgba(244, 209, 124, 0.42)",
+    boxShadow:
+      "0 18px 42px rgba(0,0,0,0.52), inset 0 0 44px rgba(255, 223, 128, 0.09)",
+  },
+
+  deckBuilderEntryMark: {
+    position: "absolute",
+    left: "50%",
+    top: "28%",
+    transform: "translateX(-50%)",
+    width: 78,
+    height: 78,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 999,
+    border: "2px solid rgba(244, 209, 124, 0.62)",
+    color: "#ffe9a8",
+    fontSize: 54,
+    fontWeight: 900,
+    lineHeight: 1,
+    boxShadow:
+      "0 0 24px rgba(255, 219, 119, 0.12), inset 0 0 18px rgba(255, 225, 145, 0.12)",
+  },
+
+  deckBuilderEntryTitle: {
+    position: "absolute",
+    left: "10%",
+    right: "10%",
+    bottom: "7.5%",
+    zIndex: 2,
+    color: "#f9e7b2",
+    fontSize: 21,
+    fontWeight: 1000,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    textAlign: "left",
+    textShadow:
+      "0 2px 0 rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.9)",
+    pointerEvents: "none",
   },
 
   campaignEntryImage: {

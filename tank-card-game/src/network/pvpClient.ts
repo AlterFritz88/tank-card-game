@@ -58,9 +58,25 @@ export type PvpClientMessage =
   | { type: "ERROR"; message: string };
 
 export type PvpServerMessage =
-  | { type: "FIND_MATCH"; sessionId: string; headquartersId: HeadquartersId }
-  | { type: "CREATE_ROOM"; sessionId: string; headquartersId: HeadquartersId }
-  | { type: "JOIN_ROOM"; roomId: string; sessionId: string; headquartersId: HeadquartersId }
+  | {
+      type: "FIND_MATCH";
+      sessionId: string;
+      headquartersId: HeadquartersId;
+      deckCardIds?: string[];
+    }
+  | {
+      type: "CREATE_ROOM";
+      sessionId: string;
+      headquartersId: HeadquartersId;
+      deckCardIds?: string[];
+    }
+  | {
+      type: "JOIN_ROOM";
+      roomId: string;
+      sessionId: string;
+      headquartersId: HeadquartersId;
+      deckCardIds?: string[];
+    }
   | { type: "RECONNECT"; sessionId: string; roomId?: string | null }
   | { type: "GAME_ACTION"; action: BattleAction }
   | { type: "SELECT_CARD"; cardInstanceId: string | null }
@@ -161,20 +177,31 @@ class PvpClient {
     window.sessionStorage.removeItem(PVP_ROOM_ID_KEY);
   }
 
-  findMatch(headquartersId: HeadquartersId) {
-    this.send({ type: "FIND_MATCH", sessionId: this.getSessionId(), headquartersId });
+  findMatch(headquartersId: HeadquartersId, deckCardIds?: string[]) {
+    this.send({
+      type: "FIND_MATCH",
+      sessionId: this.getSessionId(),
+      headquartersId,
+      deckCardIds,
+    });
   }
 
-  createRoom(headquartersId: HeadquartersId) {
-    this.send({ type: "CREATE_ROOM", sessionId: this.getSessionId(), headquartersId });
+  createRoom(headquartersId: HeadquartersId, deckCardIds?: string[]) {
+    this.send({
+      type: "CREATE_ROOM",
+      sessionId: this.getSessionId(),
+      headquartersId,
+      deckCardIds,
+    });
   }
 
-  joinRoom(roomId: string, headquartersId: HeadquartersId) {
+  joinRoom(roomId: string, headquartersId: HeadquartersId, deckCardIds?: string[]) {
     this.send({
       type: "JOIN_ROOM",
       roomId,
       sessionId: this.getSessionId(),
       headquartersId,
+      deckCardIds,
     });
   }
 

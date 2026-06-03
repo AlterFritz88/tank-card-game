@@ -23,6 +23,7 @@ for (const [path, imageUrl] of Object.entries(headquartersImageModules)) {
 const legacyFileKeysByHeadquartersId: Partial<Record<HeadquartersId, string[]>> = {
   training_unit: ["headquarters-player", "hq-player"],
   trainingslager: ["headquarters-enemy", "hq-enemy"],
+  training_camp: ["usa-training-camp", "training-camp"],
   first_panzer_division: ["headquarters-enemy", "hq-enemy", "trainingslager"],
 };
 

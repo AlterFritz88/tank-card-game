@@ -5,6 +5,7 @@ export type PlayerId = "player" | "bot";
 export type HeadquartersId =
   | "training_unit"
   | "trainingslager"
+  | "training_camp"
   | "first_panzer_division"
   | "polish_border_guard"
   | "polish_army_lodz"
