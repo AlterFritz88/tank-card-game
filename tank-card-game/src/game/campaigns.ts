@@ -10,6 +10,7 @@ export type CampaignMission = {
   botDeckId?: string;
   playerDeckId?: string; // allows progressive player decks per mission
   backgroundId?: BattleBackgroundId;
+  illustrationId?: string;
   available?: boolean;
 };
 
@@ -41,6 +42,7 @@ export const CAMPAIGNS: Campaign[] = [
         botDeckId: "polish_border_guard_campaign",
         playerDeckId: "first_panzer_m1",
         backgroundId: "base_1",
+        illustrationId: "panzer_div1_m1",
       },
       {
         id: "training-front-2",
@@ -52,6 +54,7 @@ export const CAMPAIGNS: Campaign[] = [
         botDeckId: "polish_army_lodz_campaign",
         playerDeckId: "first_panzer_m2",
         backgroundId: "german_1",
+        illustrationId: "panzer_div1_m2",
       },
       {
         id: "training-front-3",
@@ -63,6 +66,7 @@ export const CAMPAIGNS: Campaign[] = [
         botDeckId: "polish_army_prusy_campaign",
         playerDeckId: "first_panzer_m3",
         backgroundId: "german_city",
+        illustrationId: "panzer_div1_m3",
       },
       {
         id: "training-front-4",
@@ -74,6 +78,7 @@ export const CAMPAIGNS: Campaign[] = [
         botDeckId: "polish_warsaw_defense_campaign",
         playerDeckId: "first_panzer_m4",
         backgroundId: "german_city",
+        illustrationId: "panzer_div1_m4",
       },
       {
         id: "training-front-5",

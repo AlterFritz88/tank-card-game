@@ -170,7 +170,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 5,
     abilityText:
-      "Улучшенный быстроходный танк. Сохраняет скорость и лучше переживает ответный огонь.",
+      "",
   },
   {
     id: "t37a",
@@ -187,7 +187,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 5,
     abilityText:
-      "Малый плавающий танк-разведчик. Очень подвижный, но хрупкий.",
+      "Очень подвижный, но хрупкий",
     onPlayEffects: { draw: 1 },
   },
   {
@@ -205,7 +205,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 5,
     abilityText:
-      "Разведывательный плавающий танк. Дешёвый способ расширить руку и занять темп.",
+      "Разведывательный плавающий танк",
     onPlayEffects: { draw: 1 },
   },
   {
@@ -231,7 +231,7 @@ export const cards: TankCard[] = [
     nation: "ussr",
     class: "medium",
     rarity: "common",
-    cost: 2,
+    cost: 3,
     attack: 2,
     armor: 1,
     hp: 4,
@@ -240,7 +240,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 2,
     abilityText:
-      "Опытный средний танк ХПЗ. Неровная, но полезная машина поддержки.",
+      "",
   },
   {
     id: "t28",
@@ -248,16 +248,16 @@ export const cards: TankCard[] = [
     nation: "ussr",
     class: "medium",
     rarity: "uncommon",
-    cost: 3,
+    cost: 5,
     attack: 3,
     armor: 1,
-    hp: 5,
+    hp: 6,
     range: 1,
     movement: 1,
     fuelGeneration: 2,
     initiative: 2,
     abilityText:
-      "Многобашенный средний танк. Даёт учебной колоде тяжёлую ударную середину.",
+      "Многобашенный средний танк",
   },
   {
     id: "t35",
@@ -265,16 +265,16 @@ export const cards: TankCard[] = [
     nation: "ussr",
     class: "heavy",
     rarity: "rare",
-    cost: 4,
-    attack: 3,
+    cost: 6,
+    attack: 2,
     armor: 2,
-    hp: 7,
+    hp: 8,
     range: 1,
     movement: 1,
     fuelGeneration: 2,
     initiative: 1,
     abilityText:
-      "Тяжёлый многобашенный танк. Медленный символ ранней советской тяжёлой школы.",
+      "Тяжёлый многобашенный танк",
   },
   {
     id: "t46_1",
@@ -291,24 +291,24 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 4,
     abilityText:
-      "Опытный колёсно-гусеничный танк. Подвижный резерв с умеренной защитой.",
+      "",
   },
   {
-    id: "ba_10",
-    name: "БА-10",
+    id: "t-12",
+    name: "Т-12",
     nation: "ussr",
-    class: "light",
+    class: "medium",
     rarity: "common",
     cost: 1,
     attack: 2,
     armor: 0,
-    hp: 2,
+    hp: 4,
     range: 1,
     movement: 2,
     fuelGeneration: 1,
     initiative: 4,
     abilityText:
-      "Тяжёлый бронеавтомобиль. Бьёт заметно сильнее, чем держит удар.",
+      "",
   },
   {
     id: "ba_20",
@@ -346,8 +346,8 @@ export const cards: TankCard[] = [
       "Ранняя самоходная артиллерия. Держится у края и поддерживает огнём на дистанции.",
   },
   {
-    id: "zis_5_supply",
-    name: "ФМО Ф15",
+    id: "amo_f15",
+    name: "АМО Ф15",
     nation: "ussr",
     class: "light",
     rarity: "common",
@@ -363,12 +363,13 @@ export const cards: TankCard[] = [
     supportRole: "transport",
     supportEffects: {
       fuelPerTurn: 1,
+      hqHealPerTurn: 1,
     },
     abilityText:
-      "Грузовик снабжения. На линии поддержки добавляет 1 топливо в начале хода.",
+      "Даёт +1 топливо и восстанавливает штабу 1 HP в начале хода.",
   },
   {
-    id: "gaz_aa_ammo",
+    id: "ford_aa_ammo",
     name: "Форд-АА",
     nation: "ussr",
     class: "light",
@@ -384,10 +385,11 @@ export const cards: TankCard[] = [
     deploymentZone: "support",
     supportRole: "transport",
     supportEffects: {
-      drawEveryTurns: 2,
+      drawEveryTurns: 3,
+      healRandomUnitPerTurn: 1,
     },
     abilityText:
-      "Грузовик боеприпасов. Позволяет добирать дополнительную карту каждый второй ход.",
+      "Лечит 1 повреждённый юнит каждый ход и добирает карту каждый третий ход.",
   },
   {
     id: "gaz_55_ambulance",
@@ -398,7 +400,7 @@ export const cards: TankCard[] = [
     cost: 2,
     attack: 0,
     armor: 0,
-    hp: 2,
+    hp: 3,
     range: 0,
     movement: 0,
     fuelGeneration: 0,
@@ -406,10 +408,11 @@ export const cards: TankCard[] = [
     deploymentZone: "support",
     supportRole: "medical",
     supportEffects: {
-      healRandomUnitPerTurn: 1,
+      healRandomUnitPerTurn: 2,
+      hqHealPerTurn: 1,
     },
     abilityText:
-      "Санитарный автомобиль. В начале хода лечит 1 повреждённый юнит.",
+      "В начале хода лечит 2 HP повреждённому юниту и восстанавливает штабу 1 HP.",
   },
   {
     id: "panzer_iv",
@@ -485,7 +488,7 @@ export const cards: TankCard[] = [
     nation: "usa",
     class: "light",
     rarity: "common",
-    cost: 1,
+    cost: 2,
     attack: 1,
     armor: 0,
     hp: 3,
@@ -599,10 +602,11 @@ export const cards: TankCard[] = [
     deploymentZone: "support",
     supportRole: "transport",
     supportEffects: {
-      fuelPerTurn: 1,
+      fuelPerTurn: 2,
+      drawEveryTurns: 3,
     },
     abilityText:
-      "Полугусеничный транспорт. На линии поддержки добавляет 1 топливо в начале хода.",
+      "Полугусеничный транспорт. Даёт +2 топлива и добирает дополнительную карту каждый третий ход.",
   },
   {
     id: "dodge_wc54",
@@ -622,9 +626,10 @@ export const cards: TankCard[] = [
     supportRole: "medical",
     supportEffects: {
       healRandomUnitPerTurn: 1,
+      drawEveryTurns: 2,
     },
     abilityText:
-      "Санитарный автомобиль. В начале хода лечит 1 повреждённый юнит.",
+      "Санитарный автомобиль с мощной логистикой. Лечит 1 повреждённый юнит и добирает карту каждый второй ход.",
   },
   {
     id: "churchill",
@@ -649,7 +654,7 @@ export const cards: TankCard[] = [
     nation: "germany",
     class: "td",
     rarity: "common",
-    cost: 2,
+    cost: 3,
     attack: 4,
     armor: 0,
     hp: 2,
@@ -1099,7 +1104,7 @@ export const cards: TankCard[] = [
     hp: 4,
     range: 1,
     movement: 3,
-    fuelGeneration: 0,
+    fuelGeneration: 1,
     initiative: 5,
     abilityText: "",
   },
@@ -1443,7 +1448,7 @@ export const cards: TankCard[] = [
     supportEffects: {
       healRandomUnitPerTurn: 1,
     },
-    abilityText: "Санитарный автомобиль. В начале хода восстанавливает 1 HP случайному повреждённому юниту.",
+    abilityText: "В начале хода восстанавливает 1 HP случайному повреждённому юниту.",
   },
 
   // === Поддержка — Германия, ранние (Польша 1939, конкретная техника) ===
@@ -1453,7 +1458,7 @@ export const cards: TankCard[] = [
     nation: "germany",
     class: "spg",
     rarity: "uncommon",
-    cost: 2,
+    cost: 3,
     attack: 0,
     armor: 0,
     hp: 3,
@@ -1464,10 +1469,9 @@ export const cards: TankCard[] = [
     deploymentZone: "support",
     supportRole: "artillery",
     supportEffects: {
-      hqAttackBonus: 1,
-      hqDamageRedirect: 1,
+      hqAttackBonus: 2,
     },
-    abilityText: "Увеличивает атаку штаба и принимает 1 урон на себя.",
+    abilityText: "Увеличивает атаку штаба на 2",
   },
   {
     id: "leig_18",
@@ -1487,9 +1491,8 @@ export const cards: TankCard[] = [
     supportRole: "artillery",
     supportEffects: {
       hqAttackBonus: 1,
-      hqDamageRedirect: 1,
     },
-    abilityText: "Мобильная огневая поддержка передовых частей.",
+    abilityText: "Лёгкая пехотная пушка: +1 к атаке штаба.",
   },
   {
     id: "mercedes_g3a",
@@ -1508,9 +1511,10 @@ export const cards: TankCard[] = [
     deploymentZone: "support",
     supportRole: "transport",
     supportEffects: {
-      fuelPerTurn: 2,
+      fuelPerTurn: 1,
+      hqAttackBonus: 1,
     },
-    abilityText: "Даёт +2 топлива в ход — надёжное снабжение.",
+    abilityText: "Даёт +1 топливо и помогает штабу вести огонь точнее: +1 к атаке.",
   },
   {
     id: "adler_type_10_n",
@@ -1529,9 +1533,10 @@ export const cards: TankCard[] = [
     deploymentZone: "support",
     supportRole: "transport",
     supportEffects: {
-      drawEveryTurns: 2,
+      drawEveryTurns: 3,
+      hqAttackBonus: 1,
     },
-    abilityText: "Позволяет добирать дополнительную карту каждый второй ход",
+    abilityText: "Даёт +1 к атаке штаба и добирает карту каждый третий ход.",
   },
   {
     id: "sanitaetskraftwagen",
@@ -1552,12 +1557,33 @@ export const cards: TankCard[] = [
     supportEffects: {
       healRandomUnitPerTurn: 1,
     },
-    abilityText: "Санитарный автомобиль вермахта. В начале хода лечит 1 повреждённый юнит.",
+    abilityText: "В начале хода лечит 1 повреждённый юнит.",
   },
 ];
 
+const CARD_ID_ALIASES: Record<string, string> = {
+  ba_10: "t-12",
+  zis_5_supply: "amo_f15",
+  gaz_aa_ammo: "ford_aa_ammo",
+};
+
+export function normalizeCardId(cardId: string): string | null {
+  const resolvedCardId = CARD_ID_ALIASES[cardId] ?? cardId;
+  const cardExists = cards.some((item) => item.id === resolvedCardId);
+
+  return cardExists ? resolvedCardId : null;
+}
+
+export function getCardOrNull(cardId: string): TankCard | null {
+  const resolvedCardId = normalizeCardId(cardId);
+
+  if (!resolvedCardId) return null;
+
+  return cards.find((item) => item.id === resolvedCardId) ?? null;
+}
+
 export function getCard(cardId: string): TankCard {
-  const card = cards.find((item) => item.id === cardId);
+  const card = getCardOrNull(cardId);
 
   if (!card) {
     throw new Error(`Card not found: ${cardId}`);

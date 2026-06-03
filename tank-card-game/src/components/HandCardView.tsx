@@ -4,7 +4,12 @@ import {
   getHeadquartersImageAsset,
   getLegacyHeadquartersImageAsset,
 } from "../game/headquartersImages";
-import type { HeadquartersId, PlayerId, TankCard } from "../game/types";
+import type {
+  HeadquartersId,
+  PlayerId,
+  SupportRole,
+  TankCard,
+} from "../game/types";
 import {
   getClassVisual,
   getNationFlagStyle,
@@ -25,6 +30,12 @@ import classTdPlayerIcon from "../assets/icons/classes/class-td-player.png";
 import classTdEnemyIcon from "../assets/icons/classes/class-td-enemy.png";
 import classSpgPlayerIcon from "../assets/icons/classes/class-spg-player.png";
 import classSpgEnemyIcon from "../assets/icons/classes/class-spg-enemy.png";
+import classArtPlayerIcon from "../assets/icons/classes/class-art-player.png";
+import classArtEnemyIcon from "../assets/icons/classes/class-art-enemy.png";
+import classCarPlayerIcon from "../assets/icons/classes/class-car-player.png";
+import classCarEnemyIcon from "../assets/icons/classes/class-car-enemy.png";
+import classMedicPlayerIcon from "../assets/icons/classes/class-medic-player.png";
+import classMedicEnemyIcon from "../assets/icons/classes/class-medic-enemy.png";
 
 const hqClassIconModules = import.meta.glob(
   "../assets/icons/classes/class-hq-*.{png,jpg,jpeg,webp}",
@@ -79,6 +90,35 @@ function getBoardClassIcon(cardClass: TankCard["class"], ownerId: PlayerId) {
     default:
       return isPlayer ? classMediumPlayerIcon : classMediumEnemyIcon;
   }
+}
+
+function getSupportClassIcon(
+  supportRole: SupportRole | undefined,
+  ownerId: PlayerId
+) {
+  const isPlayer = ownerId === "player";
+
+  switch (supportRole) {
+    case "artillery":
+      return isPlayer ? classArtPlayerIcon : classArtEnemyIcon;
+
+    case "transport":
+      return isPlayer ? classCarPlayerIcon : classCarEnemyIcon;
+
+    case "medical":
+      return isPlayer ? classMedicPlayerIcon : classMedicEnemyIcon;
+
+    default:
+      return null;
+  }
+}
+
+function getCardClassIcon(card: TankCard, ownerId: PlayerId) {
+  if (card.deploymentZone === "support") {
+    return getSupportClassIcon(card.supportRole, ownerId);
+  }
+
+  return getBoardClassIcon(card.class, ownerId);
 }
 
 function getOptionalImage(
@@ -176,7 +216,7 @@ export function HandCardView({
   const hqClassIcon = isHeadquarters ? getHeadquartersClassIcon(ownerId) : null;
   const classIcon = isHeadquarters
     ? hqClassIcon
-    : getBoardClassIcon(card!.class, ownerId);
+    : getCardClassIcon(card!, ownerId);
 
   const title = isHeadquarters
     ? headquartersDefinition?.title ?? "Штаб"
@@ -257,7 +297,7 @@ export function HandCardView({
         />
       </div>
 
-      {!isHeadquarters && (
+      {!isHeadquarters && fuelGenerationValue > 0 && (
         <div style={styles.spawnFuelGenerationBadge}>
           <StatBadge
             type="fuelGeneration"
@@ -403,14 +443,14 @@ export function HandCardView({
                 ...styles.mechanicBadge,
                 ...(isPreview ? {} : styles.compactMechanicBadge),
               }}
-              title="This card deploys into one of the three support-line slots."
+              title="Эта карта выходит в одну из трёх ячеек тыловой линии."
             >
-              {isPreview ? "Support line" : "SUP"} ·{" "}
+              {isPreview ? "Тыловая линия" : "ТЫЛ"} ·{" "}
               {card.supportRole === "artillery"
-                ? "ART"
+                ? "АРТ"
                 : card.supportRole === "transport"
-                  ? "LOG"
-                  : "MED"}
+                  ? "ТР"
+                  : "МЕД"}
             </span>
           </div>
         )}

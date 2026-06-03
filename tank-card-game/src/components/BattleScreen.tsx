@@ -1928,7 +1928,7 @@ function renderEnemyDeckWithTimer() {
             : styles.supportLineEnemy),
         }}
       >
-        <span style={styles.supportLineLabel}>SUPPORT</span>
+        <span style={styles.supportLineLabel}>ТЫЛ</span>
 
         {SUPPORT_SLOTS.map((supportSlot) => {
           const unit = battle.units.find(
@@ -1967,7 +1967,7 @@ function renderEnemyDeckWithTimer() {
                 }}
                 onMouseDown={preventPersistentBattleFocus}
                 onClick={() => handleSupportSlotClick(owner, supportSlot)}
-                aria-label={`Support slot ${supportSlot + 1}`}
+                aria-label={`Тыловая ячейка ${supportSlot + 1}`}
               />
             );
           }

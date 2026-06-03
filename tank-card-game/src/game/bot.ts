@@ -15,6 +15,7 @@ import type {
   BattleState,
   BoardUnit,
   Position,
+  TankCard,
 } from "./types";
 
 export type Side = "player" | "bot";
@@ -90,8 +91,35 @@ function getClassThreatBonus(cardId: string): number {
   return 1;
 }
 
+function getSupportUnitValue(card: TankCard): number {
+  if (card.deploymentZone !== "support") return 0;
+
+  const supportEffects = card.supportEffects;
+
+  return (
+    12 +
+    (supportEffects?.hqAttackBonus ?? 0) * 16 +
+    (supportEffects?.hqDamageRedirect ?? 0) * 10 +
+    (supportEffects?.fuelPerTurn ?? 0) * 15 +
+    (supportEffects?.drawEveryTurns
+      ? Math.round(18 / supportEffects.drawEveryTurns)
+      : 0) +
+    (supportEffects?.healRandomUnitPerTurn ?? 0) * 12 +
+    (supportEffects?.hqHealPerTurn ?? 0) * 12 +
+    card.hp * 3
+  );
+}
+
 function getUnitThreatScore(state: BattleState, unit: BoardUnit): number {
   const card = getCard(unit.cardId);
+  const supportValue = getSupportUnitValue(card);
+
+  if (supportValue > 0) {
+    const damagedBonus = Math.max(0, card.hp - unit.currentHp);
+
+    return supportValue + damagedBonus * 3;
+  }
+
   const distanceToBotHq = getDistance(
     unit.position,
     state.headquarters.bot.position
@@ -141,18 +169,9 @@ function getEconomyGap(state: BattleState): number {
 
 function scoreCardForBot(cardId: string): number {
   const card = getCard(cardId);
-  const supportEffects = card.supportEffects;
 
   if (card.deploymentZone === "support") {
-    return (
-      (supportEffects?.hqAttackBonus ?? 0) * 9 +
-      (supportEffects?.hqDamageRedirect ?? 0) * 7 +
-      (supportEffects?.fuelPerTurn ?? 0) * 12 +
-      (supportEffects?.drawEveryTurns ? 8 / supportEffects.drawEveryTurns : 0) +
-      (supportEffects?.healRandomUnitPerTurn ?? 0) * 7 +
-      (supportEffects?.hqHealPerTurn ?? 0) * 8 +
-      card.hp
-    );
+    return getSupportUnitValue(card);
   }
 
   const classBonus =
@@ -289,11 +308,29 @@ function scoreAttackAction(
     if (!enemyUnit) return null;
 
     const enemyCard = getCard(enemyUnit.cardId);
+    const supportTargetValue = getSupportUnitValue(enemyCard);
+    const attackerCard =
+      action.attackerType === "unit"
+        ? getBotUnitById(state, action.attackerId)
+        : null;
+    const attackerDefinition = attackerCard
+      ? getCard(attackerCard.cardId)
+      : null;
 
     score +=
       getUnitThreatScore(state, enemyUnit) +
       enemyCard.attack * 2 +
       enemyCard.fuelGeneration * 4;
+
+    if (supportTargetValue > 0) {
+      score += supportTargetValue;
+
+      if (action.attackerType === "headquarters") {
+        score += 10;
+      } else if (attackerDefinition?.class === "spg") {
+        score += 12;
+      }
+    }
   }
 
   if (outcome.targetDestroyed) score += 28;

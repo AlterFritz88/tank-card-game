@@ -95,8 +95,6 @@ type BattleStore = {
   closeHeadquartersMenu: () => void;
   openDeckBuilderMenu: () => void;
   closeDeckBuilderMenu: () => void;
-  openDeckSelectionMenu: (headquartersId: HeadquartersId) => void;
-  closeDeckSelectionMenu: () => void;
   openResearchMenu: () => void;
   closeResearchMenu: () => void;
   openCampaignMenu: () => void;
@@ -639,21 +637,6 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   closeDeckBuilderMenu: () => {
-    set({
-      menuView: "headquarters",
-      pvpError: null,
-    });
-  },
-
-  openDeckSelectionMenu: (headquartersId) => {
-    set({
-      menuView: "deckSelection",
-      selectedHeadquartersId: headquartersId,
-      pvpError: null,
-    });
-  },
-
-  closeDeckSelectionMenu: () => {
     set({
       menuView: "headquarters",
       pvpError: null,

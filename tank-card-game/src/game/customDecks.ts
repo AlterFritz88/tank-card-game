@@ -1,4 +1,4 @@
-import { cards } from "./cards";
+import { cards, getCardOrNull, normalizeCardId } from "./cards";
 import { HEADQUARTERS } from "./headquarters";
 import type { HeadquartersId, Nation, TankCard, TankClass } from "./types";
 
@@ -38,7 +38,7 @@ export const UNIT_TYPE_FILTERS: { value: UnitTypeFilter; label: string }[] = [
   { value: "heavy", label: "Тяжёлые" },
   { value: "td", label: "ПТ-САУ" },
   { value: "spg", label: "САУ" },
-  { value: "support", label: "Поддержка" },
+  { value: "support", label: "Тыл" },
 ];
 
 export const NATION_FILTERS: { value: NationFilter; label: string }[] = [
@@ -60,7 +60,7 @@ function createDeckId(): string {
 }
 
 function getCardById(cardId: string): TankCard | null {
-  return cards.find((card) => card.id === cardId) ?? null;
+  return getCardOrNull(cardId);
 }
 
 export function isTrainingHeadquarters(headquartersId: HeadquartersId): boolean {
@@ -177,15 +177,27 @@ function parseSavedDecks(value: string | null): SavedDeck[] {
     const parsedValue = JSON.parse(value);
     if (!Array.isArray(parsedValue)) return [];
 
-    return parsedValue.filter((item): item is SavedDeck => {
-      return (
+    return parsedValue.flatMap((item): SavedDeck[] => {
+      const validShape =
         typeof item?.id === "string" &&
         typeof item.name === "string" &&
         typeof item.headquartersId === "string" &&
         item.headquartersId in HEADQUARTERS &&
         Array.isArray(item.cardIds) &&
-        item.cardIds.every((cardId: unknown) => typeof cardId === "string")
-      );
+        item.cardIds.every((cardId: unknown) => typeof cardId === "string");
+
+      if (!validShape) return [];
+
+      const cardIds = item.cardIds
+        .map((cardId: string) => normalizeCardId(cardId))
+        .filter((cardId: string | null): cardId is string => Boolean(cardId));
+
+      return [
+        {
+          ...item,
+          cardIds,
+        },
+      ];
     });
   } catch {
     return [];

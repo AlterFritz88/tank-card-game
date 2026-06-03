@@ -1,3 +1,4 @@
+import { normalizeCardId } from "./cards";
 import {
   DEFAULT_BOT_HEADQUARTERS_ID,
   DEFAULT_PLAYER_HEADQUARTERS_ID,
@@ -44,11 +45,11 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "t28",
     "t35",
     "t46_1",
-    "ba_10",
+    "t-12",
     "ba_20",
     "su_5_2",
-    "zis_5_supply",
-    "gaz_aa_ammo",
+    "amo_f15",
+    "ford_aa_ammo",
     "gaz_55_ambulance",
   ],
 
@@ -394,21 +395,47 @@ const TRAINING_DECK_IDS = new Set([
   "training_camp_default",
 ]);
 
-function getDeckCardIds(deckId: string): string[] {
-  const cardIds = DECK_CARD_IDS[deckId] ?? [];
+function normalizeDeckCardIds(cardIds: string[], deckLabel: string): string[] {
+  const normalizedCardIds: string[] = [];
+  const missingCardIds = new Set<string>();
 
-  if (TRAINING_DECK_IDS.has(deckId)) {
-    return cardIds.slice(0, TRAINING_DECK_CARD_LIMIT);
+  for (const cardId of cardIds) {
+    const normalizedCardId = normalizeCardId(cardId);
+
+    if (!normalizedCardId) {
+      missingCardIds.add(cardId);
+      continue;
+    }
+
+    normalizedCardIds.push(normalizedCardId);
   }
 
-  return cardIds;
+  if (missingCardIds.size > 0) {
+    console.warn(
+      `[deck:${deckLabel}] ignored missing cards: ${Array.from(missingCardIds).join(", ")}`
+    );
+  }
+
+  return normalizedCardIds;
+}
+
+function getDeckCardIds(deckId: string): string[] {
+  const cardIds = DECK_CARD_IDS[deckId] ?? [];
+  const normalizedCardIds = normalizeDeckCardIds(cardIds, deckId);
+
+  if (TRAINING_DECK_IDS.has(deckId)) {
+    return normalizedCardIds.slice(0, TRAINING_DECK_CARD_LIMIT);
+  }
+
+  return normalizedCardIds;
 }
 
 function createCardInstances(cardIds: string[], owner: PlayerId): CardInstance[] {
-  return cardIds.map((cardId, index) => ({
-    instanceId: `${owner}_${cardId}_${index}`,
-    cardId,
-  }));
+  return normalizeDeckCardIds(cardIds, `${owner}_custom`)
+    .map((cardId, index) => ({
+      instanceId: `${owner}_${cardId}_${index}`,
+      cardId,
+    }));
 }
 
 function shuffleCards<T>(items: T[]): T[] {

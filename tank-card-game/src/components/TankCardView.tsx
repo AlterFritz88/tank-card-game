@@ -1,5 +1,5 @@
 import type React from "react";
-import type { PlayerId, TankCard } from "../game/types";
+import type { PlayerId, SupportRole, TankCard } from "../game/types";
 import {
   getClassVisual,
   getNationFlagStyle,
@@ -19,6 +19,12 @@ import classTdPlayerIcon from "../assets/icons/classes/class-td-player.png";
 import classTdEnemyIcon from "../assets/icons/classes/class-td-enemy.png";
 import classSpgPlayerIcon from "../assets/icons/classes/class-spg-player.png";
 import classSpgEnemyIcon from "../assets/icons/classes/class-spg-enemy.png";
+import classArtPlayerIcon from "../assets/icons/classes/class-art-player.png";
+import classArtEnemyIcon from "../assets/icons/classes/class-art-enemy.png";
+import classCarPlayerIcon from "../assets/icons/classes/class-car-player.png";
+import classCarEnemyIcon from "../assets/icons/classes/class-car-enemy.png";
+import classMedicPlayerIcon from "../assets/icons/classes/class-medic-player.png";
+import classMedicEnemyIcon from "../assets/icons/classes/class-medic-enemy.png";
 
 type TankCardViewVariant = "hand" | "board";
 
@@ -67,6 +73,35 @@ function getBoardClassIcon(cardClass: TankCard["class"], ownerId: PlayerId) {
   }
 }
 
+function getSupportClassIcon(
+  supportRole: SupportRole | undefined,
+  ownerId: PlayerId
+) {
+  const isPlayer = ownerId === "player";
+
+  switch (supportRole) {
+    case "artillery":
+      return isPlayer ? classArtPlayerIcon : classArtEnemyIcon;
+
+    case "transport":
+      return isPlayer ? classCarPlayerIcon : classCarEnemyIcon;
+
+    case "medical":
+      return isPlayer ? classMedicPlayerIcon : classMedicEnemyIcon;
+
+    default:
+      return null;
+  }
+}
+
+function getCardClassIcon(card: TankCard, ownerId: PlayerId) {
+  if (card.deploymentZone === "support") {
+    return getSupportClassIcon(card.supportRole, ownerId);
+  }
+
+  return getBoardClassIcon(card.class, ownerId);
+}
+
 export function TankCardView({
   card,
   variant,
@@ -88,7 +123,7 @@ export function TankCardView({
   const isHand = variant === "hand";
   const isBoardExhausted = !isHand && alreadyMoved && alreadyAttacked;
   const tankImage = getTankImage(card.id);
-  const boardClassIconImage = getBoardClassIcon(card.class, ownerId);
+  const boardClassIconImage = getCardClassIcon(card, ownerId);
 
   if (!isHand) {
     return (
@@ -125,13 +160,15 @@ export function TankCardView({
 
         <div style={styles.boardTitleArea}>
           <div style={styles.boardTitleRow}>
-            <img
-              src={boardClassIconImage}
-              alt={unitClass.label}
-              title={unitClass.label}
-              style={styles.boardClassIconImage}
-              draggable={false}
-            />
+            {boardClassIconImage ? (
+              <img
+                src={boardClassIconImage}
+                alt={unitClass.label}
+                title={unitClass.label}
+                style={styles.boardClassIconImage}
+                draggable={false}
+              />
+            ) : null}
 
             <strong style={styles.boardTitle}>{card.name}</strong>
           </div>
@@ -209,15 +246,17 @@ export function TankCardView({
         <strong style={styles.spawnCostValue}>{card.cost}</strong>
       </div>
 
-      <div
-        style={{
-          ...styles.fuelBadge,
-          borderColor: `${nation.accent}cc`,
-        }}
-      >
-        <span>FUEL</span>
-        <strong>+{card.fuelGeneration}</strong>
-      </div>
+      {card.fuelGeneration > 0 ? (
+        <div
+          style={{
+            ...styles.fuelBadge,
+            borderColor: `${nation.accent}cc`,
+          }}
+        >
+          <span>FUEL</span>
+          <strong>+{card.fuelGeneration}</strong>
+        </div>
+      ) : null}
 
       <header style={styles.handHeader}>
         <div
