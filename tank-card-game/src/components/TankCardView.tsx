@@ -37,6 +37,7 @@ type TankCardViewProps = {
   disabled?: boolean;
   alreadyMoved?: boolean;
   alreadyAttacked?: boolean;
+  borderlessBoard?: boolean;
   healthDamageEffect?: {
     id: number;
     amount: number;
@@ -111,6 +112,7 @@ export function TankCardView({
   disabled = false,
   alreadyMoved = false,
   alreadyAttacked = false,
+  borderlessBoard = false,
   healthDamageEffect,
   healthGainEffect,
   healthPreviewValue,
@@ -131,9 +133,12 @@ export function TankCardView({
         style={{
           ...styles.card,
           ...styles.boardCard,
-          borderColor: "rgba(225, 214, 184, 0.28)",
-          boxShadow:
-            "0 0 0 1px rgba(255,255,255,0.06), 0 10px 24px rgba(0, 0, 0, 0.46)",
+          borderColor: borderlessBoard
+            ? "transparent"
+            : "rgba(225, 214, 184, 0.28)",
+          boxShadow: borderlessBoard
+            ? "none"
+            : "0 0 0 1px rgba(255,255,255,0.06), 0 10px 24px rgba(0, 0, 0, 0.46)",
           opacity: disabled ? 0.46 : 1,
           cursor: disabled ? "not-allowed" : "pointer",
         }}

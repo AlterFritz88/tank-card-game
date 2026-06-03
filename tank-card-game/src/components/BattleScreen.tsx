@@ -2224,6 +2224,7 @@ function renderEnemyDeckWithTimer() {
                   variant="board"
                   ownerId={getVisualOwnerId(unit.ownerId)}
                   currentHp={unit.currentHp}
+                  borderlessBoard
                   alreadyMoved
                   alreadyAttacked
                   healthDamageEffect={getHealthDamageEffect(unit.instanceId)}
@@ -3745,7 +3746,7 @@ actionSideColumn: {
 
   supportUnitCell: {
     borderColor: "transparent",
-    background: "transparent",
+    background: "rgba(9, 12, 10, 0.34)",
     boxShadow: "none",
   },
 
