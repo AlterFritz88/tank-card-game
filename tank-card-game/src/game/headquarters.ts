@@ -69,8 +69,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     title: "Training Camp",
     subtitle: "Американский учебный лагерь",
     type: "Учебная часть",
-    description:
-      "Американский учебный лагерь делает ставку на снабжение: высокий прирост топлива при слабой атаке и меньшем запасе здоровья.",
+    description: "Слабый штаб с мощным снабжением и быстрым ростом ресурсов.",
     faction: "U.S. Armored Forces",
     nation: "usa",
     hp: 12,

@@ -26,8 +26,10 @@ import {
   getGroupedDeckCards,
   getNextDefaultDeckName,
   saveCustomDeck,
+  updateCustomDeck,
   validateDeck,
   type NationFilter,
+  type SavedDeck,
   type UnitTypeFilter,
 } from "../game/customDecks";
 import type { HeadquartersId, TankCard } from "../game/types";
@@ -111,16 +113,20 @@ function MiniHandCard({
 }
 
 export function DeckBuilder({
+  editingDeck,
   onBack,
   onSaved,
 }: {
+  editingDeck?: SavedDeck | null;
   onBack: () => void;
   onSaved: () => void;
 }) {
   const [selectedHeadquartersId, setSelectedHeadquartersId] =
-    useState<HeadquartersId | null>(null);
-  const [deckName, setDeckName] = useState("");
-  const [deckCardIds, setDeckCardIds] = useState<string[]>([]);
+    useState<HeadquartersId | null>(editingDeck?.headquartersId ?? null);
+  const [deckName, setDeckName] = useState(editingDeck?.name ?? "");
+  const [deckCardIds, setDeckCardIds] = useState<string[]>(
+    editingDeck?.cardIds ?? []
+  );
   const [unitTypeFilter, setUnitTypeFilter] = useState<UnitTypeFilter>("all");
   const [nationFilter, setNationFilter] = useState<NationFilter>("all");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -225,7 +231,20 @@ export function DeckBuilder({
       return;
     }
 
-    const savedDeck = saveCustomDeck(selectedHeadquartersId, deckCardIds, deckName);
+    const savedDeck = editingDeck
+      ? updateCustomDeck(
+          editingDeck.id,
+          selectedHeadquartersId,
+          deckCardIds,
+          deckName
+        )
+      : saveCustomDeck(selectedHeadquartersId, deckCardIds, deckName);
+
+    if (!savedDeck) {
+      setSaveMessage("Не удалось обновить колоду");
+      return;
+    }
+
     setSaveMessage(`Колода ${savedDeck.name} сохранена`);
     onSaved();
   }
@@ -443,7 +462,9 @@ export function DeckBuilder({
           ←
         </button>
         <div>
-          <h1 style={styles.title}>Создание колоды</h1>
+          <h1 style={styles.title}>
+            {editingDeck ? "Редактирование колоды" : "Создание колоды"}
+          </h1>
         </div>
         <div style={styles.headerActions}>
           <input

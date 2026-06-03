@@ -307,3 +307,48 @@ export function saveCustomDeck(
 
   return deck;
 }
+
+export function updateCustomDeck(
+  deckId: string,
+  headquartersId: HeadquartersId,
+  cardIds: string[],
+  name: string
+): SavedDeck | null {
+  const decks = loadSavedDecks();
+  const deckIndex = decks.findIndex((deck) => deck.id === deckId);
+
+  if (deckIndex < 0) return null;
+
+  const existingDeck = decks[deckIndex];
+  const updatedDeck: SavedDeck = {
+    ...existingDeck,
+    name: name.trim() || existingDeck.name,
+    headquartersId,
+    cardIds,
+    updatedAt: Date.now(),
+  };
+
+  saveDecks([
+    ...decks.slice(0, deckIndex),
+    updatedDeck,
+    ...decks.slice(deckIndex + 1),
+  ]);
+
+  return updatedDeck;
+}
+
+export function deleteCustomDeck(deckId: string): void {
+  saveDecks(loadSavedDecks().filter((deck) => deck.id !== deckId));
+
+  const selections = loadRecentDeckSelections().map((selection) =>
+    selection.deckId === deckId
+      ? {
+          ...selection,
+          deckId: null,
+          usedAt: Date.now(),
+        }
+      : selection
+  );
+
+  window.localStorage.setItem(RECENT_DECK_STORAGE_KEY, JSON.stringify(selections));
+}

@@ -46,7 +46,6 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "t35",
     "t46_1",
     "t-12",
-    "ba_20",
     "su_5_2",
     "amo_f15",
     "ford_aa_ammo",

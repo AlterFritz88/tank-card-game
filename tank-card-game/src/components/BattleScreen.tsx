@@ -147,6 +147,11 @@ type DestroyedCardEffect = {
   rotation: number;
 };
 
+type QueuedBattleCommand = {
+  id: number;
+  run: () => Promise<void>;
+};
+
 type CardPreview =
   | {
       type: "unit";
@@ -435,6 +440,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const destroyedCardEffectIdRef = useRef(0);
   const movementAnimationRunningRef = useRef(false);
   const attackSequenceRunningRef = useRef(false);
+  const commandQueueRef = useRef<QueuedBattleCommand[]>([]);
+  const commandQueueRunningRef = useRef(false);
+  const commandQueueIdRef = useRef(0);
+  const modeRef = useRef(mode);
+  const humanPlayerIdRef = useRef(humanPlayerId);
+  const spawningCardInstanceIdRef = useRef<string | null>(null);
   const cellRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const supportCellRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
@@ -643,6 +654,18 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   useEffect(() => {
     debugPausedRef.current = debugPaused;
   }, [debugPaused]);
+
+  useEffect(() => {
+    modeRef.current = mode;
+    humanPlayerIdRef.current = humanPlayerId;
+    spawningCardInstanceIdRef.current = spawningCardInstanceId;
+  }, [humanPlayerId, mode, spawningCardInstanceId]);
+
+  useEffect(() => {
+    if (battle.status === "active") return;
+
+    commandQueueRef.current = [];
+  }, [battle.status]);
 
   useEffect(() => {
     if (!cardPreview) return;
@@ -1700,9 +1723,197 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     void playAttackSequenceRef.current(pvpAttackIntent.strikes);
   }, [mode, pvpAttackIntent]);
 
+  function isCommandAnimationBusy() {
+    return (
+      attackSequenceRunningRef.current ||
+      movementAnimationRunningRef.current ||
+      spawningCardInstanceIdRef.current !== null
+    );
+  }
+
+  async function waitForCommandSlot() {
+    while (isCommandAnimationBusy()) {
+      await delay(35);
+    }
+  }
+
+  function getCurrentCommandBattle(): BattleState | null {
+    const currentBattle = useBattleStore.getState().battle as BattleState | null;
+    const currentHumanPlayerId = humanPlayerIdRef.current;
+
+    if (!currentBattle) return null;
+    if (currentBattle.status !== "active") return null;
+    if (currentBattle.activePlayer !== currentHumanPlayerId) return null;
+
+    return currentBattle;
+  }
+
+  async function runQueuedBattleCommands() {
+    if (commandQueueRunningRef.current) return;
+
+    commandQueueRunningRef.current = true;
+
+    try {
+      while (commandQueueRef.current.length > 0) {
+        await waitForCommandSlot();
+
+        const command = commandQueueRef.current.shift();
+        if (!command) continue;
+
+        await command.run();
+        await waitForNextFrame();
+      }
+    } finally {
+      commandQueueRunningRef.current = false;
+
+      if (commandQueueRef.current.length > 0) {
+        void runQueuedBattleCommands();
+      }
+    }
+  }
+
+  function enqueueBattleCommand(run: () => Promise<void>) {
+    commandQueueIdRef.current += 1;
+    commandQueueRef.current.push({
+      id: commandQueueIdRef.current,
+      run,
+    });
+
+    void runQueuedBattleCommands();
+  }
+
+  async function executeQueuedPlayCard(
+    cardInstanceId: string,
+    position: Position
+  ) {
+    const currentBattle = getCurrentCommandBattle();
+    const currentHumanPlayerId = humanPlayerIdRef.current;
+
+    if (!currentBattle) return;
+
+    const isOwnSpawn =
+      currentHumanPlayerId === "player"
+        ? isPlayerSpawn(position)
+        : isBotSpawn(position);
+
+    if (!isOwnSpawn) return;
+
+    const cardInstance = currentBattle[currentHumanPlayerId].hand.find(
+      (item) => item.instanceId === cardInstanceId
+    );
+
+    if (!cardInstance || isHiddenCardInstance(cardInstance)) return;
+    if (getCard(cardInstance.cardId).deploymentZone === "support") return;
+
+    await playSpawnCardAnimationRef.current(
+      currentHumanPlayerId,
+      cardInstance.instanceId,
+      cardInstance.cardId,
+      position
+    );
+
+    dispatchBattleActionRef.current({
+      type: "PLAY_CARD",
+      playerId: currentHumanPlayerId,
+      cardInstanceId: cardInstance.instanceId,
+      position,
+    });
+  }
+
+  async function executeQueuedPlaySupportCard(
+    cardInstanceId: string,
+    supportSlot: SupportSlot
+  ) {
+    const currentBattle = getCurrentCommandBattle();
+    const currentHumanPlayerId = humanPlayerIdRef.current;
+
+    if (!currentBattle) return;
+    if (
+      !getFreeSupportSlots(currentBattle, currentHumanPlayerId).includes(
+        supportSlot
+      )
+    ) {
+      return;
+    }
+
+    const cardInstance = currentBattle[currentHumanPlayerId].hand.find(
+      (item) => item.instanceId === cardInstanceId
+    );
+
+    if (!cardInstance || isHiddenCardInstance(cardInstance)) return;
+    if (getCard(cardInstance.cardId).deploymentZone !== "support") return;
+
+    await playSupportSpawnCardAnimationRef.current(
+      currentHumanPlayerId,
+      cardInstance.instanceId,
+      cardInstance.cardId,
+      supportSlot
+    );
+
+    dispatchBattleActionRef.current({
+      type: "PLAY_SUPPORT_CARD",
+      playerId: currentHumanPlayerId,
+      cardInstanceId: cardInstance.instanceId,
+      supportSlot,
+    });
+  }
+
+  async function executeQueuedMove(
+    action: Extract<BattleAction, { type: "MOVE_UNIT" }>
+  ) {
+    const currentBattle = getCurrentCommandBattle();
+
+    if (!currentBattle) return;
+
+    const canMoveToTarget = getAvailableMoveCells(
+      currentBattle,
+      action.playerId,
+      action.unitId
+    ).some((cell) => samePosition(cell, action.position));
+
+    if (!canMoveToTarget) return;
+
+    if (modeRef.current === "pvp") {
+      dispatchBattleActionRef.current(action);
+      return;
+    }
+
+    await playAndDispatchLocalMovementRef.current(currentBattle, action);
+  }
+
+  async function executeQueuedAttack(
+    action: Extract<BattleAction, { type: "ATTACK" }>
+  ) {
+    const currentBattle = getCurrentCommandBattle();
+
+    if (!currentBattle) return;
+
+    const canAttackTarget = getTargetsInRange(
+      currentBattle,
+      action.playerId,
+      action.attackerType,
+      action.attackerId
+    ).some(
+      (target) => target.type === action.targetType && target.id === action.targetId
+    );
+
+    if (!canAttackTarget) return;
+
+    if (modeRef.current === "pvp") {
+      dispatchBattleActionRef.current(action);
+      return;
+    }
+
+    const strikes = getAttackAnimationSequence(currentBattle, action);
+    const animationPlayed = await playAttackSequenceRef.current(strikes);
+
+    if (!animationPlayed) return;
+
+    dispatchBattleActionRef.current(action, { skipDamageEffects: true });
+  }
+
   function handleCellClick(position: Position) {
     if (debugPaused) return;
-    if (attackSequenceRunningRef.current) return;
     if (battle.status !== "active") return;
     if (battle.activePlayer !== humanPlayerId) return;
 
@@ -1711,7 +1922,6 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     }
 
     if (selectedCardInstanceId) {
-      if (spawningCardInstanceId) return;
       const isOwnSpawn =
         humanPlayerId === "player" ? isPlayerSpawn(position) : isBotSpawn(position);
       if (!isOwnSpawn) return;
@@ -1723,26 +1933,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       if (!cardInstance || isHiddenCardInstance(cardInstance)) return;
       if (getCard(cardInstance.cardId).deploymentZone === "support") return;
 
-      void playSpawnCardAnimation(
-        humanPlayerId,
-        cardInstance.instanceId,
-        cardInstance.cardId,
-        position
-      ).then(() => {
-        dispatchBattleAction({
-          type: "PLAY_CARD",
-          playerId: humanPlayerId,
-          cardInstanceId: cardInstance.instanceId,
-          position,
-        });
-      });
+      enqueueBattleCommand(() =>
+        executeQueuedPlayCard(cardInstance.instanceId, position)
+      );
 
       return;
     }
 
     if (selectedAttacker && selectedAttacker.type === "unit") {
       if (!isMoveCell(position)) return;
-      if (movementAnimationRunningRef.current) return;
 
       const moveAction: BattleAction = {
           type: "MOVE_UNIT",
@@ -1751,23 +1950,16 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           position,
         };
 
-      if (mode === "pvp") {
-        dispatchBattleAction(moveAction);
-        return;
-      }
-
-      void playAndDispatchLocalMovement(battle as BattleState, moveAction);
+      enqueueBattleCommand(() => executeQueuedMove(moveAction));
     }
   }
 
   function handleSupportSlotClick(owner: PlayerId, supportSlot: SupportSlot) {
     if (debugPaused) return;
-    if (attackSequenceRunningRef.current) return;
     if (battle.status !== "active") return;
     if (battle.activePlayer !== humanPlayerId) return;
     if (owner !== humanPlayerId) return;
     if (!selectedCardInstanceId) return;
-    if (spawningCardInstanceId) return;
 
     const cardInstance = battle[humanPlayerId].hand.find(
       (item) => item.instanceId === selectedCardInstanceId
@@ -1783,27 +1975,16 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       return;
     }
 
-    void playSupportSpawnCardAnimation(
-      humanPlayerId,
-      cardInstance.instanceId,
-      cardInstance.cardId,
-      supportSlot
-    ).then(() => {
-      dispatchBattleAction({
-        type: "PLAY_SUPPORT_CARD",
-        playerId: humanPlayerId,
-        cardInstanceId: cardInstance.instanceId,
-        supportSlot,
-      });
-    });
+    enqueueBattleCommand(() =>
+      executeQueuedPlaySupportCard(cardInstance.instanceId, supportSlot)
+    );
   }
 
-  async function handleAttackTarget(
+  function handleAttackTarget(
     targetType: "unit" | "headquarters",
     targetId: string
   ) {
     if (debugPaused) return;
-    if (attackSequenceRunningRef.current) return;
     if (!selectedAttacker) return;
     if (battle.status !== "active") return;
     if (battle.activePlayer !== humanPlayerId) return;
@@ -1817,18 +1998,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       targetId,
     };
 
-    if (mode === "pvp") {
-      dispatchBattleAction(attackAction);
-      return;
-    }
-
-    const strikes = getAttackAnimationSequence(battle as BattleState, attackAction);
-
-    const animationPlayed = await playAttackSequence(strikes);
-
-    if (!animationPlayed) return;
-
-    dispatchBattleAction(attackAction, { skipDamageEffects: true });
+    enqueueBattleCommand(() => executeQueuedAttack(attackAction));
   }
 
 
@@ -1974,6 +2144,11 @@ function renderEnemyDeckWithTimer() {
 
           const card = getCard(unit.cardId);
           const canBeTarget = isTarget("unit", unit.instanceId);
+          const isAttacking = attackingId === unit.instanceId;
+          const hitReaction =
+            hitReactionEffect?.targetId === unit.instanceId
+              ? hitReactionEffect
+              : null;
 
           return (
             <motion.button
@@ -1986,8 +2161,28 @@ function renderEnemyDeckWithTimer() {
                 ...(canBeTarget ? styles.targetCell : {}),
               }}
               initial={{ opacity: 0, scale: 0.82 }}
-              animate={{ opacity: 1, scale: 1 }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+                x: isAttacking
+                  ? [0, 8, -5, 0]
+                  : hitReaction
+                    ? [0, hitReaction.x, -hitReaction.x * 0.32, 0]
+                    : 0,
+                y: hitReaction
+                  ? [0, hitReaction.y, -hitReaction.y * 0.32, 0]
+                  : 0,
+              }}
               exit={{ opacity: 0, scale: 0.72 }}
+              transition={
+                hitReaction
+                  ? { duration: 0.34, ease: "easeOut" }
+                  : {
+                      type: "spring",
+                      stiffness: 320,
+                      damping: 26,
+                    }
+              }
               whileHover={{ scale: 1.06 }}
               whileTap={{ scale: 0.96 }}
               onMouseEnter={() => {
@@ -3549,8 +3744,9 @@ actionSideColumn: {
   },
 
   supportUnitCell: {
-    borderColor: "rgba(213, 203, 168, 0.28)",
-    background: "rgba(19, 22, 20, 0.3)",
+    borderColor: "transparent",
+    background: "transparent",
+    boxShadow: "none",
   },
 
  board: {

@@ -1,4 +1,5 @@
 import type { HeadquartersId, Nation } from "./types";
+import { getHeadquartersDefinition } from "./headquarters";
 
 export type ResearchNation = Extract<Nation, "germany" | "ussr" | "usa">;
 
@@ -62,19 +63,43 @@ const plannedHeadquarters = (
   status: "planned",
 });
 
+const headquartersNode = ({
+  id,
+  headquartersId,
+  status,
+  experienceCost,
+  purchaseCost,
+}: {
+  id: string;
+  headquartersId: HeadquartersId;
+  status: ResearchNodeStatus;
+  experienceCost?: number;
+  purchaseCost?: number;
+}): ResearchNode => {
+  const headquarters = getHeadquartersDefinition(headquartersId);
+
+  return {
+    id,
+    type: "headquarters",
+    title: headquarters.title,
+    subtitle: headquarters.type,
+    headquartersId,
+    experienceCost,
+    purchaseCost,
+    status,
+  };
+};
+
 export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
   germany: {
     nation: "germany",
     title: "Германия",
     subtitle: "Бронетанковые войска Вермахта",
-    starterHeadquarters: {
+    starterHeadquarters: headquartersNode({
       id: "germany-training-camp",
-      type: "headquarters",
-      title: "Trainingslager",
-      subtitle: "Учебная часть",
       headquartersId: "trainingslager",
       status: "unlocked",
-    },
+    }),
     branches: [
       {
         id: "tank",
@@ -100,16 +125,13 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             purchaseCost: 1200,
             status: "researchable",
           },
-          {
+          headquartersNode({
             id: "de-tank-hq-first-panzer",
-            type: "headquarters",
-            title: "1. Panzer-Div.",
-            subtitle: "Танковая дивизия",
             headquartersId: "first_panzer_division",
             experienceCost: 900,
             purchaseCost: 6800,
             status: "locked",
-          },
+          }),
           {
             id: "de-tank-pz35",
             type: "unit",
@@ -272,14 +294,11 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
     nation: "ussr",
     title: "СССР",
     subtitle: "Бронетанковые и механизированные войска",
-    starterHeadquarters: {
+    starterHeadquarters: headquartersNode({
       id: "ussr-training-unit",
-      type: "headquarters",
-      title: "Учебная часть",
-      subtitle: "Учебный штаб",
       headquartersId: "training_unit",
       status: "unlocked",
-    },
+    }),
     branches: [
       {
         id: "tank",
@@ -369,14 +388,11 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
     nation: "usa",
     title: "США",
     subtitle: "Armored Forces",
-    starterHeadquarters: {
+    starterHeadquarters: headquartersNode({
       id: "usa-training-camp",
-      type: "headquarters",
-      title: "Training Camp",
-      subtitle: "Учебный штаб",
       headquartersId: "training_camp",
       status: "unlocked",
-    },
+    }),
     branches: [
       {
         id: "tank",

@@ -5,8 +5,10 @@ import {
   useState,
   type CSSProperties,
   type MouseEvent,
+  type PointerEvent,
   type ReactNode,
   type RefObject,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
@@ -14,12 +16,16 @@ import { getMissionIllustrationAsset } from "../assets/missionIllustrationAssets
 import { CAMPAIGNS, isCampaignMissionUnlocked } from "../game/campaigns";
 import {
   DECK_UNIT_LIMIT,
+  deleteCustomDeck,
+  getGroupedDeckCards,
   loadRecentDeckSelectionForHeadquarters,
   loadSavedDecksForHeadquarters,
   markRecentDeckSelection,
+  type SavedDeck,
 } from "../game/customDecks";
 import { HEADQUARTERS, getMainMenuHeadquarters } from "../game/headquarters";
-import type { HeadquartersId } from "../game/types";
+import { getTankImage } from "../game/tankImages";
+import type { HeadquartersId, TankCard } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
 import { DeckBuilder } from "./DeckBuilder";
 import { HandCardView } from "./HandCardView";
@@ -30,6 +36,27 @@ const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
 const MENU_CARD_SCALE = 1.18;
 const MENU_CARD_WIDTH = Math.round(HAND_CARD_BASE_WIDTH * MENU_CARD_SCALE);
 const MENU_CARD_HEIGHT = Math.round(HAND_CARD_BASE_HEIGHT * MENU_CARD_SCALE);
+
+type BattleDeckOption = {
+  id: string | null;
+  name: string;
+  cardIds?: string[];
+  countLabel: string;
+  savedDeck?: SavedDeck;
+};
+
+type DeckPreviewState = {
+  headquartersId: HeadquartersId;
+  deck: BattleDeckOption;
+};
+
+type CarouselDragState = {
+  active: boolean;
+  moved: boolean;
+  pointerId: number;
+  startX: number;
+  startScrollLeft: number;
+};
 
 function scrollCarousel(
   viewportRef: RefObject<HTMLDivElement | null>,
@@ -55,6 +82,80 @@ function CarouselTapFrame({
   viewportStyle: CSSProperties;
   ariaLabel: string;
 }) {
+  const dragScrollRef = useRef<CarouselDragState | null>(null);
+  const suppressClickRef = useRef(false);
+
+  function startDragScroll(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    dragScrollRef.current = {
+      active: true,
+      moved: false,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startScrollLeft: viewport.scrollLeft,
+    };
+  }
+
+  function moveDragScroll(event: PointerEvent<HTMLDivElement>) {
+    const state = dragScrollRef.current;
+    const viewport = viewportRef.current;
+    if (!state?.active || !viewport || state.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const distance = event.clientX - state.startX;
+    if (Math.abs(distance) > 6) {
+      state.moved = true;
+      event.preventDefault();
+    }
+
+    viewport.scrollLeft = state.startScrollLeft - distance;
+  }
+
+  function stopDragScroll(event: PointerEvent<HTMLDivElement>) {
+    const state = dragScrollRef.current;
+    const viewport = viewportRef.current;
+    if (!state?.active || !viewport || state.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (state.moved) {
+      suppressClickRef.current = true;
+      window.setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 180);
+    }
+
+    dragScrollRef.current = null;
+  }
+
+  function stopSuppressedClick(event: MouseEvent<HTMLDivElement>) {
+    if (!suppressClickRef.current) return;
+
+    suppressClickRef.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function handleWheelScroll(event: ReactWheelEvent<HTMLDivElement>) {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const delta =
+      Math.abs(event.deltaX) > Math.abs(event.deltaY)
+        ? event.deltaX
+        : event.deltaY;
+
+    if (delta === 0) return;
+
+    event.preventDefault();
+    viewport.scrollLeft += delta;
+  }
+
   return (
     <div style={styles.carouselShell}>
       <button
@@ -71,6 +172,12 @@ function CarouselTapFrame({
         className="menu-carousel-scroll"
         style={viewportStyle}
         aria-label={ariaLabel}
+        onPointerDown={startDragScroll}
+        onPointerMove={moveDragScroll}
+        onPointerUp={stopDragScroll}
+        onPointerCancel={stopDragScroll}
+        onWheelCapture={handleWheelScroll}
+        onClickCapture={stopSuppressedClick}
       >
         {children}
       </div>
@@ -85,29 +192,6 @@ function CarouselTapFrame({
       </button>
     </div>
   );
-}
-
-function getPvpStatusText(status: string) {
-  switch (status) {
-    case "connecting":
-      return "Подключаемся к серверу...";
-    case "searching":
-      return "Ищем соперника...";
-    case "waiting":
-      return "Ожидаем второго игрока...";
-    case "matched":
-      return "Соперник найден";
-    case "rolling":
-      return "Жеребьёвка первого хода...";
-    case "inBattle":
-      return "Бой идет";
-    case "finished":
-      return "Бой завершен";
-    case "error":
-      return "Ошибка подключения";
-    default:
-      return "Готово к поиску боя";
-  }
 }
 
 export function PvpLobby() {
@@ -138,6 +222,16 @@ export function PvpLobby() {
 
   const [previewHeadquartersId, setPreviewHeadquartersId] =
     useState<HeadquartersId | null>(null);
+  const [previewDeck, setPreviewDeck] = useState<DeckPreviewState | null>(null);
+  const [previewUnitCard, setPreviewUnitCard] = useState<TankCard | null>(null);
+  const [editingDeck, setEditingDeck] = useState<SavedDeck | null>(null);
+  const deckPreviewListRef = useRef<HTMLDivElement>(null);
+  const deckPreviewDragRef = useRef<{
+    active: boolean;
+    pointerId: number;
+    startY: number;
+    startScrollTop: number;
+  } | null>(null);
   const [hoveredDeckOptionKey, setHoveredDeckOptionKey] = useState<
     string | null
   >(null);
@@ -189,7 +283,7 @@ export function PvpLobby() {
   function getDeckOptionsForHeadquarters(headquartersId: HeadquartersId) {
     const savedDecks = loadSavedDecksForHeadquarters(headquartersId);
     const recentSelection = loadRecentDeckSelectionForHeadquarters(headquartersId);
-    const defaultOption = {
+    const defaultOption: BattleDeckOption = {
       id: null,
       name: "Стоковая колода",
       cardIds: undefined,
@@ -200,6 +294,7 @@ export function PvpLobby() {
       name: deck.name,
       cardIds: deck.cardIds,
       countLabel: `${deck.cardIds.length}/${DECK_UNIT_LIMIT}`,
+      savedDeck: deck,
     }));
 
     if (!recentSelection || recentSelection.deckId === null) {
@@ -245,15 +340,92 @@ export function PvpLobby() {
 
   function openHeadquartersPreview(
     event: MouseEvent,
-    headquartersId: HeadquartersId
+    headquartersId: HeadquartersId,
+    deck?: BattleDeckOption
   ) {
     event.preventDefault();
     event.stopPropagation();
+
+    if (deck?.savedDeck) {
+      setPreviewDeck({ headquartersId, deck });
+      setPreviewHeadquartersId(null);
+      return;
+    }
+
+    setPreviewDeck(null);
     setPreviewHeadquartersId(headquartersId);
   }
 
   function closeHeadquartersPreview() {
     setPreviewHeadquartersId(null);
+    setPreviewDeck(null);
+    setPreviewUnitCard(null);
+  }
+
+  function openPreviewUnitCard(event: MouseEvent, card: TankCard) {
+    event.preventDefault();
+    event.stopPropagation();
+    setPreviewUnitCard(card);
+  }
+
+  function deletePreviewDeck() {
+    if (!previewDeck?.deck.savedDeck) return;
+
+    const confirmed = window.confirm(
+      `Удалить колоду "${previewDeck.deck.name}"?`
+    );
+    if (!confirmed) return;
+
+    deleteCustomDeck(previewDeck.deck.savedDeck.id);
+    closeHeadquartersPreview();
+  }
+
+  function editPreviewDeck() {
+    if (!previewDeck?.deck.savedDeck) return;
+
+    setEditingDeck(previewDeck.deck.savedDeck);
+    closeHeadquartersPreview();
+    openDeckBuilderMenu();
+  }
+
+  function openCreateDeckBuilder() {
+    setEditingDeck(null);
+    openDeckBuilderMenu();
+  }
+
+  function startDeckPreviewScroll(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+
+    const list = deckPreviewListRef.current;
+    if (!list) return;
+
+    deckPreviewDragRef.current = {
+      active: true,
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startScrollTop: list.scrollTop,
+    };
+    list.setPointerCapture(event.pointerId);
+  }
+
+  function moveDeckPreviewScroll(event: PointerEvent<HTMLDivElement>) {
+    const state = deckPreviewDragRef.current;
+    const list = deckPreviewListRef.current;
+    if (!state?.active || !list || state.pointerId !== event.pointerId) return;
+
+    list.scrollTop = state.startScrollTop - (event.clientY - state.startY);
+  }
+
+  function stopDeckPreviewScroll(event: PointerEvent<HTMLDivElement>) {
+    const state = deckPreviewDragRef.current;
+    const list = deckPreviewListRef.current;
+    if (!state?.active || !list || state.pointerId !== event.pointerId) return;
+
+    if (list.hasPointerCapture(event.pointerId)) {
+      list.releasePointerCapture(event.pointerId);
+    }
+
+    deckPreviewDragRef.current = null;
   }
 
   function openSelectedCampaign(campaignId: string) {
@@ -298,21 +470,44 @@ export function PvpLobby() {
   }
 
   useEffect(() => {
-    if (!previewHeadquartersId) return;
+    if (!previewHeadquartersId && !previewDeck && !previewUnitCard) return;
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        if (previewUnitCard) {
+          setPreviewUnitCard(null);
+          return;
+        }
+
         closeHeadquartersPreview();
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [previewHeadquartersId]);
+  }, [previewDeck, previewHeadquartersId, previewUnitCard]);
 
-  const previewHeadquarters = previewHeadquartersId
-    ? HEADQUARTERS[previewHeadquartersId]
-    : null;
+  useEffect(() => {
+    if (menuView !== "headquarters") return;
+
+    const frameId = window.requestAnimationFrame(() => {
+      if (headquartersCarouselRef.current) {
+        headquartersCarouselRef.current.scrollLeft = 0;
+      }
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [menuView, mode]);
+
+  const previewHeadquarters = previewDeck
+    ? HEADQUARTERS[previewDeck.headquartersId]
+    : previewHeadquartersId
+      ? HEADQUARTERS[previewHeadquartersId]
+      : null;
+  const previewDeckCards = previewDeck?.deck.cardIds
+    ? getGroupedDeckCards(previewDeck.deck.cardIds)
+    : [];
+  const previewDeckIsCustom = Boolean(previewDeck?.deck.savedDeck);
   const battleDeckOptions = headquartersList.flatMap((headquarters) => {
     const headquartersId = headquarters.id as HeadquartersId;
 
@@ -493,8 +688,12 @@ export function PvpLobby() {
   if (menuView === "deckBuilder") {
     return (
       <DeckBuilder
+        editingDeck={editingDeck}
         onBack={closeDeckBuilderMenu}
-        onSaved={closeHeadquartersMenu}
+        onSaved={() => {
+          setEditingDeck(null);
+          closeHeadquartersMenu();
+        }}
       />
     );
   }
@@ -595,18 +794,25 @@ export function PvpLobby() {
     <main style={styles.page}>
       <div style={styles.backgroundShade} />
 
-      <section style={styles.menuLayer}>
-        <header style={styles.header}>
+      <section style={{ ...styles.menuLayer, ...styles.headquartersMenuLayer }}>
+        <header style={{ ...styles.header, ...styles.headquartersHeader }}>
           <div style={styles.kicker}>
             {mode === "pvp" ? "Быстрый бой" : "Бой против ИИ"}
           </div>
-          <h1 style={styles.title}>PanzerShrek</h1>
-          <p style={styles.subtitle}>Выбери штаб для боя</p>
+          <h1 style={{ ...styles.title, ...styles.headquartersTitle }}>
+            PanzerShrek
+          </h1>
+          <p style={{ ...styles.subtitle, ...styles.headquartersSubtitle }}>
+            Выбери штаб для боя
+          </p>
         </header>
 
         <CarouselTapFrame
           viewportRef={headquartersCarouselRef}
-          viewportStyle={styles.carouselViewport}
+          viewportStyle={{
+            ...styles.carouselViewport,
+            ...styles.headquartersCarouselViewport,
+          }}
           ariaLabel="Выбор штаба"
         >
           <div style={styles.carouselTrack}>
@@ -626,7 +832,8 @@ export function PvpLobby() {
                   onContextMenu={(event) =>
                     openHeadquartersPreview(
                       event,
-                      headquartersId
+                      headquartersId,
+                      deck
                     )
                   }
                   onMouseEnter={() => setHoveredDeckOptionKey(optionKey)}
@@ -686,7 +893,7 @@ export function PvpLobby() {
                 ...(buttonsDisabled ? styles.headquartersOptionDisabled : {}),
               }}
               disabled={buttonsDisabled}
-              onClick={openDeckBuilderMenu}
+              onClick={openCreateDeckBuilder}
               whileHover={buttonsDisabled ? undefined : { y: -8, scale: 1.035 }}
               whileTap={buttonsDisabled ? undefined : { scale: 0.985 }}
               transition={{ type: "spring", stiffness: 360, damping: 28 }}
@@ -713,11 +920,6 @@ export function PvpLobby() {
           </div>
         ) : null}
 
-        <div style={styles.status}>
-          Режим: {mode === "ai" ? "бот" : "PVP"}
-          {mode === "pvp" ? ` · ${getPvpStatusText(pvpStatus)}` : ""}
-        </div>
-
         {mode === "pvp" && pvpRoomId && pvpStatus === "waiting" ? (
           <div style={styles.hint}>
             Ты в очереди. Как только второй игрок нажмёт “Играть PVP”, бой
@@ -741,7 +943,10 @@ export function PvpLobby() {
       <AnimatePresence>
         {previewHeadquarters ? (
           <motion.div
-            style={styles.cardPreviewOverlay}
+            style={{
+              ...styles.cardPreviewOverlay,
+              ...(previewDeckIsCustom ? styles.deckPreviewOverlay : {}),
+            }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -753,7 +958,10 @@ export function PvpLobby() {
             }}
           >
             <motion.div
-              style={styles.cardPreviewPanel}
+              style={{
+                ...styles.cardPreviewPanel,
+                ...(previewDeckIsCustom ? styles.deckPreviewPanel : {}),
+              }}
               initial={{ opacity: 0, scale: 0.84, y: 18 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 12 }}
@@ -774,21 +982,115 @@ export function PvpLobby() {
                 ×
               </button>
 
-              <HandCardView
-                ownerId="player"
-                headquartersId={previewHeadquarters.id as HeadquartersId}
-                headquarters={{
-                  hp: previewHeadquarters.hp,
-                  attack: previewHeadquarters.attack,
-                  fuelGeneration: previewHeadquarters.fuelGeneration,
-                }}
-                displayMode="preview"
-              />
+              {previewDeckIsCustom ? (
+                <aside style={styles.deckPreviewActions}>
+                  <button
+                    type="button"
+                    style={styles.deckPreviewActionButton}
+                    onClick={deletePreviewDeck}
+                  >
+                    Удалить колоду
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.deckPreviewActionButton}
+                    onClick={editPreviewDeck}
+                  >
+                    Редактировать колоду
+                  </button>
+                </aside>
+              ) : null}
+
+              <section style={styles.deckPreviewHeadquarters}>
+                <HandCardView
+                  ownerId="player"
+                  headquartersId={previewHeadquarters.id as HeadquartersId}
+                  headquarters={{
+                    hp: previewHeadquarters.hp,
+                    attack: previewHeadquarters.attack,
+                    fuelGeneration: previewHeadquarters.fuelGeneration,
+                  }}
+                  displayMode="preview"
+                />
+                {previewDeck ? (
+                  <div style={styles.deckPreviewTitleBlock}>
+                    <strong>{previewDeck.deck.name}</strong>
+                    <span>{previewDeck.deck.countLabel}</span>
+                  </div>
+                ) : null}
+              </section>
+
+              {previewDeckIsCustom ? (
+                <section style={styles.deckPreviewListPanel}>
+                  <div
+                    ref={deckPreviewListRef}
+                    className="menu-carousel-scroll"
+                    style={styles.deckPreviewUnitList}
+                    onPointerDown={startDeckPreviewScroll}
+                    onPointerMove={moveDeckPreviewScroll}
+                    onPointerUp={stopDeckPreviewScroll}
+                    onPointerCancel={stopDeckPreviewScroll}
+                  >
+                    {previewDeckCards.map(({ card, count }) => (
+                      <button
+                        key={card.id}
+                        type="button"
+                        style={styles.deckPreviewUnitRow}
+                        onContextMenu={(event) =>
+                          openPreviewUnitCard(event, card)
+                        }
+                      >
+                        <img
+                          src={getTankImage(card.id)}
+                          alt=""
+                          style={styles.deckPreviewUnitImage}
+                          draggable={false}
+                        />
+                        <span style={styles.deckPreviewUnitName}>
+                          {card.name}
+                        </span>
+                        <strong style={styles.deckPreviewUnitCount}>
+                          x{count}
+                        </strong>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
 
               <div style={styles.cardPreviewHint}>
                 ПКМ по фону или Esc — закрыть
               </div>
             </motion.div>
+
+            {previewUnitCard ? (
+              <motion.div
+                style={styles.unitCardPreviewPanel}
+                initial={{ opacity: 0, scale: 0.84, y: 18 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 12 }}
+                transition={{ type: "spring", stiffness: 260, damping: 24 }}
+                onMouseDown={(event) => event.stopPropagation()}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setPreviewUnitCard(null);
+                }}
+              >
+                <button
+                  type="button"
+                  style={styles.cardPreviewClose}
+                  onClick={() => setPreviewUnitCard(null)}
+                  aria-label="Закрыть просмотр юнита"
+                >
+                  ×
+                </button>
+                <HandCardView
+                  card={previewUnitCard}
+                  ownerId="player"
+                  displayMode="preview"
+                />
+              </motion.div>
+            ) : null}
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -832,7 +1134,7 @@ const styles: Record<string, CSSProperties> = {
     width: "100%",
     maxWidth: 1180,
     maxHeight: "100%",
-    padding: "0 24px",
+    padding: "8px 24px 0",
     boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
@@ -840,10 +1142,21 @@ const styles: Record<string, CSSProperties> = {
     overflow: "hidden",
   },
 
+  headquartersMenuLayer: {
+    justifyContent: "flex-start",
+    padding: "2px 24px 4px",
+    overflowY: "auto",
+    scrollbarWidth: "none",
+  },
+
   header: {
     textAlign: "center",
     marginBottom: 8,
     textShadow: "0 2px 12px rgba(0,0,0,0.86)",
+  },
+
+  headquartersHeader: {
+    marginBottom: 0,
   },
 
   kicker: {
@@ -859,11 +1172,16 @@ const styles: Record<string, CSSProperties> = {
     margin: 0,
     color: "#ffe9a8",
     fontSize: "clamp(34px, 5vh, 48px)",
-    lineHeight: 0.94,
+    lineHeight: 1.08,
     letterSpacing: 1.8,
     textTransform: "uppercase",
     textShadow:
       "0 2px 0 rgba(0,0,0,0.95), 0 0 22px rgba(247, 215, 116, 0.26)",
+  },
+
+  headquartersTitle: {
+    fontSize: "clamp(28px, 4vh, 42px)",
+    lineHeight: 1.04,
   },
 
   subtitle: {
@@ -873,20 +1191,34 @@ const styles: Record<string, CSSProperties> = {
     color: "rgba(244, 229, 191, 0.82)",
   },
 
+  headquartersSubtitle: {
+    marginTop: 4,
+    fontSize: 13,
+  },
+
   carouselViewport: {
     width: "100%",
     overflowX: "auto",
     overflowY: "hidden",
-    padding: "12px 6px 16px",
+    padding: "38px 58px 12px",
     boxSizing: "border-box",
     WebkitOverflowScrolling: "touch",
     scrollSnapType: "x mandatory",
     scrollbarWidth: "none",
+    cursor: "grab",
+    userSelect: "none",
+    touchAction: "pan-y",
+  },
+
+  headquartersCarouselViewport: {
+    padding: "30px 58px 8px",
   },
 
   carouselShell: {
     position: "relative",
-    width: "100%",
+    width: "max(280px, calc(100% - 104px))",
+    maxWidth: "100%",
+    margin: "0 auto",
   },
 
   carouselTapZone: {
@@ -894,7 +1226,7 @@ const styles: Record<string, CSSProperties> = {
     top: 0,
     bottom: 0,
     zIndex: 12,
-    width: 54,
+    width: 42,
     padding: 0,
     border: "none",
     background: "transparent",
@@ -903,15 +1235,11 @@ const styles: Record<string, CSSProperties> = {
   },
 
   carouselTapZoneLeft: {
-    left: 0,
-    background:
-      "linear-gradient(90deg, rgba(0,0,0,0.32), rgba(0,0,0,0.04), transparent)",
+    left: -46,
   },
 
   carouselTapZoneRight: {
-    right: 0,
-    background:
-      "linear-gradient(270deg, rgba(0,0,0,0.32), rgba(0,0,0,0.04), transparent)",
+    right: -46,
   },
 
   carouselTapArrow: {
@@ -1163,14 +1491,14 @@ const styles: Record<string, CSSProperties> = {
   selectionGlow: {
     position: "absolute",
     left: "50%",
-    top: 0,
+    top: 12,
     width: MENU_CARD_WIDTH + 58,
-    height: MENU_CARD_HEIGHT + 42,
+    height: MENU_CARD_HEIGHT + 30,
     transform: "translateX(-50%) scale(0.96)",
     borderRadius: 34,
     background:
       "radial-gradient(circle at 50% 48%, rgba(255, 236, 151, 0.95), rgba(247, 196, 68, 0.58) 30%, rgba(247, 185, 73, 0.22) 56%, transparent 78%)",
-    filter: "blur(24px)",
+    filter: "blur(20px)",
     opacity: 0,
     transition: "opacity 220ms ease, transform 220ms ease",
     pointerEvents: "none",
@@ -1531,7 +1859,7 @@ const styles: Record<string, CSSProperties> = {
 
   singleMenuAction: {
     width: "min(260px, calc(100vw - 48px))",
-    margin: "0 auto 8px",
+    margin: "0 auto 4px",
   },
 
   researchButton: {
@@ -1556,7 +1884,7 @@ const styles: Record<string, CSSProperties> = {
     display: "block",
     width: "100%",
     margin: 0,
-    padding: "11px 16px",
+    padding: "9px 16px",
     borderRadius: 10,
     border: "1px solid rgba(220, 184, 96, 0.48)",
     background:
@@ -1588,6 +1916,12 @@ const styles: Record<string, CSSProperties> = {
     backdropFilter: "blur(6px)",
   },
 
+  deckPreviewOverlay: {
+    alignItems: "flex-start",
+    paddingTop: 10,
+    paddingBottom: 10,
+  },
+
   cardPreviewPanel: {
     position: "relative",
     width: 390,
@@ -1597,6 +1931,151 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     justifyContent: "center",
     filter: "drop-shadow(0 28px 58px rgba(0,0,0,0.78))",
+  },
+
+  deckPreviewPanel: {
+    width: "min(1060px, calc(100vw - 72px))",
+    maxWidth: "calc(100vw - 72px)",
+    height: "min(610px, calc(100vh - 28px))",
+    display: "grid",
+    gridTemplateColumns: "170px 390px minmax(280px, 1fr)",
+    gap: 20,
+    alignItems: "start",
+    justifyContent: "center",
+    padding: "12px 24px 18px",
+    border: "none",
+    borderRadius: 12,
+    background:
+      "linear-gradient(135deg, rgba(12, 15, 12, 0.94), rgba(25, 24, 16, 0.92))",
+    boxShadow:
+      "0 24px 70px rgba(0,0,0,0.72)",
+    boxSizing: "border-box",
+    filter: "none",
+  },
+
+  deckPreviewActions: {
+    alignSelf: "start",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "flex-start",
+    gap: 12,
+    paddingTop: 82,
+  },
+
+  deckPreviewActionButton: {
+    width: "100%",
+    minHeight: 46,
+    padding: "10px 12px",
+    border: "1px solid rgba(220, 184, 96, 0.42)",
+    borderRadius: 4,
+    background:
+      "linear-gradient(180deg, rgba(68, 53, 31, 0.98), rgba(26, 24, 17, 0.98))",
+    color: "#ffe9a8",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 1000,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    boxShadow: "0 10px 22px rgba(0,0,0,0.32)",
+  },
+
+  deckPreviewHeadquarters: {
+    position: "relative",
+    width: 390,
+    display: "grid",
+    justifyItems: "center",
+    gap: 12,
+  },
+
+  deckPreviewTitleBlock: {
+    width: 300,
+    display: "grid",
+    gap: 3,
+    padding: "9px 12px",
+    border: "1px solid rgba(220, 184, 96, 0.3)",
+    borderRadius: 4,
+    background: "rgba(11, 13, 10, 0.82)",
+    color: "#ffe9a8",
+    textAlign: "center",
+    boxSizing: "border-box",
+  },
+
+  deckPreviewListPanel: {
+    alignSelf: "start",
+    minHeight: 0,
+    height: 556,
+    display: "block",
+    paddingTop: 0,
+  },
+
+  deckPreviewUnitList: {
+    minHeight: 0,
+    height: "100%",
+    overflowY: "auto",
+    display: "grid",
+    alignContent: "start",
+    gap: 8,
+    padding: "2px 8px 2px 2px",
+    scrollbarWidth: "none",
+    cursor: "grab",
+    touchAction: "none",
+    WebkitOverflowScrolling: "touch",
+  },
+
+  deckPreviewUnitRow: {
+    minHeight: 66,
+    display: "grid",
+    gridTemplateColumns: "72px minmax(0, 1fr) auto",
+    alignItems: "center",
+    gap: 10,
+    padding: "7px 9px 7px 7px",
+    border: "1px solid rgba(220, 184, 96, 0.22)",
+    borderRadius: 5,
+    background:
+      "linear-gradient(180deg, rgba(35, 34, 24, 0.9), rgba(12, 14, 11, 0.92))",
+    color: "#f4e5bf",
+    cursor: "context-menu",
+    textAlign: "left",
+    boxShadow: "0 8px 18px rgba(0,0,0,0.22)",
+  },
+
+  deckPreviewUnitImage: {
+    width: 72,
+    height: 52,
+    objectFit: "cover",
+    borderRadius: 3,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "#080909",
+  },
+
+  deckPreviewUnitName: {
+    overflow: "hidden",
+    color: "#ffe9a8",
+    fontSize: 13,
+    fontWeight: 1000,
+    lineHeight: 1.08,
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
+  deckPreviewUnitCount: {
+    minWidth: 34,
+    color: "#d7b665",
+    fontSize: 14,
+    fontWeight: 1000,
+    textAlign: "right",
+  },
+
+  unitCardPreviewPanel: {
+    position: "absolute",
+    zIndex: 2,
+    width: 390,
+    maxWidth: "82vw",
+    maxHeight: "92vh",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    filter: "drop-shadow(0 32px 70px rgba(0,0,0,0.82))",
   },
 
   cardPreviewClose: {
