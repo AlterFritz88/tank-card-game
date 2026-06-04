@@ -527,7 +527,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const playAndDispatchLocalMovementRef = useRef<
     (
       state: BattleState,
-      action: Extract<BattleAction, { type: "MOVE_UNIT" }>
+      action: Extract<BattleAction, { type: "MOVE_UNIT" }>,
+      options?: { preserveLaterSelection?: boolean }
     ) => Promise<void>
   >(() => Promise.resolve());
 
@@ -1445,6 +1446,52 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     showDamageEffectsFromSnapshots(before, after);
   }
 
+  function actionUsesSelection(action: BattleAction) {
+    const { selectedCardInstanceId: currentCard, selectedAttacker: currentAttacker } =
+      useBattleStore.getState();
+
+    if (action.type === "PLAY_CARD" || action.type === "PLAY_SUPPORT_CARD") {
+      return currentCard === action.cardInstanceId;
+    }
+
+    if (action.type === "MOVE_UNIT") {
+      return (
+        currentAttacker?.type === "unit" && currentAttacker.id === action.unitId
+      );
+    }
+
+    if (action.type === "ATTACK") {
+      return (
+        currentAttacker?.type === action.attackerType &&
+        currentAttacker.id === action.attackerId
+      );
+    }
+
+    return true;
+  }
+
+  function dispatchQueuedBattleAction(
+    action: BattleAction,
+    options: { skipDamageEffects?: boolean } = {}
+  ) {
+    const {
+      selectedCardInstanceId: currentCard,
+      selectedAttacker: currentAttacker,
+    } = useBattleStore.getState();
+    const shouldRestoreSelection =
+      (currentCard !== null || currentAttacker !== null) &&
+      !actionUsesSelection(action);
+
+    dispatchBattleActionRef.current(action, options);
+
+    if (!shouldRestoreSelection) return;
+
+    useBattleStore.setState({
+      selectedCardInstanceId: currentCard,
+      selectedAttacker: currentAttacker,
+    });
+  }
+
   function playDrawCardAnimation(owner: PlayerId, cardInstanceId: string) {
     const deckElement = deckRefs.current[owner];
     const targetCardElement = handCardRefs.current[owner].get(cardInstanceId);
@@ -1601,7 +1648,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
   async function playAndDispatchLocalMovement(
     state: BattleState,
-    action: Extract<BattleAction, { type: "MOVE_UNIT" }>
+    action: Extract<BattleAction, { type: "MOVE_UNIT" }>,
+    options: { preserveLaterSelection?: boolean } = {}
   ): Promise<void> {
     const unit = state.units.find((item) => item.instanceId === action.unitId);
     const intermediate =
@@ -1614,10 +1662,16 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     for (const position of positions) {
       await playMoveIntentAnimation(action.playerId, action.unitId, position);
-      dispatchBattleActionRef.current({
+      const stepAction: BattleAction = {
         ...action,
         position,
-      });
+      };
+
+      if (options.preserveLaterSelection) {
+        dispatchQueuedBattleAction(stepAction);
+      } else {
+        dispatchBattleActionRef.current(stepAction);
+      }
       await waitForNextFrame();
       await delay(MOVE_ARROW_FOLLOW_MS);
     }
@@ -1812,7 +1866,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       position
     );
 
-    dispatchBattleActionRef.current({
+    dispatchQueuedBattleAction({
       type: "PLAY_CARD",
       playerId: currentHumanPlayerId,
       cardInstanceId: cardInstance.instanceId,
@@ -1850,7 +1904,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       supportSlot
     );
 
-    dispatchBattleActionRef.current({
+    dispatchQueuedBattleAction({
       type: "PLAY_SUPPORT_CARD",
       playerId: currentHumanPlayerId,
       cardInstanceId: cardInstance.instanceId,
@@ -1874,11 +1928,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     if (!canMoveToTarget) return;
 
     if (modeRef.current === "pvp") {
-      dispatchBattleActionRef.current(action);
+      dispatchQueuedBattleAction(action);
       return;
     }
 
-    await playAndDispatchLocalMovementRef.current(currentBattle, action);
+    await playAndDispatchLocalMovementRef.current(currentBattle, action, {
+      preserveLaterSelection: true,
+    });
   }
 
   async function executeQueuedAttack(
@@ -1900,7 +1956,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     if (!canAttackTarget) return;
 
     if (modeRef.current === "pvp") {
-      dispatchBattleActionRef.current(action);
+      dispatchQueuedBattleAction(action);
       return;
     }
 
@@ -1909,7 +1965,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     if (!animationPlayed) return;
 
-    dispatchBattleActionRef.current(action, { skipDamageEffects: true });
+    dispatchQueuedBattleAction(action, { skipDamageEffects: true });
   }
 
   function handleCellClick(position: Position) {
@@ -3732,7 +3788,7 @@ actionSideColumn: {
     height: 91,
     padding: 0,
     overflow: "visible",
-    borderRadius: 7,
+    borderRadius: 0,
     border: "1px solid rgba(213, 203, 168, 0.28)",
     background: "rgba(19, 22, 20, 0.3)",
     boxShadow: "inset 0 0 9px rgba(0,0,0,0.48)",
@@ -3809,10 +3865,10 @@ actionSideColumn: {
   position: "relative",
   overflow: "visible",
   outline: "none",
-  borderRadius: 10,
-  border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: 0,
+  border: "1px solid rgba(255,255,255,0.075)",
   background:
-    "linear-gradient(135deg, rgba(17, 24, 26, 0.72), rgba(7, 9, 10, 0.62))",
+    "linear-gradient(135deg, rgba(17, 24, 26, 0.42), rgba(7, 9, 10, 0.34))",
   color: "#eef2f3",
   padding: 3,
   display: "flex",
@@ -3823,7 +3879,7 @@ actionSideColumn: {
   cursor: "pointer",
   textAlign: "left",
   boxShadow:
-    "inset 0 0 0 1px rgba(255,255,255,0.025), inset 0 0 24px rgba(0,0,0,0.35)",
+    "inset 0 0 0 1px rgba(255,255,255,0.014), inset 0 0 18px rgba(0,0,0,0.22)",
 },
 
   boardCardContent: {
@@ -3835,26 +3891,26 @@ actionSideColumn: {
 
   spawnCell: {
     background:
-      "linear-gradient(135deg, rgba(35, 66, 36, 0.48), rgba(8, 13, 8, 0.62))",
+      "linear-gradient(135deg, rgba(35, 66, 36, 0.24), rgba(8, 13, 8, 0.36))",
   },
 
   botSpawnCell: {
   background:
-    "linear-gradient(135deg, rgba(92, 32, 32, 0.46), rgba(23, 8, 8, 0.64))",
+    "linear-gradient(135deg, rgba(92, 32, 32, 0.22), rgba(23, 8, 8, 0.36))",
   boxShadow:
-    "inset 0 0 0 1px rgba(255, 120, 100, 0.08), inset 0 0 24px rgba(120, 20, 20, 0.22)",
+    "inset 0 0 0 1px rgba(255, 120, 100, 0.04), inset 0 0 18px rgba(120, 20, 20, 0.12)",
 },
 
   moveCell: {
     background:
-      "linear-gradient(135deg, rgba(24, 70, 31, 0.46), rgba(11, 23, 13, 0.68))",
+      "linear-gradient(135deg, rgba(24, 70, 31, 0.34), rgba(11, 23, 13, 0.48))",
   },
 
   moveCellPulse: {
     position: "absolute",
     inset: 3,
     zIndex: 2,
-    borderRadius: 7,
+    borderRadius: 0,
     pointerEvents: "none",
   },
 
@@ -3875,7 +3931,7 @@ actionSideColumn: {
     inset: 1,
     zIndex: 20,
     border: "1px solid rgba(235, 188, 77, 0.7)",
-    borderRadius: 9,
+    borderRadius: 0,
     pointerEvents: "none",
   },
 
@@ -3884,7 +3940,7 @@ actionSideColumn: {
     inset: 1,
     zIndex: 19,
     border: "1px solid rgba(207, 72, 61, 0.68)",
-    borderRadius: 9,
+    borderRadius: 0,
     pointerEvents: "none",
   },
 

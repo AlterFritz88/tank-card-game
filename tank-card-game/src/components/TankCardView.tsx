@@ -350,7 +350,7 @@ const styles: Record<string, React.CSSProperties> = {
   boardCard: {
     height: "100%",
     minHeight: 0,
-    borderRadius: 10,
+    borderRadius: 0,
     background: "#070808",
   },
 
@@ -614,7 +614,7 @@ const styles: Record<string, React.CSSProperties> = {
     inset: 0,
     zIndex: 2,
     pointerEvents: "none",
-    borderRadius: 10,
+    borderRadius: 0,
     mixBlendMode: "screen",
   },
 
@@ -622,7 +622,7 @@ const styles: Record<string, React.CSSProperties> = {
     position: "absolute",
     inset: 0,
     zIndex: 3,
-    borderRadius: 10,
+    borderRadius: 0,
     background: "rgba(0, 0, 0, 0.28)",
     boxShadow: "inset 0 0 26px rgba(0,0,0,0.62)",
     pointerEvents: "none",
