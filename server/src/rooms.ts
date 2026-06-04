@@ -11,6 +11,7 @@ import {
   HEADQUARTERS,
   getHeadquartersDefinition,
 } from "../../tank-card-game/src/game/headquarters";
+import { calculateDeckWeight, getDefaultDeckWeight } from "../../tank-card-game/src/game/deckWeight";
 import { getRandomBattleBackgroundId } from "./battleBackgrounds";
 import {
   createInitialBattleState,
@@ -29,6 +30,7 @@ type RoomPlayer = {
   id: PlayerId;
   headquartersId: HeadquartersId;
   deckCardIds: string[] | null;
+  deckWeight: number;
   sessionId: string;
   socket: WebSocket | null;
   disconnectTimer: NodeJS.Timeout | null;
@@ -69,6 +71,7 @@ type PendingAttack = {
 type Room = {
   id: string;
   players: Partial<Record<PlayerId, RoomPlayer>>;
+  publicMatchmaking: boolean;
   battle: BattleState | null;
   pendingStartRoll: PendingStartRoll | null;
   pendingMovement: PendingMovement | null;
@@ -92,6 +95,9 @@ const ROOM_CLEANUP_DELAY_MS = 30_000;
 const RECONNECT_GRACE_MS = Number(process.env.PVP_RECONNECT_GRACE_MS ?? 15_000);
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
+const PVP_MATCH_WEIGHT_TOLERANCE = Number(
+  process.env.PVP_MATCH_WEIGHT_TOLERANCE ?? 12
+);
 
 function getStraightTwoCellIntermediate(
   from: { row: number; col: number },
@@ -211,6 +217,15 @@ function normalizeCustomDeckCardIds(
   return result;
 }
 
+function getDeckWeight(
+  headquartersId: HeadquartersId,
+  deckCardIds: string[] | null
+): number {
+  return deckCardIds
+    ? calculateDeckWeight(headquartersId, deckCardIds).totalWeight
+    : getDefaultDeckWeight(headquartersId).totalWeight;
+}
+
 export class RoomManager {
   private rooms = new Map<string, Room>();
   private sessionToRoom = new Map<string, { roomId: string; playerId: PlayerId }>();
@@ -310,42 +325,59 @@ export class RoomManager {
   ) {
     safeSend(socket, { type: "MATCHMAKING_STARTED" });
 
-    const waitingRoom = this.getWaitingRoom();
+    const normalizedHeadquartersId = normalizeHeadquartersId(
+      headquartersId,
+      DEFAULT_PLAYER_HEADQUARTERS_ID
+    );
+    const normalizedDeckCardIds = normalizeCustomDeckCardIds(
+      normalizedHeadquartersId,
+      deckCardIds
+    );
+    const deckWeight = getDeckWeight(
+      normalizedHeadquartersId,
+      normalizedDeckCardIds
+    );
+    const waitingRoom = this.getCompatibleWaitingRoom(deckWeight);
 
     if (waitingRoom) {
       this.joinExistingWaitingRoom(
         socket,
         waitingRoom,
         sessionId,
-        headquartersId,
-        deckCardIds
+        normalizedHeadquartersId,
+        normalizedDeckCardIds ?? undefined
       );
       return;
     }
 
     this.createRoom(socket, sessionId, {
       makePublicWaiting: true,
-      headquartersId,
-      deckCardIds,
+      headquartersId: normalizedHeadquartersId,
+      deckCardIds: normalizedDeckCardIds ?? undefined,
     });
   }
 
-  private getWaitingRoom(): Room | null {
-    if (!this.waitingRoomId) return null;
+  private getCompatibleWaitingRoom(deckWeight: number): Room | null {
+    let bestRoom: Room | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
 
-    const room = this.rooms.get(this.waitingRoomId);
-    if (!room || !room.players.player || room.players.bot || room.battle) {
-      this.waitingRoomId = null;
-      return null;
+    for (const room of this.rooms.values()) {
+      if (!room.publicMatchmaking) continue;
+      if (!this.isWaitingForOpponent(room)) continue;
+
+      const player = room.players.player;
+      const socket = player?.socket;
+      if (!player || !socket || socket.readyState !== socket.OPEN) continue;
+
+      const distance = Math.abs(player.deckWeight - deckWeight);
+      if (distance > PVP_MATCH_WEIGHT_TOLERANCE) continue;
+      if (distance >= bestDistance) continue;
+
+      bestRoom = room;
+      bestDistance = distance;
     }
 
-    const socket = room.players.player.socket;
-    if (!socket || socket.readyState !== socket.OPEN) {
-      this.waitingRoomId = null;
-      return null;
-    }
-
-    return room;
+    return bestRoom;
   }
 
   private createRoom(
@@ -378,6 +410,7 @@ export class RoomManager {
           normalizeCustomDeckCardIds(playerHeadquartersId, options?.deckCardIds)
         ),
       },
+      publicMatchmaking: Boolean(options?.makePublicWaiting),
       battle: null,
       pendingStartRoll: null,
       pendingMovement: null,
@@ -408,7 +441,10 @@ export class RoomManager {
     headquartersId: HeadquartersId,
     deckCardIds?: string[]
   ) {
-    this.waitingRoomId = null;
+    if (this.waitingRoomId === room.id) {
+      this.waitingRoomId = null;
+    }
+    room.publicMatchmaking = false;
     const botHeadquartersId = normalizeHeadquartersId(
       headquartersId,
       DEFAULT_BOT_HEADQUARTERS_ID
@@ -452,6 +488,7 @@ export class RoomManager {
     if (this.waitingRoomId === roomId) {
       this.waitingRoomId = null;
     }
+    room.publicMatchmaking = false;
 
     const botHeadquartersId = normalizeHeadquartersId(
       headquartersId,
@@ -907,7 +944,9 @@ export class RoomManager {
     console.log(`[PVP:${room.id}] player ${playerId} reconnected`);
 
     if (this.isWaitingForOpponent(room)) {
-      this.waitingRoomId = room.id;
+      if (room.publicMatchmaking) {
+        this.waitingRoomId = room.id;
+      }
       safeSend(socket, { type: "ROOM_CREATED", roomId: room.id, playerId });
       safeSend(socket, { type: "WAITING_FOR_OPPONENT", roomId: room.id });
       return;
@@ -1002,6 +1041,7 @@ export class RoomManager {
       id,
       headquartersId,
       deckCardIds,
+      deckWeight: getDeckWeight(headquartersId, deckCardIds),
       socket,
       sessionId,
       disconnectTimer: null,
@@ -1117,6 +1157,7 @@ export class RoomManager {
   }
 
   private cancelWaitingRoom(room: Room, notifySocket?: WebSocket) {
+    room.publicMatchmaking = false;
     this.clearTurnTimer(room);
     this.clearPendingStartRoll(room);
     this.clearPendingMovement(room);
@@ -1229,6 +1270,7 @@ export class RoomManager {
   private deleteRoomIfEmpty(room: Room) {
     if (room.players.player || room.players.bot) return;
 
+    room.publicMatchmaking = false;
     this.clearTurnTimer(room);
     this.clearPendingStartRoll(room);
     this.clearPendingMovement(room);

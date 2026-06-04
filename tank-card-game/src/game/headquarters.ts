@@ -13,6 +13,7 @@ export type HeadquartersDefinition = {
   attack: number;
   range: number;
   fuelGeneration: number;
+  level: number;
   defaultDeckId: string;
   availableInMainMenu?: boolean;
 };
@@ -43,6 +44,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     attack: 1,
     range: 99,
     fuelGeneration: 3,
+    level: 1,
     defaultDeckId: "training_unit_default",
     availableInMainMenu: true,
   },
@@ -60,6 +62,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     attack: 2,
     range: 99,
     fuelGeneration: 2,
+    level: 1,
     defaultDeckId: "trainingslager_default",
     availableInMainMenu: true,
   },
@@ -76,6 +79,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     attack: 1,
     range: 99,
     fuelGeneration: 4,
+    level: 1,
     defaultDeckId: "training_camp_default",
     availableInMainMenu: true,
   },
@@ -93,6 +97,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     attack: 2,
     range: 99,
     fuelGeneration: 4,
+    level: 4,
     defaultDeckId: "first_panzer_division_default",
     availableInMainMenu: false,
   },
@@ -110,6 +115,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     attack: 1,
     range: 99,
     fuelGeneration: 3,
+    level: 2,
     defaultDeckId: "polish_border_guard_campaign",
     availableInMainMenu: false,
   },
@@ -127,6 +133,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     attack: 1,
     range: 99,
     fuelGeneration: 3,
+    level: 3,
     defaultDeckId: "polish_army_lodz_campaign",
     availableInMainMenu: false,
   },
@@ -144,6 +151,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     attack: 1,
     range: 99,
     fuelGeneration: 4,
+    level: 3,
     defaultDeckId: "polish_army_prusy_campaign",
     availableInMainMenu: false,
   },
@@ -161,6 +169,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     attack: 2,
     range: 99,
     fuelGeneration: 4,
+    level: 4,
     defaultDeckId: "polish_warsaw_defense_campaign",
     availableInMainMenu: false,
   },

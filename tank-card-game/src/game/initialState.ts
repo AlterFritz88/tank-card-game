@@ -418,7 +418,7 @@ function normalizeDeckCardIds(cardIds: string[], deckLabel: string): string[] {
   return normalizedCardIds;
 }
 
-function getDeckCardIds(deckId: string): string[] {
+export function getDeckCardIds(deckId: string): string[] {
   const cardIds = DECK_CARD_IDS[deckId] ?? [];
   const normalizedCardIds = normalizeDeckCardIds(cardIds, deckId);
 

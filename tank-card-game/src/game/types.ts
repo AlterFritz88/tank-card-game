@@ -52,6 +52,7 @@ export type TankCard = {
   nation: Nation;
   class: TankClass;
   rarity: TankRarity;
+  level?: number;
 
   cost: number;
   attack: number;

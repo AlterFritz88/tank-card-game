@@ -1,4 +1,6 @@
 import type React from "react";
+import type { BattleReward } from "../game/economy";
+import { getHeadquartersDefinition } from "../game/headquarters";
 import type { MatchEndReason } from "../game/modes";
 import type { BattleKillStats, ClientBattleState, PlayerId } from "../game/types";
 import victoryBackground from "../assets/backgrounds/results/victory-result-bg.png";
@@ -10,6 +12,7 @@ type ResultScreenProps = {
   localPlayerId?: PlayerId;
   matchEndReason?: MatchEndReason | null;
   restartLabel?: string;
+  reward?: BattleReward | null;
 };
 
 const STAT_ROWS: { key: keyof BattleKillStats; label: string }[] = [
@@ -37,7 +40,8 @@ export function ResultScreen({
   onRestart,
   localPlayerId = "player",
   matchEndReason = null,
-  restartLabel = "Начать бой заново",
+  restartLabel = "В меню",
+  reward = null,
 }: ResultScreenProps) {
   const winningPlayer: PlayerId | null =
     battle.status === "player_won"
@@ -60,7 +64,14 @@ export function ResultScreen({
     <div style={{ ...styles.overlay, backgroundImage: `url(${backgroundImage})` }}>
       <div style={styles.vignette} />
 
-      <h1 style={styles.title}>{title}</h1>
+      <h1
+        style={{
+          ...styles.title,
+          color: localPlayerWon ? "#70ff82" : "#ff5f5f",
+        }}
+      >
+        {title}
+      </h1>
 
       {reasonText ? <div style={styles.reason}>{reasonText}</div> : null}
 
@@ -72,9 +83,53 @@ export function ResultScreen({
         <StatsPanel title="Противник уничтожил" stats={enemyStats} accent="#ff6b6b" />
       </div>
 
+      {reward ? (
+        <div style={styles.rewardPanelWrap}>
+          <RewardPanel reward={reward} />
+        </div>
+      ) : null}
+
       <button type="button" style={styles.restartButton} onClick={onRestart}>
         {restartLabel}
       </button>
+    </div>
+  );
+}
+
+function RewardPanel({ reward }: { reward: BattleReward }) {
+  const headquarters = getHeadquartersDefinition(reward.headquartersId);
+
+  return (
+    <section style={styles.rewardPanel}>
+      <h2 style={styles.rewardTitle}>Награда</h2>
+      <div style={styles.rewardSubtitle}>{headquarters.title}</div>
+
+      <div style={styles.rewardRows}>
+        {reward.headquartersXp > 0 ? (
+          <RewardRow label="Опыт штаба" value={`+${reward.headquartersXp}`} />
+        ) : null}
+        {reward.fullyResearchedConversion ? (
+          <RewardRow label="Штаб изучен" value="в свободный опыт" />
+        ) : null}
+        <RewardRow label="Свободный опыт" value={`+${reward.freeXp}`} />
+        <RewardRow label="Железные траки" value={`+${reward.ironTracks}`} />
+        {reward.goldTracks > 0 ? (
+          <RewardRow label="Золотые траки" value={`+${reward.goldTracks}`} />
+        ) : null}
+      </div>
+
+      <div style={styles.rewardProgress}>
+        Уничтожение армии: {Math.round(reward.destructionProgress * 100)}%
+      </div>
+    </section>
+  );
+}
+
+function RewardRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={styles.rewardRow}>
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
@@ -193,6 +248,14 @@ const styles: Record<string, React.CSSProperties> = {
     width: "21.5%",
   },
 
+  rewardPanelWrap: {
+    position: "absolute",
+    left: "50%",
+    top: "26%",
+    width: "min(360px, 30vw)",
+    transform: "translateX(-50%)",
+  },
+
   statsPanel: {
     padding: 18,
     borderRadius: 16,
@@ -241,6 +304,65 @@ const styles: Record<string, React.CSSProperties> = {
     borderTop: "1px solid rgba(255,255,255,0.12)",
     fontSize: 19,
     fontWeight: 900,
+    textTransform: "uppercase",
+  },
+
+  rewardPanel: {
+    padding: "18px 20px",
+    borderRadius: 16,
+    background: "linear-gradient(180deg, rgba(14,15,12,0.9), rgba(0,0,0,0.78))",
+    border: "1px solid rgba(247,215,116,0.26)",
+    boxShadow:
+      "0 18px 54px rgba(0,0,0,0.58), inset 0 0 30px rgba(247,215,116,0.05)",
+    backdropFilter: "blur(2px)",
+  },
+
+  rewardTitle: {
+    margin: 0,
+    color: "#ffe9a8",
+    fontSize: 24,
+    fontWeight: 1000,
+    letterSpacing: 2,
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.95)",
+  },
+
+  rewardSubtitle: {
+    marginTop: 4,
+    color: "rgba(244,229,191,0.78)",
+    fontSize: 14,
+    fontWeight: 800,
+    textTransform: "uppercase",
+  },
+
+  rewardRows: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    marginTop: 16,
+  },
+
+  rewardRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    padding: "9px 10px",
+    borderRadius: 10,
+    background: "rgba(255,255,255,0.052)",
+    border: "1px solid rgba(255,255,255,0.07)",
+    color: "#efe6cf",
+    fontSize: 16,
+  },
+
+  rewardProgress: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTop: "1px solid rgba(255,255,255,0.1)",
+    color: "#d7b665",
+    fontSize: 13,
+    fontWeight: 900,
+    letterSpacing: 0.7,
     textTransform: "uppercase",
   },
 

@@ -38,6 +38,7 @@ type TankCardViewProps = {
   alreadyMoved?: boolean;
   alreadyAttacked?: boolean;
   borderlessBoard?: boolean;
+  suppressExhaustedDim?: boolean;
   healthDamageEffect?: {
     id: number;
     amount: number;
@@ -113,6 +114,7 @@ export function TankCardView({
   alreadyMoved = false,
   alreadyAttacked = false,
   borderlessBoard = false,
+  suppressExhaustedDim = false,
   healthDamageEffect,
   healthGainEffect,
   healthPreviewValue,
@@ -123,7 +125,8 @@ export function TankCardView({
 
   const hpValue = currentHp ?? card.hp;
   const isHand = variant === "hand";
-  const isBoardExhausted = !isHand && alreadyMoved && alreadyAttacked;
+  const isBoardExhausted =
+    !isHand && alreadyMoved && alreadyAttacked && !suppressExhaustedDim;
   const tankImage = getTankImage(card.id);
   const boardClassIconImage = getCardClassIcon(card, ownerId);
 

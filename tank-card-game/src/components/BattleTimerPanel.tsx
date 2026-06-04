@@ -53,13 +53,18 @@ export function BattleTimerPanel({
               : "none",
             opacity: 0.92,
           }}
-          animate={active ? { rotate: [0, 180, 360] } : { rotate: 0 }}
+          animate={
+            active
+              ? { rotate: [0, 180, 180, 360, 360] }
+              : { rotate: 0 }
+          }
           transition={
             active
               ? {
-                  duration: isLowTime ? 1.1 : 2.8,
+                  duration: isLowTime ? 2.45 : 3.2,
                   repeat: Infinity,
-                  ease: "linear",
+                  ease: ["easeInOut", "linear", "easeInOut", "linear"],
+                  times: [0, 0.18, 0.5, 0.68, 1],
                 }
               : undefined
           }

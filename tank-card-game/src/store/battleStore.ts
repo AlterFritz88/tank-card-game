@@ -5,11 +5,13 @@ import type { AttackAnimationStrike } from "../game/engine";
 import {
   DEFAULT_BOT_HEADQUARTERS_ID,
   DEFAULT_PLAYER_HEADQUARTERS_ID,
+  getHeadquartersDefinition,
   getTrainingHeadquartersIds,
 } from "../game/headquarters";
 import { getRandomBattleBackgroundId } from "../assets/battleBackgroundAssets";
 import { getCampaignMission, isCampaignMissionUnlocked } from "../game/campaigns";
-import { createInitialBattleState } from "../game/initialState";
+import { calculateDeckWeight } from "../game/deckWeight";
+import { createInitialBattleState, getDeckCardIds } from "../game/initialState";
 import type {
   GameMode,
   MainMenuView,
@@ -30,6 +32,8 @@ type SelectedAttacker = {
   type: "unit" | "headquarters";
   id: string;
 } | null;
+
+const AI_CUSTOM_OPPONENT_DECK_CARD_COUNT = 40;
 
 export type FirstTurnRollState = {
   visible: boolean;
@@ -211,15 +215,70 @@ function createFreshBattle(
   botHeadquartersId?: HeadquartersId,
   playerDeckCardIds?: string[]
 ) {
-  const resolvedBotHeadquartersId =
-    botHeadquartersId ?? getRandomTrainingOpponentHeadquartersId(playerHeadquartersId);
+  const aiOpponent = botHeadquartersId
+    ? { headquartersId: botHeadquartersId, deckCardIds: undefined }
+    : getAiOpponentSetup(playerHeadquartersId, playerDeckCardIds);
 
   return createInitialBattleState({
     playerHeadquartersId,
-    botHeadquartersId: resolvedBotHeadquartersId,
+    botHeadquartersId: aiOpponent.headquartersId,
     playerDeckCardIds,
+    botDeckCardIds: aiOpponent.deckCardIds,
     backgroundId: getRandomBattleBackgroundId(),
   });
+}
+
+function getAiOpponentSetup(
+  playerHeadquartersId: HeadquartersId,
+  playerDeckCardIds?: string[]
+): { headquartersId: HeadquartersId; deckCardIds?: string[] } {
+  if (!playerDeckCardIds) {
+    return {
+      headquartersId: getRandomTrainingOpponentHeadquartersId(
+        playerHeadquartersId
+      ),
+    };
+  }
+
+  const candidates = getTrainingHeadquartersIds();
+
+  if (candidates.length === 0) {
+    return {
+      headquartersId: DEFAULT_BOT_HEADQUARTERS_ID,
+      deckCardIds: getExpandedDefaultDeckCardIds(DEFAULT_BOT_HEADQUARTERS_ID),
+    };
+  }
+
+  const playerWeight = calculateDeckWeight(
+    playerHeadquartersId,
+    playerDeckCardIds
+  ).totalWeight;
+
+  const opponent =
+    candidates
+      .map((headquartersId) => {
+        const deckCardIds = getExpandedDefaultDeckCardIds(headquartersId);
+
+        return {
+          headquartersId,
+          deckCardIds,
+          distance: Math.abs(
+            calculateDeckWeight(headquartersId, deckCardIds).totalWeight -
+              playerWeight
+          ),
+        };
+      })
+      .sort((left, right) => left.distance - right.distance)[0] ?? null;
+
+  return opponent
+    ? {
+        headquartersId: opponent.headquartersId,
+        deckCardIds: opponent.deckCardIds,
+      }
+    : {
+        headquartersId: DEFAULT_BOT_HEADQUARTERS_ID,
+        deckCardIds: getExpandedDefaultDeckCardIds(DEFAULT_BOT_HEADQUARTERS_ID),
+      };
 }
 
 function getRandomTrainingOpponentHeadquartersId(
@@ -228,10 +287,28 @@ function getRandomTrainingOpponentHeadquartersId(
   const candidates = getTrainingHeadquartersIds().filter(
     (headquartersId) => headquartersId !== playerHeadquartersId
   );
+  const availableCandidates =
+    candidates.length > 0 ? candidates : getTrainingHeadquartersIds();
 
-  if (candidates.length === 0) return DEFAULT_BOT_HEADQUARTERS_ID;
+  if (availableCandidates.length === 0) {
+    return DEFAULT_BOT_HEADQUARTERS_ID;
+  }
 
-  return candidates[Math.floor(Math.random() * candidates.length)];
+  const randomIndex = Math.floor(Math.random() * availableCandidates.length);
+
+  return availableCandidates[randomIndex];
+}
+
+function getExpandedDefaultDeckCardIds(headquartersId: HeadquartersId): string[] {
+  const defaultDeckId = getHeadquartersDefinition(headquartersId).defaultDeckId;
+  const defaultCardIds = getDeckCardIds(defaultDeckId);
+
+  if (defaultCardIds.length === 0) return [];
+
+  return Array.from(
+    { length: AI_CUSTOM_OPPONENT_DECK_CARD_COUNT },
+    (_, index) => defaultCardIds[index % defaultCardIds.length]
+  );
 }
 
 function createCampaignBattle(missionId: string): BattleState | null {

@@ -37,6 +37,8 @@ import { FuelPanel } from "./FuelPanel";
 import { BattleTimerPanel } from "./BattleTimerPanel";
 import { DeckStack } from "./DeckStack";
 import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
+import { calculateBattleReward, type BattleReward } from "../game/economy";
+import { applyBattleRewardToProgress } from "../game/playerProgress";
 import apShellImage from "../assets/ap-shell.png";
 import explosionFlashImage from "../assets/effects/explosion-flash.png";
 import explosionFireballImage from "../assets/effects/explosion-fireball.png";
@@ -169,10 +171,10 @@ type CardPreview =
     };
 
 function setObjectRef(
-  refs: React.MutableRefObject<Map<string, HTMLButtonElement>>,
+  refs: React.MutableRefObject<Map<string, HTMLElement>>,
   id: string
 ) {
-  return (element: HTMLButtonElement | null) => {
+  return (element: HTMLElement | null) => {
     if (element) {
       refs.current.set(id, element);
     } else {
@@ -183,7 +185,7 @@ function setObjectRef(
 
 function getElementCenterRelativeToBoard(
   boardElement: HTMLDivElement,
-  element: HTMLButtonElement
+  element: HTMLElement
 ): CellCenter {
   const boardRect = boardElement.getBoundingClientRect();
   const elementRect = element.getBoundingClientRect();
@@ -406,7 +408,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   });
   const previousActivePlayerRef = useRef(battle.activePlayer);
   const boardRef = useRef<HTMLDivElement | null>(null);
-  const objectRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const objectRefs = useRef<Map<string, HTMLElement>>(new Map());
   const projectileIdRef = useRef(0);
   const explosionIdRef = useRef(0);
   const hitReactionIdRef = useRef(0);
@@ -474,7 +476,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
   const [cardPreview, setCardPreview] = useState<CardPreview | null>(null);
   const [debugPaused, setDebugPaused] = useState(false);
+  const [battleReward, setBattleReward] = useState<BattleReward | null>(null);
   const debugPausedRef = useRef(false);
+  const rewardedBattleKeyRef = useRef<string | null>(null);
 
   const handCardRefs = useRef<Record<PlayerId, Map<string, HTMLElement>>>({
     player: new Map(),
@@ -593,17 +597,6 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     };
   }
 
-  function setSupportUnitRef(
-    owner: PlayerId,
-    supportSlot: SupportSlot,
-    unitId: string
-  ) {
-    return (element: HTMLButtonElement | null) => {
-      setSupportCellRef(owner, supportSlot)(element);
-      setObjectRef(objectRefs, unitId)(element);
-    };
-  }
-
   function openCardPreview(
     event: React.MouseEvent,
     preview: CardPreview
@@ -667,6 +660,58 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     commandQueueRef.current = [];
   }, [battle.status]);
+
+  useEffect(() => {
+    let frameId: number | null = null;
+
+    if (battle.status === "starting" || battle.status === "active") {
+      rewardedBattleKeyRef.current = null;
+      frameId = window.requestAnimationFrame(() => {
+        setBattleReward(null);
+      });
+
+      return () => {
+        if (frameId !== null) {
+          window.cancelAnimationFrame(frameId);
+        }
+      };
+    }
+
+    if (battle.status !== "player_won" && battle.status !== "bot_won") return;
+
+    const rewardKey = [
+      mode,
+      humanPlayerId,
+      battle.status,
+      battle.turn,
+      battle.headquarters.player.hp,
+      battle.headquarters.bot.hp,
+      JSON.stringify(battle.stats),
+      matchEndReason ?? "normal",
+    ].join(":");
+
+    if (rewardedBattleKeyRef.current === rewardKey) return;
+
+    rewardedBattleKeyRef.current = rewardKey;
+
+    const reward = calculateBattleReward({
+      battle,
+      mode,
+      localPlayerId: humanPlayerId,
+      matchEndReason: mode === "pvp" ? matchEndReason : null,
+    });
+
+    applyBattleRewardToProgress(reward);
+    frameId = window.requestAnimationFrame(() => {
+      setBattleReward(reward);
+    });
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [battle, humanPlayerId, matchEndReason, mode]);
 
   useEffect(() => {
     if (!cardPreview) return;
@@ -2165,84 +2210,27 @@ function renderEnemyDeckWithTimer() {
           );
           const canPlace = freeSlots.includes(supportSlot);
 
-          if (!unit) {
-            return (
-              <motion.button
-                key={`${owner}-support-${supportSlot}`}
-                type="button"
-                ref={setSupportCellRef(owner, supportSlot)}
-                style={{
-                  ...styles.supportCell,
-                  ...(canPlace ? styles.supportCellAvailable : {}),
-                }}
-                animate={
-                  canPlace
-                    ? {
-                        boxShadow: [
-                          "inset 0 0 7px rgba(102, 226, 123, 0.16), 0 0 3px rgba(102, 226, 123, 0.12)",
-                          "inset 0 0 14px rgba(124, 246, 145, 0.34), 0 0 8px rgba(102, 226, 123, 0.24)",
-                          "inset 0 0 7px rgba(102, 226, 123, 0.16), 0 0 3px rgba(102, 226, 123, 0.12)",
-                        ],
-                      }
-                    : {}
-                }
-                transition={{
-                  duration: 2.5,
-                  ease: "easeInOut",
-                  repeat: Infinity,
-                }}
-                onMouseDown={preventPersistentBattleFocus}
-                onClick={() => handleSupportSlotClick(owner, supportSlot)}
-                aria-label={`Тыловая ячейка ${supportSlot + 1}`}
-              />
-            );
-          }
-
-          const card = getCard(unit.cardId);
-          const canBeTarget = isTarget("unit", unit.instanceId);
-          const isAttacking = attackingId === unit.instanceId;
+          const card = unit ? getCard(unit.cardId) : null;
+          const canBeTarget = unit ? isTarget("unit", unit.instanceId) : false;
+          const isAttacking = unit ? attackingId === unit.instanceId : false;
           const hitReaction =
-            hitReactionEffect?.targetId === unit.instanceId
+            unit && hitReactionEffect?.targetId === unit.instanceId
               ? hitReactionEffect
               : null;
 
           return (
             <motion.button
-              key={unit.instanceId}
-              ref={setSupportUnitRef(owner, supportSlot, unit.instanceId)}
+              key={`${owner}-support-${supportSlot}`}
+              ref={setSupportCellRef(owner, supportSlot)}
               type="button"
               style={{
                 ...styles.supportCell,
-                ...styles.supportUnitCell,
+                ...(unit ? styles.supportUnitCell : {}),
+                ...(canPlace ? styles.supportCellAvailable : {}),
                 ...(canBeTarget ? styles.targetCell : {}),
               }}
-              initial={{ opacity: 0, scale: 0.82 }}
-              animate={{
-                opacity: 1,
-                scale: 1,
-                x: isAttacking
-                  ? [0, 8, -5, 0]
-                  : hitReaction
-                    ? [0, hitReaction.x, -hitReaction.x * 0.32, 0]
-                    : 0,
-                y: hitReaction
-                  ? [0, hitReaction.y, -hitReaction.y * 0.32, 0]
-                  : 0,
-              }}
-              exit={{ opacity: 0, scale: 0.72 }}
-              transition={
-                hitReaction
-                  ? { duration: 0.34, ease: "easeOut" }
-                  : {
-                      type: "spring",
-                      stiffness: 320,
-                      damping: 26,
-                    }
-              }
-              whileHover={{ scale: 1.06 }}
-              whileTap={{ scale: 0.96 }}
               onMouseEnter={() => {
-                if (!canBeTarget) return;
+                if (!unit || !canBeTarget) return;
 
                 setHoveredAttackTarget({
                   type: "unit",
@@ -2250,44 +2238,112 @@ function renderEnemyDeckWithTimer() {
                 });
               }}
               onMouseLeave={() => {
+                if (!unit) return;
+
                 setHoveredAttackTarget((current) =>
                   current?.id === unit.instanceId ? null : current
                 );
               }}
               onMouseDown={preventPersistentBattleFocus}
-              onContextMenu={(event) =>
+              onContextMenu={(event) => {
+                if (!unit) return;
+
                 openCardPreview(event, {
                   type: "unit",
                   cardId: unit.cardId,
                   ownerId: unit.ownerId,
                   currentHp: unit.currentHp,
-                })
-              }
-              onClick={() => {
-                if (canBeTarget) {
-                  void handleAttackTarget("unit", unit.instanceId);
-                }
+                });
               }}
+              onClick={() => {
+                if (unit && canBeTarget) {
+                  void handleAttackTarget("unit", unit.instanceId);
+                  return;
+                }
+
+                handleSupportSlotClick(owner, supportSlot);
+              }}
+              aria-label={`Тыловая ячейка ${supportSlot + 1}`}
             >
-              <motion.div
-                style={styles.boardCardContent}
-                animate={{
-                  opacity: hiddenDestroyedObjectIds.has(unit.instanceId) ? 0 : 1,
+              <motion.span
+                aria-hidden="true"
+                style={styles.supportCellSurface}
+                animate={
+                  canPlace
+                    ? {
+                        background: [
+                          "linear-gradient(135deg, rgba(52, 84, 56, 0.5), rgba(17, 27, 18, 0.42))",
+                          "linear-gradient(135deg, rgba(68, 110, 70, 0.6), rgba(22, 38, 23, 0.5))",
+                          "linear-gradient(135deg, rgba(52, 84, 56, 0.5), rgba(17, 27, 18, 0.42))",
+                        ],
+                      }
+                    : {
+                        background:
+                          "linear-gradient(135deg, rgba(50, 58, 52, 0.5), rgba(17, 21, 18, 0.42))",
+                      }
+                }
+                transition={{
+                  duration: 2.5,
+                  ease: "easeInOut",
+                  repeat: canPlace ? Infinity : 0,
                 }}
-              >
-                <TankCardView
-                  card={card}
-                  variant="board"
-                  ownerId={getVisualOwnerId(unit.ownerId)}
-                  currentHp={unit.currentHp}
-                  borderlessBoard
-                  alreadyMoved
-                  alreadyAttacked
-                  healthDamageEffect={getHealthDamageEffect(unit.instanceId)}
-                  healthGainEffect={getHealthGainEffect(unit.instanceId)}
-                  healthPreviewValue={combatForecast.get(unit.instanceId)}
-                />
-              </motion.div>
+              />
+
+              <AnimatePresence initial={false}>
+                {unit && card && (
+                  <motion.div
+                    key={unit.instanceId}
+                    ref={setObjectRef(objectRefs, unit.instanceId)}
+                    style={{
+                      ...styles.boardCardContent,
+                      ...styles.supportCardContent,
+                    }}
+                    initial={{ opacity: 0, scale: 0.82 }}
+                    animate={{
+                      opacity: hiddenDestroyedObjectIds.has(unit.instanceId)
+                        ? 0
+                        : 1,
+                      scale: 1,
+                      x: isAttacking
+                        ? [0, 8, -5, 0]
+                        : hitReaction
+                          ? [0, hitReaction.x, -hitReaction.x * 0.32, 0]
+                          : 0,
+                      y: hitReaction
+                        ? [0, hitReaction.y, -hitReaction.y * 0.32, 0]
+                        : 0,
+                    }}
+                    exit={{ opacity: 0, scale: 0.72 }}
+                    transition={
+                      hitReaction
+                        ? { duration: 0.34, ease: "easeOut" }
+                        : {
+                            type: "spring",
+                            stiffness: 320,
+                            damping: 26,
+                          }
+                    }
+                    whileHover={{ scale: 1.06 }}
+                    whileTap={{ scale: 0.96 }}
+                  >
+                    <TankCardView
+                      card={card}
+                      variant="board"
+                      ownerId={getVisualOwnerId(unit.ownerId)}
+                      currentHp={unit.currentHp}
+                      borderlessBoard
+                      alreadyMoved
+                      alreadyAttacked
+                      suppressExhaustedDim
+                      healthDamageEffect={getHealthDamageEffect(
+                        unit.instanceId
+                      )}
+                      healthGainEffect={getHealthGainEffect(unit.instanceId)}
+                      healthPreviewValue={combatForecast.get(unit.instanceId)}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {canBeTarget && <AttackTargetGlow />}
             </motion.button>
@@ -2314,12 +2370,13 @@ function renderEnemyDeckWithTimer() {
     visibleStartRollState.winner === humanPlayerId;
   const localHand = getVisibleHand(humanPlayerId);
   const battleBackground = getBattleBackgroundAsset(battle.backgroundId);
-  const resultRestartLabel =
+  const resultRestartLabel = "В меню";
+  const handleResultRestart =
     mode === "pvp"
-      ? "В меню"
+      ? leavePvpMatch
       : mode === "campaign"
-        ? "В кампании"
-        : "Начать бой заново";
+        ? reset
+        : exitBattleToMenu;
 
   return (
     <div
@@ -2894,6 +2951,9 @@ function renderEnemyDeckWithTimer() {
                         style={{
                           ...styles.cell,
                           zIndex: 6,
+                          ...(ownSpawn ? styles.spawnCell : {}),
+                          ...(enemySpawn ? styles.botSpawnCell : {}),
+                          ...styles.occupiedCell,
                           ...(unit.ownerId === humanPlayerId
                             ? styles.playerUnit
                             : styles.botUnit),
@@ -2969,6 +3029,17 @@ function renderEnemyDeckWithTimer() {
                           }
                         }}
                       >
+                        {ownSpawn || enemySpawn ? (
+                          <span
+                            style={{
+                              ...styles.occupiedSpawnCellTint,
+                              ...(ownSpawn
+                                ? styles.occupiedFriendlySpawnCellTint
+                                : styles.occupiedEnemySpawnCellTint),
+                            }}
+                          />
+                        ) : null}
+
                         <motion.div
                           style={styles.boardCardContent}
                           animate={{
@@ -3045,6 +3116,9 @@ function renderEnemyDeckWithTimer() {
                         style={{
                           ...styles.cell,
                           zIndex: 6,
+                          ...(ownSpawn ? styles.spawnCell : {}),
+                          ...(enemySpawn ? styles.botSpawnCell : {}),
+                          ...styles.occupiedCell,
                           ...(owner === humanPlayerId
                             ? styles.playerUnit
                             : styles.botUnit),
@@ -3126,6 +3200,17 @@ function renderEnemyDeckWithTimer() {
                           }
                         }}
                       >
+                        {ownSpawn || enemySpawn ? (
+                          <span
+                            style={{
+                              ...styles.occupiedSpawnCellTint,
+                              ...(ownSpawn
+                                ? styles.occupiedFriendlySpawnCellTint
+                                : styles.occupiedEnemySpawnCellTint),
+                            }}
+                          />
+                        ) : null}
+
                         <motion.div
                           style={styles.boardCardContent}
                           animate={{
@@ -3182,8 +3267,7 @@ function renderEnemyDeckWithTimer() {
     key={`${row}-${col}`}
     style={{
       ...styles.cell,
-      ...(ownSpawn ? styles.spawnCell : {}),
-      ...(enemySpawn ? styles.botSpawnCell : {}),
+      ...styles.emptyCell,
       ...(moveCell ? styles.moveCell : {}),
     }}
     whileHover={{ scale: 1.02 }}
@@ -3489,10 +3573,11 @@ function renderEnemyDeckWithTimer() {
       {(battle.status === "player_won" || battle.status === "bot_won") && (
   <ResultScreen
     battle={battle}
-    onRestart={mode === "pvp" ? leavePvpMatch : reset}
+    onRestart={handleResultRestart}
     localPlayerId={humanPlayerId}
     matchEndReason={mode === "pvp" ? matchEndReason : null}
     restartLabel={resultRestartLabel}
+    reward={battleReward}
   />
 )}
     </div>
@@ -3789,21 +3874,34 @@ actionSideColumn: {
     padding: 0,
     overflow: "visible",
     borderRadius: 0,
-    border: "1px solid rgba(213, 203, 168, 0.28)",
-    background: "rgba(19, 22, 20, 0.3)",
-    boxShadow: "inset 0 0 9px rgba(0,0,0,0.48)",
+    border: "none",
+    outline: "none",
+    appearance: "none",
+    background: "transparent",
+    boxShadow: "none",
     cursor: "pointer",
   },
 
   supportCellAvailable: {
-    borderColor: "rgba(111, 228, 132, 0.58)",
-    background: "rgba(42, 96, 54, 0.24)",
+    border: "none",
+    background: "transparent",
   },
 
   supportUnitCell: {
-    borderColor: "transparent",
-    background: "rgba(9, 12, 10, 0.34)",
+    border: "none",
+    background: "transparent",
     boxShadow: "none",
+  },
+
+  supportCellSurface: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 0,
+    pointerEvents: "none",
+    background:
+      "linear-gradient(135deg, rgba(50, 58, 52, 0.5), rgba(17, 21, 18, 0.42))",
+    boxShadow:
+      "inset 0 0 18px rgba(0,0,0,0.18), inset 0 0 0 1px rgba(238, 224, 184, 0.09)",
   },
 
  board: {
@@ -3829,6 +3927,10 @@ actionSideColumn: {
   boardCellBackdrop: {
     cursor: "default",
     pointerEvents: "none",
+    background:
+      "linear-gradient(135deg, rgba(31, 45, 47, 0.62), rgba(10, 15, 16, 0.5))",
+    boxShadow:
+      "inset 0 0 0 1px rgba(255,255,255,0.038), inset 0 0 20px rgba(0,0,0,0.22)",
   },
 
   tacticalArrowWrap: {
@@ -3887,6 +3989,40 @@ actionSideColumn: {
     width: "100%",
     height: "100%",
     minHeight: 0,
+    zIndex: 1,
+  },
+
+  supportCardContent: {
+    pointerEvents: "none",
+  },
+
+  occupiedCell: {
+    background: "transparent",
+    boxShadow: "none",
+  },
+
+  emptyCell: {
+    background: "transparent",
+    boxShadow: "none",
+  },
+
+  occupiedSpawnCellTint: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 0,
+    pointerEvents: "none",
+  },
+
+  occupiedFriendlySpawnCellTint: {
+    background:
+      "linear-gradient(135deg, rgba(35, 66, 36, 0.24), rgba(8, 13, 8, 0.36))",
+  },
+
+  occupiedEnemySpawnCellTint: {
+    background:
+      "linear-gradient(135deg, rgba(92, 32, 32, 0.22), rgba(23, 8, 8, 0.36))",
+    boxShadow:
+      "inset 0 0 0 1px rgba(255, 120, 100, 0.04), inset 0 0 18px rgba(120, 20, 20, 0.12)",
   },
 
   spawnCell: {

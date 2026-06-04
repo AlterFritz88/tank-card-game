@@ -11,6 +11,8 @@ import type {
 } from "./types";
 
 const STEP_TIME_MS = 15 * 1000;
+const STARTING_HAND_SIZE = 5;
+const SECOND_PLAYER_EXTRA_STARTING_CARDS = 1;
 
 export const SUPPORT_SLOTS: SupportSlot[] = [0, 1, 2];
 
@@ -409,13 +411,13 @@ function beginBattle(
   const startingPlayerDrawnCards = drawCardsWithoutPenalty(
     state,
     startingPlayer,
-    3
+    STARTING_HAND_SIZE
   );
 
   const secondPlayerDrawnCards = drawCardsWithoutPenalty(
     state,
     secondPlayer,
-    4
+    STARTING_HAND_SIZE + SECOND_PLAYER_EXTRA_STARTING_CARDS
   );
 
   addLog(

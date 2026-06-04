@@ -208,7 +208,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: "100%",
     height: "100%",
     minHeight: 0,
-    borderRadius: 10,
+    borderRadius: 0,
     border: "2px solid rgba(225, 214, 184, 0.28)",
     color: "#eef2f3",
     background: "#070808",
