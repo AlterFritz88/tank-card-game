@@ -25,18 +25,20 @@ export function BattleTimerPanel({
 
   return (
     <div style={styles.timerPanel}>
-      {showPlayerReminder && (
-        <motion.div
-          style={{
-            ...styles.playerReminder,
-            color: isLowTime ? "#ff8a65" : "#f0d9a8",
-          }}
-          animate={{ opacity: [0.65, 1, 0.65] }}
-          transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
-        >
-          ТВОЙ ХОД
-        </motion.div>
-      )}
+      <div style={styles.playerReminderSlot}>
+        {showPlayerReminder && (
+          <motion.div
+            style={{
+              ...styles.playerReminder,
+              color: isLowTime ? "#ff8a65" : "#f0d9a8",
+            }}
+            animate={{ opacity: [0.65, 1, 0.65] }}
+            transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+          >
+            ТВОЙ ХОД
+          </motion.div>
+        )}
+      </div>
 
       <div style={styles.timerMainRow}>
         <motion.img
@@ -105,12 +107,19 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: "none",
   },
 
+  playerReminderSlot: {
+    height: 12,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 1,
+  },
+
   playerReminder: {
     fontSize: 10,
     fontWeight: 600,
     letterSpacing: "1.5px",
     textTransform: "uppercase",
-    marginBottom: 1,
   },
 
   timerMainRow: {

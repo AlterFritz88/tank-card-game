@@ -162,3 +162,35 @@ export function getClassVisual(vehicleClass: TankCard["class"]): ClassVisual {
       };
   }
 }
+
+export function getCardClassVisual(card: TankCard): ClassVisual {
+  if (card.deploymentZone !== "support") {
+    return getClassVisual(card.class);
+  }
+
+  switch (card.supportRole) {
+    case "artillery":
+      return {
+        label: "Артиллерия",
+        icon: "АРТ",
+        accent: "#c084fc",
+      };
+
+    case "transport":
+      return {
+        label: "Автотранспорт",
+        icon: "ТР",
+        accent: "#9bd17b",
+      };
+
+    case "medical":
+      return {
+        label: "Медицина",
+        icon: "МЕД",
+        accent: "#72d6cb",
+      };
+
+    default:
+      return getClassVisual(card.class);
+  }
+}

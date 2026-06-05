@@ -37,6 +37,7 @@ import { FuelPanel } from "./FuelPanel";
 import { BattleTimerPanel } from "./BattleTimerPanel";
 import { DeckStack } from "./DeckStack";
 import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
+import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
 import { calculateBattleReward, type BattleReward } from "../game/economy";
 import { applyBattleRewardToProgress } from "../game/playerProgress";
 import apShellImage from "../assets/ap-shell.png";
@@ -345,6 +346,34 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     return "deckCount" in player ? player.deckCount : player.deck.length;
   }
 
+  function renderHeadquartersAvatar(
+    owner: PlayerId,
+    placement: "player" | "enemy"
+  ) {
+    const avatar = getHeadquartersAvatarAsset(getHeadquartersIdForOwner(owner));
+
+    if (!avatar) {
+      return null;
+    }
+
+    return (
+      <motion.img
+        src={avatar}
+        alt=""
+        aria-hidden="true"
+        style={{
+          ...styles.headquartersAvatar,
+          ...(placement === "player"
+            ? styles.playerHeadquartersAvatar
+            : styles.enemyHeadquartersAvatar),
+        }}
+        initial={{ opacity: 0, y: placement === "player" ? 14 : -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.28, ease: "easeOut" }}
+      />
+    );
+  }
+
   function getVisibleHand(owner: PlayerId): CardInstance[] {
     const hand = battle[owner].hand as ClientCardInstance[];
 
@@ -635,7 +664,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       return 12;
     }
 
-    return -Math.min(98, 10 + (totalCards - 6) * 14);
+    const cardWidth = 175;
+    const maxHandWidth = 980;
+    const neededOverlap = Math.ceil(
+      (cardWidth * totalCards - maxHandWidth) / (totalCards - 1)
+    );
+
+    return -Math.min(148, Math.max(42, neededOverlap));
   }
 
   function isNewlyDrawnCard(owner: PlayerId, cardInstanceId: string) {
@@ -2147,9 +2182,64 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     );
   }
 
+  function renderStartRollOverlay() {
+    return (
+      <AnimatePresence>
+        {visibleStartRollState.visible && (
+          <motion.div
+            style={styles.startRollOverlay}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+          >
+            <div style={styles.startRollPanel}>
+              <div style={styles.startRollCenterGroup}>
+                <div style={styles.startRollText}>Определяем первый ход</div>
+
+                <motion.img
+                  src={cartridgeImage}
+                  alt="Жеребьёвка первого хода"
+                  style={styles.startRollCartridge}
+                  initial={{ rotate: 0, scale: 0.9 }}
+                  animate={{
+                    rotate: visibleStartRollState.finalRotation,
+                    scale: 1,
+                  }}
+                  transition={{
+                    duration: START_ROLL_DURATION_MS / 1000,
+                    ease: [0.08, 0.82, 0.18, 1],
+                  }}
+                />
+
+                {visibleStartRollState.resultVisible &&
+                  visibleStartRollState.winner && (
+                    <motion.div
+                      style={{
+                        ...styles.startRollResult,
+                        ...(visibleStartRollWinnerIsLocal
+                          ? styles.startRollResultPlayer
+                          : styles.startRollResultBot),
+                      }}
+                      initial={{ opacity: 0, y: 10, scale: 0.96 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ duration: 0.25 }}
+                    >
+                      {getStartRollResultText(visibleStartRollState.winner)}
+                    </motion.div>
+                  )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    );
+  }
+
 function renderEnemyDeckWithTimer() {
   return (
     <div style={styles.enemyDeckWithTimer}>
+      <div style={styles.enemyDeckRow}>
       <div
   ref={(element) => {
     deckRefs.current[opponentPlayerId] = element;
@@ -2161,14 +2251,34 @@ function renderEnemyDeckWithTimer() {
           countPosition="right"
         />
       </div>
+      {renderHeadquartersAvatar(opponentPlayerId, "enemy")}
+      </div>
 
-      {renderTimerPanel(opponentPlayerId)}
+      <div style={styles.enemyControlStack}>
+        {renderTimerPanel(opponentPlayerId)}
 
-      <FuelPanel
-        ownerId={getVisualOwnerId(opponentPlayerId)}
-        currentFuel={battle[opponentPlayerId].resources}
-        nextTurnFuel={getNextTurnFuel(opponentPlayerId)}
-      />
+        <FuelPanel
+          ownerId={getVisualOwnerId(opponentPlayerId)}
+          currentFuel={battle[opponentPlayerId].resources}
+          nextTurnFuel={getNextTurnFuel(opponentPlayerId)}
+        />
+
+        <button
+          style={{
+            ...styles.endTurnButton,
+            opacity: debugPaused || !isHumanTurn ? 0.45 : 1,
+          }}
+          disabled={debugPaused || !isHumanTurn}
+          onClick={() =>
+            dispatchBattleAction({
+              type: "END_TURN",
+              playerId: humanPlayerId,
+            })
+          }
+        >
+          Конец хода
+        </button>
+      </div>
     </div>
   );
 }
@@ -2629,6 +2739,8 @@ function renderEnemyDeckWithTimer() {
   <DeckStack cardCount={getDeckCount(humanPlayerId)} />
 </div>
   </div>
+
+  {renderHeadquartersAvatar(humanPlayerId, "player")}
 </aside>
 
           <section style={styles.boardShell}>
@@ -2637,7 +2749,7 @@ function renderEnemyDeckWithTimer() {
       <AnimatePresence>
   {visibleStartRollState.visible && (
     <motion.div
-      style={styles.startRollOverlay}
+      style={styles.startRollLegacyOverlay}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -2709,6 +2821,8 @@ function renderEnemyDeckWithTimer() {
             {renderSupportLine(opponentPlayerId)}
 
             <motion.div ref={boardRef} layout style={styles.board}>
+              {renderStartRollOverlay()}
+
               <div style={styles.boardCellBackdropGrid} aria-hidden="true">
                 {visualRows.map((row) =>
                   visualCols.map((col) => {
@@ -3323,22 +3437,6 @@ function renderEnemyDeckWithTimer() {
   </div>
 
   <div style={styles.actionSideColumn}>
-    <button
-              style={{
-                ...styles.endTurnButton,
-                opacity: debugPaused || !isHumanTurn ? 0.45 : 1,
-              }}
-              disabled={debugPaused || !isHumanTurn}
-              onClick={() =>
-                dispatchBattleAction({
-                  type: "END_TURN",
-                  playerId: humanPlayerId,
-                })
-              }
-            >
-              Конец хода
-            </button>
-
             <button
               type="button"
               style={{
@@ -3374,37 +3472,6 @@ function renderEnemyDeckWithTimer() {
               </button>
             ) : null}
 
-            <div style={styles.actionHint}>
-              {debugPaused && (
-                <span>
-                  Отладочная пауза включена: таймеры, бот и действия игрока
-                  остановлены. ПКМ-просмотр карт работает.
-                </span>
-              )}
-
-              {!debugPaused && selectedCardInstanceId && (
-                <span>Выбрана карта. Нажми на свободный спавн.</span>
-              )}
-
-              {!debugPaused &&
-                selectedAttacker &&
-                selectedAttacker.type === "unit" && (
-                  <span>
-                    Зеленые клетки — движение. Желтые цели — атака. Оба
-                    действия тратят топливо.
-                  </span>
-                )}
-
-              {!debugPaused &&
-                selectedAttacker &&
-                selectedAttacker.type === "headquarters" && (
-                  <span>Выбран штаб. Желтые цели доступны для атаки.</span>
-                )}
-
-              {!debugPaused && !selectedCardInstanceId && !selectedAttacker && (
-                <span>Выбери карту из руки или свой юнит на поле.</span>
-              )}
-            </div>
             </div>
           </aside>
         </section>
@@ -3412,7 +3479,8 @@ function renderEnemyDeckWithTimer() {
         <section style={styles.playerZone}>
   
 
-          <div
+          <div style={styles.playerHandViewport}>
+            <div
   ref={(element) => {
     handRefs.current[humanPlayerId] = element;
   }}
@@ -3460,7 +3528,7 @@ function renderEnemyDeckWithTimer() {
                       stiffness: 280,
                       damping: 24,
                     }}
-                    whileHover={{ y: -108, scale: 1.08 }}
+                    whileHover={{ y: -88, scale: 1.06 }}
                     whileTap={{ scale: 0.97 }}
                     aria-disabled={
                       debugPaused ||
@@ -3501,6 +3569,7 @@ function renderEnemyDeckWithTimer() {
                 );
               })}
             </AnimatePresence>
+          </div>
           </div>
         </section>
 
@@ -3692,6 +3761,10 @@ startRollOverlay: {
   pointerEvents: "none",
 },
 
+startRollLegacyOverlay: {
+  display: "none",
+},
+
 startRollPanel: {
   width: "100%",
   height: "100%",
@@ -3780,7 +3853,7 @@ enemyHandCard: {
   centerBattleArea: {
   gridColumn: "1 / 2",
   display: "grid",
-  gridTemplateColumns: "130px 1fr 270px",
+  gridTemplateColumns: "150px 1fr 300px",
   gap: 8,
   alignItems: "stretch",
   transform: "translateY(-62px)",
@@ -3793,11 +3866,12 @@ enemyHandCard: {
   justifyContent: "flex-start",
   alignSelf: "stretch",
   minHeight: 0,
+  transform: "translateX(-22px)",
 },
 
   rightCommandPanel: {
   display: "grid",
-  gridTemplateColumns: "118px 1fr",
+  gridTemplateColumns: "190px 96px",
   gap: 10,
   alignItems: "start",
   alignSelf: "start",
@@ -3809,15 +3883,19 @@ enemySideColumn: {
   flexDirection: "column",
   alignItems: "stretch",
   gap: 8,
-  transform: "translate(-2px, -74px)",
+  transform: "translate(70px, -74px)",
   zIndex: 30,
 },
 
 actionSideColumn: {
+  position: "relative",
   display: "flex",
   flexDirection: "column",
-  gap: 10,
-  alignItems: "stretch",
+  gap: 8,
+  alignItems: "center",
+  justifyContent: "flex-start",
+  marginTop: 184,
+  zIndex: 60,
 },
   boardShell: {
     position: "relative",
@@ -3844,7 +3922,7 @@ actionSideColumn: {
     display: "flex",
     flexDirection: "column",
     gap: 4,
-    transform: "translateY(-50%)",
+    transform: "translateY(calc(-50% - 85px))",
   },
 
   supportLineFriendly: {
@@ -4115,7 +4193,7 @@ actionSideColumn: {
   background: "transparent",
   border: "none",
   boxShadow: "none",
-  transform: "translateY(-70px)",
+  transform: "translateY(-235px)",
   overflow: "visible",
 },
 
@@ -4145,6 +4223,16 @@ actionSideColumn: {
   zIndex: 30,
 },
 
+  playerHandViewport: {
+    width: "min(980px, calc(100vw - 430px))",
+    minWidth: 560,
+    maxWidth: 980,
+    margin: "0 auto",
+    overflow: "visible",
+    display: "flex",
+    justifyContent: "center",
+  },
+
   card: {
   flex: "0 0 175px",
   width: 175,
@@ -4172,7 +4260,7 @@ actionSideColumn: {
   border: "1px solid rgba(255,255,255,0.08)",
 },
   playerDeckBottom: {
-    marginTop: "auto",
+    marginTop: 2,
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
@@ -4183,10 +4271,32 @@ actionSideColumn: {
     boxShadow: "none",
   },
   playerDeckOnly: {
-    minHeight: 150,
+    minHeight: 132,
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
+  },
+  headquartersAvatar: {
+    display: "block",
+    objectFit: "contain",
+    pointerEvents: "none",
+    userSelect: "none",
+    filter:
+      "drop-shadow(0 14px 20px rgba(0,0,0,0.72)) drop-shadow(0 0 10px rgba(232, 198, 112, 0.12))",
+  },
+  playerHeadquartersAvatar: {
+    alignSelf: "center",
+    width: 164,
+    height: 226,
+    marginTop: -24,
+    objectPosition: "center bottom",
+  },
+  enemyHeadquartersAvatar: {
+    flex: "0 0 auto",
+    width: 118,
+    height: 166,
+    marginTop: -14,
+    objectPosition: "center top",
   },
   cardsLeftInfo: {
     display: "none",
@@ -4196,10 +4306,23 @@ actionSideColumn: {
   display: "flex",
   flexDirection: "column",
   alignItems: "stretch",
-  gap: 4,
+  gap: 5,
 },
+  enemyDeckRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "flex-end",
+    gap: 10,
+},
+  enemyControlStack: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 5,
+    transform: "translateX(-78px)",
+  },
   enemyDeckCompact: {
-    minHeight: 150,
+    minHeight: 132,
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -4313,41 +4436,52 @@ turnCounterValue: {
 },
 
   endTurnButton: {
-    minHeight: 74,
+    alignSelf: "center",
+    width: 86,
+    height: 86,
+    minHeight: 86,
     border: "none",
-    borderRadius: 14,
+    borderRadius: 3,
     background:
       "linear-gradient(180deg, #d8b46a, #9d7133), radial-gradient(circle at 50% 0%, rgba(255,255,255,0.35), transparent 60%)",
     color: "#1d1207",
-    padding: "12px 14px",
+    padding: "8px 10px",
     fontWeight: 900,
     cursor: "pointer",
     textTransform: "uppercase",
     letterSpacing: 1,
+    lineHeight: 1.12,
     boxShadow: "0 12px 32px rgba(0,0,0,0.42)",
   },
 
   secondaryButton: {
+    width: 92,
     border: "1px solid rgba(255,255,255,0.12)",
-    borderRadius: 12,
+    borderRadius: 8,
     background: "rgba(12, 14, 14, 0.7)",
     color: "#eef2f3",
-    padding: "10px 12px",
+    padding: "8px 9px",
     fontWeight: 800,
     cursor: "pointer",
+    textAlign: "center",
   },
 
   pauseButton: {
+    width: 98,
+    minHeight: 40,
     border: "1px solid rgba(255, 226, 124, 0.32)",
-    borderRadius: 12,
+    borderRadius: 8,
     background:
       "linear-gradient(180deg, rgba(66, 48, 21, 0.88), rgba(18, 14, 8, 0.82))",
     color: "#f7d774",
-    padding: "10px 12px",
+    padding: "7px 6px",
+    fontSize: 9,
     fontWeight: 900,
     cursor: "pointer",
     textTransform: "uppercase",
-    letterSpacing: 0.8,
+    letterSpacing: 0.2,
+    lineHeight: 1.05,
+    overflowWrap: "anywhere",
     boxShadow: "inset 0 0 14px rgba(247, 215, 116, 0.08)",
   },
 
@@ -4361,12 +4495,13 @@ turnCounterValue: {
   },
 
   surrenderButton: {
+    width: 92,
     border: "1px solid rgba(255, 138, 138, 0.42)",
-    borderRadius: 12,
+    borderRadius: 8,
     background:
       "linear-gradient(180deg, rgba(92, 32, 32, 0.92), rgba(24, 8, 8, 0.86))",
     color: "#ffd0d0",
-    padding: "10px 12px",
+    padding: "8px 9px",
     fontWeight: 900,
     cursor: "pointer",
     textTransform: "uppercase",

@@ -12,6 +12,7 @@ import {
   type ResearchNodeStatus,
 } from "../game/researchTrees";
 import { getTankImage } from "../game/tankImages";
+import { getCardClassVisual } from "../game/cardVisuals";
 import { HandCardView } from "./HandCardView";
 
 const STATUS_LABELS: Record<ResearchNodeStatus, string> = {
@@ -47,7 +48,7 @@ function getNodeSubtitle(node: ResearchNode) {
   if (!card) return "Карта";
 
   return card.deploymentZone === "support"
-    ? "Линия поддержки"
+    ? getCardClassVisual(card).label
     : card.class === "light"
       ? "Лёгкий танк"
       : card.class === "medium"

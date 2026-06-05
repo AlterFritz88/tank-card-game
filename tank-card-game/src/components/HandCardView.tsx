@@ -11,7 +11,7 @@ import type {
   TankCard,
 } from "../game/types";
 import {
-  getClassVisual,
+  getCardClassVisual,
   getNationFlagStyle,
   getNationVisual,
 } from "../game/cardVisuals";
@@ -198,7 +198,7 @@ export function HandCardView({
   const uiScale = isPreview ? previewScale ?? defaultPreviewScale : 1;
   const scaled = (value: number) => Math.round(value * uiScale);
 
-  const unitClass = card ? getClassVisual(card.class) : null;
+  const unitClass = card ? getCardClassVisual(card) : null;
 
   const headquartersDefinition =
     isHeadquarters && headquartersId

@@ -12,6 +12,7 @@ import {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
+import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
 import { getMissionIllustrationAsset } from "../assets/missionIllustrationAssets";
 import { CAMPAIGNS, isCampaignMissionUnlocked } from "../game/campaigns";
 import {
@@ -201,6 +202,7 @@ export function PvpLobby() {
     pvpRoomId,
     pvpStatus,
     pvpError,
+    selectedHeadquartersId,
     completedCampaignMissionIds,
     selectedCampaignId: storedSelectedCampaignId,
     setSelectedHeadquartersId,
@@ -277,6 +279,8 @@ export function PvpLobby() {
       pvpStatus === "waiting" ||
       pvpStatus === "matched" ||
       pvpStatus === "rolling");
+  const matchmakingAvatar =
+    pvpBusy ? getHeadquartersAvatarAsset(selectedHeadquartersId) : null;
 
   const buttonsDisabled = pvpBusy;
 
@@ -920,6 +924,22 @@ export function PvpLobby() {
           </div>
         ) : null}
 
+        {pvpBusy && matchmakingAvatar ? (
+          <motion.div
+            style={styles.matchmakingAvatarPanel}
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, ease: "easeOut" }}
+          >
+            <img
+              src={matchmakingAvatar}
+              alt=""
+              aria-hidden="true"
+              style={styles.matchmakingAvatar}
+            />
+          </motion.div>
+        ) : null}
+
         {mode === "pvp" && pvpRoomId && pvpStatus === "waiting" ? (
           <div style={styles.hint}>
             Ты в очереди. Как только второй игрок нажмёт “Играть PVP”, бой
@@ -1558,6 +1578,28 @@ const styles: Record<string, CSSProperties> = {
     background:
       "linear-gradient(180deg, rgba(92, 98, 44, 0.96), rgba(48, 57, 31, 0.96))",
     color: "#fff0b8",
+  },
+
+  matchmakingAvatarPanel: {
+    width: "min(720px, calc(100vw - 48px))",
+    height: "min(30vh, 230px)",
+    margin: "4px auto 0",
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    pointerEvents: "none",
+    overflow: "visible",
+  },
+
+  matchmakingAvatar: {
+    display: "block",
+    maxWidth: "min(260px, 48vw)",
+    maxHeight: "100%",
+    objectFit: "contain",
+    objectPosition: "center bottom",
+    userSelect: "none",
+    filter:
+      "drop-shadow(0 18px 24px rgba(0,0,0,0.76)) drop-shadow(0 0 12px rgba(232, 198, 112, 0.14))",
   },
 
   cancelButton: {

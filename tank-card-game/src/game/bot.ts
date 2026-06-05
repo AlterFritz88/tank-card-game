@@ -32,6 +32,14 @@ function samePosition(a: Position, b: Position): boolean {
   return a.row === b.row && a.col === b.col;
 }
 
+function isBotSpawnCell(position: Position): boolean {
+  return BOT_SPAWN_CELLS.some((cell) => samePosition(cell, position));
+}
+
+function isBattlefieldSpg(card: TankCard): boolean {
+  return card.class === "spg" && card.deploymentZone !== "support";
+}
+
 function canCardAttackPosition(
   cardId: string,
   from: Position,
@@ -110,6 +118,14 @@ function getSupportUnitValue(card: TankCard): number {
   );
 }
 
+function getBotBattlefieldSpgs(state: BattleState): BoardUnit[] {
+  return state.units.filter((unit) => {
+    if (unit.ownerId !== "bot" || !isBattlefieldUnit(unit)) return false;
+
+    return isBattlefieldSpg(getCard(unit.cardId));
+  });
+}
+
 function getUnitThreatScore(state: BattleState, unit: BoardUnit): number {
   const card = getCard(unit.cardId);
   const supportValue = getSupportUnitValue(card);
@@ -167,6 +183,97 @@ function getEconomyGap(state: BattleState): number {
   return state.player.maxResources - state.bot.maxResources;
 }
 
+function getDamagedBotUnitHpGap(state: BattleState): number {
+  return state.units
+    .filter((unit) => unit.ownerId === "bot" && isBattlefieldUnit(unit))
+    .reduce((total, unit) => {
+      const card = getCard(unit.cardId);
+
+      return total + Math.max(0, card.hp - unit.currentHp);
+    }, 0);
+}
+
+function getBotSupportRoleCount(
+  state: BattleState,
+  role: TankCard["supportRole"]
+): number {
+  if (!role) return 0;
+
+  return state.units
+    .filter((unit) => unit.ownerId === "bot" && !isBattlefieldUnit(unit))
+    .reduce((count, unit) => {
+      const card = getCard(unit.cardId);
+
+      return count + (card.supportRole === role ? 1 : 0);
+    }, 0);
+}
+
+function getContextualSupportCardBonus(
+  state: BattleState,
+  card: TankCard
+): number {
+  if (card.deploymentZone !== "support") return 0;
+
+  const effects = card.supportEffects;
+  if (!effects) return 0;
+
+  const economyGap = getEconomyGap(state);
+  const enemyPressure = getEnemyPressureScore(state);
+  const damagedUnitHpGap = getDamagedBotUnitHpGap(state);
+  const handSize = state.bot.hand.length;
+  const deckSize = state.bot.deck.length;
+  const headquartersTargets = state.headquarters.bot.alreadyAttacked
+    ? []
+    : getTargetsInRange(state, "bot", "headquarters", "bot_hq");
+  const roleCount = getBotSupportRoleCount(state, card.supportRole);
+
+  let score = 0;
+
+  if (effects.fuelPerTurn) {
+    score += effects.fuelPerTurn * (state.turn <= 4 ? 18 : 8);
+    score += effects.fuelPerTurn * Math.max(0, economyGap) * 5;
+
+    if (state.bot.resources <= 2) {
+      score += effects.fuelPerTurn * 7;
+    }
+  }
+
+  if (effects.drawEveryTurns && deckSize > 0) {
+    const drawUrgency = handSize <= 2 ? 32 : handSize <= 4 ? 20 : 8;
+
+    score += Math.round(drawUrgency / effects.drawEveryTurns);
+
+    if (state.turn <= 4) {
+      score += Math.round(10 / effects.drawEveryTurns);
+    }
+  }
+
+  if (effects.hqAttackBonus) {
+    score += effects.hqAttackBonus * (headquartersTargets.length > 0 ? 20 : 8);
+    score += effects.hqAttackBonus * Math.min(12, Math.round(enemyPressure / 12));
+  }
+
+  if (effects.hqDamageRedirect) {
+    score += effects.hqDamageRedirect * (enemyPressure >= 75 ? 13 : 6);
+  }
+
+  if (effects.healRandomUnitPerTurn) {
+    score += damagedUnitHpGap > 0
+      ? effects.healRandomUnitPerTurn * Math.min(28, damagedUnitHpGap * 7)
+      : -5;
+  }
+
+  if (effects.hqHealPerTurn) {
+    score += effects.hqHealPerTurn * (state.headquarters.bot.hp <= 8 ? 16 : 5);
+  }
+
+  if (roleCount > 0 && card.supportRole !== "artillery") {
+    score -= roleCount * 6;
+  }
+
+  return score;
+}
+
 function scoreCardForBot(cardId: string): number {
   const card = getCard(cardId);
 
@@ -204,9 +311,18 @@ function scoreCardForCurrentBattle(state: BattleState, cardId: string): number {
   const economyMultiplier =
     state.turn <= 4 || economyGap > 0 ? 9 : economyGap < -1 ? 3 : 6;
 
+  if (card.deploymentZone === "support") {
+    return (
+      scoreCardForBot(cardId) +
+      getContextualSupportCardBonus(state, card) +
+      (card.cost <= state.bot.resources ? 3 : 0)
+    );
+  }
+
   return (
     scoreCardForBot(cardId) +
     card.fuelGeneration * economyMultiplier +
+    getSpgProtectionCardBonus(state, card) +
     (needsBoard ? card.hp + card.attack * 2 : 0) +
     (card.cost <= state.bot.resources ? 2 : 0)
   );
@@ -237,6 +353,17 @@ function getBestPlayableCard(state: BattleState) {
     });
 
   return playableCards[0] ?? null;
+}
+
+function hasPlayableBattlefieldCard(state: BattleState): boolean {
+  return state.bot.hand.some((cardInstance) => {
+    const card = getCard(cardInstance.cardId);
+
+    return (
+      card.deploymentZone !== "support" &&
+      card.cost <= state.bot.resources
+    );
+  });
 }
 
 type AttackOutcome = {
@@ -301,6 +428,25 @@ function scoreAttackAction(
   let score = outcome.targetDamage * 5 - outcome.attackerDamage * 4;
 
   if (action.targetType === "headquarters") {
+    if (action.attackerType === "unit") {
+      const attacker = getBotUnitById(state, action.attackerId);
+
+      if (
+        attacker &&
+        isBattlefieldSpg(getCard(attacker.cardId)) &&
+        !shouldSpgAttackHeadquarters(state, attacker)
+      ) {
+        return null;
+      }
+
+      if (attacker && isBattlefieldSpg(getCard(attacker.cardId))) {
+        score +=
+          getAvailableSpgHeadquartersDamage(state) >= state.headquarters.player.hp
+            ? 42
+            : 10;
+      }
+    }
+
     score += 8;
   } else {
     const enemyUnit = getEnemyUnitById(state, action.targetId);
@@ -340,9 +486,7 @@ function scoreAttackAction(
 }
 
 function getSpgPositionScore(state: BattleState, position: Position): number {
-  const isSpawnCell = BOT_SPAWN_CELLS.some((cell) =>
-    samePosition(cell, position)
-  );
+  const isSpawnCell = isBotSpawnCell(position);
   const isCentralSpawnCell = position.row === 1 && position.col === 3;
   const backEdgeBonus = position.row === 0 ? 12 : 0;
   const flankEdgeBonus = position.col === 4 ? 4 : 0;
@@ -354,6 +498,157 @@ function getSpgPositionScore(state: BattleState, position: Position): number {
     (isSpawnCell ? 5 : 0) -
     (isCentralSpawnCell ? 14 : 0)
   );
+}
+
+function getSpgProtectionPositionScore(
+  state: BattleState,
+  card: TankCard,
+  position: Position
+): number {
+  if (isBattlefieldSpg(card)) return 0;
+
+  const spgs = getBotBattlefieldSpgs(state);
+  if (spgs.length === 0) return 0;
+
+  const enemyPressureNearSpg = state.units.some((unit) => {
+    if (unit.ownerId !== "player" || !isBattlefieldUnit(unit)) return false;
+
+    return spgs.some((spg) => getDistance(unit.position, spg.position) <= 3);
+  });
+
+  return spgs.reduce((score, spg) => {
+    const distanceToSpg = getChebyshevDistance(position, spg.position);
+    const isScreeningCell = position.col < spg.position.col;
+    const classGuardBonus =
+      card.class === "td"
+        ? 12
+        : card.class === "heavy"
+          ? 8
+          : card.class === "medium"
+            ? 7
+            : card.class === "light"
+              ? 4
+              : 0;
+
+    if (distanceToSpg === 1) {
+      return (
+        score +
+        18 +
+        classGuardBonus +
+        (isScreeningCell ? 12 : 0) +
+        (enemyPressureNearSpg ? 10 : 0)
+      );
+    }
+
+    if (distanceToSpg === 2 && isScreeningCell) {
+      return score + 7 + Math.round(classGuardBonus / 2);
+    }
+
+    return score;
+  }, 0);
+}
+
+function getSpgProtectionCardBonus(state: BattleState, card: TankCard): number {
+  if (card.deploymentZone === "support" || isBattlefieldSpg(card)) return 0;
+  if (getBotBattlefieldSpgs(state).length === 0) return 0;
+
+  const enemyCanPressureBattery = state.units.some((unit) => {
+    if (unit.ownerId !== "player" || !isBattlefieldUnit(unit)) return false;
+
+    const enemyCard = getCard(unit.cardId);
+
+    return getBotBattlefieldSpgs(state).some((spg) => {
+      const distance = getDistance(unit.position, spg.position);
+
+      return (
+        distance <= 3 ||
+        canCardAttackPosition(enemyCard.id, unit.position, spg.position)
+      );
+    });
+  });
+
+  if (!enemyCanPressureBattery) return 0;
+
+  if (card.class === "td") return 24;
+  if (card.class === "heavy") return 18;
+  if (card.class === "medium") return 16;
+  if (card.class === "light") return 8;
+
+  return 0;
+}
+
+function shouldMoveSpgToClearSpawn(state: BattleState, unit: BoardUnit): boolean {
+  if (!isBotSpawnCell(unit.position)) return false;
+  if (getFreeSpawnCells(state, "bot").length > 0) return false;
+
+  return hasPlayableBattlefieldCard(state);
+}
+
+function getSpgTargetValue(
+  state: BattleState,
+  attacker: BoardUnit,
+  targetId: string
+): number {
+  const target = getEnemyUnitById(state, targetId);
+  if (!target) return 0;
+
+  const action: AttackAction = {
+    type: "ATTACK",
+    playerId: "bot",
+    attackerType: "unit",
+    attackerId: attacker.instanceId,
+    targetType: "unit",
+    targetId,
+  };
+  const outcome = getAttackOutcome(state, action);
+  if (!outcome?.attackerStruck || outcome.targetDamage <= 0) return 0;
+
+  const targetCard = getCard(target.cardId);
+
+  return (
+    getUnitThreatScore(state, target) +
+    getSupportUnitValue(targetCard) +
+    outcome.targetDamage * 4 +
+    (outcome.targetDestroyed ? 28 : 0)
+  );
+}
+
+function hasWorthySpgTarget(state: BattleState, attacker: BoardUnit): boolean {
+  const targets = getTargetsInRange(state, "bot", "unit", attacker.instanceId);
+
+  return targets.some(
+    (target) =>
+      target.type === "unit" &&
+      getSpgTargetValue(state, attacker, target.id) >= 55
+  );
+}
+
+function getAvailableSpgHeadquartersDamage(state: BattleState): number {
+  return getBotBattlefieldSpgs(state).reduce((total, unit) => {
+    if (unit.alreadyAttacked) return total;
+
+    const targets = getTargetsInRange(state, "bot", "unit", unit.instanceId);
+    const canAttackHeadquarters = targets.some(
+      (target) => target.type === "headquarters" && target.id === "player_hq"
+    );
+
+    return canAttackHeadquarters ? total + getCard(unit.cardId).attack : total;
+  }, 0);
+}
+
+function shouldSpgAttackHeadquarters(
+  state: BattleState,
+  attacker: BoardUnit
+): boolean {
+  const card = getCard(attacker.cardId);
+  if (!isBattlefieldSpg(card)) return true;
+
+  if (state.headquarters.player.hp <= card.attack) return true;
+  if (getAvailableSpgHeadquartersDamage(state) >= state.headquarters.player.hp) {
+    return true;
+  }
+
+  return !hasWorthySpgTarget(state, attacker);
 }
 
 function getLethalAttackAction(state: BattleState): BattleAction | null {
@@ -373,7 +668,10 @@ function getLethalAttackAction(state: BattleState): BattleAction | null {
         state.headquarters.player.hp <= card.attack
     );
 
-    if (lethalHqTarget) {
+    if (
+      lethalHqTarget &&
+      (!isBattlefieldSpg(card) || shouldSpgAttackHeadquarters(state, unit))
+    ) {
       return {
         type: "ATTACK",
         playerId: "bot",
@@ -547,10 +845,18 @@ function getStrategicPlayCardAction(state: BattleState): BattleAction | null {
         ? Math.max(0, 5 - distanceToThreat) * 3
         : 0;
       const offensiveBonus = Math.max(0, 7 - distanceToPlayerHq) * 2;
+      const spgProtectionBonus = getSpgProtectionPositionScore(
+        state,
+        card,
+        cell
+      );
       const positionScore =
         card.class === "spg"
           ? getSpgPositionScore(state, cell)
-          : offensiveBonus + defensiveBonus + economyCardBonus;
+          : offensiveBonus +
+            defensiveBonus +
+            economyCardBonus +
+            spgProtectionBonus;
 
       return {
         cell,
@@ -648,15 +954,17 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
     if (moveCells.length === 0) continue;
 
     if (card.class === "spg") {
-      const currentScore = getSpgPositionScore(state, unit.position);
+      if (!shouldMoveSpgToClearSpawn(state, unit)) continue;
+
       const bestCell = moveCells
+        .filter((cell) => !isBotSpawnCell(cell))
         .map((cell) => ({
           cell,
           score: getSpgPositionScore(state, cell),
         }))
         .sort((a, b) => b.score - a.score)[0];
 
-      if (!bestCell || bestCell.score <= currentScore) continue;
+      if (!bestCell) continue;
 
       candidates.push({
         action: {
@@ -665,7 +973,7 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
           unitId: unit.instanceId,
           position: bestCell.cell,
         },
-        score: bestCell.score - currentScore + 4,
+        score: bestCell.score + 28,
       });
 
       continue;
@@ -705,6 +1013,11 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
         const canAttackAfterMove =
           mostDangerousEnemy &&
           canCardAttackPosition(card.id, cell, mostDangerousEnemy.position);
+        const spgProtectionBonus = getSpgProtectionPositionScore(
+          state,
+          card,
+          cell
+        );
 
         return {
           cell,
@@ -713,7 +1026,8 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
           score:
             distanceGain * 3 +
             threatDistanceGain * (enemyPressure > 0 ? 7 : 2) +
-            (canAttackAfterMove ? 12 : 0),
+            (canAttackAfterMove ? 12 : 0) +
+            spgProtectionBonus,
         };
       })
       .sort((a, b) => b.score - a.score)[0];
@@ -757,6 +1071,7 @@ function shouldPrioritizeSpawn(state: BattleState): boolean {
 
   if (botStrength < playerStrength) return true;
   if (enemyPressure >= 90 && botUnitsCount <= playerUnitsCount + 1) return true;
+  if (getSpgProtectionCardBonus(state, bestCard.card) > 0) return true;
 
   // Если карта дает много топлива, бот старается играть ее раньше,
   // потому что она усилит экономику будущих ходов.

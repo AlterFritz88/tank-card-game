@@ -1,7 +1,7 @@
 import type React from "react";
 import type { PlayerId, SupportRole, TankCard } from "../game/types";
 import {
-  getClassVisual,
+  getCardClassVisual,
   getNationFlagStyle,
   getNationVisual,
 } from "../game/cardVisuals";
@@ -121,7 +121,7 @@ export function TankCardView({
   onClick,
 }: TankCardViewProps) {
   const nation = getNationVisual(card.nation);
-  const unitClass = getClassVisual(card.class);
+  const unitClass = getCardClassVisual(card);
 
   const hpValue = currentHp ?? card.hp;
   const isHand = variant === "hand";
