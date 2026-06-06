@@ -10,6 +10,7 @@ export type PlayerProgress = {
   goldTracks: number;
   freeXp: number;
   headquartersXp: Partial<Record<HeadquartersId, number>>;
+  headquartersMatchCounts: Partial<Record<HeadquartersId, number>>;
   unlockedHeadquartersIds: HeadquartersId[];
   unlockedCardIds: string[];
   ownedCardCopies: Record<string, number>;
@@ -42,6 +43,8 @@ export function applyBattleRewardToProgress(
   const progress = loadPlayerProgress();
   const currentHeadquartersXp =
     progress.headquartersXp[reward.headquartersId] ?? 0;
+  const currentHeadquartersMatches =
+    progress.headquartersMatchCounts[reward.headquartersId] ?? 0;
   const nextProgress: PlayerProgress = {
     ...progress,
     ironTracks: progress.ironTracks + reward.ironTracks,
@@ -51,6 +54,10 @@ export function applyBattleRewardToProgress(
       ...progress.headquartersXp,
       [reward.headquartersId]:
         currentHeadquartersXp + reward.headquartersXp,
+    },
+    headquartersMatchCounts: {
+      ...progress.headquartersMatchCounts,
+      [reward.headquartersId]: currentHeadquartersMatches + 1,
     },
   };
 
@@ -67,6 +74,7 @@ export function createInitialPlayerProgress(): PlayerProgress {
     goldTracks: 0,
     freeXp: 0,
     headquartersXp: {},
+    headquartersMatchCounts: {},
     unlockedHeadquartersIds:
       trainingHeadquartersIds.length > 0
         ? trainingHeadquartersIds
@@ -97,6 +105,11 @@ function normalizePlayerProgress(
       typeof progress.headquartersXp === "object" && progress.headquartersXp
         ? progress.headquartersXp
         : {},
+    headquartersMatchCounts:
+      typeof progress.headquartersMatchCounts === "object" &&
+      progress.headquartersMatchCounts
+        ? normalizeHeadquartersCounts(progress.headquartersMatchCounts)
+        : {},
     unlockedHeadquartersIds,
     unlockedCardIds: Array.isArray(progress.unlockedCardIds)
       ? progress.unlockedCardIds
@@ -112,4 +125,15 @@ function getPositiveInteger(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.max(0, Math.floor(value))
     : 0;
+}
+
+function normalizeHeadquartersCounts(
+  counts: Partial<Record<HeadquartersId, unknown>>
+): Partial<Record<HeadquartersId, number>> {
+  return Object.fromEntries(
+    Object.entries(counts).map(([headquartersId, count]) => [
+      headquartersId,
+      getPositiveInteger(count),
+    ])
+  ) as Partial<Record<HeadquartersId, number>>;
 }

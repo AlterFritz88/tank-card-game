@@ -11,10 +11,15 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import topBackgroundImage from "../assets/backgrounds/top_background.png";
 import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
 import buttonImage from "../assets/button.png";
 import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
+import experienceIcon from "../assets/icons/expa.png";
+import goldTracksIcon from "../assets/icons/gold_tracks_transparent.png";
+import silverTracksIcon from "../assets/icons/silver-tracks.png";
 import { getMissionIllustrationAsset } from "../assets/missionIllustrationAssets";
+import { getNationFlagAsset } from "../assets/nationFlagAssets";
 import { calculateDeckWeight, getDefaultDeckWeight } from "../game/deckWeight";
 import { CAMPAIGNS, isCampaignMissionUnlocked } from "../game/campaigns";
 import {
@@ -26,8 +31,13 @@ import {
   markRecentDeckSelection,
   type SavedDeck,
 } from "../game/customDecks";
-import { HEADQUARTERS, getMainMenuHeadquarters } from "../game/headquarters";
+import {
+  DEFAULT_PLAYER_HEADQUARTERS_ID,
+  HEADQUARTERS,
+  getMainMenuHeadquarters,
+} from "../game/headquarters";
 import { getDeckCardIds } from "../game/initialState";
+import { loadPlayerProgress, type PlayerProgress } from "../game/playerProgress";
 import { getTankImage } from "../game/tankImages";
 import type { HeadquartersId, TankCard } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
@@ -62,6 +72,140 @@ type CarouselDragState = {
   startX: number;
   startScrollLeft: number;
 };
+
+const PLAYER_NICKNAME_STORAGE_KEY = "panzershrek.playerNickname";
+const PLAYER_ACCOUNT_TYPE_STORAGE_KEY = "panzershrek.accountType";
+const FAVORITE_HEADQUARTERS_STORAGE_KEY = "panzershrek.favoriteHeadquartersId";
+
+function readLocalStorageValue(key: string): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function getPlayerAccountData() {
+  const progress = loadPlayerProgress();
+  const headquarters = HEADQUARTERS[getFavoriteHeadquartersId(progress)];
+  const nickname = readLocalStorageValue(PLAYER_NICKNAME_STORAGE_KEY) ?? "Командир";
+  const accountType = readLocalStorageValue(PLAYER_ACCOUNT_TYPE_STORAGE_KEY);
+  const premium = accountType === "premium";
+
+  return {
+    avatar: getHeadquartersAvatarAsset(headquarters.id),
+    flag: getNationFlagAsset(headquarters.nation),
+    nickname,
+    accountLabel: premium ? "Премиум аккаунт" : "Базовый аккаунт",
+  };
+}
+
+function getFavoriteHeadquartersId(progress: PlayerProgress): HeadquartersId {
+  const mostPlayedHeadquarters = Object.entries(progress.headquartersMatchCounts)
+    .filter((entry): entry is [HeadquartersId, number] => {
+      const [headquartersId, matchCount] = entry;
+      return headquartersId in HEADQUARTERS && matchCount > 0;
+    })
+    .sort(([, leftMatches], [, rightMatches]) => rightMatches - leftMatches)[0];
+
+  if (mostPlayedHeadquarters) {
+    return mostPlayedHeadquarters[0];
+  }
+
+  const storedFavoriteHeadquartersId = readLocalStorageValue(
+    FAVORITE_HEADQUARTERS_STORAGE_KEY
+  ) as HeadquartersId | null;
+
+  return storedFavoriteHeadquartersId && storedFavoriteHeadquartersId in HEADQUARTERS
+    ? storedFavoriteHeadquartersId
+    : DEFAULT_PLAYER_HEADQUARTERS_ID;
+}
+
+function PlayerAccountPanel() {
+  const account = getPlayerAccountData();
+
+  return (
+    <aside style={styles.playerAccountPanel} aria-label="Аккаунт игрока">
+      {account.flag ? (
+        <div
+          aria-hidden="true"
+          style={{
+            ...styles.playerAccountFlag,
+            backgroundImage: `url("${account.flag}")`,
+          }}
+        />
+      ) : null}
+      <div aria-hidden="true" style={styles.playerAccountShade} />
+
+      <div style={styles.playerAccountAvatarFrame}>
+        {account.avatar ? (
+          <img
+            src={account.avatar}
+            alt=""
+            draggable={false}
+            style={styles.playerAccountAvatar}
+          />
+        ) : null}
+      </div>
+
+      <div style={styles.playerAccountText}>
+        <strong style={styles.playerAccountName}>{account.nickname}</strong>
+        <span style={styles.playerAccountType}>{account.accountLabel}</span>
+      </div>
+    </aside>
+  );
+}
+
+function formatResourceValue(value: number) {
+  return new Intl.NumberFormat("ru-RU").format(value);
+}
+
+function PlayerResourcesPanel() {
+  const progress = loadPlayerProgress();
+  const resources = [
+    {
+      icon: experienceIcon,
+      label: "Свободный опыт",
+      value: progress.freeXp,
+    },
+    {
+      icon: silverTracksIcon,
+      label: "Железные траки",
+      value: progress.ironTracks,
+    },
+    {
+      icon: goldTracksIcon,
+      label: "Золотые траки",
+      value: progress.goldTracks,
+      iconOffsetX: -6,
+    },
+  ];
+
+  return (
+    <aside style={styles.playerResourcesPanel} aria-label="Ресурсы игрока">
+      {resources.map((resource) => (
+        <div key={resource.label} style={styles.playerResourceItem}>
+          <img
+            src={resource.icon}
+            alt=""
+            draggable={false}
+            style={{
+              ...styles.playerResourceIcon,
+              transform: resource.iconOffsetX
+                ? `translateX(${resource.iconOffsetX}px)`
+                : undefined,
+            }}
+          />
+          <span style={styles.playerResourceValue}>
+            {formatResourceValue(resource.value)}
+          </span>
+        </div>
+      ))}
+    </aside>
+  );
+}
 
 function scrollCarousel(
   viewportRef: RefObject<HTMLDivElement | null>,
@@ -535,12 +679,12 @@ export function PvpLobby() {
     return (
       <main style={styles.page}>
         <div style={styles.backgroundShade} />
+        <PlayerAccountPanel />
+        <PlayerResourcesPanel />
 
         <section style={styles.menuLayer}>
           <header style={styles.header}>
-            <div style={styles.kicker}>Одиночные операции</div>
-            <h1 style={styles.title}>Компании</h1>
-            <p style={styles.subtitle}>Выбери кампанию</p>
+            <h1 style={styles.title}>ВЫБЕРИ КОМПАНИЮ</h1>
           </header>
 
           <CarouselTapFrame
@@ -592,6 +736,8 @@ export function PvpLobby() {
     return (
       <main style={styles.page}>
         <div style={styles.backgroundShade} />
+        <PlayerAccountPanel />
+        <PlayerResourcesPanel />
 
         <section style={styles.menuLayer}>
           <header style={styles.header}>
@@ -714,12 +860,12 @@ export function PvpLobby() {
     return (
       <main style={styles.page}>
         <div style={styles.backgroundShade} />
+        <PlayerAccountPanel />
+        <PlayerResourcesPanel />
 
         <section style={styles.menuLayer}>
           <header style={styles.header}>
-            <div style={styles.kicker}>Карточная тактика</div>
-            <h1 style={styles.title}>PanzerShrek</h1>
-            <p style={styles.subtitle}>Выбери режим боя</p>
+            <h1 style={styles.title}>ВЫБЕРИ РЕЖИМ БОЯ</h1>
           </header>
 
           <CarouselTapFrame
@@ -806,18 +952,14 @@ export function PvpLobby() {
   return (
     <main style={styles.page}>
       <div style={styles.backgroundShade} />
+      <PlayerAccountPanel />
+      <PlayerResourcesPanel />
 
       <section style={{ ...styles.menuLayer, ...styles.headquartersMenuLayer }}>
         <header style={{ ...styles.header, ...styles.headquartersHeader }}>
-          <div style={styles.kicker}>
-            {mode === "pvp" ? "Быстрый бой" : "Бой против ИИ"}
-          </div>
           <h1 style={{ ...styles.title, ...styles.headquartersTitle }}>
-            PanzerShrek
+            ВЫБЕРИ ШТАБ
           </h1>
-          <p style={{ ...styles.subtitle, ...styles.headquartersSubtitle }}>
-            Выбери штаб для боя
-          </p>
         </header>
 
         <CarouselTapFrame
@@ -1158,6 +1300,158 @@ const styles: Record<string, CSSProperties> = {
       "radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.10) 42%, rgba(0,0,0,0.52) 100%)",
   },
 
+  playerAccountPanel: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    zIndex: 5,
+    width: 306,
+    minHeight: 98,
+    display: "grid",
+    gridTemplateColumns: "82px 1fr",
+    alignItems: "start",
+    gap: 14,
+    padding: "4px 16px 6px 8px",
+    overflow: "hidden",
+    color: "#fff",
+    background: "transparent",
+    boxShadow: "none",
+    pointerEvents: "none",
+  },
+
+  playerAccountFlag: {
+    position: "absolute",
+    left: 0,
+    right: 40,
+    top: 10,
+    height: 70,
+    zIndex: 0,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    opacity: 0.54,
+    filter: "saturate(1.08)",
+    WebkitMaskImage:
+      "linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%)",
+    maskImage:
+      "linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%)",
+  },
+
+  playerAccountShade: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 10,
+    height: 56,
+    zIndex: 1,
+    background: "transparent",
+  },
+
+  playerAccountAvatarFrame: {
+    position: "relative",
+    zIndex: 2,
+    width: 78,
+    height: 92,
+    overflow: "hidden",
+    filter:
+      "drop-shadow(0 10px 16px rgba(0,0,0,0.78)) drop-shadow(0 0 8px rgba(232,198,112,0.14))",
+  },
+
+  playerAccountAvatar: {
+    width: "100%",
+    height: "100%",
+    display: "block",
+    objectFit: "contain",
+    objectPosition: "center bottom",
+    userSelect: "none",
+    WebkitMaskImage:
+      "linear-gradient(180deg, #000 0%, #000 76%, rgba(0,0,0,0.55) 90%, transparent 100%)",
+    maskImage:
+      "linear-gradient(180deg, #000 0%, #000 76%, rgba(0,0,0,0.55) 90%, transparent 100%)",
+  },
+
+  playerAccountText: {
+    position: "relative",
+    zIndex: 2,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    paddingTop: 10,
+    textShadow: "0 2px 8px rgba(0,0,0,0.92)",
+  },
+
+  playerAccountName: {
+    color: "#ffffff",
+    fontSize: 18,
+    lineHeight: 1.05,
+    fontWeight: 1000,
+    letterSpacing: 0.5,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+
+  playerAccountType: {
+    color: "rgba(255,255,255,0.78)",
+    fontSize: 11,
+    lineHeight: 1,
+    fontWeight: 800,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+
+  playerResourcesPanel: {
+    position: "absolute",
+    left: "50%",
+    top: 0,
+    zIndex: 6,
+    width: 368,
+    height: 40,
+    transform: "translateX(-50%)",
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    alignItems: "center",
+    gap: 40,
+    padding: "8px 38px 12px 0px",
+    backgroundImage: `url("${topBackgroundImage}")`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center top",
+    backgroundRepeat: "no-repeat",
+    pointerEvents: "none",
+    filter: "drop-shadow(0 10px 18px rgba(0,0,0,0.56))",
+  },
+
+  playerResourceItem: {
+    minWidth: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    color: "#f7efe0",
+    fontSize: 13,
+    fontWeight: 900,
+    lineHeight: 1,
+    letterSpacing: 0.3,
+    textShadow: "0 2px 5px rgba(0,0,0,0.9)",
+    fontVariantNumeric: "tabular-nums",
+  },
+
+  playerResourceIcon: {
+    width: 23,
+    height: 23,
+    objectFit: "contain",
+    flex: "0 0 auto",
+    filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.85))",
+  },
+
+  playerResourceValue: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
   menuLayer: {
     position: "relative",
     zIndex: 1,
@@ -1187,6 +1481,7 @@ const styles: Record<string, CSSProperties> = {
 
   headquartersHeader: {
     marginBottom: 0,
+    transform: "translateY(20px)",
   },
 
   kicker: {

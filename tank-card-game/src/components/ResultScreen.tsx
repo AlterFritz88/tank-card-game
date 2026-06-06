@@ -1,4 +1,5 @@
-import { useState, type ReactNode, type CSSProperties } from "react";
+import { useEffect, useState, type ReactNode, type CSSProperties } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import buttonImage from "../assets/button.png";
 import experienceIcon from "../assets/icons/expa.png";
 import goldTracksIcon from "../assets/icons/gold_tracks_transparent.png";
@@ -125,11 +126,12 @@ export function ResultScreen({
                   : "Ваш штаб потерял боеспособность.")}
             </div>
             <div style={styles.topRewards}>
-              <RewardTicker icon={silverTracksIcon} value={ironTracks} />
+              <RewardTicker icon={silverTracksIcon} value={ironTracks} animated />
               <RewardTicker
                 icon={experienceIcon}
                 value={baseHeadquartersXp + freeXp}
                 color={accentColor}
+                animated
               />
               <RewardTicker icon={goldTracksIcon} value={reward?.goldTracks ?? 0} />
             </div>
@@ -330,15 +332,82 @@ function RewardTicker({
   icon,
   value,
   color,
+  animated = false,
 }: {
   icon: string;
   value: number;
   color?: string;
+  animated?: boolean;
 }) {
   return (
     <span style={{ ...styles.rewardTicker, ...(color ? { color } : null) }}>
       <img src={icon} alt="" style={styles.rewardIcon} />
-      {formatNumber(value)}
+      {animated ? <AnimatedRewardNumber value={value} /> : formatNumber(value)}
+    </span>
+  );
+}
+
+function AnimatedRewardNumber({ value }: { value: number }) {
+  const targetValue = Math.max(0, Math.floor(value));
+  const [displayValue, setDisplayValue] = useState(0);
+
+  useEffect(() => {
+    if (targetValue <= 0) {
+      const frameId = window.requestAnimationFrame(() => setDisplayValue(0));
+      return () => window.cancelAnimationFrame(frameId);
+    }
+
+    let frameId = 0;
+    const startedAt = performance.now();
+    const durationMs = 1450;
+
+    function tick(now: number) {
+      const progress = Math.min(1, (now - startedAt) / durationMs);
+      const easedProgress = 1 - Math.pow(1 - progress, 3);
+      setDisplayValue(Math.round(targetValue * easedProgress));
+
+      if (progress < 1) {
+        frameId = window.requestAnimationFrame(tick);
+      }
+    }
+
+    frameId = window.requestAnimationFrame(tick);
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [targetValue]);
+
+  return <RewardFlapNumber value={displayValue} />;
+}
+
+function RewardFlapNumber({ value }: { value: number }) {
+  const digits = formatNumber(Math.max(0, Math.floor(value)));
+
+  return (
+    <span style={styles.rewardFlapNumber} aria-label={digits}>
+      {Array.from(digits).map((digit, index) => {
+        const digitKey = `${digits.length}-${index}`;
+
+        return /\s/.test(digit) ? (
+          <span key={digitKey} style={styles.rewardFlapSeparator}>
+            {" "}
+          </span>
+        ) : (
+          <span key={digitKey} style={styles.rewardFlapCell}>
+            <AnimatePresence initial={false}>
+              <motion.span
+                key={digit}
+                style={styles.rewardFlapDigit}
+                initial={{ y: "-78%", rotateX: 64, opacity: 0 }}
+                animate={{ y: "0%", rotateX: 0, opacity: 1 }}
+                exit={{ y: "78%", rotateX: -64, opacity: 0 }}
+                transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+              >
+                {digit}
+              </motion.span>
+            </AnimatePresence>
+          </span>
+        );
+      })}
     </span>
   );
 }
@@ -514,6 +583,38 @@ const styles: Record<string, CSSProperties> = {
     height: 25,
     objectFit: "contain",
     filter: "drop-shadow(0 2px 2px rgba(0,0,0,0.75))",
+  },
+
+  rewardFlapNumber: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 1,
+    fontVariantNumeric: "tabular-nums",
+  },
+
+  rewardFlapCell: {
+    position: "relative",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "0.62em",
+    height: "1.05em",
+    overflow: "hidden",
+    perspective: 90,
+  },
+
+  rewardFlapDigit: {
+    position: "absolute",
+    inset: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transformOrigin: "center center",
+  },
+
+  rewardFlapSeparator: {
+    display: "inline-block",
+    width: "0.28em",
   },
 
   tabs: {
