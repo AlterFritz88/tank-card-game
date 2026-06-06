@@ -41,6 +41,7 @@ import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
 import { calculateBattleReward, type BattleReward } from "../game/economy";
 import { applyBattleRewardToProgress } from "../game/playerProgress";
 import apShellImage from "../assets/ap-shell.png";
+import buttonImage from "../assets/button.png";
 import explosionFlashImage from "../assets/effects/explosion-flash.png";
 import explosionFireballImage from "../assets/effects/explosion-fireball.png";
 import explosionSmokeImage from "../assets/effects/explosion-smoke.png";
@@ -2165,7 +2166,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       mode === "pvp" ? pvpTimeLeftMs : timer?.stepTimeLeftMs ?? null;
 
     if (displayedTimeLeftMs === null) {
-      return null;
+      return mode === "pvp" ? <div style={styles.timerPanelPlaceholder} /> : null;
     }
 
     const active =
@@ -4197,6 +4198,12 @@ actionSideColumn: {
   overflow: "visible",
 },
 
+  timerPanelPlaceholder: {
+    width: "100%",
+    height: 82,
+    pointerEvents: "none",
+  },
+
   playerFuelBadge: {
   display: "flex",
   justifyContent: "space-between",
@@ -4441,9 +4448,12 @@ turnCounterValue: {
     height: 86,
     minHeight: 86,
     border: "none",
-    borderRadius: 3,
-    background:
-      "linear-gradient(180deg, #d8b46a, #9d7133), radial-gradient(circle at 50% 0%, rgba(255,255,255,0.35), transparent 60%)",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    backgroundImage: `url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
     color: "#1d1207",
     padding: "8px 10px",
     fontWeight: 900,
@@ -4451,30 +4461,42 @@ turnCounterValue: {
     textTransform: "uppercase",
     letterSpacing: 1,
     lineHeight: 1.12,
-    boxShadow: "0 12px 32px rgba(0,0,0,0.42)",
+    textShadow: "0 1px 0 rgba(255,235,176,0.34)",
+    boxShadow: "none",
   },
 
   secondaryButton: {
     width: 92,
-    border: "1px solid rgba(255,255,255,0.12)",
-    borderRadius: 8,
-    background: "rgba(12, 14, 14, 0.7)",
-    color: "#eef2f3",
-    padding: "8px 9px",
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    backgroundImage: `linear-gradient(180deg, rgba(145, 148, 143, 0.62), rgba(34, 37, 37, 0.78)), url(${buttonImage})`,
+    backgroundSize: "100% 100%, 100% 100%",
+    backgroundPosition: "center, center",
+    backgroundRepeat: "no-repeat, no-repeat",
+    backgroundBlendMode: "color, normal",
+    color: "#e8e9e5",
+    padding: "9px 10px 10px",
     fontWeight: 800,
     cursor: "pointer",
     textAlign: "center",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84)",
+    boxShadow: "none",
   },
 
   pauseButton: {
     width: 98,
     minHeight: 40,
-    border: "1px solid rgba(255, 226, 124, 0.32)",
-    borderRadius: 8,
-    background:
-      "linear-gradient(180deg, rgba(66, 48, 21, 0.88), rgba(18, 14, 8, 0.82))",
-    color: "#f7d774",
-    padding: "7px 6px",
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    backgroundImage: `linear-gradient(180deg, rgba(145, 148, 143, 0.62), rgba(34, 37, 37, 0.78)), url(${buttonImage})`,
+    backgroundSize: "100% 100%, 100% 100%",
+    backgroundPosition: "center, center",
+    backgroundRepeat: "no-repeat, no-repeat",
+    backgroundBlendMode: "color, normal",
+    color: "#e8e9e5",
+    padding: "8px 7px 9px",
     fontSize: 9,
     fontWeight: 900,
     cursor: "pointer",
@@ -4482,31 +4504,33 @@ turnCounterValue: {
     letterSpacing: 0.2,
     lineHeight: 1.05,
     overflowWrap: "anywhere",
-    boxShadow: "inset 0 0 14px rgba(247, 215, 116, 0.08)",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84)",
+    boxShadow: "none",
   },
 
   pauseButtonActive: {
-    borderColor: "rgba(125, 255, 138, 0.55)",
-    color: "#7dff8a",
-    background:
-      "linear-gradient(180deg, rgba(26, 72, 35, 0.92), rgba(8, 20, 10, 0.86))",
-    boxShadow:
-      "0 0 0 2px rgba(125, 255, 138, 0.16), inset 0 0 18px rgba(125, 255, 138, 0.12)",
+    color: "#f3f4ef",
+    backgroundImage: `linear-gradient(180deg, rgba(176, 180, 172, 0.66), rgba(52, 56, 55, 0.82)), url(${buttonImage})`,
   },
 
   surrenderButton: {
     width: 92,
-    border: "1px solid rgba(255, 138, 138, 0.42)",
-    borderRadius: 8,
-    background:
-      "linear-gradient(180deg, rgba(92, 32, 32, 0.92), rgba(24, 8, 8, 0.86))",
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    backgroundImage: `linear-gradient(180deg, rgba(138, 48, 44, 0.54), rgba(45, 12, 12, 0.74)), url(${buttonImage})`,
+    backgroundSize: "100% 100%, 100% 100%",
+    backgroundPosition: "center, center",
+    backgroundRepeat: "no-repeat, no-repeat",
+    backgroundBlendMode: "color, normal",
     color: "#ffd0d0",
-    padding: "8px 9px",
+    padding: "9px 10px 10px",
     fontWeight: 900,
     cursor: "pointer",
     textTransform: "uppercase",
     letterSpacing: 0.8,
-    boxShadow: "inset 0 0 14px rgba(255, 120, 120, 0.08)",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84)",
+    boxShadow: "none",
   },
 
   actionHint: {

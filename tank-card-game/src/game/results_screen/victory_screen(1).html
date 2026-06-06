@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Победа — сводка боя</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      display: grid;
+      place-items: center;
+      background: #050607;
+      color: #c9c0b2;
+      font-family: "Arial Narrow", "Roboto Condensed", Arial, sans-serif;
+    }
+
+    .battle-result {
+      position: relative;
+      width: 875px;
+      height: 665px;
+      overflow: hidden;
+      border-radius: 10px;
+      border: 2px solid #2a2d30;
+      background: #090807;
+      box-shadow: 0 28px 70px rgba(0,0,0,.85), inset 0 0 0 1px rgba(255,255,255,.05);
+    }
+
+    .battle-result::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-radius: 9px;
+      box-shadow: inset 0 0 32px #000, inset 0 0 0 3px rgba(0,0,0,.5);
+      z-index: 20;
+    }
+
+    .close {
+      position: absolute;
+      top: 12px;
+      right: 14px;
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      z-index: 30;
+      color: #958c83;
+      font: 900 26px/1 Arial, sans-serif;
+      text-shadow: 0 2px 2px #000;
+      opacity: .85;
+    }
+
+    .hero {
+      position: relative;
+      height: 240px;
+      border-bottom: 2px solid #62281f;
+      overflow: hidden;
+      background:
+        linear-gradient(90deg, rgba(17,28,37,.94), rgba(41,49,52,.42) 50%, rgba(84,37,25,.95)),
+        radial-gradient(circle at 52% 18%, rgba(255,255,255,.18), transparent 20%),
+        linear-gradient(180deg, #242a2d 0%, #566063 45%, #17120f 100%);
+    }
+
+    .hero::before,
+    .hero::after {
+      content: "";
+      position: absolute;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .hero::before {
+      left: -45px;
+      bottom: 0;
+      width: 410px;
+      height: 185px;
+      transform: rotate(-9deg);
+      filter: drop-shadow(0 14px 10px rgba(0,0,0,.75));
+      background:
+        linear-gradient(16deg, transparent 0 12%, #21282a 13% 19%, #83906d 20% 48%, #303330 49% 56%, transparent 57%),
+        radial-gradient(ellipse at 35% 60%, #606b56 0 18%, #1c2020 19% 25%, transparent 26%),
+        radial-gradient(ellipse at 75% 64%, #606b56 0 14%, #1c2020 15% 22%, transparent 23%);
+      clip-path: polygon(3% 59%, 15% 41%, 39% 25%, 75% 36%, 96% 61%, 78% 81%, 28% 88%, 8% 76%);
+    }
+
+    .hero::after {
+      right: -45px;
+      bottom: -12px;
+      width: 435px;
+      height: 205px;
+      transform: rotate(-12deg);
+      filter: drop-shadow(0 15px 13px rgba(0,0,0,.8));
+      background:
+        radial-gradient(circle at 88% 69%, rgba(255,65,28,.95), transparent 14%),
+        linear-gradient(13deg, transparent 0 21%, #2b2e27 22% 28%, #9b9169 29% 55%, #343125 56% 64%, transparent 65%),
+        radial-gradient(ellipse at 36% 72%, #716c50 0 13%, #1b1c18 14% 19%, transparent 20%),
+        radial-gradient(ellipse at 72% 66%, #716c50 0 13%, #1b1c18 14% 19%, transparent 20%);
+      clip-path: polygon(10% 47%, 42% 22%, 80% 28%, 99% 54%, 87% 79%, 39% 91%, 4% 76%);
+    }
+
+    .gun-left,
+    .gun-right {
+      position: absolute;
+      z-index: 2;
+      height: 4px;
+      border-radius: 20px;
+      transform-origin: left center;
+      background: linear-gradient(90deg, #141614, #b5a573 55%, #221c16);
+      box-shadow: 0 2px 2px #000;
+    }
+    .gun-left { left: 41px; top: 88px; width: 320px; transform: rotate(-13deg); }
+    .gun-right { left: 689px; top: 83px; width: 170px; transform: rotate(-35deg); }
+
+    .spray {
+      position: absolute;
+      left: -40px;
+      right: -35px;
+      bottom: -42px;
+      height: 113px;
+      z-index: 3;
+      background:
+        radial-gradient(ellipse at 18% 40%, rgba(231,238,239,.8), transparent 34%),
+        radial-gradient(ellipse at 80% 42%, rgba(235,242,240,.82), transparent 34%),
+        linear-gradient(180deg, transparent, rgba(230,238,240,.55));
+      opacity: .88;
+    }
+
+    .hero-pattern {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      opacity: .55;
+      background-image:
+        repeating-linear-gradient(110deg, transparent 0 11px, rgba(255,255,255,.09) 12px 13px),
+        repeating-linear-gradient(0deg, transparent 0 6px, rgba(0,0,0,.12) 7px 8px);
+    }
+
+    .title {
+      position: relative;
+      z-index: 6;
+      text-align: center;
+      padding-top: 34px;
+      text-shadow: 0 3px 6px #000;
+    }
+    .title h1 {
+      margin: 0;
+      font: 900 48px/1 Impact, "Arial Narrow", sans-serif;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #fff0df;
+    }
+    .title .subtitle {
+      margin-top: 9px;
+      font-size: 16px;
+      color: #e1d9ce;
+    }
+    .top-rewards {
+      margin-top: 10px;
+      display: flex;
+      justify-content: center;
+      gap: 28px;
+      font-size: 20px;
+      font-weight: 700;
+      color: #c8c7c3;
+    }
+    .coin, .star { display: inline-flex; align-items: center; gap: 7px; }
+    .coin::before {
+      content: "";
+      width: 17px;
+      height: 17px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 25%, #e6eef3, #8d969c 45%, #23282c 76%);
+      box-shadow: inset 0 0 5px #000, 0 0 3px rgba(255,255,255,.35);
+    }
+    .star { color: #6dc64f; }
+    .star::before {
+      content: "";
+      width: 18px;
+      height: 18px;
+      background: linear-gradient(#9be05e, #3b8428);
+      clip-path: polygon(50% 0,61% 35%,98% 35%,68% 56%,79% 96%,50% 72%,21% 96%,32% 56%,2% 35%,39% 35%);
+      box-shadow: 0 0 4px rgba(0,0,0,.9);
+    }
+
+    .tabs {
+      position: absolute;
+      left: 50px;
+      top: 204px;
+      z-index: 12;
+      display: flex;
+    }
+    .tab {
+      position: relative;
+      width: 148px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      text-transform: uppercase;
+      font-weight: 900;
+      font-size: 14px;
+      color: #e9eef3;
+      border: 1px solid rgba(255,255,255,.2);
+      background: linear-gradient(#54687c, #263a4d 47%, #172536);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 3px 8px rgba(0,0,0,.8);
+    }
+    .tab:first-child { color: #85898b; background: linear-gradient(#344352, #1a2836 52%, #0e1721); }
+    .tab.active::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -11px;
+      transform: translateX(-50%);
+      width: 22px;
+      height: 12px;
+      background: #27394a;
+      clip-path: polygon(0 0,100% 0,50% 100%);
+    }
+
+    .content {
+      position: relative;
+      height: 425px;
+      padding: 24px 45px 74px;
+      background:
+        linear-gradient(90deg, rgba(4,4,4,.86), rgba(12,10,9,.88) 62%, rgba(45,11,9,.55)),
+        linear-gradient(180deg, #14120f 0%, #090807 100%);
+      border-top: 1px solid #080807;
+    }
+
+    .summary { width: 615px; }
+    .section { margin-top: 0; margin-bottom: 84px; }
+    .section.credits { margin-bottom: 0; }
+    .section-title {
+      height: 25px;
+      display: flex;
+      align-items: center;
+      color: #d9cab0;
+      font-size: 16px;
+      font-weight: 900;
+      text-shadow: 0 2px 2px #000;
+    }
+
+    .table { width: 100%; font-size: 14px; color: #8b8781; }
+    .row {
+      display: grid;
+      grid-template-columns: 1.68fr .7fr .72fr;
+      align-items: center;
+      height: 20px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+    .row:last-child { border-bottom: none; }
+    .row.header {
+      height: 20px;
+      color: #a99a83;
+      border-bottom-color: rgba(255,255,255,.12);
+    }
+    .label { padding-left: 15px; }
+    .center { text-align: center; }
+    .premium { text-align: center; color: #d7c5a5; font-weight: 700; }
+    .minus { color: #aa9990; }
+    .medal {
+      display: inline-block;
+      width: 15px;
+      height: 15px;
+      margin-right: 5px;
+      vertical-align: -3px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #b8b1a9, #5d534a 62%, #221f1d);
+      box-shadow: inset 0 0 5px rgba(0,0,0,.75);
+    }
+
+    .rating {
+      position: absolute;
+      top: 36px;
+      right: 69px;
+      width: 132px;
+      height: 124px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: #fff;
+      background: linear-gradient(140deg, #5a1718, #9c2b21 52%, #351113);
+      clip-path: polygon(0 0,100% 0,100% 72%,50% 100%,0 72%);
+      filter: drop-shadow(0 7px 8px rgba(0,0,0,.85));
+    }
+    .rating::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(108deg, transparent 0 11px, rgba(255,255,255,.05) 12px 14px), linear-gradient(180deg, rgba(255,255,255,.13), transparent 35%);
+    }
+    .rating::after {
+      content: "";
+      position: absolute;
+      inset: 7px 9px 9px;
+      clip-path: polygon(0 0,100% 0,100% 69%,50% 100%,0 69%);
+      border: 3px solid rgba(221,169,88,.78);
+      border-bottom: 0;
+    }
+    .rating-title, .rating-value { position: relative; z-index: 1; display: block; }
+    .rating-title {
+      margin-bottom: 7px;
+      color: #d1a492;
+      text-transform: uppercase;
+      font-size: 16px;
+    }
+    .rating-value { font: 900 44px/1 Arial, sans-serif; text-shadow: 0 3px 5px #000; }
+
+    .bottom-line {
+      position: absolute;
+      left: 35px;
+      right: 35px;
+      bottom: 57px;
+      height: 1px;
+      background: rgba(120,38,31,.4);
+    }
+    .footer {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 13px;
+      z-index: 14;
+      display: flex;
+      justify-content: center;
+      gap: 29px;
+    }
+    .button {
+      height: 37px;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 3px;
+      color: #eee5d6;
+      text-transform: uppercase;
+      font-weight: 900;
+      font-size: 14px;
+      letter-spacing: .3px;
+      text-shadow: 0 2px 2px #000;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 3px 7px rgba(0,0,0,.8);
+    }
+    .share {
+      width: 174px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 15px;
+      background: linear-gradient(#5067a9, #233f91 52%, #142a68);
+    }
+    .continue {
+      width: 178px;
+      background: linear-gradient(#958964, #5b4d2b 52%, #382815);
+    }
+    .fb {
+      width: 27px;
+      height: 27px;
+      border-radius: 2px;
+      display: inline-grid;
+      place-items: end center;
+      background: #f7f7f7;
+      color: #2f5ba5;
+      font: 900 30px/24px Arial, sans-serif;
+      text-transform: lowercase;
+      text-shadow: none;
+    }
+  </style>
+</head>
+<body>
+  <main class="battle-result">
+    <div class="close">×</div>
+
+    <section class="hero">
+      <div class="hero-pattern"></div>
+      <div class="gun-left"></div>
+      <div class="gun-right"></div>
+      <div class="spray"></div>
+      <div class="title">
+        <h1>Победа!</h1>
+        <div class="subtitle">Разгром. Штаб противника уничтожен.</div>
+        <div class="top-rewards">
+          <span class="coin">8&nbsp;025</span>
+          <span class="star">1&nbsp;130</span>
+        </div>
+      </div>
+    </section>
+
+    <nav class="tabs">
+      <div class="tab">Трофеи</div>
+      <div class="tab active">Сводка</div>
+    </nav>
+
+    <section class="content">
+      <aside class="rating">
+        <div>
+          <span class="rating-title">Рейтинг</span>
+          <span class="rating-value">+3</span>
+        </div>
+      </aside>
+
+      <div class="summary">
+        <section class="section experience">
+          <div class="section-title">Опыт</div>
+          <div class="table">
+            <div class="row header">
+              <div></div>
+              <div class="center"><span class="medal"></span>Без премиума</div>
+              <div class="premium"><span class="medal"></span>С премиумом</div>
+            </div>
+            <div class="row">
+              <div class="label">Базовый опыт за бой</div>
+              <div class="center">565</div>
+              <div class="premium">848</div>
+            </div>
+            <div class="row">
+              <div class="label">Итого начислено на штаб</div>
+              <div class="center">1130</div>
+              <div class="premium">1695</div>
+            </div>
+            <div class="row">
+              <div class="label">Свободный опыт</div>
+              <div class="center">85</div>
+              <div class="premium">128</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section credits">
+          <div class="section-title">Кредиты</div>
+          <div class="table">
+            <div class="row header">
+              <div></div>
+              <div class="center"><span class="medal"></span>Без премиума</div>
+              <div class="premium"><span class="medal"></span>С премиумом</div>
+            </div>
+            <div class="row">
+              <div class="label">Базовые кредиты за бой</div>
+              <div class="center">8025</div>
+              <div class="premium">12038</div>
+            </div>
+            <div class="row">
+              <div class="label">Автоматический ремонт штаба</div>
+              <div class="center minus">-735</div>
+              <div class="premium minus">-735</div>
+            </div>
+            <div class="row">
+              <div class="label">Итого заработок в кредитах</div>
+              <div class="center">7290</div>
+              <div class="premium">11303</div>
+            </div>
+          </div>
+        </section>
+      </div>
+      <div class="bottom-line"></div>
+    </section>
+
+    <footer class="footer">
+      <button class="button share"><span class="fb">f</span>Поделиться</button>
+      <button class="button continue">Продолжить</button>
+    </footer>
+  </main>
+</body>
+</html>

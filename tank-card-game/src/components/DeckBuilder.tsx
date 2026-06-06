@@ -11,6 +11,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import buttonImage from "../assets/button.png";
 import {
   HEADQUARTERS,
   getMainMenuHeadquarters,
@@ -928,21 +929,24 @@ const styles: Record<string, CSSProperties> = {
   },
 
   readyButton: {
-    height: 46,
-    minWidth: 112,
-    padding: "0 18px",
-    border: "1px solid rgba(237, 216, 126, 0.78)",
-    borderRadius: 4,
-    background:
-      "linear-gradient(180deg, rgba(126, 116, 52, 0.98), rgba(58, 69, 34, 0.98))",
-    color: "#fff2b9",
+    height: 48,
+    minWidth: 122,
+    padding: "0 22px 2px",
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    backgroundImage: `url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    color: "#fff0bd",
     cursor: "pointer",
     fontSize: 13,
     fontWeight: 1000,
     letterSpacing: 1.2,
     textTransform: "uppercase",
-    boxShadow:
-      "0 10px 24px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.16)",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.22)",
+    boxShadow: "none",
   },
 
   workspace: {

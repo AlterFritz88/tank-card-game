@@ -1,10 +1,13 @@
-import type React from "react";
+import { useState, type ReactNode, type CSSProperties } from "react";
+import buttonImage from "../assets/button.png";
+import statsBackgroundImage from "../game/results_screen/back_for_stats.png";
+import defeatBannerImage from "../game/results_screen/defeat.png";
+import ratingBannerImage from "../game/results_screen/rating.png";
+import victoryBannerImage from "../game/results_screen/victory.png";
 import type { BattleReward } from "../game/economy";
 import { getHeadquartersDefinition } from "../game/headquarters";
 import type { MatchEndReason } from "../game/modes";
 import type { BattleKillStats, ClientBattleState, PlayerId } from "../game/types";
-import victoryBackground from "../assets/backgrounds/results/victory-result-bg.png";
-import defeatBackground from "../assets/backgrounds/results/defeat-result-bg.png";
 
 type ResultScreenProps = {
   battle: ClientBattleState;
@@ -15,12 +18,14 @@ type ResultScreenProps = {
   reward?: BattleReward | null;
 };
 
+type ResultTab = "summary" | "trophies";
+
 const STAT_ROWS: { key: keyof BattleKillStats; label: string }[] = [
   { key: "light", label: "Легкие танки" },
   { key: "medium", label: "Средние танки" },
   { key: "heavy", label: "Тяжелые танки" },
   { key: "td", label: "ПТ-САУ" },
-  { key: "spg", label: "САУ" },
+  { key: "spg", label: "Артиллерия" },
 ];
 
 const emptyStats: BattleKillStats = {
@@ -35,6 +40,22 @@ function getTotal(stats: BattleKillStats): number {
   return STAT_ROWS.reduce((total, row) => total + stats[row.key], 0);
 }
 
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("ru-RU").format(value);
+}
+
+function getPremiumValue(value: number): number {
+  return Math.round(value * 1.5);
+}
+
+function getRatingDelta(isVictory: boolean, reason: MatchEndReason | null): number {
+  if (isVictory) {
+    return reason === "disconnect" || reason === "opponent_left" ? 2 : 3;
+  }
+
+  return reason === "surrender" || reason === "leave" ? -3 : -2;
+}
+
 export function ResultScreen({
   battle,
   onRestart,
@@ -43,6 +64,8 @@ export function ResultScreen({
   restartLabel = "В меню",
   reward = null,
 }: ResultScreenProps) {
+  const [activeTab, setActiveTab] = useState<ResultTab>("summary");
+
   const winningPlayer: PlayerId | null =
     battle.status === "player_won"
       ? "player"
@@ -51,87 +74,275 @@ export function ResultScreen({
         : null;
 
   const localPlayerWon = winningPlayer === localPlayerId;
-  const title = localPlayerWon ? "ПОБЕДА" : "ПОРАЖЕНИЕ";
+  const title = localPlayerWon ? "Победа!" : "Поражение";
   const reasonText = getResultReasonText(matchEndReason, localPlayerWon);
-  const backgroundImage = localPlayerWon ? victoryBackground : defeatBackground;
+  const bannerImage = localPlayerWon ? victoryBannerImage : defeatBannerImage;
+  const titleColor = localPlayerWon ? "#9ef47f" : "#ff7b6c";
+  const accentColor = localPlayerWon ? "#78d45f" : "#d76555";
 
   const playerStats = battle.stats?.destroyedByPlayer ?? emptyStats;
   const botStats = battle.stats?.destroyedByBot ?? emptyStats;
   const ownStats = localPlayerId === "player" ? playerStats : botStats;
   const enemyStats = localPlayerId === "player" ? botStats : playerStats;
+  const headquarters = reward
+    ? getHeadquartersDefinition(reward.headquartersId)
+    : null;
+  const baseHeadquartersXp = reward?.headquartersXp ?? 0;
+  const freeXp = reward?.freeXp ?? 0;
+  const ironTracks = reward?.ironTracks ?? 0;
+  const repairCost = reward
+    ? -Math.max(0, Math.round(ironTracks * (localPlayerWon ? 0.08 : 0.12)))
+    : 0;
+  const netIronTracks = Math.max(0, ironTracks + repairCost);
+  const ratingDelta = getRatingDelta(localPlayerWon, matchEndReason);
+  const ratingText = ratingDelta > 0 ? `+${ratingDelta}` : `${ratingDelta}`;
 
   return (
-    <div style={{ ...styles.overlay, backgroundImage: `url(${backgroundImage})` }}>
-      <div style={styles.vignette} />
+    <div style={styles.overlay}>
+      <main style={styles.resultWindow}>
+        <section
+          style={{
+            ...styles.hero,
+            backgroundImage: `url(${bannerImage})`,
+          }}
+        >
+          <div style={styles.heroShade} />
+          <div style={styles.titleBlock}>
+            <h1 style={{ ...styles.title, color: titleColor }}>{title}</h1>
+            <div style={styles.subtitle}>
+              {reasonText ??
+                (localPlayerWon
+                  ? "Штаб противника уничтожен."
+                  : "Ваш штаб потерял боеспособность.")}
+            </div>
+            <div style={styles.topRewards}>
+              <span style={styles.coin}>{formatNumber(ironTracks)}</span>
+              <span style={{ ...styles.star, color: accentColor }}>
+                {formatNumber(baseHeadquartersXp + freeXp)}
+              </span>
+            </div>
+          </div>
+        </section>
 
-      <h1
-        style={{
-          ...styles.title,
-          color: localPlayerWon ? "#70ff82" : "#ff5f5f",
-        }}
-      >
-        {title}
-      </h1>
+        <nav style={styles.tabs}>
+          <ResultTabButton
+            active={activeTab === "trophies"}
+            onClick={() => setActiveTab("trophies")}
+          >
+            Трофеи
+          </ResultTabButton>
+          <ResultTabButton
+            active={activeTab === "summary"}
+            onClick={() => setActiveTab("summary")}
+          >
+            Сводка
+          </ResultTabButton>
+        </nav>
 
-      {reasonText ? <div style={styles.reason}>{reasonText}</div> : null}
+        <section
+          style={{
+            ...styles.content,
+            backgroundImage: `linear-gradient(90deg, rgba(4,4,4,0.74), rgba(12,10,9,0.52) 62%, rgba(45,11,9,0.30)), url(${statsBackgroundImage})`,
+          }}
+        >
+          <aside style={styles.ratingBadge}>
+            <img src={ratingBannerImage} alt="" style={styles.ratingImage} />
+            <div style={styles.ratingContent}>
+              <span style={styles.ratingTitle}>Рейтинг</span>
+              <span style={styles.ratingValue}>{ratingText}</span>
+            </div>
+          </aside>
 
-      <div style={styles.leftStats}>
-        <StatsPanel title="Вы уничтожили" stats={ownStats} accent="#7dff8a" />
-      </div>
+          <div style={styles.summary}>
+            {activeTab === "summary" ? (
+              <>
+                <ResultSection title="Опыт">
+                  <ResultTable
+                    rows={[
+                      {
+                        label: "Боевой опыт штаба",
+                        value: baseHeadquartersXp,
+                        premiumValue: getPremiumValue(baseHeadquartersXp),
+                      },
+                      {
+                        label: reward?.fullyResearchedConversion
+                          ? "Штаб изучен, перевод в свободный опыт"
+                          : "Итого начислено на штаб",
+                        value: baseHeadquartersXp,
+                        premiumValue: getPremiumValue(baseHeadquartersXp),
+                      },
+                      {
+                        label: "Свободный опыт",
+                        value: freeXp,
+                        premiumValue: getPremiumValue(freeXp),
+                      },
+                    ]}
+                  />
+                </ResultSection>
 
-      <div style={styles.rightStats}>
-        <StatsPanel title="Противник уничтожил" stats={enemyStats} accent="#ff6b6b" />
-      </div>
+                <ResultSection title="Железные траки">
+                  <ResultTable
+                    rows={[
+                      {
+                        label: "Базовая награда за бой",
+                        value: ironTracks,
+                        premiumValue: getPremiumValue(ironTracks),
+                      },
+                      {
+                        label: "Автоматический ремонт штаба",
+                        value: repairCost,
+                        premiumValue: repairCost,
+                        muted: true,
+                      },
+                      {
+                        label: "Итого заработано",
+                        value: netIronTracks,
+                        premiumValue: Math.max(
+                          0,
+                          getPremiumValue(ironTracks) + repairCost
+                        ),
+                      },
+                    ]}
+                  />
+                </ResultSection>
+              </>
+            ) : (
+              <ResultSection title="Уничтоженные юниты">
+                <StatsSummary ownStats={ownStats} enemyStats={enemyStats} />
+              </ResultSection>
+            )}
+          </div>
 
-      {reward ? (
-        <div style={styles.rewardPanelWrap}>
-          <RewardPanel reward={reward} />
-        </div>
-      ) : null}
+          {headquarters ? (
+            <div style={styles.headquartersNote}>{headquarters.title}</div>
+          ) : null}
+        </section>
 
-      <button type="button" style={styles.restartButton} onClick={onRestart}>
-        {restartLabel}
-      </button>
+        <footer style={styles.footer}>
+          <button type="button" style={styles.continueButton} onClick={onRestart}>
+            {restartLabel}
+          </button>
+        </footer>
+      </main>
     </div>
   );
 }
 
-function RewardPanel({ reward }: { reward: BattleReward }) {
-  const headquarters = getHeadquartersDefinition(reward.headquartersId);
-
+function ResultTabButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: ReactNode;
+  onClick: () => void;
+}) {
   return (
-    <section style={styles.rewardPanel}>
-      <h2 style={styles.rewardTitle}>Награда</h2>
-      <div style={styles.rewardSubtitle}>{headquarters.title}</div>
+    <button
+      type="button"
+      style={{
+        ...styles.tabButton,
+        ...(active ? styles.tabButtonActive : null),
+      }}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
 
-      <div style={styles.rewardRows}>
-        {reward.headquartersXp > 0 ? (
-          <RewardRow label="Опыт штаба" value={`+${reward.headquartersXp}`} />
-        ) : null}
-        {reward.fullyResearchedConversion ? (
-          <RewardRow label="Штаб изучен" value="в свободный опыт" />
-        ) : null}
-        <RewardRow label="Свободный опыт" value={`+${reward.freeXp}`} />
-        <RewardRow label="Железные траки" value={`+${reward.ironTracks}`} />
-        {reward.goldTracks > 0 ? (
-          <RewardRow label="Золотые траки" value={`+${reward.goldTracks}`} />
-        ) : null}
-      </div>
-
-      <div style={styles.rewardProgress}>
-        Уничтожение армии: {Math.round(reward.destructionProgress * 100)}%
-      </div>
+function ResultSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section style={styles.section}>
+      <div style={styles.sectionTitle}>{title}</div>
+      {children}
     </section>
   );
 }
 
-function RewardRow({ label, value }: { label: string; value: string }) {
+function ResultTable({
+  rows,
+}: {
+  rows: {
+    label: string;
+    value: number;
+    premiumValue: number;
+    muted?: boolean;
+  }[];
+}) {
   return (
-    <div style={styles.rewardRow}>
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div style={styles.table}>
+      <div style={{ ...styles.row, ...styles.headerRow }}>
+        <div />
+        <div style={styles.centerCell}>
+          <span style={styles.medal} />
+          Без премиума
+        </div>
+        <div style={styles.premiumCell}>
+          <span style={styles.medal} />
+          С премиумом
+        </div>
+      </div>
+
+      {rows.map((row) => (
+        <div key={row.label} style={styles.row}>
+          <div style={styles.labelCell}>{row.label}</div>
+          <div style={{ ...styles.centerCell, ...(row.muted ? styles.minusCell : {}) }}>
+            {formatSigned(row.value)}
+          </div>
+          <div style={{ ...styles.premiumCell, ...(row.muted ? styles.minusCell : {}) }}>
+            {formatSigned(row.premiumValue)}
+          </div>
+        </div>
+      ))}
     </div>
   );
+}
+
+function StatsSummary({
+  ownStats,
+  enemyStats,
+}: {
+  ownStats: BattleKillStats;
+  enemyStats: BattleKillStats;
+}) {
+  return (
+    <div style={styles.statsGrid}>
+      <div style={styles.statsColumn}>
+        <div style={styles.statsColumnTitle}>Вы уничтожили</div>
+        <strong>{getTotal(ownStats)}</strong>
+      </div>
+      <div style={styles.statsColumn}>
+        <div style={styles.statsColumnTitle}>Противник уничтожил</div>
+        <strong>{getTotal(enemyStats)}</strong>
+      </div>
+      {STAT_ROWS.map((row) => (
+        <div key={row.key} style={styles.statsLine}>
+          <span>{row.label}</span>
+          <span>{ownStats[row.key]}</span>
+          <span>{enemyStats[row.key]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatSigned(value: number): string {
+  if (value > 0) {
+    return formatNumber(value);
+  }
+
+  if (value < 0) {
+    return `-${formatNumber(Math.abs(value))}`;
+  }
+
+  return "0";
 }
 
 function getResultReasonText(
@@ -151,238 +362,329 @@ function getResultReasonText(
   }
 }
 
-function StatsPanel({
-  title,
-  stats,
-  accent,
-}: {
-  title: string;
-  stats: BattleKillStats;
-  accent: string;
-}) {
-  return (
-    <section style={styles.statsPanel}>
-      <h2 style={{ ...styles.statsTitle, color: accent }}>{title}</h2>
-
-      <div style={styles.statsRows}>
-        {STAT_ROWS.map((row) => (
-          <div key={row.key} style={styles.statsRow}>
-            <span>{row.label}</span>
-            <strong>{stats[row.key]}</strong>
-          </div>
-        ))}
-      </div>
-
-      <div style={styles.totalRow}>
-        <span>Всего уничтожено</span>
-        <strong>{getTotal(stats)}</strong>
-      </div>
-    </section>
-  );
-}
-
-const styles: Record<string, React.CSSProperties> = {
+const styles: Record<string, CSSProperties> = {
   overlay: {
     position: "fixed",
     inset: 0,
     zIndex: 3000,
+    display: "grid",
+    placeItems: "center",
+    overflow: "hidden",
+    background:
+      "radial-gradient(circle at center, rgba(42,38,31,0.26), rgba(0,0,0,0.88) 72%), #050607",
+    color: "#c9c0b2",
+    fontFamily:
+      "'Arial Narrow', 'Roboto Condensed', Inter, ui-sans-serif, system-ui, sans-serif",
+  },
+
+  resultWindow: {
+    position: "relative",
+    width: "min(875px, calc(100vw - 36px))",
+    height: "min(665px, calc(100vh - 32px))",
+    overflow: "hidden",
+    borderRadius: 10,
+    border: "2px solid #2a2d30",
+    background: "#090807",
+    boxShadow:
+      "0 28px 70px rgba(0,0,0,0.85), inset 0 0 0 1px rgba(255,255,255,0.05)",
+  },
+
+  hero: {
+    position: "relative",
+    width: "calc(100% - 54px)",
+    height: 222,
+    margin: "16px auto 0",
+    border: "1px solid rgba(174, 94, 68, 0.42)",
     overflow: "hidden",
     backgroundSize: "cover",
     backgroundPosition: "center center",
     backgroundRepeat: "no-repeat",
-    color: "#eef2f3",
-    fontFamily:
-      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
   },
 
-  vignette: {
+  heroShade: {
     position: "absolute",
     inset: 0,
     background:
-      "radial-gradient(circle at center, rgba(0,0,0,0.02), rgba(0,0,0,0.72) 84%)",
+      "linear-gradient(180deg, rgba(0,0,0,0.03), rgba(0,0,0,0.24))",
     pointerEvents: "none",
   },
 
+  titleBlock: {
+    position: "relative",
+    zIndex: 2,
+    paddingTop: 32,
+    textAlign: "center",
+    textShadow: "0 3px 6px #000",
+  },
+
   title: {
-    position: "absolute",
-    left: "50%",
-    top: "8.2%",
-    transform: "translateX(-50%)",
     margin: 0,
-    fontSize: 76,
-    fontWeight: 1000,
-    letterSpacing: 8,
-    textTransform: "uppercase",
-    whiteSpace: "nowrap",
-    textShadow: "0 5px 20px rgba(0,0,0,0.82)",
-  },
-
-  reason: {
-    position: "absolute",
-    left: "50%",
-    top: "18%",
-    transform: "translateX(-50%)",
-    padding: "8px 18px",
-    borderRadius: 999,
-    background: "rgba(0,0,0,0.48)",
-    border: "1px solid rgba(255,255,255,0.14)",
-    color: "#f7d774",
-    fontSize: 24,
+    fontFamily: "Impact, 'Arial Narrow', sans-serif",
+    fontSize: 48,
     fontWeight: 900,
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    textShadow: "0 3px 12px rgba(0,0,0,0.78)",
-  },
-
-  leftStats: {
-    position: "absolute",
-    left: "3.2%",
-    top: "22%",
-    width: "21.5%",
-  },
-
-  rightStats: {
-    position: "absolute",
-    right: "3.2%",
-    top: "22%",
-    width: "21.5%",
-  },
-
-  rewardPanelWrap: {
-    position: "absolute",
-    left: "50%",
-    top: "26%",
-    width: "min(360px, 30vw)",
-    transform: "translateX(-50%)",
-  },
-
-  statsPanel: {
-    padding: 18,
-    borderRadius: 16,
-    background: "linear-gradient(180deg, rgba(8,10,10,0.86), rgba(0,0,0,0.76))",
-    border: "1px solid rgba(255,255,255,0.14)",
-    boxShadow:
-      "0 18px 54px rgba(0,0,0,0.56), inset 0 0 30px rgba(0,0,0,0.72)",
-    backdropFilter: "blur(2px)",
-  },
-
-  statsTitle: {
-    margin: "0 0 14px",
-    fontSize: 22,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    textShadow: "0 2px 0 rgba(0,0,0,0.9)",
-  },
-
-  statsRows: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-  },
-
-  statsRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-    padding: "8px 10px",
-    borderRadius: 10,
-    background: "rgba(255,255,255,0.045)",
-    border: "1px solid rgba(255,255,255,0.06)",
-    fontSize: 17,
-  },
-
-  totalRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-    marginTop: 14,
-    padding: "12px 10px",
-    borderRadius: 10,
-    background: "rgba(0,0,0,0.42)",
-    borderTop: "1px solid rgba(255,255,255,0.12)",
-    fontSize: 19,
-    fontWeight: 900,
+    letterSpacing: 3,
+    lineHeight: 1,
     textTransform: "uppercase",
   },
 
-  rewardPanel: {
-    padding: "18px 20px",
-    borderRadius: 16,
-    background: "linear-gradient(180deg, rgba(14,15,12,0.9), rgba(0,0,0,0.78))",
-    border: "1px solid rgba(247,215,116,0.26)",
-    boxShadow:
-      "0 18px 54px rgba(0,0,0,0.58), inset 0 0 30px rgba(247,215,116,0.05)",
-    backdropFilter: "blur(2px)",
-  },
-
-  rewardTitle: {
-    margin: 0,
-    color: "#ffe9a8",
-    fontSize: 24,
-    fontWeight: 1000,
-    letterSpacing: 2,
-    textTransform: "uppercase",
-    textShadow: "0 2px 0 rgba(0,0,0,0.95)",
-  },
-
-  rewardSubtitle: {
-    marginTop: 4,
-    color: "rgba(244,229,191,0.78)",
-    fontSize: 14,
-    fontWeight: 800,
-    textTransform: "uppercase",
-  },
-
-  rewardRows: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-    marginTop: 16,
-  },
-
-  rewardRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-    padding: "9px 10px",
-    borderRadius: 10,
-    background: "rgba(255,255,255,0.052)",
-    border: "1px solid rgba(255,255,255,0.07)",
-    color: "#efe6cf",
+  subtitle: {
+    marginTop: 9,
+    color: "#e1d9ce",
     fontSize: 16,
+    fontWeight: 700,
   },
 
-  rewardProgress: {
-    marginTop: 14,
-    paddingTop: 12,
-    borderTop: "1px solid rgba(255,255,255,0.1)",
-    color: "#d7b665",
+  topRewards: {
+    marginTop: 10,
+    display: "flex",
+    justifyContent: "center",
+    gap: 28,
+    color: "#c8c7c3",
+    fontSize: 20,
+    fontWeight: 800,
+  },
+
+  coin: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+  },
+
+  star: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+  },
+
+  tabs: {
+    position: "absolute",
+    left: 50,
+    top: 205,
+    zIndex: 12,
+    display: "flex",
+    gap: 8,
+  },
+
+  tabButton: {
+    width: 148,
+    height: 39,
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "#4f565b",
+    backgroundImage: `linear-gradient(rgba(82, 88, 92, 0.82), rgba(33, 36, 39, 0.9)), url(${buttonImage})`,
+    backgroundSize: "100% 100%, 100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    color: "#d6d6d2",
+    cursor: "pointer",
     fontSize: 13,
     fontWeight: 900,
-    letterSpacing: 0.7,
+    letterSpacing: 0.25,
+    textTransform: "uppercase",
+    textShadow: "0 2px 2px #000",
+    filter: "brightness(0.88)",
+  },
+
+  tabButtonActive: {
+    color: "#fff0bd",
+    filter: "brightness(1.04)",
+  },
+
+  content: {
+    position: "relative",
+    height: "calc(100% - 238px)",
+    padding: "28px 45px 74px",
+    borderTop: "1px solid #080807",
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+  },
+
+  summary: {
+    width: 615,
+    maxWidth: "calc(100% - 190px)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 18,
+  },
+
+  section: {
+    minHeight: 0,
+  },
+
+  sectionTitle: {
+    height: 25,
+    display: "flex",
+    alignItems: "center",
+    color: "#d9cab0",
+    fontSize: 16,
+    fontWeight: 900,
+    textShadow: "0 2px 2px #000",
+  },
+
+  table: {
+    width: "100%",
+    color: "#9d9890",
+    fontSize: 14,
+  },
+
+  row: {
+    display: "grid",
+    gridTemplateColumns: "1.68fr 0.7fr 0.72fr",
+    alignItems: "center",
+    minHeight: 20,
+    borderBottom: "1px solid rgba(255,255,255,0.08)",
+  },
+
+  headerRow: {
+    color: "#a99a83",
+    borderBottom: "1px solid rgba(255,255,255,0.12)",
+  },
+
+  labelCell: {
+    paddingLeft: 15,
+  },
+
+  centerCell: {
+    textAlign: "center",
+  },
+
+  premiumCell: {
+    color: "#d7c5a5",
+    fontWeight: 800,
+    textAlign: "center",
+  },
+
+  minusCell: {
+    color: "#aa9990",
+  },
+
+  medal: {
+    display: "inline-block",
+    width: 15,
+    height: 15,
+    marginRight: 5,
+    verticalAlign: -3,
+    borderRadius: "50%",
+    background:
+      "radial-gradient(circle at 35% 30%, #b8b1a9, #5d534a 62%, #221f1d)",
+    boxShadow: "inset 0 0 5px rgba(0,0,0,0.75)",
+  },
+
+  statsGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    columnGap: 20,
+    rowGap: 5,
+    color: "#9d9890",
+    fontSize: 14,
+  },
+
+  statsColumn: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    padding: "2px 0 5px 15px",
+    borderBottom: "1px solid rgba(255,255,255,0.12)",
+    color: "#d7c5a5",
+  },
+
+  statsColumnTitle: {
+    fontWeight: 900,
+  },
+
+  statsLine: {
+    gridColumn: "1 / 3",
+    display: "grid",
+    gridTemplateColumns: "1fr 56px 56px",
+    alignItems: "center",
+    minHeight: 19,
+    paddingLeft: 15,
+    borderBottom: "1px solid rgba(255,255,255,0.07)",
+  },
+
+  ratingBadge: {
+    position: "absolute",
+    top: 34,
+    right: 62,
+    width: 148,
+    height: 142,
+    display: "grid",
+    placeItems: "center",
+    filter: "drop-shadow(0 7px 8px rgba(0,0,0,0.85))",
+  },
+
+  ratingImage: {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+  },
+
+  ratingContent: {
+    position: "relative",
+    zIndex: 1,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    transform: "translateY(-5px)",
+  },
+
+  ratingTitle: {
+    marginBottom: 7,
+    color: "#d1a492",
+    fontSize: 16,
     textTransform: "uppercase",
   },
 
-  restartButton: {
+  ratingValue: {
+    color: "#fff",
+    fontFamily: "Arial, sans-serif",
+    fontSize: 44,
+    fontWeight: 900,
+    lineHeight: 1,
+    textShadow: "0 3px 5px #000",
+  },
+
+  headquartersNote: {
     position: "absolute",
-    left: "50%",
-    bottom: "7.2%",
-    transform: "translateX(-50%)",
-    minWidth: 330,
-    minHeight: 62,
-    borderRadius: 12,
-    border: "1px solid rgba(255, 238, 168, 0.72)",
-    background: "linear-gradient(180deg, rgba(216,180,106,0.96), rgba(117,84,39,0.98))",
-    color: "#1d1207",
-    fontSize: 22,
-    fontWeight: 1000,
-    letterSpacing: 1,
+    right: 54,
+    top: 184,
+    width: 172,
+    color: "#b8aa91",
+    fontSize: 12,
+    fontWeight: 800,
+    textAlign: "center",
     textTransform: "uppercase",
+  },
+
+  footer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 13,
+    zIndex: 14,
+    display: "flex",
+    justifyContent: "center",
+  },
+
+  continueButton: {
+    width: 178,
+    height: 39,
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    backgroundImage: `url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    color: "#eee5d6",
     cursor: "pointer",
-    boxShadow:
-      "0 0 0 3px rgba(0,0,0,0.65), 0 16px 44px rgba(0,0,0,0.65)",
+    fontSize: 14,
+    fontWeight: 900,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    textShadow: "0 2px 2px #000",
   },
 };

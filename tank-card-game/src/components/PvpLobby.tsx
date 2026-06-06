@@ -12,6 +12,7 @@ import {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
+import buttonImage from "../assets/button.png";
 import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
 import { getMissionIllustrationAsset } from "../assets/missionIllustrationAssets";
 import { CAMPAIGNS, isCampaignMissionUnlocked } from "../game/campaigns";
@@ -784,6 +785,7 @@ export function PvpLobby() {
 
           <button
             type="button"
+            className="menu-image-button"
             style={styles.researchButton}
             onClick={openResearchMenu}
           >
@@ -916,6 +918,7 @@ export function PvpLobby() {
           <div style={styles.singleMenuAction}>
             <button
               type="button"
+              className="menu-image-button"
               style={styles.backButton}
               onClick={closeHeadquartersMenu}
             >
@@ -1908,17 +1911,21 @@ const styles: Record<string, CSSProperties> = {
     display: "block",
     minWidth: 226,
     margin: "2px auto 0",
-    padding: "11px 22px",
-    border: "1px solid rgba(220, 184, 96, 0.54)",
-    borderRadius: 4,
-    background:
-      "linear-gradient(180deg, rgba(69, 65, 43, 0.98), rgba(35, 36, 25, 0.98))",
-    color: "#f8e3ae",
+    padding: "13px 26px 15px",
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    backgroundImage: `url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    color: "#fff0bd",
     cursor: "pointer",
     fontWeight: 1000,
-    letterSpacing: 1.5,
+    letterSpacing: 1.7,
     textTransform: "uppercase",
-    boxShadow: "0 10px 22px rgba(0,0,0,0.3)",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.22)",
+    boxShadow: "none",
   },
 
   backButton: {
@@ -1926,16 +1933,20 @@ const styles: Record<string, CSSProperties> = {
     display: "block",
     width: "100%",
     margin: 0,
-    padding: "9px 16px",
-    borderRadius: 10,
-    border: "1px solid rgba(220, 184, 96, 0.48)",
-    background:
-      "linear-gradient(180deg, rgba(74, 58, 34, 0.94), rgba(42, 32, 19, 0.94))",
-    color: "#f8e3ae",
+    padding: "11px 18px 13px",
+    borderRadius: 0,
+    border: "none",
+    backgroundColor: "transparent",
+    backgroundImage: `url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    color: "#fff0bd",
     fontWeight: 1000,
-    letterSpacing: 0.4,
+    letterSpacing: 0.6,
     textTransform: "uppercase",
-    boxShadow: "0 10px 22px rgba(0,0,0,0.30)",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.2)",
+    boxShadow: "none",
   },
 
   primaryMenuButton: {

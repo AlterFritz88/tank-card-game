@@ -28,3 +28,19 @@ body {
 .research-tree-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(232, 193, 98, 0.88);
 }
+
+.menu-image-button {
+  transition:
+    transform 160ms ease,
+    filter 160ms ease;
+}
+
+.menu-image-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: brightness(1.12) saturate(1.08);
+}
+
+.menu-image-button:active:not(:disabled) {
+  transform: translateY(0);
+  filter: brightness(0.94);
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties, type MouseEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import buttonImage from "../assets/button.png";
 import { getNationFlagAsset } from "../assets/nationFlagAssets";
 import { cards } from "../game/cards";
 import { getHeadquartersDefinition } from "../game/headquarters";
@@ -723,19 +724,24 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 6,
     left: 20,
     bottom: 18,
-    width: 48,
-    height: 48,
+    width: 58,
+    height: 46,
     padding: 0,
-    border: "1px solid rgba(220, 184, 96, 0.48)",
-    borderRadius: 4,
-    background: "linear-gradient(180deg, rgba(74, 58, 34, 0.96), rgba(42, 32, 19, 0.96))",
-    color: "#f8e3ae",
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    backgroundImage: `url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    color: "#fff0bd",
     cursor: "pointer",
-    fontSize: 27,
+    fontSize: 25,
     fontWeight: 1000,
-    lineHeight: "45px",
+    lineHeight: "43px",
     textAlign: "center",
-    boxShadow: "0 10px 22px rgba(0,0,0,0.3)",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.2)",
+    boxShadow: "none",
   },
 
   cardPreviewOverlay: {
