@@ -358,9 +358,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     }
 
     return (
-      <motion.img
-        src={avatar}
-        alt=""
+      <motion.div
         aria-hidden="true"
         style={{
           ...styles.headquartersAvatar,
@@ -371,7 +369,20 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         initial={{ opacity: 0, y: placement === "player" ? 14 : -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.28, ease: "easeOut" }}
-      />
+      >
+        <img
+          src={avatar}
+          alt=""
+          draggable={false}
+          style={{
+            ...styles.headquartersAvatarImage,
+            ...(placement === "player"
+              ? styles.playerHeadquartersAvatarImage
+              : styles.enemyHeadquartersAvatarImage),
+            objectPosition: "center bottom",
+          }}
+        />
+      </motion.div>
     );
   }
 
@@ -4284,26 +4295,50 @@ actionSideColumn: {
     alignItems: "center",
   },
   headquartersAvatar: {
+    position: "relative",
     display: "block",
-    objectFit: "contain",
+    overflow: "hidden",
     pointerEvents: "none",
     userSelect: "none",
     filter:
       "drop-shadow(0 14px 20px rgba(0,0,0,0.72)) drop-shadow(0 0 10px rgba(232, 198, 112, 0.12))",
+  },
+  headquartersAvatarImage: {
+    position: "relative",
+    width: "100%",
+    height: "100%",
+    display: "block",
+    objectFit: "contain",
+    pointerEvents: "none",
+    userSelect: "none",
+  },
+  playerHeadquartersAvatarImage: {
+    WebkitMaskImage:
+      "linear-gradient(180deg, #000 0%, #000 78%, rgba(0,0,0,0.58) 91%, transparent 100%)",
+    maskImage:
+      "linear-gradient(180deg, #000 0%, #000 78%, rgba(0,0,0,0.58) 91%, transparent 100%)",
+  },
+  enemyHeadquartersAvatarImage: {
+    WebkitMaskImage:
+      "linear-gradient(180deg, #000 0%, #000 78%, rgba(0,0,0,0.58) 91%, transparent 100%)",
+    maskImage:
+      "linear-gradient(180deg, #000 0%, #000 78%, rgba(0,0,0,0.58) 91%, transparent 100%)",
+    WebkitMaskSize: "100% 100%",
+    maskSize: "100% 100%",
+    WebkitMaskRepeat: "no-repeat",
+    maskRepeat: "no-repeat",
   },
   playerHeadquartersAvatar: {
     alignSelf: "center",
     width: 164,
     height: 226,
     marginTop: -24,
-    objectPosition: "center bottom",
   },
   enemyHeadquartersAvatar: {
     flex: "0 0 auto",
-    width: 118,
-    height: 166,
-    marginTop: -14,
-    objectPosition: "center top",
+    width: 164,
+    height: 226,
+    marginTop: -35,
   },
   cardsLeftInfo: {
     display: "none",
@@ -4327,6 +4362,7 @@ actionSideColumn: {
     alignItems: "stretch",
     gap: 5,
     transform: "translateX(-78px)",
+    marginTop: -55,
   },
   enemyDeckCompact: {
     minHeight: 132,

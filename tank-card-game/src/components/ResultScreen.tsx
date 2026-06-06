@@ -1,5 +1,8 @@
 import { useState, type ReactNode, type CSSProperties } from "react";
 import buttonImage from "../assets/button.png";
+import experienceIcon from "../assets/icons/expa.png";
+import goldTracksIcon from "../assets/icons/gold_tracks_transparent.png";
+import silverTracksIcon from "../assets/icons/silver-tracks.png";
 import statsBackgroundImage from "../game/results_screen/back_for_stats.png";
 import defeatBannerImage from "../game/results_screen/defeat.png";
 import ratingBannerImage from "../game/results_screen/rating.png";
@@ -19,13 +22,15 @@ type ResultScreenProps = {
 };
 
 type ResultTab = "summary" | "trophies";
+type TrophyStatKey = keyof BattleKillStats | "support";
 
-const STAT_ROWS: { key: keyof BattleKillStats; label: string }[] = [
+const STAT_ROWS: { key: TrophyStatKey; label: string }[] = [
   { key: "light", label: "Легкие танки" },
   { key: "medium", label: "Средние танки" },
   { key: "heavy", label: "Тяжелые танки" },
   { key: "td", label: "ПТ-САУ" },
-  { key: "spg", label: "Артиллерия" },
+  { key: "spg", label: "САУ" },
+  { key: "support", label: "Тыловые войска" },
 ];
 
 const emptyStats: BattleKillStats = {
@@ -37,7 +42,11 @@ const emptyStats: BattleKillStats = {
 };
 
 function getTotal(stats: BattleKillStats): number {
-  return STAT_ROWS.reduce((total, row) => total + stats[row.key], 0);
+  return STAT_ROWS.reduce((total, row) => total + getStatCount(stats, row.key), 0);
+}
+
+function getStatCount(stats: BattleKillStats, key: TrophyStatKey): number {
+  return key === "support" ? 0 : stats[key];
 }
 
 function formatNumber(value: number): string {
@@ -116,10 +125,13 @@ export function ResultScreen({
                   : "Ваш штаб потерял боеспособность.")}
             </div>
             <div style={styles.topRewards}>
-              <span style={styles.coin}>{formatNumber(ironTracks)}</span>
-              <span style={{ ...styles.star, color: accentColor }}>
-                {formatNumber(baseHeadquartersXp + freeXp)}
-              </span>
+              <RewardTicker icon={silverTracksIcon} value={ironTracks} />
+              <RewardTicker
+                icon={experienceIcon}
+                value={baseHeadquartersXp + freeXp}
+                color={accentColor}
+              />
+              <RewardTicker icon={goldTracksIcon} value={reward?.goldTracks ?? 0} />
             </div>
           </div>
         </section>
@@ -156,8 +168,9 @@ export function ResultScreen({
           <div style={styles.summary}>
             {activeTab === "summary" ? (
               <>
-                <ResultSection title="Опыт">
+                <ResultSection title="Опыт" icon={experienceIcon}>
                   <ResultTable
+                    icon={experienceIcon}
                     rows={[
                       {
                         label: "Боевой опыт штаба",
@@ -180,8 +193,9 @@ export function ResultScreen({
                   />
                 </ResultSection>
 
-                <ResultSection title="Железные траки">
+                <ResultSection title="Железные траки" icon={silverTracksIcon}>
                   <ResultTable
+                    icon={silverTracksIcon}
                     rows={[
                       {
                         label: "Базовая награда за бой",
@@ -254,13 +268,18 @@ function ResultTabButton({
 function ResultSection({
   title,
   children,
+  icon,
 }: {
   title: string;
   children: ReactNode;
+  icon?: string;
 }) {
   return (
     <section style={styles.section}>
-      <div style={styles.sectionTitle}>{title}</div>
+      <div style={styles.sectionTitle}>
+        {icon ? <img src={icon} alt="" style={styles.sectionIcon} /> : null}
+        {title}
+      </div>
       {children}
     </section>
   );
@@ -268,6 +287,7 @@ function ResultSection({
 
 function ResultTable({
   rows,
+  icon,
 }: {
   rows: {
     label: string;
@@ -275,17 +295,18 @@ function ResultTable({
     premiumValue: number;
     muted?: boolean;
   }[];
+  icon: string;
 }) {
   return (
     <div style={styles.table}>
       <div style={{ ...styles.row, ...styles.headerRow }}>
         <div />
         <div style={styles.centerCell}>
-          <span style={styles.medal} />
+          <img src={icon} alt="" style={styles.tableIcon} />
           Без премиума
         </div>
         <div style={styles.premiumCell}>
-          <span style={styles.medal} />
+          <img src={icon} alt="" style={styles.tableIcon} />
           С премиумом
         </div>
       </div>
@@ -294,14 +315,40 @@ function ResultTable({
         <div key={row.label} style={styles.row}>
           <div style={styles.labelCell}>{row.label}</div>
           <div style={{ ...styles.centerCell, ...(row.muted ? styles.minusCell : {}) }}>
-            {formatSigned(row.value)}
+            <CurrencyAmount icon={icon} value={row.value} />
           </div>
           <div style={{ ...styles.premiumCell, ...(row.muted ? styles.minusCell : {}) }}>
-            {formatSigned(row.premiumValue)}
+            <CurrencyAmount icon={icon} value={row.premiumValue} />
           </div>
         </div>
       ))}
     </div>
+  );
+}
+
+function RewardTicker({
+  icon,
+  value,
+  color,
+}: {
+  icon: string;
+  value: number;
+  color?: string;
+}) {
+  return (
+    <span style={{ ...styles.rewardTicker, ...(color ? { color } : null) }}>
+      <img src={icon} alt="" style={styles.rewardIcon} />
+      {formatNumber(value)}
+    </span>
+  );
+}
+
+function CurrencyAmount({ icon, value }: { icon: string; value: number }) {
+  return (
+    <span style={styles.currencyAmount}>
+      <img src={icon} alt="" style={styles.currencyIcon} />
+      {formatSigned(value)}
+    </span>
   );
 }
 
@@ -314,21 +361,32 @@ function StatsSummary({
 }) {
   return (
     <div style={styles.statsGrid}>
-      <div style={styles.statsColumn}>
+      <div style={styles.statsTotalCard}>
         <div style={styles.statsColumnTitle}>Вы уничтожили</div>
-        <strong>{getTotal(ownStats)}</strong>
+        <strong style={styles.statsTotalValue}>{getTotal(ownStats)}</strong>
       </div>
-      <div style={styles.statsColumn}>
+      <div style={styles.statsTotalCard}>
         <div style={styles.statsColumnTitle}>Противник уничтожил</div>
-        <strong>{getTotal(enemyStats)}</strong>
+        <strong style={styles.statsTotalValue}>{getTotal(enemyStats)}</strong>
       </div>
-      {STAT_ROWS.map((row) => (
-        <div key={row.key} style={styles.statsLine}>
-          <span>{row.label}</span>
-          <span>{ownStats[row.key]}</span>
-          <span>{enemyStats[row.key]}</span>
-        </div>
-      ))}
+
+      <div style={styles.statsTypeColumn}>
+        {STAT_ROWS.map((row) => (
+          <div key={row.key} style={styles.statsTypeLine}>
+            <span>{row.label}</span>
+            <strong>{getStatCount(ownStats, row.key)}</strong>
+          </div>
+        ))}
+      </div>
+
+      <div style={styles.statsTypeColumn}>
+        {STAT_ROWS.map((row) => (
+          <div key={row.key} style={styles.statsTypeLine}>
+            <span>{row.label}</span>
+            <strong>{getStatCount(enemyStats, row.key)}</strong>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -444,16 +502,18 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
   },
 
-  coin: {
+  rewardTicker: {
     display: "inline-flex",
     alignItems: "center",
-    gap: 7,
+    gap: 8,
+    color: "#d7c5a5",
   },
 
-  star: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 7,
+  rewardIcon: {
+    width: 25,
+    height: 25,
+    objectFit: "contain",
+    filter: "drop-shadow(0 2px 2px rgba(0,0,0,0.75))",
   },
 
   tabs: {
@@ -513,13 +573,21 @@ const styles: Record<string, CSSProperties> = {
   },
 
   sectionTitle: {
-    height: 25,
+    height: 23,
     display: "flex",
     alignItems: "center",
+    gap: 7,
     color: "#d9cab0",
     fontSize: 16,
     fontWeight: 900,
     textShadow: "0 2px 2px #000",
+  },
+
+  sectionIcon: {
+    width: 20,
+    height: 20,
+    objectFit: "contain",
+    filter: "drop-shadow(0 2px 2px rgba(0,0,0,0.72))",
   },
 
   table: {
@@ -559,33 +627,46 @@ const styles: Record<string, CSSProperties> = {
     color: "#aa9990",
   },
 
-  medal: {
-    display: "inline-block",
-    width: 15,
-    height: 15,
+  tableIcon: {
+    width: 17,
+    height: 17,
     marginRight: 5,
     verticalAlign: -3,
-    borderRadius: "50%",
-    background:
-      "radial-gradient(circle at 35% 30%, #b8b1a9, #5d534a 62%, #221f1d)",
-    boxShadow: "inset 0 0 5px rgba(0,0,0,0.75)",
+    objectFit: "contain",
+    filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.75))",
+  },
+
+  currencyAmount: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    minWidth: 54,
+  },
+
+  currencyIcon: {
+    width: 16,
+    height: 16,
+    objectFit: "contain",
+    filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.75))",
   },
 
   statsGrid: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
-    columnGap: 20,
-    rowGap: 5,
+    gap: 8,
     color: "#9d9890",
-    fontSize: 14,
+    fontSize: 13,
   },
 
-  statsColumn: {
+  statsTotalCard: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "baseline",
-    padding: "2px 0 5px 15px",
-    borderBottom: "1px solid rgba(255,255,255,0.12)",
+    minHeight: 34,
+    padding: "6px 11px",
+    border: "1px solid rgba(255,255,255,0.09)",
+    background: "rgba(0,0,0,0.24)",
     color: "#d7c5a5",
   },
 
@@ -593,13 +674,26 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 900,
   },
 
-  statsLine: {
-    gridColumn: "1 / 3",
+  statsTotalValue: {
+    color: "#f0d690",
+    fontSize: 21,
+    lineHeight: 1,
+  },
+
+  statsTypeColumn: {
     display: "grid",
-    gridTemplateColumns: "1fr 56px 56px",
+    gap: 0,
+    border: "1px solid rgba(255,255,255,0.09)",
+    background: "rgba(0,0,0,0.2)",
+  },
+
+  statsTypeLine: {
+    display: "grid",
+    gridTemplateColumns: "1fr 42px",
+    gap: 10,
     alignItems: "center",
-    minHeight: 19,
-    paddingLeft: 15,
+    minHeight: 21,
+    padding: "0 10px",
     borderBottom: "1px solid rgba(255,255,255,0.07)",
   },
 

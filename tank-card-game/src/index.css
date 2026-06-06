@@ -44,3 +44,9 @@ body {
   transform: translateY(0);
   filter: brightness(0.94);
 }
+
+.deck-builder-card-button:hover .deck-card-weight-badge,
+.deck-builder-card-button:focus-visible .deck-card-weight-badge {
+  opacity: 1 !important;
+  transform: translate(-50%, 0) !important;
+}

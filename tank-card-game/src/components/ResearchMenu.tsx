@@ -1,6 +1,9 @@
 import { useEffect, useState, type CSSProperties, type MouseEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import buttonImage from "../assets/button.png";
+import experienceIcon from "../assets/icons/expa.png";
+import goldTracksIcon from "../assets/icons/gold_tracks_transparent.png";
+import silverTracksIcon from "../assets/icons/silver-tracks.png";
 import { getNationFlagAsset } from "../assets/nationFlagAssets";
 import { cards } from "../game/cards";
 import { getHeadquartersDefinition } from "../game/headquarters";
@@ -61,6 +64,35 @@ function getNodeSubtitle(node: ResearchNode) {
             : "САУ";
 }
 
+function ResearchCostBadge({ icon, value }: { icon: string; value: number }) {
+  return (
+    <span style={styles.nodeCostBadge}>
+      <img src={icon} alt="" draggable={false} style={styles.nodeCostIcon} />
+      {value}
+    </span>
+  );
+}
+
+function ResourceBadge({
+  icon,
+  label,
+  value,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div style={styles.resource}>
+      <img src={icon} alt="" draggable={false} style={styles.resourceIcon} />
+      <span>
+        <small style={styles.resourceLabel}>{label}</small>
+        <strong style={styles.resourceValue}>{value}</strong>
+      </span>
+    </div>
+  );
+}
+
 function ResearchNodeCard({
   node,
   onPreview,
@@ -108,8 +140,12 @@ function ResearchNodeCard({
       >
         <span>{STATUS_LABELS[node.status]}</span>
         <span style={styles.nodeCosts}>
-          {node.experienceCost ? <span>★ {node.experienceCost}</span> : null}
-          {node.purchaseCost ? <span>● {node.purchaseCost}</span> : null}
+          {node.experienceCost ? (
+            <ResearchCostBadge icon={experienceIcon} value={node.experienceCost} />
+          ) : null}
+          {node.purchaseCost ? (
+            <ResearchCostBadge icon={silverTracksIcon} value={node.purchaseCost} />
+          ) : null}
         </span>
       </div>
     </motion.div>
@@ -167,20 +203,9 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
         </div>
 
         <div style={styles.resources}>
-          <div style={styles.resource}>
-            <span style={styles.resourceIcon}>★</span>
-            <span>
-              <small style={styles.resourceLabel}>Опыт</small>
-              <strong style={styles.resourceValue}>Скоро</strong>
-            </span>
-          </div>
-          <div style={styles.resource}>
-            <span style={styles.resourceIcon}>●</span>
-            <span>
-              <small style={styles.resourceLabel}>Снабжение</small>
-              <strong style={styles.resourceValue}>Скоро</strong>
-            </span>
-          </div>
+          <ResourceBadge icon={experienceIcon} label="Опыт" value="Скоро" />
+          <ResourceBadge icon={silverTracksIcon} label="Железные траки" value="Скоро" />
+          <ResourceBadge icon={goldTracksIcon} label="Золотые траки" value="Скоро" />
         </div>
       </header>
 
@@ -387,19 +412,21 @@ const styles: Record<string, CSSProperties> = {
   },
 
   resource: {
-    minWidth: 148,
+    minWidth: 136,
     display: "flex",
     alignItems: "center",
     gap: 10,
-    padding: "9px 12px",
+    padding: "8px 11px",
     border: "1px solid rgba(201, 169, 92, 0.28)",
     borderRadius: 4,
     background: "rgba(13, 16, 13, 0.8)",
   },
 
   resourceIcon: {
-    color: "#d0ad57",
-    fontSize: 20,
+    width: 28,
+    height: 28,
+    objectFit: "contain",
+    filter: "drop-shadow(0 2px 2px rgba(0,0,0,0.72))",
   },
 
   resourceLabel: {
@@ -715,8 +742,23 @@ const styles: Record<string, CSSProperties> = {
 
   nodeCosts: {
     display: "flex",
+    alignItems: "center",
     gap: 4,
     fontSize: 7,
+  },
+
+  nodeCostBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 2,
+    whiteSpace: "nowrap",
+  },
+
+  nodeCostIcon: {
+    width: 10,
+    height: 10,
+    objectFit: "contain",
+    filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.78))",
   },
 
   backButton: {

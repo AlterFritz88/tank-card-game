@@ -35,6 +35,7 @@ import {
 } from "../game/customDecks";
 import type { HeadquartersId, TankCard } from "../game/types";
 import { HandCardView } from "./HandCardView";
+import { calculateDeckWeight, getCardLevel } from "../game/deckWeight";
 
 const HAND_CARD_BASE_WIDTH = 175;
 const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
@@ -161,6 +162,9 @@ export function DeckBuilder({
     () => getGroupedDeckCards(deckCardIds),
     [deckCardIds]
   );
+  const deckWeight = selectedHeadquartersId
+    ? calculateDeckWeight(selectedHeadquartersId, deckCardIds)
+    : null;
 
   useEffect(() => {
     const rows = [collectionRowRef.current, deckRowRef.current].filter(
@@ -516,7 +520,10 @@ export function DeckBuilder({
           <div style={styles.deckCounter}>
             <span>Колода</span>
             <strong>{deckCardIds.length}/{DECK_UNIT_LIMIT}</strong>
-            <small>+ штаб</small>
+          </div>
+          <div style={styles.deckWeightBadge}>
+            <span>Вес</span>
+            <strong>{deckWeight?.totalWeight ?? "—"}</strong>
           </div>
           <button
             type="button"
@@ -572,10 +579,11 @@ export function DeckBuilder({
             >
               {!selectedHeadquarters
                 ? headquartersList.map((headquarters) => (
-                    <motion.button
-                      key={headquarters.id}
-                      type="button"
-                      style={styles.cardButton}
+                      <motion.button
+                        key={headquarters.id}
+                        type="button"
+                        className="deck-builder-card-button"
+                        style={styles.cardButton}
                       draggable
                       onDragStartCapture={(event) =>
                         handleHeadquartersDragStart(
@@ -611,6 +619,7 @@ export function DeckBuilder({
                         initial={{ opacity: 0, y: 18, scale: 0.94 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         type="button"
+                        className="deck-builder-card-button"
                         style={styles.cardButton}
                         disabled={disabled}
                         draggable={!disabled}
@@ -630,6 +639,12 @@ export function DeckBuilder({
                         aria-label={`Добавить ${card.name}`}
                       >
                         <MiniHandCard card={card} disabled={disabled} />
+                        <span
+                          className="deck-card-weight-badge"
+                          style={styles.cardWeightBadge}
+                        >
+                          Вес {getCardLevel(card)}
+                        </span>
                       </motion.button>
                     );
                   })}
@@ -648,6 +663,18 @@ export function DeckBuilder({
 
         <section style={styles.deckPanel}>
           <div style={styles.rowFrame}>
+            <AnimatePresence>
+              {deckDropActive ? (
+                <motion.div
+                  style={styles.deckDropGlow}
+                  initial={{ opacity: 0, scale: 0.9, x: "-50%", y: "-50%" }}
+                  animate={{ opacity: 1, scale: 1, x: "-50%", y: "-50%" }}
+                  exit={{ opacity: 0, scale: 0.95, x: "-50%", y: "-50%" }}
+                  transition={{ duration: 0.18, ease: "easeOut" }}
+                />
+              ) : null}
+            </AnimatePresence>
+
             <button
               type="button"
               style={{ ...styles.rowNav, ...styles.rowNavLeft }}
@@ -684,6 +711,7 @@ export function DeckBuilder({
               {selectedHeadquarters ? (
                 <motion.button
                   type="button"
+                  className="deck-builder-card-button"
                   style={styles.cardButton}
                   onClick={handleDeckHeadquartersClick}
                   onContextMenu={(event) =>
@@ -708,6 +736,7 @@ export function DeckBuilder({
                 <motion.button
                   key={card.id}
                   type="button"
+                  className="deck-builder-card-button"
                   style={styles.cardButton}
                   draggable
                   onDragStartCapture={(event) =>
@@ -726,6 +755,12 @@ export function DeckBuilder({
                   aria-label={`Убрать ${card.name}`}
                 >
                   <MiniHandCard card={card} />
+                  <span
+                    className="deck-card-weight-badge"
+                    style={styles.cardWeightBadge}
+                  >
+                    Вес {getCardLevel(card)}
+                  </span>
                   <span style={styles.deckCopyBadge}>x{count}</span>
                 </motion.button>
               ))}
@@ -842,27 +877,31 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     gap: 18,
     padding: "12px 30px",
-    borderBottom: "1px solid rgba(205, 168, 85, 0.22)",
-    background: "rgba(4, 6, 5, 0.62)",
-    boxShadow: "0 12px 26px rgba(0,0,0,0.26)",
+    background: "transparent",
+    boxShadow: "none",
     boxSizing: "border-box",
   },
 
   backButton: {
-    width: 46,
+    width: 58,
     height: 46,
     padding: 0,
-    border: "1px solid rgba(220, 184, 96, 0.48)",
-    borderRadius: 4,
-    background:
-      "linear-gradient(180deg, rgba(74, 58, 34, 0.96), rgba(42, 32, 19, 0.96))",
-    color: "#f8e3ae",
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    backgroundImage: `url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    color: "#fff0bd",
     cursor: "pointer",
-    fontSize: 27,
+    fontSize: 25,
     fontWeight: 1000,
-    lineHeight: "43px",
-    textAlign: "center",
-    boxShadow: "0 10px 22px rgba(0,0,0,0.3)",
+    lineHeight: 1,
+    display: "grid",
+    placeItems: "center",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.2)",
+    boxShadow: "none",
   },
 
   kicker: {
@@ -884,16 +923,28 @@ const styles: Record<string, CSSProperties> = {
   },
 
   deckCounter: {
-    minWidth: 168,
+    minWidth: 136,
     display: "grid",
     gridTemplateColumns: "auto auto",
     columnGap: 10,
-    rowGap: 1,
     alignItems: "baseline",
     padding: "9px 13px",
-    border: "1px solid rgba(201, 169, 92, 0.3)",
     borderRadius: 4,
-    background: "rgba(13, 16, 13, 0.82)",
+    background: "rgba(13, 16, 13, 0.48)",
+  },
+
+  deckWeightBadge: {
+    minWidth: 112,
+    display: "grid",
+    gridTemplateColumns: "auto auto",
+    columnGap: 10,
+    alignItems: "baseline",
+    padding: "9px 13px",
+    borderRadius: 4,
+    background:
+      "linear-gradient(180deg, rgba(24, 52, 30, 0.48), rgba(10, 18, 11, 0.46))",
+    color: "#c8efaa",
+    boxShadow: "none",
   },
 
   headerActions: {
@@ -906,15 +957,15 @@ const styles: Record<string, CSSProperties> = {
     width: 230,
     height: 38,
     padding: "0 12px",
-    border: "1px solid rgba(220, 184, 96, 0.42)",
+    border: "none",
     borderRadius: 4,
-    background: "rgba(15, 18, 14, 0.94)",
+    background: "rgba(15, 18, 14, 0.58)",
     color: "#f8e3ae",
     fontSize: 13,
     fontWeight: 900,
     outline: "none",
     boxSizing: "border-box",
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
+    boxShadow: "none",
   },
 
   deckNameInputDisabled: {
@@ -957,8 +1008,8 @@ const styles: Record<string, CSSProperties> = {
     minWidth: 0,
     display: "grid",
     gridTemplateRows: "1fr 1fr",
-    gap: 14,
-    padding: "16px 5.5vw 24px",
+    gap: 0,
+    padding: "10px 5.5vw 24px",
     boxSizing: "border-box",
   },
 
@@ -967,10 +1018,10 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 0,
     minWidth: 0,
     width: "100%",
-    overflow: "hidden",
+    overflow: "visible",
     display: "grid",
     gridTemplateRows: "1fr",
-    background: "linear-gradient(180deg, rgba(12,14,12,0.62), rgba(4,5,4,0.18))",
+    background: "transparent",
   },
 
   deckPanel: {
@@ -978,18 +1029,18 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 0,
     minWidth: 0,
     width: "100%",
-    overflow: "hidden",
+    overflow: "visible",
     display: "grid",
     gridTemplateRows: "1fr auto",
-    background: "linear-gradient(180deg, rgba(83, 40, 25, 0.34), rgba(5,6,5,0.18))",
+    background: "transparent",
   },
 
   filterSelect: {
     minWidth: 132,
     height: 34,
-    border: "1px solid rgba(220, 184, 96, 0.38)",
+    border: "none",
     borderRadius: 4,
-    background: "rgba(15, 18, 14, 0.96)",
+    background: "rgba(15, 18, 14, 0.58)",
     color: "#f8e3ae",
     fontSize: 12,
     fontWeight: 900,
@@ -1004,18 +1055,21 @@ const styles: Record<string, CSSProperties> = {
 
   rowFrame: {
     position: "relative",
+    zIndex: 1,
     minHeight: 0,
     minWidth: 0,
     width: "100%",
     maxWidth: "100%",
     height: "100%",
-    overflow: "hidden",
+    overflow: "visible",
     display: "grid",
     gridTemplateColumns: "58px minmax(0, 1fr) 58px",
     alignItems: "stretch",
   },
 
   cardRow: {
+    position: "relative",
+    zIndex: 8,
     height: "100%",
     width: "100%",
     maxWidth: "100%",
@@ -1024,7 +1078,7 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     gap: 8,
     overflowX: "auto",
-    overflowY: "hidden",
+    overflowY: "visible",
     padding: "18px 8px 16px",
     scrollbarWidth: "none",
     boxSizing: "border-box",
@@ -1033,13 +1087,26 @@ const styles: Record<string, CSSProperties> = {
   },
 
   deckDropActive: {
+    background: "transparent",
+  },
+
+  deckDropGlow: {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    zIndex: 5,
+    width: "min(820px, 78vw)",
+    height: "min(310px, 38vh)",
+    transform: "translate(-50%, -50%)",
+    borderRadius: 999,
     background:
-      "linear-gradient(90deg, rgba(91, 126, 52, 0.18), rgba(144, 190, 76, 0.26), rgba(91, 126, 52, 0.18))",
+      "radial-gradient(circle at 50% 48%, rgba(255, 236, 151, 0.58), rgba(247, 196, 68, 0.34) 30%, rgba(247, 185, 73, 0.13) 58%, transparent 80%)",
+    filter: "blur(28px)",
+    pointerEvents: "none",
   },
 
   collectionDropActive: {
-    background:
-      "linear-gradient(90deg, rgba(139, 95, 42, 0.08), rgba(197, 160, 79, 0.2), rgba(139, 95, 42, 0.08))",
+    background: "transparent",
   },
 
   rowNav: {
@@ -1058,13 +1125,11 @@ const styles: Record<string, CSSProperties> = {
   },
 
   rowNavLeft: {
-    background:
-      "linear-gradient(90deg, rgba(0,0,0,0.36), rgba(0,0,0,0.04), transparent)",
+    background: "transparent",
   },
 
   rowNavRight: {
-    background:
-      "linear-gradient(270deg, rgba(0,0,0,0.72), rgba(0,0,0,0.32), rgba(0,0,0,0.08))",
+    background: "transparent",
   },
 
   cardButton: {
@@ -1080,6 +1145,28 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
     textAlign: "center",
     boxSizing: "border-box",
+  },
+
+  cardWeightBadge: {
+    position: "absolute",
+    left: "50%",
+    bottom: 6,
+    zIndex: 8,
+    transform: "translate(-50%, 8px)",
+    padding: "4px 8px",
+    background:
+      "linear-gradient(180deg, rgba(36, 31, 18, 0.84), rgba(11, 12, 10, 0.84))",
+    color: "#f6dc91",
+    fontSize: 10,
+    fontWeight: 1000,
+    lineHeight: 1,
+    textTransform: "uppercase",
+    whiteSpace: "nowrap",
+    opacity: 0,
+    pointerEvents: "none",
+    textShadow: "0 2px 2px rgba(0,0,0,0.9)",
+    boxShadow: "none",
+    transition: "opacity 140ms ease, transform 140ms ease",
   },
 
   cardScaleSlot: {
@@ -1111,12 +1198,11 @@ const styles: Record<string, CSSProperties> = {
     minWidth: 35,
     padding: "4px 7px",
     borderRadius: 5,
-    background: "rgba(5, 7, 6, 0.88)",
-    border: "1px solid rgba(244, 209, 124, 0.5)",
+    background: "rgba(5, 7, 6, 0.72)",
     color: "#ffe9a8",
     fontSize: 13,
     fontWeight: 1000,
-    boxShadow: "0 6px 14px rgba(0,0,0,0.5)",
+    boxShadow: "none",
   },
 
   saveMessage: {

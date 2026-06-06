@@ -142,10 +142,10 @@ const SUPPORT_ROLE_BONUS: Record<SupportRole, number> = {
 
 export function getCardLevel(card: TankCard): number {
   if (card.level !== undefined) {
-    return normalizeLevel(card.level);
+    return getExponentialLevelWeight(card.level);
   }
 
-  return normalizeLevel(Math.round(getCardStrength(card).total));
+  return getExponentialLevelWeight(getCardStrength(card).total);
 }
 
 export function getCardStrength(card: TankCard): CardStrengthBreakdown {
@@ -223,6 +223,12 @@ export function calculateDeckWeight(
 
 function normalizeLevel(level: number): number {
   return Math.max(1, Math.floor(level));
+}
+
+function getExponentialLevelWeight(level: number): number {
+  const normalizedLevel = normalizeLevel(level);
+
+  return Math.max(1, Math.round(1.55 ** (normalizedLevel - 1)));
 }
 
 function getAbilityStrength(card: TankCard): number {

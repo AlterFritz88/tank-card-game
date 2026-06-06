@@ -15,6 +15,7 @@ import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
 import buttonImage from "../assets/button.png";
 import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
 import { getMissionIllustrationAsset } from "../assets/missionIllustrationAssets";
+import { calculateDeckWeight, getDefaultDeckWeight } from "../game/deckWeight";
 import { CAMPAIGNS, isCampaignMissionUnlocked } from "../game/campaigns";
 import {
   DECK_UNIT_LIMIT,
@@ -26,6 +27,7 @@ import {
   type SavedDeck,
 } from "../game/customDecks";
 import { HEADQUARTERS, getMainMenuHeadquarters } from "../game/headquarters";
+import { getDeckCardIds } from "../game/initialState";
 import { getTankImage } from "../game/tankImages";
 import type { HeadquartersId, TankCard } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
@@ -44,6 +46,7 @@ type BattleDeckOption = {
   name: string;
   cardIds?: string[];
   countLabel: string;
+  weightLabel: string;
   savedDeck?: SavedDeck;
 };
 
@@ -288,17 +291,21 @@ export function PvpLobby() {
   function getDeckOptionsForHeadquarters(headquartersId: HeadquartersId) {
     const savedDecks = loadSavedDecksForHeadquarters(headquartersId);
     const recentSelection = loadRecentDeckSelectionForHeadquarters(headquartersId);
+    const headquarters = HEADQUARTERS[headquartersId];
+    const defaultDeckCardIds = getDeckCardIds(headquarters.defaultDeckId);
     const defaultOption: BattleDeckOption = {
       id: null,
       name: "Стоковая колода",
       cardIds: undefined,
-      countLabel: "По умолчанию",
+      countLabel: `${defaultDeckCardIds.length}/${DECK_UNIT_LIMIT}`,
+      weightLabel: `${getDefaultDeckWeight(headquartersId).totalWeight}`,
     };
     const customOptions = savedDecks.map((deck) => ({
       id: deck.id,
       name: deck.name,
       cardIds: deck.cardIds,
       countLabel: `${deck.cardIds.length}/${DECK_UNIT_LIMIT}`,
+      weightLabel: `${calculateDeckWeight(headquartersId, deck.cardIds).totalWeight}`,
       savedDeck: deck,
     }));
 
@@ -885,7 +892,7 @@ export function PvpLobby() {
                   <div style={styles.headquartersDeckCaption}>
                     <span style={styles.headquartersDeckName}>{deck.name}</span>
                     <span style={styles.headquartersDeckCount}>
-                      {deck.countLabel}
+                      {deck.countLabel} · сила {deck.weightLabel}
                     </span>
                   </div>
                 </motion.button>
