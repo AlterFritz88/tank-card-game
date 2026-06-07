@@ -135,6 +135,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 5,
+    combatAbilities: { blitz: true },
     abilityText:
       "Ранний быстроходный танк. Быстро занимает клетки, но плохо держит удар.",
   },
@@ -152,6 +153,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 5,
+    combatAbilities: { blitz: true },
     abilityText:
       "Быстроходный танк с пушечным вооружением. Хорош для флангового давления.",
   },
@@ -170,7 +172,8 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 5,
     abilityText:
-      "",
+      "Блиц. После выхода на поле может сразу полноценно двигаться и атаковать.",
+    combatAbilities: { blitz: true },
   },
   {
     id: "t37a",
@@ -223,7 +226,8 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 5,
     abilityText:
-      "Поздний малый разведывательный танк. Быстрее развивает наступление.",
+      "Блиц. Поздний малый разведывательный танк быстро развивает наступление.",
+    combatAbilities: { blitz: true },
   },
   {
     id: "t24",
@@ -479,7 +483,8 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 5,
     abilityText:
-      "Легкий танк. Генерирует 1 топливо. Дешевые действия, быстрое движение и бонус после спавна.",
+      "Блиц. Лёгкий танк быстро входит в бой и после выхода может сразу полноценно действовать.",
+    combatAbilities: { blitz: true },
   },
   {
     id: "m1_combat_car",
@@ -548,7 +553,8 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 5,
     abilityText:
-      "Лёгкий танк раннего периода. Быстро занимает клетки и давит фланги.",
+      "Блиц. Лёгкий танк раннего периода быстро занимает клетки и давит фланги.",
+    combatAbilities: { blitz: true },
   },
   {
     id: "m3_lee",
@@ -1057,6 +1063,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 0,
     initiative: 4,
     abilityText: "Лёгкий танк",
+    combatAbilities: { blitz: true },
   },
   {
     id: "pzkpfw_ii_ausf_f",
@@ -1088,7 +1095,9 @@ export const cards: TankCard[] = [
     movement: 3,
     fuelGeneration: 1,
     initiative: 5,
-    abilityText: "",
+    abilityText:
+      "",
+    
   },
   {
     id: "panzer_35t",
@@ -1112,7 +1121,7 @@ export const cards: TankCard[] = [
     nation: "germany",
     class: "light",
     rarity: "uncommon",
-    cost: 3,
+    cost: 4,
     attack: 3,
     armor: 1,
     hp: 4,
@@ -1120,7 +1129,8 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 3,
-    abilityText: "Отличное сочетание скорости и живучести.",
+    abilityText: "Блиц. Отличное сочетание скорости и живучести.",
+    combatAbilities: { blitz: true },
   },
   {
     id: "pzbef_i",

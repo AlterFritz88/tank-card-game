@@ -242,6 +242,10 @@ function getAbilityStrength(card: TankCard): number {
     score += card.onPlayEffects.hqProtection * 0.55;
   }
 
+  if (card.combatAbilities?.blitz) {
+    score += 1.1;
+  }
+
   if (card.supportRole) {
     score += SUPPORT_ROLE_BONUS[card.supportRole];
   }

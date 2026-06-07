@@ -311,15 +311,20 @@ export function TankCardView({
 
       {card.abilityText && <p style={styles.abilityText}>{card.abilityText}</p>}
 
-      {/* On-play mechanics badges */}
-      {card.onPlayEffects && (
+      {/* Mechanics badges */}
+      {(card.onPlayEffects || card.combatAbilities?.blitz) && (
         <div style={styles.mechanicsLine}>
-          {card.onPlayEffects.draw && card.onPlayEffects.draw > 0 && (
+          {card.combatAbilities?.blitz && (
+            <span style={styles.mechanicBadge} title="Блиц: после выхода на поле боя юнит может сразу полноценно двигаться и атаковать.">
+              Блиц
+            </span>
+          )}
+          {card.onPlayEffects?.draw && card.onPlayEffects.draw > 0 && (
             <span style={styles.mechanicBadge} title="Разведка: при выходе добираете карту.">
               Разведка +{card.onPlayEffects.draw}
             </span>
           )}
-          {card.onPlayEffects.hqProtection && card.onPlayEffects.hqProtection > 0 && (
+          {card.onPlayEffects?.hqProtection && card.onPlayEffects.hqProtection > 0 && (
             <span style={styles.mechanicBadge} title="Прикрытие: штаб получает дополнительные очки здоровья при выходе.">
               Прикрытие +{card.onPlayEffects.hqProtection}
             </span>

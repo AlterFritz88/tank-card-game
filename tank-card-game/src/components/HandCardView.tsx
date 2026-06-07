@@ -398,15 +398,26 @@ export function HandCardView({
           {abilityText}
         </p>
 
-        {/* New mechanics badges (only for select low-stat units) */}
-        {card && card.onPlayEffects && (
+        {/* New mechanics badges (only for select units) */}
+        {card && (card.onPlayEffects || card.combatAbilities?.blitz) && (
           <div
             style={{
               ...styles.mechanicsLine,
               ...(isPreview ? {} : styles.compactMechanicsLine),
             }}
           >
-            {card.onPlayEffects.draw && card.onPlayEffects.draw > 0 && (
+            {card.combatAbilities?.blitz && (
+              <span
+                style={{
+                  ...styles.mechanicBadge,
+                  ...(isPreview ? {} : styles.compactMechanicBadge),
+                }}
+                title="Блиц: после выхода на поле боя юнит может сразу полноценно двигаться и атаковать."
+              >
+                {isPreview ? "Блиц" : "БЛИЦ"}
+              </span>
+            )}
+            {card.onPlayEffects?.draw && card.onPlayEffects.draw > 0 && (
               <span
                 style={{
                   ...styles.mechanicBadge,
@@ -417,7 +428,7 @@ export function HandCardView({
                 {isPreview ? "Разведка" : "РАЗВ"} +{card.onPlayEffects.draw}
               </span>
             )}
-            {card.onPlayEffects.hqProtection && card.onPlayEffects.hqProtection > 0 && (
+            {card.onPlayEffects?.hqProtection && card.onPlayEffects.hqProtection > 0 && (
               <span
                 style={{
                   ...styles.mechanicBadge,

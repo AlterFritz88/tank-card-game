@@ -521,6 +521,8 @@ function playCard(
   );
 
   const isLightTank = card.class === "light";
+  const hasBlitz = card.combatAbilities?.blitz === true;
+  const canActAfterSpawn = isLightTank || hasBlitz;
 
   const unit: BoardUnit = {
     instanceId: action.cardInstanceId,
@@ -530,9 +532,9 @@ function playCard(
     zone: "battlefield",
     currentHp: card.hp,
 
-    alreadyAttacked: !isLightTank,
-    alreadyMoved: !isLightTank,
-    spawnedThisTurn: true,
+    alreadyAttacked: !canActAfterSpawn,
+    alreadyMoved: !canActAfterSpawn,
+    spawnedThisTurn: isLightTank && !hasBlitz,
     moveCountThisTurn: 0,
     tdAmbushUsedThisTurn: false,
   };

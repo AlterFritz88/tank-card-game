@@ -7,6 +7,17 @@ export type HeadquartersId =
   | "trainingslager"
   | "training_camp"
   | "first_panzer_division"
+  | "german_motorized_division"
+  | "german_artillery_division"
+  | "german_rear_corps"
+  | "soviet_tank_brigade"
+  | "soviet_motor_rifle_division"
+  | "soviet_guards_mortar_regiment"
+  | "soviet_auto_battalion"
+  | "usa_old_ironsides"
+  | "usa_armored_infantry_regiment"
+  | "usa_armored_artillery_battalion"
+  | "usa_maintenance_battalion"
   | "polish_border_guard"
   | "polish_army_lodz"
   | "polish_army_prusy"
@@ -77,6 +88,11 @@ export type TankCard = {
     draw?: number;
     /** Headquarters health added when this unit enters the battlefield */
     hqProtection?: number;
+  };
+
+  combatAbilities?: {
+    /** Unit enters the battlefield ready for a full move and attack. */
+    blitz?: boolean;
   };
 };
 

@@ -21,6 +21,7 @@ export type PvpConnectionState =
   | "searching"
   | "waiting"
   | "matched"
+  | "matchPreview"
   | "rolling"
   | "inBattle"
   | "finished"

@@ -14,7 +14,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import buttonImage from "../assets/button.png";
 import {
   HEADQUARTERS,
-  getMainMenuHeadquarters,
+  getDeckBuildingHeadquarters,
   type HeadquartersDefinition,
 } from "../game/headquarters";
 import {
@@ -145,7 +145,7 @@ export function DeckBuilder({
 
   const headquartersList = useMemo(
     () =>
-      getMainMenuHeadquarters().filter((headquarters) =>
+      getDeckBuildingHeadquarters().filter((headquarters) =>
         progress.unlockedHeadquartersIds.includes(headquarters.id)
       ),
     [progress.unlockedHeadquartersIds]

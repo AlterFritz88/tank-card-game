@@ -12,6 +12,9 @@ import {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import topBackgroundImage from "../assets/backgrounds/top_background.png";
+import matchmakingBreakImage from "../assets/backgrounds/matchmaking/break.png";
+import matchmakingCielImage from "../assets/backgrounds/matchmaking/ciel.png";
+import matchmakingMapImage from "../assets/backgrounds/matchmaking/map.png";
 import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
 import buttonImage from "../assets/button.png";
 import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
@@ -33,8 +36,9 @@ import {
 } from "../game/customDecks";
 import {
   HEADQUARTERS,
-  getMainMenuHeadquarters,
+  getDeckBuildingHeadquarters,
 } from "../game/headquarters";
+import { getHeadquartersImageAsset } from "../game/headquartersImages";
 import { getDeckCardIds } from "../game/initialState";
 import {
   getFavoriteHeadquartersId,
@@ -44,6 +48,7 @@ import {
 } from "../game/playerProgress";
 import { getTankImage } from "../game/tankImages";
 import type { HeadquartersId, Nation, TankCard } from "../game/types";
+import type { PvpConnectionState } from "../game/modes";
 import { useBattleStore } from "../store/battleStore";
 import { DeckBuilder } from "./DeckBuilder";
 import { HandCardView } from "./HandCardView";
@@ -349,6 +354,226 @@ function PlayerProfileMenu({ onBack }: { onBack: () => void }) {
   );
 }
 
+function getHeadquartersPortrait(headquartersId: HeadquartersId): string | null {
+  return (
+    getHeadquartersAvatarAsset(headquartersId) ??
+    getHeadquartersImageAsset(headquartersId)
+  );
+}
+
+function PvpMatchmakingScreen({
+  playerHeadquartersId,
+  opponentHeadquartersId,
+  previewLabel,
+  status,
+  error,
+  searchDeadlineAt,
+  onCancel,
+  onFallback,
+}: {
+  playerHeadquartersId: HeadquartersId;
+  opponentHeadquartersId: HeadquartersId | null;
+  previewLabel: string | null;
+  status: PvpConnectionState;
+  error: string | null;
+  searchDeadlineAt: number | null;
+  onCancel: () => void;
+  onFallback: () => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  const [reticleIndex, setReticleIndex] = useState(0);
+  const matched = status === "matchPreview";
+  const playerHeadquarters = HEADQUARTERS[playerHeadquartersId];
+  const opponentHeadquarters = opponentHeadquartersId
+    ? HEADQUARTERS[opponentHeadquartersId]
+    : null;
+  const playerPortrait = getHeadquartersPortrait(playerHeadquartersId);
+  const opponentPortrait = opponentHeadquartersId
+    ? getHeadquartersPortrait(opponentHeadquartersId)
+    : null;
+  const playerFlag = getNationFlagAsset(playerHeadquarters.nation);
+  const opponentFlag = opponentHeadquarters
+    ? getNationFlagAsset(opponentHeadquarters.nation)
+    : null;
+  const remainingMs = searchDeadlineAt
+    ? Math.max(0, searchDeadlineAt - now)
+    : 30_000;
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+  const reticlePositions = [
+    { left: "22%", top: "28%" },
+    { left: "68%", top: "22%" },
+    { left: "48%", top: "52%" },
+    { left: "75%", top: "70%" },
+    { left: "30%", top: "72%" },
+  ];
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    if (matched) return;
+
+    const intervalId = window.setInterval(() => {
+      setReticleIndex((current) => (current + 1) % reticlePositions.length);
+    }, 1250);
+
+    return () => window.clearInterval(intervalId);
+  }, [matched, reticlePositions.length]);
+
+  useEffect(() => {
+    if (matched) return;
+    if (!searchDeadlineAt) return;
+    if (now < searchDeadlineAt) return;
+
+    onFallback();
+  }, [matched, now, onFallback, searchDeadlineAt]);
+
+  return (
+    <main style={styles.page}>
+      <div style={styles.backgroundShade} />
+
+      <section style={styles.matchmakingScreen}>
+        <header style={styles.matchmakingHeader}>
+          <h1 style={styles.matchmakingTitle}>ПОИСК ПРОТИВНИКА</h1>
+        </header>
+
+        <div
+          style={{
+            ...styles.matchmakingArena,
+            ...(matched && opponentHeadquarters
+              ? styles.matchmakingArenaMatched
+              : styles.matchmakingArenaSearching),
+          }}
+        >
+          <motion.div
+            style={styles.matchmakingSide}
+            initial={{ opacity: 0, x: -34 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.38, ease: "easeOut" }}
+          >
+            {playerFlag ? (
+              <div
+                style={{
+                  ...styles.matchmakingFlag,
+                  backgroundImage: `url("${playerFlag}")`,
+                }}
+              />
+            ) : null}
+            {playerPortrait ? (
+              <img
+                src={playerPortrait}
+                alt={playerHeadquarters.title}
+                style={styles.matchmakingPortrait}
+              />
+            ) : (
+              <div style={styles.matchmakingPortraitPlaceholder}>
+                {playerHeadquarters.title}
+              </div>
+            )}
+            <div style={styles.matchmakingName}>{playerHeadquarters.title}</div>
+          </motion.div>
+
+          {matched && opponentHeadquarters ? (
+            <>
+              <motion.img
+                key="break"
+                src={matchmakingBreakImage}
+                alt=""
+                aria-hidden="true"
+                style={styles.matchmakingBreak}
+                initial={{ opacity: 0, scale: 0.84 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.36, ease: "easeOut" }}
+              />
+              <motion.div
+                key="opponent"
+                style={styles.matchmakingSide}
+                initial={{ opacity: 0, x: 34 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.38, ease: "easeOut" }}
+              >
+                {previewLabel ? (
+                  <div style={styles.matchmakingOpponentLabel}>
+                    {previewLabel}
+                  </div>
+                ) : null}
+                {opponentFlag ? (
+                  <div
+                    style={{
+                      ...styles.matchmakingFlag,
+                      backgroundImage: `url("${opponentFlag}")`,
+                    }}
+                  />
+                ) : null}
+                {opponentPortrait ? (
+                  <img
+                    src={opponentPortrait}
+                    alt={opponentHeadquarters.title}
+                    style={styles.matchmakingPortrait}
+                  />
+                ) : (
+                  <div style={styles.matchmakingPortraitPlaceholder}>
+                    {opponentHeadquarters.title}
+                  </div>
+                )}
+                <div style={styles.matchmakingName}>
+                  {opponentHeadquarters.title}
+                </div>
+              </motion.div>
+            </>
+          ) : (
+            <motion.div
+              key="search"
+              style={styles.matchmakingMapPanel}
+              initial={{ opacity: 0, x: 32 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.32, ease: "easeOut" }}
+            >
+              <img
+                src={matchmakingMapImage}
+                alt=""
+                aria-hidden="true"
+                style={styles.matchmakingMap}
+              />
+              <AnimatePresence mode="wait">
+                <motion.img
+                  key={reticleIndex}
+                  src={matchmakingCielImage}
+                  alt=""
+                  aria-hidden="true"
+                  style={{
+                    ...styles.matchmakingReticle,
+                    ...reticlePositions[reticleIndex],
+                  }}
+                  initial={{ opacity: 0, scale: 0.72 }}
+                  animate={{ opacity: 0.86, scale: 1 }}
+                  exit={{ opacity: 0, scale: 1.18 }}
+                  transition={{ duration: 0.42, ease: "easeOut" }}
+                />
+              </AnimatePresence>
+            </motion.div>
+          )}
+        </div>
+
+        <footer style={styles.matchmakingFooter}>
+          <div style={styles.matchmakingTimer}>
+            {matched
+              ? "ПРОТИВНИК НАЙДЕН"
+              : `АВТОБОЙ ЧЕРЕЗ ${String(remainingSeconds).padStart(2, "0")} СЕК`}
+          </div>
+          <button type="button" style={styles.cancelButton} onClick={onCancel}>
+            Отмена поиска
+          </button>
+          {error ? <div style={styles.error}>{error}</div> : null}
+        </footer>
+      </section>
+    </main>
+  );
+}
+
 function scrollCarousel(
   viewportRef: RefObject<HTMLDivElement | null>,
   direction: -1 | 1
@@ -492,6 +717,9 @@ export function PvpLobby() {
     pvpRoomId,
     pvpStatus,
     pvpError,
+    pvpOpponentHeadquartersId,
+    pvpMatchPreviewLabel,
+    pvpSearchDeadlineAt,
     selectedHeadquartersId,
     completedCampaignMissionIds,
     selectedCampaignId: storedSelectedCampaignId,
@@ -510,6 +738,7 @@ export function PvpLobby() {
     closeCampaignMenu,
     startCampaignMission,
     findPvpMatch,
+    startPvpFallbackAiBattle,
     startAiBattle,
     cancelMatchmaking,
   } = useBattleStore();
@@ -534,10 +763,14 @@ export function PvpLobby() {
   const headquartersCarouselRef = useRef<HTMLDivElement>(null);
   const campaignsCarouselRef = useRef<HTMLDivElement>(null);
   const missionsCarouselRef = useRef<HTMLDivElement>(null);
+  const playerProgress = loadPlayerProgress();
 
   const headquartersList = useMemo(
-    () => getMainMenuHeadquarters(),
-    []
+    () =>
+      getDeckBuildingHeadquarters().filter((headquarters) =>
+        playerProgress.unlockedHeadquartersIds.includes(headquarters.id)
+      ),
+    [playerProgress.unlockedHeadquartersIds]
   );
   const missionCampaign =
     CAMPAIGNS.find((campaign) => campaign.id === storedSelectedCampaignId) ??
@@ -570,6 +803,7 @@ export function PvpLobby() {
       pvpStatus === "searching" ||
       pvpStatus === "waiting" ||
       pvpStatus === "matched" ||
+      pvpStatus === "matchPreview" ||
       pvpStatus === "rolling");
   const matchmakingAvatar =
     pvpBusy ? getHeadquartersAvatarAsset(selectedHeadquartersId) : null;
@@ -818,6 +1052,21 @@ export function PvpLobby() {
       optionKey: `${headquartersId}-${deck.id ?? "default"}`,
     }));
   });
+
+  if (menuView === "headquarters" && pvpBusy) {
+    return (
+      <PvpMatchmakingScreen
+        playerHeadquartersId={selectedHeadquartersId}
+        opponentHeadquartersId={pvpOpponentHeadquartersId}
+        previewLabel={pvpMatchPreviewLabel}
+        status={pvpStatus}
+        error={pvpError}
+        searchDeadlineAt={pvpSearchDeadlineAt}
+        onCancel={cancelMatchmaking}
+        onFallback={startPvpFallbackAiBattle}
+      />
+    );
+  }
 
   if (menuView === "campaign") {
     return (
@@ -1602,6 +1851,205 @@ const styles: Record<string, CSSProperties> = {
     whiteSpace: "nowrap",
   },
 
+  matchmakingScreen: {
+    position: "relative",
+    zIndex: 4,
+    minHeight: "100vh",
+    display: "grid",
+    gridTemplateRows: "108px minmax(0, 1fr) 116px",
+    padding: "0 5vw 22px",
+    boxSizing: "border-box",
+  },
+
+  matchmakingHeader: {
+    display: "grid",
+    placeItems: "center",
+    paddingTop: 18,
+  },
+
+  matchmakingTitle: {
+    margin: 0,
+    color: "#f4db9a",
+    fontSize: "clamp(22px, 3vw, 42px)",
+    lineHeight: 1,
+    fontWeight: 1000,
+    letterSpacing: 2.6,
+    textTransform: "uppercase",
+    textShadow:
+      "0 3px 0 rgba(0,0,0,0.92), 0 0 24px rgba(213, 151, 54, 0.24)",
+  },
+
+  matchmakingArena: {
+    position: "relative",
+    minHeight: 0,
+    display: "grid",
+    alignItems: "center",
+    gap: "clamp(22px, 3.6vw, 62px)",
+  },
+
+  matchmakingArenaSearching: {
+    gridTemplateColumns: "minmax(240px, 0.78fr) minmax(360px, 1.22fr)",
+  },
+
+  matchmakingArenaMatched: {
+    gridTemplateColumns:
+      "minmax(240px, 0.92fr) minmax(190px, 0.58fr) minmax(240px, 0.92fr)",
+  },
+
+  matchmakingSide: {
+    position: "relative",
+    height: "min(32vh, 500px)",
+    minHeight: 310,
+    display: "grid",
+    alignItems: "end",
+    justifyItems: "center",
+    overflow: "visible",
+    isolation: "isolate",
+  },
+
+  matchmakingFlag: {
+    position: "absolute",
+    inset: "4% -16% 20%",
+    zIndex: 0,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    opacity: 0.42,
+    filter: "saturate(1.18) contrast(0.94)",
+    transform: "scaleX(1.04) scaleY(1)",
+    WebkitMaskImage:
+      "radial-gradient(ellipse at center, #000 0%, #000 30%, rgba(0,0,0,0.48) 48%, transparent 78%)",
+    maskImage:
+      "radial-gradient(ellipse at center, #000 0%, #000 30%, rgba(0,0,0,0.48) 48%, transparent 78%)",
+  },
+
+  matchmakingPortrait: {
+    position: "relative",
+    zIndex: 1,
+    width: "min(64%, 340px)",
+    height: "100%",
+    objectFit: "contain",
+    objectPosition: "center bottom",
+    filter:
+      "drop-shadow(0 24px 30px rgba(0,0,0,0.74)) drop-shadow(0 0 20px rgba(225, 178, 82, 0.12))",
+    WebkitMaskImage:
+      "linear-gradient(180deg, #000 0%, #000 80%, rgba(0,0,0,0.5) 92%, transparent 100%)",
+    maskImage:
+      "linear-gradient(180deg, #000 0%, #000 80%, rgba(0,0,0,0.5) 92%, transparent 100%)",
+  },
+
+  matchmakingPortraitPlaceholder: {
+    position: "relative",
+    zIndex: 1,
+    width: "min(74%, 340px)",
+    minHeight: 220,
+    display: "grid",
+    placeItems: "center",
+    padding: 22,
+    color: "#f3dfad",
+    fontSize: 24,
+    fontWeight: 1000,
+    textAlign: "center",
+    textTransform: "uppercase",
+    background:
+      "linear-gradient(180deg, rgba(44, 38, 24, 0.62), rgba(10, 10, 8, 0.72))",
+    boxSizing: "border-box",
+  },
+
+  matchmakingName: {
+    position: "absolute",
+    left: "8%",
+    right: "8%",
+    bottom: 14,
+    zIndex: 2,
+    color: "#fff0c2",
+    fontSize: "clamp(16px, 2vw, 25px)",
+    fontWeight: 1000,
+    lineHeight: 1.04,
+    textAlign: "center",
+    textTransform: "uppercase",
+    textShadow: "0 3px 10px rgba(0,0,0,0.95)",
+  },
+
+  matchmakingMapPanel: {
+    position: "relative",
+    height: "min(54vh, 510px)",
+    minHeight: 330,
+    display: "grid",
+    placeItems: "center",
+    overflow: "visible",
+    background: "transparent",
+  },
+
+  matchmakingMap: {
+    position: "relative",
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    filter: "saturate(0.9) contrast(1.04)",
+  },
+
+  matchmakingReticle: {
+    position: "absolute",
+    zIndex: 2,
+    width: "clamp(64px, 8vw, 116px)",
+    height: "clamp(64px, 8vw, 116px)",
+    objectFit: "contain",
+    transform: "translate(-50%, -50%)",
+    filter:
+      "drop-shadow(0 0 16px rgba(209, 36, 22, 0.42)) drop-shadow(0 3px 10px rgba(0,0,0,0.76))",
+    pointerEvents: "none",
+  },
+
+  matchmakingBreak: {
+    width: "min(25vw, 360px)",
+    maxHeight: "62vh",
+    objectFit: "contain",
+    justifySelf: "center",
+    filter:
+      "drop-shadow(0 18px 24px rgba(0,0,0,0.7)) drop-shadow(0 0 18px rgba(224, 174, 76, 0.18))",
+  },
+
+  matchmakingOpponentLabel: {
+    position: "absolute",
+    top: 8,
+    left: "8%",
+    right: "8%",
+    zIndex: 3,
+    color: "#f7ddb0",
+    fontSize: "clamp(15px, 1.5vw, 22px)",
+    fontWeight: 1000,
+    letterSpacing: 1.2,
+    textAlign: "center",
+    textTransform: "uppercase",
+    textShadow: "0 3px 12px rgba(0,0,0,0.92)",
+  },
+
+  matchmakingFooter: {
+    position: "relative",
+    zIndex: 20,
+    display: "grid",
+    justifyItems: "center",
+    alignContent: "center",
+    gap: 12,
+    pointerEvents: "auto",
+  },
+
+  matchmakingTimer: {
+    position: "relative",
+    zIndex: 21,
+    minWidth: 310,
+    padding: "10px 22px",
+    color: "#f8e7b8",
+    fontSize: 18,
+    fontWeight: 1000,
+    letterSpacing: 1.8,
+    textAlign: "center",
+    textTransform: "uppercase",
+    background:
+      "linear-gradient(90deg, transparent, rgba(18, 17, 12, 0.72) 18%, rgba(40, 34, 20, 0.78) 50%, rgba(18, 17, 12, 0.72) 82%, transparent)",
+    textShadow: "0 2px 8px rgba(0,0,0,0.9)",
+  },
+
   profileLayer: {
     width: "min(980px, calc(100vw - 64px))",
     display: "grid",
@@ -2281,16 +2729,26 @@ const styles: Record<string, CSSProperties> = {
   },
 
   cancelButton: {
+    position: "relative",
+    zIndex: 22,
     cursor: "pointer",
     display: "block",
-    width: "min(720px, calc(100vw - 48px))",
+    width: "min(360px, calc(100vw - 72px))",
     margin: "7px auto 0",
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(255, 138, 138, 0.55)",
-    background: "rgba(76, 31, 31, 0.92)",
-    color: "#ffd6d6",
-    fontWeight: 900,
+    padding: "11px 22px 13px",
+    borderRadius: 0,
+    border: "none",
+    backgroundColor: "#4b4d4e",
+    backgroundImage: `linear-gradient(180deg, rgba(156, 159, 154, 0.52), rgba(45, 48, 49, 0.78)), url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    color: "#ece8da",
+    fontWeight: 1000,
+    letterSpacing: 0.9,
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.86), 0 0 8px rgba(255,255,255,0.12)",
+    boxShadow: "none",
   },
 
   status: {

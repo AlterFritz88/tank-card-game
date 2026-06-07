@@ -5,6 +5,7 @@ import type { AttackAnimationStrike } from "../game/engine";
 import {
   DEFAULT_BOT_HEADQUARTERS_ID,
   DEFAULT_PLAYER_HEADQUARTERS_ID,
+  getDeckBuildingHeadquarters,
   getHeadquartersDefinition,
   getTrainingHeadquartersIds,
 } from "../game/headquarters";
@@ -27,6 +28,7 @@ import type {
   PlayerId,
 } from "../game/types";
 import { pvpClient } from "../network/pvpClient";
+import type { PvpClientMessage } from "../network/pvpClient";
 
 type SelectedAttacker = {
   type: "unit" | "headquarters";
@@ -34,6 +36,7 @@ type SelectedAttacker = {
 } | null;
 
 const AI_CUSTOM_OPPONENT_DECK_CARD_COUNT = 40;
+const PVP_MATCH_FOUND_PREVIEW_MS = 5_000;
 
 export type FirstTurnRollState = {
   visible: boolean;
@@ -77,6 +80,11 @@ type BattleStore = {
   pvpRoomId: string | null;
   pvpStatus: PvpConnectionState;
   pvpError: string | null;
+  pvpOpponentHeadquartersId: HeadquartersId | null;
+  pvpMatchPreviewLabel: string | null;
+  pvpSearchStartedAt: number | null;
+  pvpSearchDeadlineAt: number | null;
+  pvpFallbackDeckCardIds: string[] | null;
   matchEndReason: MatchEndReason | null;
   pvpTimer: PvpTimerState;
   pvpMovementIntent: PvpMovementIntent | null;
@@ -111,6 +119,7 @@ type BattleStore = {
   startAiBattle: (deckCardIds?: string[]) => void;
   startCampaignMission: (missionId: string) => void;
   findPvpMatch: (deckCardIds?: string[]) => void;
+  startPvpFallbackAiBattle: () => void;
   createPvpRoom: (deckCardIds?: string[]) => void;
   joinPvpRoom: (roomId: string, deckCardIds?: string[]) => void;
   startPvpBattle: (roomId?: string, deckCardIds?: string[]) => void;
@@ -164,6 +173,15 @@ let pvpSubscriptionsReady = false;
 let firstTurnRollResultTimer: number | null = null;
 let firstTurnRollHideTimer: number | null = null;
 let reconnectTimer: number | null = null;
+let matchFoundPreviewTimer: number | null = null;
+let pendingFirstTurnRollMessage: Extract<
+  PvpClientMessage,
+  { type: "FIRST_TURN_ROLL" }
+> | null = null;
+let pendingGameStartedMessage: Extract<
+  PvpClientMessage,
+  { type: "GAME_STARTED" }
+> | null = null;
 
 function loadCompletedCampaignMissionIds(): string[] {
   try {
@@ -215,10 +233,11 @@ function shouldClearSelection(action: BattleAction): boolean {
 function createFreshBattle(
   playerHeadquartersId: HeadquartersId = DEFAULT_PLAYER_HEADQUARTERS_ID,
   botHeadquartersId?: HeadquartersId,
-  playerDeckCardIds?: string[]
+  playerDeckCardIds?: string[],
+  botDeckCardIds?: string[]
 ) {
   const aiOpponent = botHeadquartersId
-    ? { headquartersId: botHeadquartersId, deckCardIds: undefined }
+    ? { headquartersId: botHeadquartersId, deckCardIds: botDeckCardIds }
     : getAiOpponentSetup(playerHeadquartersId, playerDeckCardIds);
 
   return createInitialBattleState({
@@ -228,6 +247,23 @@ function createFreshBattle(
     botDeckCardIds: aiOpponent.deckCardIds,
     backgroundId: getRandomBattleBackgroundId(),
   });
+}
+
+function cloneDeckCardIds(deckCardIds?: string[]): string[] | null {
+  return deckCardIds ? [...deckCardIds] : null;
+}
+
+function clearMatchFoundPreviewTimer() {
+  if (matchFoundPreviewTimer === null) return;
+
+  window.clearTimeout(matchFoundPreviewTimer);
+  matchFoundPreviewTimer = null;
+}
+
+function clearPendingPvpStart() {
+  clearMatchFoundPreviewTimer();
+  pendingFirstTurnRollMessage = null;
+  pendingGameStartedMessage = null;
 }
 
 function getAiOpponentSetup(
@@ -242,7 +278,19 @@ function getAiOpponentSetup(
     };
   }
 
-  const candidates = getTrainingHeadquartersIds();
+  const playerHeadquarters = getHeadquartersDefinition(playerHeadquartersId);
+  const sameLevelCandidates = getDeckBuildingHeadquarters()
+    .filter(
+      (headquarters) =>
+        headquarters.id !== playerHeadquartersId &&
+        headquarters.level === playerHeadquarters.level &&
+        getDeckCardIds(headquarters.defaultDeckId).length > 0
+    )
+    .map((headquarters) => headquarters.id);
+  const candidates =
+    sameLevelCandidates.length > 0
+      ? sameLevelCandidates
+      : getTrainingHeadquartersIds();
 
   if (candidates.length === 0) {
     return {
@@ -336,6 +384,131 @@ function getStartRollFinalRotation(firstPlayer: PlayerId): number {
   return 360 * 8 + targetAngle;
 }
 
+function getOpponentPlayerId(playerId: PlayerId): PlayerId {
+  return playerId === "player" ? "bot" : "player";
+}
+
+function getOpponentHeadquartersIdFromBattle(
+  battle: BattleStateView,
+  localPlayerId: PlayerId
+): HeadquartersId {
+  return battle[getOpponentPlayerId(localPlayerId)].headquartersId;
+}
+
+function applyFirstTurnRollMessage(
+  message: Extract<PvpClientMessage, { type: "FIRST_TURN_ROLL" }>
+) {
+  clearFirstTurnRollTimers();
+  clearReconnectTimer();
+  pvpClient.rememberRoom(message.roomId);
+
+  const now = Date.now();
+  const revealDelay = Math.max(0, message.revealAt - now);
+  const hideDelay = revealDelay + 900;
+
+  useBattleStore.setState((state) => ({
+    battle: message.battle,
+    mode: "pvp",
+    menuView: "main",
+    pvpRoomId: message.roomId,
+    pvpStatus: "rolling",
+    pvpError: null,
+    matchEndReason: null,
+    pvpTimer: emptyPvpTimer,
+    pvpMovementIntent: null,
+    pvpAttackIntent: null,
+    pvpOpponentHeadquartersId: getOpponentHeadquartersIdFromBattle(
+      message.battle,
+      state.localPlayerId
+    ),
+    pvpMatchPreviewLabel: null,
+    pvpSearchStartedAt: null,
+    pvpSearchDeadlineAt: null,
+    pvpFallbackDeckCardIds: null,
+    selectedCardInstanceId: null,
+    opponentSelectedCardInstanceId: null,
+    selectedAttacker: null,
+    firstTurnRoll: {
+      visible: true,
+      resultVisible: false,
+      firstPlayer: message.firstPlayer,
+      startsAt: message.startsAt,
+      revealAt: message.revealAt,
+      finalRotation: getStartRollFinalRotation(message.firstPlayer),
+    },
+  }));
+
+  firstTurnRollResultTimer = window.setTimeout(() => {
+    useBattleStore.setState((state) => ({
+      firstTurnRoll: {
+        ...state.firstTurnRoll,
+        resultVisible: true,
+      },
+    }));
+  }, revealDelay);
+
+  firstTurnRollHideTimer = window.setTimeout(() => {
+    useBattleStore.getState().hideFirstTurnRoll();
+  }, hideDelay);
+}
+
+function applyGameStartedMessage(
+  message: Extract<PvpClientMessage, { type: "GAME_STARTED" }>
+) {
+  clearReconnectTimer();
+  pvpClient.rememberRoom(message.roomId);
+  useBattleStore.setState({
+    battle: message.battle,
+    mode: "pvp",
+    menuView: "main",
+    localPlayerId: message.playerId,
+    pvpRoomId: message.roomId,
+    pvpStatus: "inBattle",
+    pvpError: null,
+    matchEndReason: null,
+    pvpTimer: emptyPvpTimer,
+    pvpMovementIntent: null,
+    pvpAttackIntent: null,
+    pvpOpponentHeadquartersId: getOpponentHeadquartersIdFromBattle(
+      message.battle,
+      message.playerId
+    ),
+    pvpMatchPreviewLabel: null,
+    pvpSearchStartedAt: null,
+    pvpSearchDeadlineAt: null,
+    pvpFallbackDeckCardIds: null,
+    selectedCardInstanceId: null,
+    opponentSelectedCardInstanceId: null,
+    selectedAttacker: null,
+  });
+}
+
+function flushPendingPvpStart() {
+  clearMatchFoundPreviewTimer();
+
+  const gameStartedMessage = pendingGameStartedMessage;
+  const firstTurnRollMessage = pendingFirstTurnRollMessage;
+
+  pendingGameStartedMessage = null;
+  pendingFirstTurnRollMessage = null;
+
+  if (gameStartedMessage) {
+    applyGameStartedMessage(gameStartedMessage);
+    return;
+  }
+
+  if (firstTurnRollMessage) {
+    applyFirstTurnRollMessage(firstTurnRollMessage);
+  }
+}
+
+function schedulePendingPvpStart() {
+  clearMatchFoundPreviewTimer();
+  matchFoundPreviewTimer = window.setTimeout(() => {
+    flushPendingPvpStart();
+  }, PVP_MATCH_FOUND_PREVIEW_MS);
+}
+
 function getCleanMenuState() {
   return {
     battle: null,
@@ -345,6 +518,11 @@ function getCleanMenuState() {
     pvpRoomId: null,
     pvpStatus: "idle" as PvpConnectionState,
     pvpError: null,
+    pvpOpponentHeadquartersId: null,
+    pvpMatchPreviewLabel: null,
+    pvpSearchStartedAt: null,
+    pvpSearchDeadlineAt: null,
+    pvpFallbackDeckCardIds: null,
     matchEndReason: null,
     pvpTimer: emptyPvpTimer,
     pvpMovementIntent: null,
@@ -367,6 +545,7 @@ function setupPvpSubscriptions() {
 
     switch (message.type) {
       case "MATCHMAKING_STARTED":
+        clearPendingPvpStart();
         useBattleStore.setState({
           battle: null,
           mode: "pvp",
@@ -374,6 +553,10 @@ function setupPvpSubscriptions() {
           pvpRoomId: null,
           pvpStatus: "searching",
           pvpError: null,
+          pvpOpponentHeadquartersId: null,
+          pvpMatchPreviewLabel: null,
+          pvpSearchStartedAt: Date.now(),
+          pvpSearchDeadlineAt: Date.now() + 30_000,
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
@@ -398,6 +581,8 @@ function setupPvpSubscriptions() {
           pvpRoomId: message.roomId,
           pvpStatus: message.type === "ROOM_JOINED" ? "matched" : "waiting",
           pvpError: null,
+          pvpOpponentHeadquartersId: null,
+          pvpMatchPreviewLabel: null,
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
@@ -416,6 +601,8 @@ function setupPvpSubscriptions() {
           pvpRoomId: message.roomId,
           pvpStatus: "waiting",
           pvpError: null,
+          pvpOpponentHeadquartersId: null,
+          pvpMatchPreviewLabel: null,
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
@@ -427,73 +614,51 @@ function setupPvpSubscriptions() {
         break;
 
       case "FIRST_TURN_ROLL": {
-        clearFirstTurnRollTimers();
         clearReconnectTimer();
         pvpClient.rememberRoom(message.roomId);
+        pendingFirstTurnRollMessage = message;
 
-        const now = Date.now();
-        const revealDelay = Math.max(0, message.revealAt - now);
-        const hideDelay = revealDelay + 900;
-
-        useBattleStore.setState({
-          battle: message.battle,
+        useBattleStore.setState((state) => ({
+          battle: null,
           mode: "pvp",
-          menuView: "main",
+          menuView: "headquarters",
           pvpRoomId: message.roomId,
-          pvpStatus: "rolling",
+          pvpStatus: "matchPreview",
           pvpError: null,
+          pvpOpponentHeadquartersId: getOpponentHeadquartersIdFromBattle(
+            message.battle,
+            state.localPlayerId
+          ),
+          pvpMatchPreviewLabel: null,
           matchEndReason: null,
-          pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
           pvpAttackIntent: null,
           selectedCardInstanceId: null,
           opponentSelectedCardInstanceId: null,
           selectedAttacker: null,
-          firstTurnRoll: {
-            visible: true,
-            resultVisible: false,
-            firstPlayer: message.firstPlayer,
-            startsAt: message.startsAt,
-            revealAt: message.revealAt,
-            finalRotation: getStartRollFinalRotation(message.firstPlayer),
-          },
-        });
+          firstTurnRoll: emptyFirstTurnRoll,
+        }));
 
-        firstTurnRollResultTimer = window.setTimeout(() => {
-          useBattleStore.setState((state) => ({
-            firstTurnRoll: {
-              ...state.firstTurnRoll,
-              resultVisible: true,
-            },
-          }));
-        }, revealDelay);
-
-        firstTurnRollHideTimer = window.setTimeout(() => {
-          useBattleStore.getState().hideFirstTurnRoll();
-        }, hideDelay);
+        schedulePendingPvpStart();
 
         break;
       }
 
       case "GAME_STARTED":
-        clearReconnectTimer();
-        pvpClient.rememberRoom(message.roomId);
-        useBattleStore.setState({
-          battle: message.battle,
-          mode: "pvp",
-          menuView: "main",
-          localPlayerId: message.playerId,
-          pvpRoomId: message.roomId,
-          pvpStatus: "inBattle",
-          pvpError: null,
-          matchEndReason: null,
-          pvpTimer: emptyPvpTimer,
-          pvpMovementIntent: null,
-          pvpAttackIntent: null,
-          selectedCardInstanceId: null,
-          opponentSelectedCardInstanceId: null,
-          selectedAttacker: null,
-        });
+        if (pendingFirstTurnRollMessage || store.pvpStatus === "matchPreview") {
+          pendingGameStartedMessage = message;
+          useBattleStore.setState({
+            pvpOpponentHeadquartersId: getOpponentHeadquartersIdFromBattle(
+              message.battle,
+              message.playerId
+            ),
+            pvpMatchPreviewLabel: null,
+          });
+          schedulePendingPvpStart();
+          break;
+        }
+
+        applyGameStartedMessage(message);
         break;
 
       case "GAME_STATE":
@@ -526,6 +691,7 @@ function setupPvpSubscriptions() {
       case "RECONNECT_FAILED":
         clearFirstTurnRollTimers();
         clearReconnectTimer();
+        clearPendingPvpStart();
         pvpClient.clearSession();
         useBattleStore.setState({
           ...getCleanMenuState(),
@@ -556,6 +722,7 @@ function setupPvpSubscriptions() {
       case "MATCHMAKING_CANCELLED":
         clearFirstTurnRollTimers();
         clearReconnectTimer();
+        clearPendingPvpStart();
         pvpClient.clearSession();
         useBattleStore.setState(getCleanMenuState());
         break;
@@ -597,6 +764,9 @@ function setupPvpSubscriptions() {
     const state = useBattleStore.getState();
     if (state.mode !== "pvp") return;
     if (state.pvpStatus === "finished") return;
+    if (state.pvpStatus === "matchPreview" && !pvpClient.getStoredRoomId()) {
+      return;
+    }
 
     clearFirstTurnRollTimers();
 
@@ -652,6 +822,11 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   pvpRoomId: null,
   pvpStatus: "idle",
   pvpError: null,
+  pvpOpponentHeadquartersId: null,
+  pvpMatchPreviewLabel: null,
+  pvpSearchStartedAt: null,
+  pvpSearchDeadlineAt: null,
+  pvpFallbackDeckCardIds: null,
   matchEndReason: null,
   pvpTimer: emptyPvpTimer,
   pvpMovementIntent: null,
@@ -791,6 +966,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   exitBattleToMenu: () => {
     clearFirstTurnRollTimers();
     clearReconnectTimer();
+    clearPendingPvpStart();
     pvpClient.selectCard(null);
     pvpClient.clearSession();
 
@@ -809,6 +985,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   startAiBattle: (deckCardIds) => {
     clearFirstTurnRollTimers();
     clearReconnectTimer();
+    clearPendingPvpStart();
     pvpClient.clearSession();
 
     set({
@@ -823,6 +1000,11 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpRoomId: null,
       pvpStatus: "idle",
       pvpError: null,
+      pvpOpponentHeadquartersId: null,
+      pvpMatchPreviewLabel: null,
+      pvpSearchStartedAt: null,
+      pvpSearchDeadlineAt: null,
+      pvpFallbackDeckCardIds: null,
       matchEndReason: null,
       pvpTimer: emptyPvpTimer,
       pvpMovementIntent: null,
@@ -835,6 +1017,97 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     });
 
     pvpClient.disconnect();
+  },
+
+  startPvpFallbackAiBattle: () => {
+    const state = get();
+    if (state.mode !== "pvp") return;
+    if (
+      state.pvpStatus !== "connecting" &&
+      state.pvpStatus !== "searching" &&
+      state.pvpStatus !== "waiting"
+    ) {
+      return;
+    }
+
+    const deckCardIds = state.pvpFallbackDeckCardIds ?? undefined;
+    const aiOpponent = getAiOpponentSetup(
+      state.selectedHeadquartersId,
+      deckCardIds
+    );
+
+    pvpClient.cancelMatchmaking();
+    clearFirstTurnRollTimers();
+    clearReconnectTimer();
+    clearPendingPvpStart();
+    pvpClient.clearSession();
+    pvpClient.disconnect();
+
+    set({
+      battle: null,
+      mode: "pvp",
+      menuView: "headquarters",
+      localPlayerId: "player",
+      pvpRoomId: null,
+      pvpStatus: "matchPreview",
+      pvpError: null,
+      pvpOpponentHeadquartersId: aiOpponent.headquartersId,
+      pvpMatchPreviewLabel: "Бой против ИИ",
+      pvpSearchStartedAt: null,
+      pvpSearchDeadlineAt: null,
+      pvpFallbackDeckCardIds: null,
+      matchEndReason: null,
+      pvpTimer: emptyPvpTimer,
+      pvpMovementIntent: null,
+      pvpAttackIntent: null,
+      firstTurnRoll: emptyFirstTurnRoll,
+      selectedCardInstanceId: null,
+      opponentSelectedCardInstanceId: null,
+      selectedAttacker: null,
+      currentCampaignMissionId: null,
+    });
+
+    matchFoundPreviewTimer = window.setTimeout(() => {
+      const latest = useBattleStore.getState();
+      if (
+        latest.mode !== "pvp" ||
+        latest.pvpStatus !== "matchPreview" ||
+        latest.pvpOpponentHeadquartersId !== aiOpponent.headquartersId
+      ) {
+        return;
+      }
+
+      useBattleStore.setState({
+        battle: createFreshBattle(
+          state.selectedHeadquartersId,
+          aiOpponent.headquartersId,
+          deckCardIds,
+          aiOpponent.deckCardIds
+        ),
+        mode: "ai",
+        menuView: "main",
+        localPlayerId: "player",
+        pvpRoomId: null,
+        pvpStatus: "idle",
+        pvpError: null,
+        pvpOpponentHeadquartersId: null,
+        pvpMatchPreviewLabel: null,
+        pvpSearchStartedAt: null,
+        pvpSearchDeadlineAt: null,
+        pvpFallbackDeckCardIds: null,
+        matchEndReason: null,
+        pvpTimer: emptyPvpTimer,
+        pvpMovementIntent: null,
+        pvpAttackIntent: null,
+        firstTurnRoll: emptyFirstTurnRoll,
+        selectedCardInstanceId: null,
+        opponentSelectedCardInstanceId: null,
+        selectedAttacker: null,
+        currentCampaignMissionId: null,
+      });
+
+      matchFoundPreviewTimer = null;
+    }, PVP_MATCH_FOUND_PREVIEW_MS);
   },
 
   startCampaignMission: (missionId) => {
@@ -883,7 +1156,9 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   findPvpMatch: (deckCardIds) => {
     clearFirstTurnRollTimers();
     clearReconnectTimer();
+    clearPendingPvpStart();
     pvpClient.clearSession();
+    const now = Date.now();
 
     set({
       battle: null,
@@ -892,6 +1167,11 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpRoomId: null,
       pvpStatus: "connecting",
       pvpError: null,
+      pvpOpponentHeadquartersId: null,
+      pvpMatchPreviewLabel: null,
+      pvpSearchStartedAt: now,
+      pvpSearchDeadlineAt: now + 30_000,
+      pvpFallbackDeckCardIds: cloneDeckCardIds(deckCardIds),
       matchEndReason: null,
       pvpTimer: emptyPvpTimer,
       pvpMovementIntent: null,
@@ -910,7 +1190,9 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   createPvpRoom: (deckCardIds) => {
     clearFirstTurnRollTimers();
     clearReconnectTimer();
+    clearPendingPvpStart();
     pvpClient.clearSession();
+    const now = Date.now();
 
     set({
       battle: null,
@@ -919,6 +1201,11 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpRoomId: null,
       pvpStatus: "connecting",
       pvpError: null,
+      pvpOpponentHeadquartersId: null,
+      pvpMatchPreviewLabel: null,
+      pvpSearchStartedAt: now,
+      pvpSearchDeadlineAt: now + 30_000,
+      pvpFallbackDeckCardIds: cloneDeckCardIds(deckCardIds),
       matchEndReason: null,
       pvpTimer: emptyPvpTimer,
       pvpMovementIntent: null,
@@ -944,7 +1231,9 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
 
     clearFirstTurnRollTimers();
     clearReconnectTimer();
+    clearPendingPvpStart();
     pvpClient.clearSession();
+    const now = Date.now();
 
     set({
       battle: null,
@@ -953,6 +1242,11 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpRoomId: normalizedRoomId,
       pvpStatus: "connecting",
       pvpError: null,
+      pvpOpponentHeadquartersId: null,
+      pvpMatchPreviewLabel: null,
+      pvpSearchStartedAt: now,
+      pvpSearchDeadlineAt: now + 30_000,
+      pvpFallbackDeckCardIds: cloneDeckCardIds(deckCardIds),
       matchEndReason: null,
       pvpTimer: emptyPvpTimer,
       pvpMovementIntent: null,
@@ -987,6 +1281,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
 
     clearFirstTurnRollTimers();
     clearReconnectTimer();
+    clearPendingPvpStart();
 
     set({
       battle: null,
@@ -1027,6 +1322,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   applyMatchEnded: (_winner, reason) => {
     clearFirstTurnRollTimers();
     clearReconnectTimer();
+    clearPendingPvpStart();
 
     set({
       pvpStatus: "finished",
@@ -1110,6 +1406,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
 
     clearFirstTurnRollTimers();
     clearReconnectTimer();
+    clearPendingPvpStart();
     pvpClient.clearSession();
     set(getCleanMenuState());
     pvpClient.disconnect();
@@ -1121,6 +1418,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     pvpClient.cancelMatchmaking();
     clearFirstTurnRollTimers();
     clearReconnectTimer();
+    clearPendingPvpStart();
     pvpClient.clearSession();
     set(getCleanMenuState());
   },
