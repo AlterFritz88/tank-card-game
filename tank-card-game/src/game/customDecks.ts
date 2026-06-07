@@ -1,5 +1,6 @@
 import { cards, getCardOrNull, normalizeCardId } from "./cards";
 import { HEADQUARTERS } from "./headquarters";
+import type { PlayerProgress } from "./playerProgress";
 import type { HeadquartersId, Nation, TankCard, TankClass } from "./types";
 
 export const DECK_UNIT_LIMIT = 40;
@@ -89,7 +90,8 @@ export function getGroupedDeckCards(cardIds: string[]): { card: TankCard; count:
 export function getAvailableDeckCards(
   headquartersId: HeadquartersId,
   unitTypeFilter: UnitTypeFilter,
-  nationFilter: NationFilter
+  nationFilter: NationFilter,
+  progress?: PlayerProgress
 ): TankCard[] {
   const headquarters = HEADQUARTERS[headquartersId];
   if (!headquarters) return [];
@@ -98,6 +100,10 @@ export function getAvailableDeckCards(
 
   return cards
     .filter((card) => {
+      if (progress && (progress.ownedCardCopies[card.id] ?? 0) <= 0) {
+        return false;
+      }
+
       if (!trainingHeadquarters && card.nation !== headquarters.nation) {
         return false;
       }
@@ -125,10 +131,15 @@ export function getAvailableDeckCards(
 
 export function validateDeck(
   headquartersId: HeadquartersId | null,
-  cardIds: string[]
+  cardIds: string[],
+  progress?: PlayerProgress
 ): DeckValidationResult {
   if (!headquartersId || !(headquartersId in HEADQUARTERS)) {
     return { valid: false, message: "Выберите штаб" };
+  }
+
+  if (progress && !progress.unlockedHeadquartersIds.includes(headquartersId)) {
+    return { valid: false, message: "Этот штаб еще не куплен" };
   }
 
   if (cardIds.length !== DECK_UNIT_LIMIT) {
@@ -158,11 +169,19 @@ export function validateDeck(
 
     const nextCopies = (copies.get(cardId) ?? 0) + 1;
     copies.set(cardId, nextCopies);
+    const ownedCopies = progress?.ownedCardCopies[cardId];
 
     if (nextCopies > CARD_COPY_LIMIT) {
       return {
         valid: false,
         message: `В колоде может быть максимум ${CARD_COPY_LIMIT} копии одной карты`,
+      };
+    }
+
+    if (ownedCopies !== undefined && nextCopies > ownedCopies) {
+      return {
+        valid: false,
+        message: "Нет достаточно копий карты в коллекции",
       };
     }
   }

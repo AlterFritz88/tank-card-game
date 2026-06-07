@@ -99,6 +99,8 @@ type BattleStore = {
   closeHeadquartersMenu: () => void;
   openDeckBuilderMenu: () => void;
   closeDeckBuilderMenu: () => void;
+  openProfileMenu: () => void;
+  closeProfileMenu: () => void;
   openResearchMenu: () => void;
   closeResearchMenu: () => void;
   openCampaignMenu: () => void;
@@ -716,6 +718,22 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   closeDeckBuilderMenu: () => {
     set({
       menuView: "headquarters",
+      pvpError: null,
+    });
+  },
+
+  openProfileMenu: () => {
+    set({
+      menuView: "profile",
+      mode: "ai",
+      pvpError: null,
+    });
+  },
+
+  closeProfileMenu: () => {
+    set({
+      menuView: "main",
+      mode: "ai",
       pvpError: null,
     });
   },

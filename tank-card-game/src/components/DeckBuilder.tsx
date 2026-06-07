@@ -36,6 +36,7 @@ import {
 import type { HeadquartersId, TankCard } from "../game/types";
 import { HandCardView } from "./HandCardView";
 import { calculateDeckWeight, getCardLevel } from "../game/deckWeight";
+import { loadPlayerProgress } from "../game/playerProgress";
 
 const HAND_CARD_BASE_WIDTH = 175;
 const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
@@ -135,18 +136,25 @@ export function DeckBuilder({
   const [deckDropActive, setDeckDropActive] = useState(false);
   const [collectionDropActive, setCollectionDropActive] = useState(false);
   const [preview, setPreview] = useState<DeckBuilderPreview | null>(null);
+  const [progress] = useState(() => loadPlayerProgress());
   const collectionRowRef = useRef<HTMLDivElement>(null);
   const deckRowRef = useRef<HTMLDivElement>(null);
   const collectionDragScrollRef = useRef<DragScrollState | null>(null);
   const deckDragScrollRef = useRef<DragScrollState | null>(null);
   const suppressCardClickRef = useRef(false);
 
-  const headquartersList = useMemo(() => getMainMenuHeadquarters(), []);
+  const headquartersList = useMemo(
+    () =>
+      getMainMenuHeadquarters().filter((headquarters) =>
+        progress.unlockedHeadquartersIds.includes(headquarters.id)
+      ),
+    [progress.unlockedHeadquartersIds]
+  );
   const selectedHeadquarters = selectedHeadquartersId
     ? HEADQUARTERS[selectedHeadquartersId]
     : null;
   const deckFull = deckCardIds.length >= DECK_UNIT_LIMIT;
-  const validation = validateDeck(selectedHeadquartersId, deckCardIds);
+  const validation = validateDeck(selectedHeadquartersId, deckCardIds, progress);
 
   const availableCards = useMemo(() => {
     if (!selectedHeadquarters) return [];
@@ -154,9 +162,10 @@ export function DeckBuilder({
     return getAvailableDeckCards(
       selectedHeadquarters.id,
       unitTypeFilter,
-      nationFilter
+      nationFilter,
+      progress
     );
-  }, [nationFilter, selectedHeadquarters, unitTypeFilter]);
+  }, [nationFilter, progress, selectedHeadquarters, unitTypeFilter]);
 
   const groupedDeckCards = useMemo(
     () => getGroupedDeckCards(deckCardIds),
@@ -215,6 +224,9 @@ export function DeckBuilder({
   function addCard(cardId: string) {
     if (!selectedHeadquarters || deckFull) return;
     if (countCardCopies(deckCardIds, cardId) >= CARD_COPY_LIMIT) return;
+    if (countCardCopies(deckCardIds, cardId) >= (progress.ownedCardCopies[cardId] ?? 0)) {
+      return;
+    }
 
     setDeckCardIds((current) => [...current, cardId]);
     setSaveMessage(null);
@@ -611,7 +623,11 @@ export function DeckBuilder({
                   ))
                 : availableCards.map((card) => {
                     const copies = countCardCopies(deckCardIds, card.id);
-                    const disabled = deckFull || copies >= CARD_COPY_LIMIT;
+                    const ownedCopies = progress.ownedCardCopies[card.id] ?? 0;
+                    const disabled =
+                      deckFull ||
+                      copies >= CARD_COPY_LIMIT ||
+                      copies >= ownedCopies;
 
                     return (
                       <motion.button

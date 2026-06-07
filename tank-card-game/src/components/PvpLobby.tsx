@@ -32,14 +32,18 @@ import {
   type SavedDeck,
 } from "../game/customDecks";
 import {
-  DEFAULT_PLAYER_HEADQUARTERS_ID,
   HEADQUARTERS,
   getMainMenuHeadquarters,
 } from "../game/headquarters";
 import { getDeckCardIds } from "../game/initialState";
-import { loadPlayerProgress, type PlayerProgress } from "../game/playerProgress";
+import {
+  getFavoriteHeadquartersId,
+  loadPlayerProgress,
+  setFavoriteHeadquartersId,
+  type PlayerProgress,
+} from "../game/playerProgress";
 import { getTankImage } from "../game/tankImages";
-import type { HeadquartersId, TankCard } from "../game/types";
+import type { HeadquartersId, Nation, TankCard } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
 import { DeckBuilder } from "./DeckBuilder";
 import { HandCardView } from "./HandCardView";
@@ -50,6 +54,15 @@ const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
 const MENU_CARD_SCALE = 1.18;
 const MENU_CARD_WIDTH = Math.round(HAND_CARD_BASE_WIDTH * MENU_CARD_SCALE);
 const MENU_CARD_HEIGHT = Math.round(HAND_CARD_BASE_HEIGHT * MENU_CARD_SCALE);
+
+const NATION_LABELS: Record<Nation, string> = {
+  france: "Франция",
+  germany: "Германия",
+  poland: "Польша",
+  uk: "Британия",
+  usa: "США",
+  ussr: "СССР",
+};
 
 type BattleDeckOption = {
   id: string | null;
@@ -73,61 +86,29 @@ type CarouselDragState = {
   startScrollLeft: number;
 };
 
-const PLAYER_NICKNAME_STORAGE_KEY = "panzershrek.playerNickname";
-const PLAYER_ACCOUNT_TYPE_STORAGE_KEY = "panzershrek.accountType";
-const FAVORITE_HEADQUARTERS_STORAGE_KEY = "panzershrek.favoriteHeadquartersId";
-
-function readLocalStorageValue(key: string): string | null {
-  if (typeof window === "undefined") return null;
-
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
 function getPlayerAccountData() {
   const progress = loadPlayerProgress();
   const headquarters = HEADQUARTERS[getFavoriteHeadquartersId(progress)];
-  const nickname = readLocalStorageValue(PLAYER_NICKNAME_STORAGE_KEY) ?? "Командир";
-  const accountType = readLocalStorageValue(PLAYER_ACCOUNT_TYPE_STORAGE_KEY);
-  const premium = accountType === "premium";
+  const premium = progress.accountType === "premium";
 
   return {
     avatar: getHeadquartersAvatarAsset(headquarters.id),
     flag: getNationFlagAsset(headquarters.nation),
-    nickname,
+    nickname: progress.nickname,
     accountLabel: premium ? "Премиум аккаунт" : "Базовый аккаунт",
   };
 }
 
-function getFavoriteHeadquartersId(progress: PlayerProgress): HeadquartersId {
-  const mostPlayedHeadquarters = Object.entries(progress.headquartersMatchCounts)
-    .filter((entry): entry is [HeadquartersId, number] => {
-      const [headquartersId, matchCount] = entry;
-      return headquartersId in HEADQUARTERS && matchCount > 0;
-    })
-    .sort(([, leftMatches], [, rightMatches]) => rightMatches - leftMatches)[0];
-
-  if (mostPlayedHeadquarters) {
-    return mostPlayedHeadquarters[0];
-  }
-
-  const storedFavoriteHeadquartersId = readLocalStorageValue(
-    FAVORITE_HEADQUARTERS_STORAGE_KEY
-  ) as HeadquartersId | null;
-
-  return storedFavoriteHeadquartersId && storedFavoriteHeadquartersId in HEADQUARTERS
-    ? storedFavoriteHeadquartersId
-    : DEFAULT_PLAYER_HEADQUARTERS_ID;
-}
-
-function PlayerAccountPanel() {
+function PlayerAccountPanel({ onOpenProfile }: { onOpenProfile?: () => void }) {
   const account = getPlayerAccountData();
 
   return (
-    <aside style={styles.playerAccountPanel} aria-label="Аккаунт игрока">
+    <button
+      type="button"
+      style={styles.playerAccountPanel}
+      aria-label="Открыть профиль игрока"
+      onClick={onOpenProfile}
+    >
       {account.flag ? (
         <div
           aria-hidden="true"
@@ -154,7 +135,7 @@ function PlayerAccountPanel() {
         <strong style={styles.playerAccountName}>{account.nickname}</strong>
         <span style={styles.playerAccountType}>{account.accountLabel}</span>
       </div>
-    </aside>
+    </button>
   );
 }
 
@@ -204,6 +185,167 @@ function PlayerResourcesPanel() {
         </div>
       ))}
     </aside>
+  );
+}
+
+function getTotalMatchCount(progress: PlayerProgress) {
+  return Object.values(progress.headquartersMatchCounts).reduce(
+    (total, count) => total + (count ?? 0),
+    0
+  );
+}
+
+function PlayerProfileMenu({ onBack }: { onBack: () => void }) {
+  const [progress, setProgress] = useState(() => loadPlayerProgress());
+  const favoriteHeadquartersId = getFavoriteHeadquartersId(progress);
+  const favoriteHeadquarters = HEADQUARTERS[favoriteHeadquartersId];
+  const favoriteFlag = getNationFlagAsset(favoriteHeadquarters.nation);
+  const favoriteAvatar = getHeadquartersAvatarAsset(favoriteHeadquarters.id);
+  const headquartersRows = Array.from(
+    new Set([
+      ...progress.unlockedHeadquartersIds,
+      ...Object.keys(progress.headquartersMatchCounts),
+    ])
+  )
+    .filter((headquartersId): headquartersId is HeadquartersId =>
+      Boolean(HEADQUARTERS[headquartersId as HeadquartersId])
+    )
+    .map((headquartersId) => ({
+      headquarters: HEADQUARTERS[headquartersId],
+      flag: getNationFlagAsset(HEADQUARTERS[headquartersId].nation),
+      matches: progress.headquartersMatchCounts[headquartersId] ?? 0,
+      stats: progress.headquartersBattleStats[headquartersId] ?? {
+        wins: 0,
+        losses: 0,
+      },
+      xp: progress.headquartersXp[headquartersId] ?? 0,
+    }))
+    .sort((left, right) => right.matches - left.matches);
+
+  function makeFavorite(headquartersId: HeadquartersId) {
+    setProgress(setFavoriteHeadquartersId(headquartersId));
+  }
+
+  return (
+    <main style={styles.page}>
+      <div style={styles.backgroundShade} />
+      <PlayerAccountPanel />
+      <PlayerResourcesPanel />
+
+      <section style={{ ...styles.menuLayer, ...styles.profileLayer }}>
+        <div style={styles.profileHero}>
+          {favoriteFlag ? (
+            <div
+              style={{
+                ...styles.profileFlag,
+                backgroundImage: `url("${favoriteFlag}")`,
+              }}
+            />
+          ) : null}
+          <button
+            type="button"
+            style={{ ...styles.backButton, ...styles.profileBackButton }}
+            onClick={onBack}
+          >
+            Назад
+          </button>
+          <div style={styles.profileAvatarFrame}>
+            {favoriteAvatar ? (
+              <img
+                src={favoriteAvatar}
+                alt=""
+                draggable={false}
+                style={styles.profileAvatar}
+              />
+            ) : null}
+          </div>
+          <div style={styles.profileIdentity}>
+            <span style={styles.profileKicker}>Профиль игрока</span>
+            <h1 style={styles.profileName}>{progress.nickname}</h1>
+            <span style={styles.profileAccount}>
+              {progress.accountType === "premium"
+                ? "Премиум аккаунт"
+                : "Базовый аккаунт"}
+            </span>
+            <strong style={styles.profileFavorite}>
+              {favoriteHeadquarters.title}
+            </strong>
+          </div>
+        </div>
+
+        <div style={styles.profileStatsGrid}>
+          <div style={styles.profileStatCard}>
+            <span>Сыграно боев</span>
+            <strong>{getTotalMatchCount(progress)}</strong>
+          </div>
+          <div style={styles.profileStatCard}>
+            <span style={styles.profileStatLabelNoWrap}>
+              Победы / поражения
+            </span>
+            <strong>
+              {progress.battleStats.wins} / {progress.battleStats.losses}
+            </strong>
+          </div>
+          <div style={styles.profileStatCard}>
+            <span>Свободный опыт</span>
+            <strong>{formatResourceValue(progress.freeXp)}</strong>
+          </div>
+          <div style={styles.profileStatCard}>
+            <span>Железные траки</span>
+            <strong>{formatResourceValue(progress.ironTracks)}</strong>
+          </div>
+          <div style={styles.profileStatCard}>
+            <span>Золотые траки</span>
+            <strong>{formatResourceValue(progress.goldTracks)}</strong>
+          </div>
+        </div>
+
+        <section style={styles.profileHeadquartersPanel}>
+          <h2 style={styles.profileSectionTitle}>Штабы</h2>
+          <div className="menu-carousel-scroll" style={styles.profileHeadquartersList}>
+            {headquartersRows.map(({ headquarters, flag, matches, stats, xp }) => (
+              <div key={headquarters.id} style={styles.profileHeadquartersRow}>
+                {flag ? (
+                  <div
+                    style={{
+                      ...styles.profileHeadquartersFlag,
+                      backgroundImage: `url("${flag}")`,
+                    }}
+                  />
+                ) : null}
+                <img
+                  src={getHeadquartersAvatarAsset(headquarters.id) ?? ""}
+                  alt=""
+                  draggable={false}
+                  style={styles.profileMiniAvatar}
+                />
+                <div style={styles.profileHeadquartersText}>
+                  <strong>{headquarters.title}</strong>
+                  <span>
+                    {NATION_LABELS[headquarters.nation]} · боев: {matches} · побед:{" "}
+                    {stats.wins} · поражений: {stats.losses} · опыта: {xp}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  style={{
+                    ...styles.profileFavoriteButton,
+                    ...(headquarters.id === favoriteHeadquartersId
+                      ? styles.profileFavoriteButtonActive
+                      : {}),
+                  }}
+                  onClick={() => makeFavorite(headquarters.id)}
+                >
+                  {headquarters.id === favoriteHeadquartersId
+                    ? "Любимый"
+                    : "Назначить"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      </section>
+    </main>
   );
 }
 
@@ -358,6 +500,8 @@ export function PvpLobby() {
     closeHeadquartersMenu,
     openDeckBuilderMenu,
     closeDeckBuilderMenu,
+    openProfileMenu,
+    closeProfileMenu,
     openResearchMenu,
     closeResearchMenu,
     openCampaignMenu,
@@ -679,7 +823,7 @@ export function PvpLobby() {
     return (
       <main style={styles.page}>
         <div style={styles.backgroundShade} />
-        <PlayerAccountPanel />
+        <PlayerAccountPanel onOpenProfile={openProfileMenu} />
         <PlayerResourcesPanel />
 
         <section style={styles.menuLayer}>
@@ -736,7 +880,7 @@ export function PvpLobby() {
     return (
       <main style={styles.page}>
         <div style={styles.backgroundShade} />
-        <PlayerAccountPanel />
+        <PlayerAccountPanel onOpenProfile={openProfileMenu} />
         <PlayerResourcesPanel />
 
         <section style={styles.menuLayer}>
@@ -843,6 +987,10 @@ export function PvpLobby() {
     return <ResearchMenu onBack={closeResearchMenu} />;
   }
 
+  if (menuView === "profile") {
+    return <PlayerProfileMenu onBack={closeProfileMenu} />;
+  }
+
   if (menuView === "deckBuilder") {
     return (
       <DeckBuilder
@@ -860,7 +1008,7 @@ export function PvpLobby() {
     return (
       <main style={styles.page}>
         <div style={styles.backgroundShade} />
-        <PlayerAccountPanel />
+        <PlayerAccountPanel onOpenProfile={openProfileMenu} />
         <PlayerResourcesPanel />
 
         <section style={styles.menuLayer}>
@@ -952,7 +1100,7 @@ export function PvpLobby() {
   return (
     <main style={styles.page}>
       <div style={styles.backgroundShade} />
-      <PlayerAccountPanel />
+      <PlayerAccountPanel onOpenProfile={openProfileMenu} />
       <PlayerResourcesPanel />
 
       <section style={{ ...styles.menuLayer, ...styles.headquartersMenuLayer }}>
@@ -1314,9 +1462,11 @@ const styles: Record<string, CSSProperties> = {
     padding: "4px 16px 6px 8px",
     overflow: "hidden",
     color: "#fff",
+    border: "none",
     background: "transparent",
     boxShadow: "none",
-    pointerEvents: "none",
+    cursor: "pointer",
+    textAlign: "left",
   },
 
   playerAccountFlag: {
@@ -1450,6 +1600,229 @@ const styles: Record<string, CSSProperties> = {
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
+  },
+
+  profileLayer: {
+    width: "min(980px, calc(100vw - 64px))",
+    display: "grid",
+    gridTemplateRows: "auto auto minmax(0, 1fr)",
+    gap: 12,
+    paddingTop: 22,
+    zIndex: 8,
+  },
+
+  profileBackButton: {
+    position: "absolute",
+    top: 10,
+    right: 12,
+    zIndex: 3,
+    width: 96,
+    minHeight: 34,
+    padding: "6px 12px 8px",
+    fontSize: 11,
+    lineHeight: 1,
+  },
+
+  profileHero: {
+    position: "relative",
+    minHeight: 134,
+    display: "grid",
+    gridTemplateColumns: "112px 1fr",
+    alignItems: "center",
+    gap: 16,
+    padding: "14px 22px",
+    overflow: "hidden",
+    background:
+      "linear-gradient(90deg, rgba(7,9,8,0.82), rgba(18,17,12,0.64), rgba(7,9,8,0.26))",
+    boxShadow: "0 22px 44px rgba(0,0,0,0.45)",
+  },
+
+  profileFlag: {
+    position: "absolute",
+    inset: -18,
+    zIndex: 0,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    opacity: 0.24,
+    filter: "saturate(1.12)",
+    WebkitMaskImage:
+      "radial-gradient(ellipse at center, #000 0%, rgba(0,0,0,0.82) 48%, transparent 100%)",
+    maskImage:
+      "radial-gradient(ellipse at center, #000 0%, rgba(0,0,0,0.82) 48%, transparent 100%)",
+  },
+
+  profileAvatarFrame: {
+    position: "relative",
+    zIndex: 1,
+    width: 104,
+    height: 126,
+    overflow: "hidden",
+    filter: "drop-shadow(0 16px 24px rgba(0,0,0,0.82))",
+  },
+
+  profileAvatar: {
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    objectPosition: "center bottom",
+    WebkitMaskImage:
+      "linear-gradient(180deg, #000 0%, #000 78%, rgba(0,0,0,0.54) 91%, transparent 100%)",
+    maskImage:
+      "linear-gradient(180deg, #000 0%, #000 78%, rgba(0,0,0,0.54) 91%, transparent 100%)",
+  },
+
+  profileIdentity: {
+    position: "relative",
+    zIndex: 1,
+    display: "grid",
+    gap: 6,
+    textShadow: "0 3px 10px rgba(0,0,0,0.92)",
+  },
+
+  profileKicker: {
+    color: "#c5a45c",
+    fontSize: 11,
+    fontWeight: 1000,
+    letterSpacing: 2.6,
+    textTransform: "uppercase",
+  },
+
+  profileName: {
+    margin: 0,
+    color: "#fff",
+    fontSize: 34,
+    lineHeight: 1,
+    fontWeight: 1000,
+    letterSpacing: 0.6,
+  },
+
+  profileAccount: {
+    color: "rgba(255,255,255,0.74)",
+    fontSize: 13,
+    fontWeight: 900,
+    textTransform: "uppercase",
+  },
+
+  profileFavorite: {
+    color: "#f5d98f",
+    fontSize: 16,
+    fontWeight: 1000,
+  },
+
+  profileStatsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+    gap: 10,
+  },
+
+  profileStatLabelNoWrap: {
+    whiteSpace: "nowrap",
+  },
+
+  profileStatCard: {
+    display: "grid",
+    gap: 4,
+    padding: "10px 13px",
+    background: "rgba(9, 12, 10, 0.72)",
+    boxShadow: "inset 0 0 0 1px rgba(226, 184, 92, 0.16)",
+  },
+
+  profileHeadquartersPanel: {
+    minHeight: 0,
+    display: "grid",
+    gridTemplateRows: "auto minmax(0, 1fr)",
+    gap: 6,
+    padding: "10px 14px",
+    background: "rgba(6, 8, 7, 0.68)",
+    boxShadow: "inset 0 0 0 1px rgba(226, 184, 92, 0.14)",
+  },
+
+  profileSectionTitle: {
+    margin: 0,
+    color: "#f3db9f",
+    fontSize: 18,
+    lineHeight: 1,
+    textTransform: "uppercase",
+  },
+
+  profileHeadquartersList: {
+    minHeight: 0,
+    overflowY: "auto",
+    display: "grid",
+    gap: 8,
+    paddingRight: 8,
+    scrollbarWidth: "none",
+  },
+
+  profileHeadquartersRow: {
+    position: "relative",
+    display: "grid",
+    gridTemplateColumns: "56px minmax(0, 1fr) 106px",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 68,
+    padding: "7px 9px",
+    overflow: "hidden",
+    background: "rgba(14, 17, 14, 0.72)",
+  },
+
+  profileHeadquartersFlag: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 5,
+    bottom: 5,
+    zIndex: 0,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    opacity: 0.28,
+    filter: "saturate(1.08) brightness(0.82)",
+    WebkitMaskImage:
+      "linear-gradient(90deg, transparent 0%, #000 13%, #000 87%, transparent 100%)",
+    maskImage:
+      "linear-gradient(90deg, transparent 0%, #000 13%, #000 87%, transparent 100%)",
+  },
+
+  profileMiniAvatar: {
+    position: "relative",
+    zIndex: 1,
+    width: 54,
+    height: 62,
+    objectFit: "contain",
+    objectPosition: "center bottom",
+    WebkitMaskImage:
+      "linear-gradient(180deg, #000 0%, #000 78%, rgba(0,0,0,0.5) 92%, transparent 100%)",
+    maskImage:
+      "linear-gradient(180deg, #000 0%, #000 78%, rgba(0,0,0,0.5) 92%, transparent 100%)",
+  },
+
+  profileHeadquartersText: {
+    position: "relative",
+    zIndex: 1,
+    minWidth: 0,
+    display: "grid",
+    gap: 4,
+    color: "#e9d4a2",
+    fontSize: 13,
+  },
+
+  profileFavoriteButton: {
+    position: "relative",
+    zIndex: 1,
+    height: 36,
+    border: "none",
+    background: "rgba(80, 86, 91, 0.9)",
+    color: "#eee5d6",
+    cursor: "pointer",
+    fontSize: 10,
+    fontWeight: 1000,
+    textTransform: "uppercase",
+  },
+
+  profileFavoriteButtonActive: {
+    color: "#fff0bd",
+    background: "rgba(120, 92, 35, 0.92)",
   },
 
   menuLayer: {

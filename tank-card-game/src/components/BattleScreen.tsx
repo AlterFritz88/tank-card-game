@@ -38,6 +38,7 @@ import { BattleTimerPanel } from "./BattleTimerPanel";
 import { DeckStack } from "./DeckStack";
 import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
 import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
+import { getHeadquartersImageAsset } from "../game/headquartersImages";
 import { calculateBattleReward, type BattleReward } from "../game/economy";
 import { applyBattleRewardToProgress } from "../game/playerProgress";
 import apShellImage from "../assets/ap-shell.png";
@@ -351,11 +352,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     owner: PlayerId,
     placement: "player" | "enemy"
   ) {
-    const avatar = getHeadquartersAvatarAsset(getHeadquartersIdForOwner(owner));
-
-    if (!avatar) {
-      return null;
-    }
+    const headquartersId = getHeadquartersIdForOwner(owner);
+    const avatar = getHeadquartersAvatarAsset(headquartersId);
+    const fallbackImage = getHeadquartersImageAsset(headquartersId);
+    const image = avatar ?? fallbackImage;
 
     return (
       <motion.div
@@ -365,23 +365,29 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           ...(placement === "player"
             ? styles.playerHeadquartersAvatar
             : styles.enemyHeadquartersAvatar),
+          ...(!image ? styles.headquartersAvatarEmpty : {}),
         }}
         initial={{ opacity: 0, y: placement === "player" ? 14 : -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.28, ease: "easeOut" }}
       >
-        <img
-          src={avatar}
-          alt=""
-          draggable={false}
-          style={{
-            ...styles.headquartersAvatarImage,
-            ...(placement === "player"
-              ? styles.playerHeadquartersAvatarImage
-              : styles.enemyHeadquartersAvatarImage),
-            objectPosition: "center bottom",
-          }}
-        />
+        {image ? (
+          <img
+            src={image}
+            alt=""
+            draggable={false}
+            style={{
+              ...styles.headquartersAvatarImage,
+              ...(!avatar ? styles.headquartersAvatarFallbackImage : {}),
+              ...(placement === "player"
+                ? styles.playerHeadquartersAvatarImage
+                : styles.enemyHeadquartersAvatarImage),
+              objectPosition: "center bottom",
+            }}
+          />
+        ) : (
+          <div style={styles.headquartersAvatarPlaceholder} />
+        )}
       </motion.div>
     );
   }
@@ -748,7 +754,11 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       matchEndReason: mode === "pvp" ? matchEndReason : null,
     });
 
-    applyBattleRewardToProgress(reward);
+    const localPlayerWon =
+      (battle.status === "player_won" && humanPlayerId === "player") ||
+      (battle.status === "bot_won" && humanPlayerId === "bot");
+
+    applyBattleRewardToProgress(reward, localPlayerWon);
     frameId = window.requestAnimationFrame(() => {
       setBattleReward(reward);
     });
@@ -4311,6 +4321,25 @@ actionSideColumn: {
     objectFit: "contain",
     pointerEvents: "none",
     userSelect: "none",
+  },
+  headquartersAvatarFallbackImage: {
+    width: "82%",
+    height: "82%",
+    margin: "auto",
+    objectFit: "contain",
+    filter:
+      "drop-shadow(0 10px 18px rgba(0,0,0,0.78)) saturate(0.95) brightness(0.95)",
+  },
+  headquartersAvatarEmpty: {
+    opacity: 0.42,
+  },
+  headquartersAvatarPlaceholder: {
+    width: "82%",
+    height: "82%",
+    margin: "auto",
+    background:
+      "radial-gradient(circle at 50% 58%, rgba(236, 211, 135, 0.16), transparent 58%)",
+    boxShadow: "inset 0 0 0 1px rgba(232, 198, 112, 0.08)",
   },
   playerHeadquartersAvatarImage: {
     WebkitMaskImage:

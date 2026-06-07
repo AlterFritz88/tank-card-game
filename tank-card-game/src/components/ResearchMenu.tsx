@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties, type MouseEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import buttonImage from "../assets/button.png";
+import cardBackImage from "../assets/cards/card-back.png";
 import experienceIcon from "../assets/icons/expa.png";
 import goldTracksIcon from "../assets/icons/gold_tracks_transparent.png";
 import silverTracksIcon from "../assets/icons/silver-tracks.png";
@@ -13,23 +14,55 @@ import {
   RESEARCH_TREES,
   type ResearchNation,
   type ResearchNode,
-  type ResearchNodeStatus,
 } from "../game/researchTrees";
 import { getTankImage } from "../game/tankImages";
-import { getCardClassVisual } from "../game/cardVisuals";
+import type { HeadquartersId } from "../game/types";
+import { CARD_COPY_LIMIT } from "../game/customDecks";
+import {
+  canSpendResearchExperience,
+  loadPlayerProgress,
+  purchaseCardCopy,
+  purchaseHeadquarters,
+  researchCard,
+  researchHeadquarters,
+  type PlayerProgress,
+} from "../game/playerProgress";
 import { HandCardView } from "./HandCardView";
-
-const STATUS_LABELS: Record<ResearchNodeStatus, string> = {
-  unlocked: "Получено",
-  researchable: "Доступно",
-  locked: "Закрыто",
-  planned: "Скоро",
-};
 
 const NATION_LABELS: Record<ResearchNation, string> = {
   germany: "Германия",
   ussr: "СССР",
   usa: "США",
+};
+
+type ResearchNodeStage =
+  | "owned"
+  | "researched"
+  | "researchable"
+  | "locked"
+  | "planned";
+
+type ResearchNodeView = ResearchNode & {
+  stage: ResearchNodeStage;
+  statusLabel: string;
+  actionKind?: "owned" | "research" | "purchase" | "experience";
+  costIcon?: string;
+  costValue?: number;
+  costInsufficient?: boolean;
+  headquartersXp?: number;
+  ownedCopies?: number;
+  requiredPreviousTitle?: string;
+};
+
+type ResearchFeedback = {
+  id: number;
+  text: string;
+};
+
+type ResearchCelebration = {
+  id: number;
+  label: "Исследовано" | "Куплено";
+  node: ResearchNode;
 };
 
 function getNodeImage(node: ResearchNode) {
@@ -44,24 +77,146 @@ function getNodeImage(node: ResearchNode) {
   return "/panzer-shrek-icon.png";
 }
 
-function getNodeSubtitle(node: ResearchNode) {
-  if (node.subtitle) return node.subtitle;
-  if (!node.cardId) return node.type === "headquarters" ? "Штаб" : "Карта";
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("ru-RU").format(value);
+}
 
-  const card = cards.find((item) => item.id === node.cardId);
-  if (!card) return "Карта";
+function isNodeResearched(node: ResearchNode, progress: PlayerProgress): boolean {
+  if (node.cardId) return progress.researchedCardIds.includes(node.cardId);
+  if (node.headquartersId) {
+    return progress.researchedHeadquartersIds.includes(node.headquartersId);
+  }
 
-  return card.deploymentZone === "support"
-    ? getCardClassVisual(card).label
-    : card.class === "light"
-      ? "Лёгкий танк"
-      : card.class === "medium"
-        ? "Средний танк"
-        : card.class === "heavy"
-          ? "Тяжёлый танк"
-          : card.class === "td"
-            ? "ПТ-САУ"
-            : "САУ";
+  return false;
+}
+
+function isNodeOwned(node: ResearchNode, progress: PlayerProgress): boolean {
+  if (node.cardId) return (progress.ownedCardCopies[node.cardId] ?? 0) > 0;
+  if (node.headquartersId) {
+    return progress.unlockedHeadquartersIds.includes(node.headquartersId);
+  }
+
+  return false;
+}
+
+function createNodeView({
+  node,
+  progress,
+  sourceHeadquartersId,
+  previousComplete,
+  previousNodeTitle,
+}: {
+  node: ResearchNode;
+  progress: PlayerProgress;
+  sourceHeadquartersId: HeadquartersId;
+  previousComplete: boolean;
+  previousNodeTitle?: string;
+}): ResearchNodeView {
+  if (node.status === "planned") {
+    return {
+      ...node,
+      stage: "planned",
+      statusLabel: "Скоро",
+    };
+  }
+
+  if (isNodeOwned(node, progress)) {
+    const ownedCopies = node.cardId ? progress.ownedCardCopies[node.cardId] ?? 0 : 1;
+    const headquartersXp = node.headquartersId
+      ? progress.headquartersXp[node.headquartersId] ?? 0
+      : undefined;
+
+    return {
+      ...node,
+      stage: "owned",
+      statusLabel: node.cardId ? `Куплено x${ownedCopies}` : "Опыт",
+      actionKind: node.headquartersId ? "experience" : "owned",
+      ownedCopies,
+      headquartersXp,
+      costIcon:
+        node.cardId && ownedCopies < CARD_COPY_LIMIT && node.purchaseCost
+          ? silverTracksIcon
+          : node.headquartersId
+            ? experienceIcon
+            : undefined,
+      costValue:
+        node.cardId && ownedCopies < CARD_COPY_LIMIT
+          ? node.purchaseCost
+          : headquartersXp,
+      costInsufficient:
+        Boolean(node.cardId && ownedCopies < CARD_COPY_LIMIT && node.purchaseCost) &&
+        progress.ironTracks < (node.purchaseCost ?? 0),
+    };
+  }
+
+  if (isNodeResearched(node, progress)) {
+    return {
+      ...node,
+      stage: "researched",
+      statusLabel: "Купить",
+      actionKind: "purchase",
+      ownedCopies: node.cardId ? progress.ownedCardCopies[node.cardId] ?? 0 : undefined,
+      costIcon: silverTracksIcon,
+      costValue: node.purchaseCost,
+      costInsufficient: progress.ironTracks < (node.purchaseCost ?? 0),
+    };
+  }
+
+  if (!previousComplete) {
+    return {
+      ...node,
+      stage: "locked",
+      statusLabel: previousNodeTitle ? "Нужен узел" : "Закрыто",
+      requiredPreviousTitle: previousNodeTitle,
+    };
+  }
+
+  const experienceCost = node.experienceCost ?? 0;
+  const canResearch = canSpendResearchExperience(
+    progress,
+    sourceHeadquartersId,
+    experienceCost
+  );
+
+  return {
+    ...node,
+    stage: canResearch ? "researchable" : "locked",
+    statusLabel: canResearch ? "Исследовать" : "Не хватает опыта",
+    actionKind: "research",
+    costIcon: experienceCost ? experienceIcon : undefined,
+    costValue: experienceCost || undefined,
+    costInsufficient: !canResearch,
+  };
+}
+
+function createBranchNodeViews({
+  nodes,
+  progress,
+  sourceHeadquartersId,
+}: {
+  nodes: ResearchNode[];
+  progress: PlayerProgress;
+  sourceHeadquartersId: HeadquartersId;
+}): ResearchNodeView[] {
+  let previousComplete = true;
+  let previousNodeTitle: string | undefined;
+
+  return nodes.map((node) => {
+    const view = createNodeView({
+      node,
+      progress,
+      sourceHeadquartersId,
+      previousComplete,
+      previousNodeTitle,
+    });
+    previousComplete =
+      view.stage === "owned" ||
+      view.stage === "researched" ||
+      node.status === "unlocked";
+    previousNodeTitle = node.title;
+
+    return view;
+  });
 }
 
 function ResearchCostBadge({ icon, value }: { icon: string; value: number }) {
@@ -93,15 +248,59 @@ function ResourceBadge({
   );
 }
 
+function ResearchNodeHandCard({ node }: { node: ResearchNode }) {
+  const card = node.cardId
+    ? cards.find((item) => item.id === node.cardId) ?? null
+    : null;
+  const headquarters = node.headquartersId
+    ? getHeadquartersDefinition(node.headquartersId)
+    : null;
+
+  if (card) {
+    return <HandCardView card={card} ownerId="player" />;
+  }
+
+  if (headquarters) {
+    return (
+      <HandCardView
+        headquartersId={headquarters.id}
+        headquarters={{
+          hp: headquarters.hp,
+          attack: headquarters.attack,
+          fuelGeneration: headquarters.fuelGeneration,
+        }}
+        ownerId="player"
+      />
+    );
+  }
+
+  return (
+    <img
+      src={getNodeImage(node)}
+      alt=""
+      draggable={false}
+      style={styles.nodeFallbackImage}
+    />
+  );
+}
+
 function ResearchNodeCard({
   node,
   onPreview,
+  onAction,
 }: {
-  node: ResearchNode;
+  node: ResearchNodeView;
   onPreview: (event: MouseEvent, node: ResearchNode) => void;
+  onAction?: (node: ResearchNodeView) => void;
 }) {
-  const locked = node.status === "locked" || node.status === "planned";
+  const locked = node.stage === "locked" || node.stage === "planned";
+  const actionable =
+    node.stage === "researchable" ||
+    node.stage === "researched" ||
+    (node.stage === "owned" &&
+      Boolean(node.cardId && node.costValue && node.costValue > 0));
   const headquarters = node.type === "headquarters";
+  const ownedCopies = Math.min(CARD_COPY_LIMIT, node.ownedCopies ?? 0);
 
   return (
     <motion.div
@@ -109,42 +308,58 @@ function ResearchNodeCard({
         ...styles.node,
         ...(headquarters ? styles.headquartersNode : {}),
         ...(locked ? styles.nodeLocked : {}),
-        ...(node.status === "researchable" ? styles.nodeResearchable : {}),
-        ...(node.status === "unlocked" ? styles.nodeUnlocked : {}),
+        ...(actionable ? styles.nodeResearchable : {}),
+        ...(node.stage === "owned" ? styles.nodeUnlocked : {}),
       }}
-      whileHover={node.status === "planned" ? undefined : { y: -4, scale: 1.025 }}
+      whileHover={node.stage === "planned" ? undefined : { y: -4, scale: 1.025 }}
       transition={{ type: "spring", stiffness: 360, damping: 26 }}
-      aria-label={`${node.title}: ${STATUS_LABELS[node.status]}`}
+      aria-label={`${node.title}: ${node.statusLabel}`}
       onContextMenu={(event) => onPreview(event, node)}
+      onClick={() => onAction?.(node)}
     >
-      <div style={styles.nodeImageFrame}>
-        <img
-          src={getNodeImage(node)}
-          alt=""
-          draggable={false}
-          style={styles.nodeImage}
-        />
-      </div>
+      <div style={styles.nodeCardArea}>
+        {node.cardId && ownedCopies > 0 ? (
+          <div style={styles.ownedCardStack}>
+            {Array.from({ length: ownedCopies }, (_, index) => {
+              const reverseIndex = ownedCopies - index - 1;
 
-      <div style={styles.nodeBody}>
-        <strong style={styles.nodeTitle}>{node.title}</strong>
-        <span style={styles.nodeSubtitle}>{getNodeSubtitle(node)}</span>
+              return (
+                <div
+                  key={`${node.id}-copy-${index}`}
+                  style={{
+                    ...styles.ownedCardStackLayer,
+                    transform: `translate(${reverseIndex * 11}px, ${
+                      reverseIndex * 4
+                    }px)`,
+                    zIndex: index + 1,
+                    opacity: index === ownedCopies - 1 ? 1 : 0.72,
+                  }}
+                >
+                  <ResearchNodeHandCard node={node} />
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <ResearchNodeHandCard node={node} />
+        )}
       </div>
 
       <div
         style={{
-          ...styles.nodeFooter,
-          ...(node.status === "unlocked" ? styles.nodeFooterUnlocked : {}),
-          ...(node.status === "researchable" ? styles.nodeFooterResearchable : {}),
+          ...styles.nodeCostBox,
+          ...(node.stage === "owned" ? styles.nodeFooterUnlocked : {}),
+          ...(actionable ? styles.nodeFooterResearchable : {}),
+          ...(node.actionKind === "research" ? styles.nodeCostBoxResearch : {}),
+          ...(node.actionKind === "purchase" ? styles.nodeCostBoxPurchase : {}),
+          ...(node.actionKind === "experience" ? styles.nodeCostBoxExperience : {}),
+          ...(node.costInsufficient ? styles.nodeCostBoxInsufficient : {}),
         }}
       >
-        <span>{STATUS_LABELS[node.status]}</span>
+        <span>{node.statusLabel}</span>
         <span style={styles.nodeCosts}>
-          {node.experienceCost ? (
-            <ResearchCostBadge icon={experienceIcon} value={node.experienceCost} />
-          ) : null}
-          {node.purchaseCost ? (
-            <ResearchCostBadge icon={silverTracksIcon} value={node.purchaseCost} />
+          {node.costIcon && node.costValue !== undefined ? (
+            <ResearchCostBadge icon={node.costIcon} value={node.costValue} />
           ) : null}
         </span>
       </div>
@@ -152,10 +367,107 @@ function ResearchNodeCard({
   );
 }
 
+function ResearchCelebrationOverlay({
+  celebration,
+  onClose,
+}: {
+  celebration: ResearchCelebration;
+  onClose: () => void;
+}) {
+  const card = celebration.node.cardId
+    ? cards.find((item) => item.id === celebration.node.cardId) ?? null
+    : null;
+  const headquarters = celebration.node.headquartersId
+    ? getHeadquartersDefinition(celebration.node.headquartersId)
+    : null;
+
+  return (
+    <motion.div
+      style={styles.researchCelebrationOverlay}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+      onMouseDown={onClose}
+    >
+      <motion.div
+        style={styles.researchCelebrationCardWrap}
+        onMouseDown={(event) => event.stopPropagation()}
+        initial={{ y: 30, scale: 0.72, rotateY: -180 }}
+        animate={{
+          y: 0,
+          scale: [0.72, 1.1, 1],
+          rotateY: [-180, -34, 0],
+        }}
+        exit={{ y: -20, scale: 0.82, opacity: 0 }}
+        transition={{ duration: 0.9, ease: "easeOut" }}
+      >
+        <div
+          aria-hidden="true"
+          style={{
+            ...styles.researchCelebrationBack,
+            backgroundImage: `url(${cardBackImage})`,
+          }}
+        />
+        {card ? (
+          <HandCardView card={card} displayMode="preview" />
+        ) : headquarters ? (
+          <HandCardView
+            headquartersId={headquarters.id}
+            headquarters={{
+              hp: headquarters.hp,
+              attack: headquarters.attack,
+              fuelGeneration: headquarters.fuelGeneration,
+            }}
+            displayMode="preview"
+          />
+        ) : null}
+        <motion.div
+          style={styles.researchCelebrationLabel}
+          initial={{ opacity: 0, scale: 0.92 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ delay: 0.22, duration: 0.24 }}
+        >
+          {celebration.label}
+        </motion.div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 export function ResearchMenu({ onBack }: { onBack: () => void }) {
   const [selectedNation, setSelectedNation] = useState<ResearchNation>("germany");
   const [previewNode, setPreviewNode] = useState<ResearchNode | null>(null);
+  const [progress, setProgress] = useState(() => loadPlayerProgress());
+  const [feedback, setFeedback] = useState<ResearchFeedback | null>(null);
+  const [celebration, setCelebration] = useState<ResearchCelebration | null>(null);
   const tree = RESEARCH_TREES[selectedNation];
+  const sourceHeadquartersId = tree.starterHeadquarters.headquartersId;
+  const starterNodeView: ResearchNodeView = {
+    ...tree.starterHeadquarters,
+    stage: "owned",
+    statusLabel: "Опыт",
+    actionKind: "experience",
+    headquartersXp: sourceHeadquartersId
+      ? progress.headquartersXp[sourceHeadquartersId] ?? 0
+      : 0,
+    ownedCopies: 1,
+    costIcon: experienceIcon,
+    costValue: sourceHeadquartersId
+      ? progress.headquartersXp[sourceHeadquartersId] ?? 0
+      : 0,
+  };
+  const branchNodeViews = sourceHeadquartersId
+    ? tree.branches.map((branch) => ({
+        branch,
+        nodes: createBranchNodeViews({
+          nodes: branch.nodes,
+          progress,
+          sourceHeadquartersId,
+        }),
+      }))
+    : [];
   const previewCard = previewNode?.cardId
     ? cards.find((card) => card.id === previewNode.cardId) ?? null
     : null;
@@ -176,6 +488,120 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
     setPreviewNode(null);
   }
 
+  function showFeedback(text: string) {
+    setFeedback({
+      id: Date.now(),
+      text,
+    });
+  }
+
+  function showCelebration(label: ResearchCelebration["label"], node: ResearchNode) {
+    setCelebration({
+      id: Date.now(),
+      label,
+      node,
+    });
+  }
+
+  function getResearchShortage(cost: number) {
+    const headquartersXp = sourceHeadquartersId
+      ? progress.headquartersXp[sourceHeadquartersId] ?? 0
+      : 0;
+    const availableExperience = headquartersXp + progress.freeXp;
+    return Math.max(0, cost - availableExperience);
+  }
+
+  function handleNodeAction(node: ResearchNodeView) {
+    if (!sourceHeadquartersId) return;
+
+    let nextProgress: PlayerProgress | null = null;
+    let celebrationLabel: ResearchCelebration["label"] | null = null;
+
+    if (node.stage === "planned") {
+      showFeedback("Эта ветка пока недоступна");
+      return;
+    }
+
+    if (node.stage === "locked") {
+      const experienceCost = node.experienceCost ?? 0;
+
+      if (node.requiredPreviousTitle) {
+        showFeedback(`Сначала исследуйте: ${node.requiredPreviousTitle}`);
+        return;
+      }
+
+      if (experienceCost > 0 && node.statusLabel === "Не хватает опыта") {
+        showFeedback(
+          `Не хватает опыта: ${formatNumber(getResearchShortage(experienceCost))}`
+        );
+      } else {
+        showFeedback("Сначала исследуйте предыдущий узел ветки");
+      }
+      return;
+    }
+
+    if (node.stage === "researchable") {
+      const experienceCost = node.experienceCost ?? 0;
+
+      if (getResearchShortage(experienceCost) > 0) {
+        showFeedback(
+          `Не хватает опыта: ${formatNumber(getResearchShortage(experienceCost))}`
+        );
+        return;
+      }
+
+      nextProgress = node.cardId
+        ? researchCard(node.cardId, sourceHeadquartersId, experienceCost)
+        : node.headquartersId
+          ? researchHeadquarters(node.headquartersId, sourceHeadquartersId, experienceCost)
+          : null;
+      celebrationLabel = "Исследовано";
+    } else if (
+      (node.stage === "researched" || node.stage === "owned") &&
+      node.cardId
+    ) {
+      const purchaseCost = node.purchaseCost ?? 0;
+
+      if ((progress.ownedCardCopies[node.cardId] ?? 0) >= CARD_COPY_LIMIT) {
+        showFeedback("Куплены все доступные копии");
+        return;
+      }
+
+      if (progress.ironTracks < purchaseCost) {
+        showFeedback(
+          `Не хватает железных траков: ${formatNumber(
+            purchaseCost - progress.ironTracks
+          )}`
+        );
+        return;
+      }
+
+      nextProgress = purchaseCardCopy(node.cardId, purchaseCost);
+      celebrationLabel = "Куплено";
+    } else if (node.stage === "researched" && node.headquartersId) {
+      const purchaseCost = node.purchaseCost ?? 0;
+
+      if (progress.ironTracks < purchaseCost) {
+        showFeedback(
+          `Не хватает железных траков: ${formatNumber(
+            purchaseCost - progress.ironTracks
+          )}`
+        );
+        return;
+      }
+
+      nextProgress = purchaseHeadquarters(node.headquartersId, purchaseCost);
+      celebrationLabel = "Куплено";
+    }
+
+    if (nextProgress) {
+      setProgress(nextProgress);
+      if (celebrationLabel) {
+        showCelebration(celebrationLabel, node);
+      }
+    }
+  }
+
   useEffect(() => {
     if (!previewNode) return;
 
@@ -188,6 +614,13 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [previewNode]);
+
+  useEffect(() => {
+    if (!feedback) return;
+
+    const timeoutId = window.setTimeout(() => setFeedback(null), 2200);
+    return () => window.clearTimeout(timeoutId);
+  }, [feedback]);
 
   return (
     <main style={styles.page}>
@@ -203,9 +636,21 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
         </div>
 
         <div style={styles.resources}>
-          <ResourceBadge icon={experienceIcon} label="Опыт" value="Скоро" />
-          <ResourceBadge icon={silverTracksIcon} label="Железные траки" value="Скоро" />
-          <ResourceBadge icon={goldTracksIcon} label="Золотые траки" value="Скоро" />
+          <ResourceBadge
+            icon={experienceIcon}
+            label="Свободный опыт"
+            value={formatNumber(progress.freeXp)}
+          />
+          <ResourceBadge
+            icon={silverTracksIcon}
+            label="Железные траки"
+            value={formatNumber(progress.ironTracks)}
+          />
+          <ResourceBadge
+            icon={goldTracksIcon}
+            label="Золотые траки"
+            value={formatNumber(progress.goldTracks)}
+          />
         </div>
       </header>
 
@@ -247,15 +692,16 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
             <div style={styles.starterArea}>
               <div style={styles.starterCaption}>Начало пути</div>
               <ResearchNodeCard
-                node={tree.starterHeadquarters}
+                node={starterNodeView}
                 onPreview={openNodePreview}
+                onAction={handleNodeAction}
               />
             </div>
             <div style={styles.rootStem} />
 
             <div style={styles.branchesGrid}>
               <div style={styles.branchBus} />
-              {tree.branches.map((branch) => (
+              {branchNodeViews.map(({ branch, nodes }) => (
                 <div key={branch.id} style={styles.branchColumn}>
                   <div style={styles.branchDrop} />
                   <div style={styles.branchInfo}>
@@ -264,10 +710,14 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
                   </div>
 
                   <div style={styles.branchNodes}>
-                    {branch.nodes.map((node) => (
+                    {nodes.map((node) => (
                       <div key={node.id} style={styles.nodeStep}>
                         <div style={styles.nodeConnector} />
-                        <ResearchNodeCard node={node} onPreview={openNodePreview} />
+                        <ResearchNodeCard
+                          node={node}
+                          onPreview={openNodePreview}
+                          onAction={handleNodeAction}
+                        />
                       </div>
                     ))}
                   </div>
@@ -287,6 +737,31 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
       >
         ←
       </button>
+
+      <AnimatePresence>
+        {feedback ? (
+          <motion.div
+            key={feedback.id}
+            style={styles.feedbackToast}
+            initial={{ opacity: 0, x: "-50%", y: -12, scale: 0.96 }}
+            animate={{ opacity: 1, x: "-50%", y: 0, scale: 1 }}
+            exit={{ opacity: 0, x: "-50%", y: -10, scale: 0.96 }}
+            transition={{ duration: 0.18 }}
+          >
+            {feedback.text}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {celebration ? (
+          <ResearchCelebrationOverlay
+            key={celebration.id}
+            celebration={celebration}
+            onClose={() => setCelebration(null)}
+          />
+        ) : null}
+      </AnimatePresence>
 
       <AnimatePresence>
         {previewNode && (previewCard || previewNode.headquartersId) ? (
@@ -525,8 +1000,8 @@ const styles: Record<string, CSSProperties> = {
 
   treeCanvas: {
     position: "relative",
-    minWidth: 1140,
-    minHeight: 1250,
+    minWidth: 1260,
+    minHeight: 1800,
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -540,11 +1015,7 @@ const styles: Record<string, CSSProperties> = {
     display: "grid",
     justifyItems: "center",
     gap: 8,
-    padding: "10px 12px 12px",
-    border: "1px solid rgba(210, 175, 91, 0.22)",
-    borderRadius: 4,
-    background: "rgba(10, 13, 11, 0.82)",
-    boxShadow: "0 10px 22px rgba(0,0,0,0.28)",
+    padding: "0 12px 12px",
   },
 
   starterCaption: {
@@ -564,7 +1035,7 @@ const styles: Record<string, CSSProperties> = {
   branchesGrid: {
     position: "relative",
     display: "grid",
-    gridTemplateColumns: "repeat(4, 226px)",
+    gridTemplateColumns: "repeat(4, 258px)",
     alignItems: "start",
     gap: 38,
     paddingTop: 22,
@@ -572,8 +1043,8 @@ const styles: Record<string, CSSProperties> = {
 
   branchBus: {
     position: "absolute",
-    left: 113,
-    right: 113,
+    left: 129,
+    right: 129,
     top: 0,
     height: 1,
     background: "rgba(207, 165, 77, 0.58)",
@@ -626,7 +1097,7 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 2,
     display: "grid",
     justifyItems: "center",
-    gap: 22,
+    gap: 28,
   },
 
   nodeStep: {
@@ -645,20 +1116,20 @@ const styles: Record<string, CSSProperties> = {
 
   node: {
     position: "relative",
-    width: 138,
+    width: 175,
     display: "grid",
-    gridTemplateRows: "auto minmax(37px, auto) 23px",
-    overflow: "hidden",
-    border: "1px solid rgba(207, 176, 104, 0.42)",
-    borderRadius: 3,
-    background: "linear-gradient(180deg, rgba(36, 39, 32, 0.98), rgba(14, 17, 14, 0.98))",
-    boxShadow: "0 8px 18px rgba(0,0,0,0.38)",
+    gridTemplateRows: "auto 30px",
+    gap: 6,
+    overflow: "visible",
+    border: "none",
+    borderRadius: 0,
+    background: "transparent",
+    boxShadow: "none",
+    cursor: "pointer",
   },
 
   headquartersNode: {
-    width: 152,
-    borderColor: "rgba(232, 197, 109, 0.62)",
-    boxShadow: "0 8px 20px rgba(0,0,0,0.45), inset 0 0 16px rgba(213, 164, 61, 0.08)",
+    width: 175,
   },
 
   nodeLocked: {
@@ -666,23 +1137,23 @@ const styles: Record<string, CSSProperties> = {
   },
 
   nodeResearchable: {
-    borderColor: "rgba(239, 194, 79, 0.88)",
-    boxShadow: "0 0 16px rgba(214, 161, 52, 0.28), 0 8px 18px rgba(0,0,0,0.42)",
+    filter:
+      "drop-shadow(0 0 12px rgba(214, 161, 52, 0.24)) drop-shadow(0 8px 18px rgba(0,0,0,0.42))",
   },
 
   nodeUnlocked: {
-    borderColor: "rgba(130, 187, 101, 0.8)",
+    filter:
+      "drop-shadow(0 0 10px rgba(130, 187, 101, 0.18)) drop-shadow(0 8px 18px rgba(0,0,0,0.36))",
   },
 
-  nodeImageFrame: {
+  nodeCardArea: {
     position: "relative",
-    aspectRatio: "1 / 1",
-    overflow: "hidden",
-    borderBottom: "1px solid rgba(211, 177, 94, 0.22)",
-    background: "rgba(4, 5, 4, 0.9)",
+    width: "100%",
+    aspectRatio: "1051 / 1496",
+    overflow: "visible",
   },
 
-  nodeImage: {
+  nodeFallbackImage: {
     width: "100%",
     height: "100%",
     display: "block",
@@ -692,44 +1163,58 @@ const styles: Record<string, CSSProperties> = {
     opacity: 0.92,
   },
 
-  nodeBody: {
-    minWidth: 0,
-    display: "grid",
-    alignContent: "center",
-    gap: 2,
-    padding: "3px 6px",
+  ownedCardStack: {
+    position: "absolute",
+    inset: 0,
   },
 
-  nodeTitle: {
-    overflow: "hidden",
-    color: "#f2dfaa",
-    fontSize: 10,
-    lineHeight: 1.05,
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+  ownedCardStackLayer: {
+    position: "absolute",
+    inset: 0,
+    transformOrigin: "center bottom",
   },
 
-  nodeSubtitle: {
-    overflow: "hidden",
-    color: "rgba(236, 218, 175, 0.56)",
-    fontSize: 8,
-    lineHeight: 1,
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-
-  nodeFooter: {
+  nodeCostBox: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 4,
-    padding: "0 6px",
-    borderTop: "1px solid rgba(208, 175, 96, 0.18)",
+    gap: 6,
+    minHeight: 36,
+    padding: "0 9px",
+    border: "1px solid rgba(208, 175, 96, 0.24)",
     color: "rgba(233, 213, 161, 0.7)",
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: 900,
     letterSpacing: 0.3,
     textTransform: "uppercase",
+    background: "rgba(8, 10, 9, 0.78)",
+    boxShadow: "0 7px 14px rgba(0,0,0,0.34)",
+  },
+
+  nodeCostBoxResearch: {
+    borderColor: "rgba(232, 188, 84, 0.46)",
+    color: "#f3cc6e",
+    background:
+      "linear-gradient(180deg, rgba(45, 34, 13, 0.88), rgba(8, 10, 9, 0.82))",
+  },
+
+  nodeCostBoxPurchase: {
+    borderColor: "rgba(190, 198, 202, 0.34)",
+    color: "#d9e0e2",
+    background:
+      "linear-gradient(180deg, rgba(35, 40, 40, 0.84), rgba(8, 10, 9, 0.82))",
+  },
+
+  nodeCostBoxExperience: {
+    borderColor: "rgba(120, 180, 95, 0.34)",
+    color: "#a8df88",
+    background:
+      "linear-gradient(180deg, rgba(23, 44, 20, 0.78), rgba(8, 10, 9, 0.82))",
+  },
+
+  nodeCostBoxInsufficient: {
+    borderColor: "rgba(212, 70, 55, 0.52)",
+    color: "#ff695f",
   },
 
   nodeFooterUnlocked: {
@@ -743,20 +1228,20 @@ const styles: Record<string, CSSProperties> = {
   nodeCosts: {
     display: "flex",
     alignItems: "center",
-    gap: 4,
-    fontSize: 7,
+    gap: 5,
+    fontSize: 11,
   },
 
   nodeCostBadge: {
     display: "inline-flex",
     alignItems: "center",
-    gap: 2,
+    gap: 4,
     whiteSpace: "nowrap",
   },
 
   nodeCostIcon: {
-    width: 10,
-    height: 10,
+    width: 18,
+    height: 18,
     objectFit: "contain",
     filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.78))",
   },
@@ -784,6 +1269,78 @@ const styles: Record<string, CSSProperties> = {
     textAlign: "center",
     textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.2)",
     boxShadow: "none",
+  },
+
+  feedbackToast: {
+    position: "fixed",
+    left: "50%",
+    top: 126,
+    zIndex: 9500,
+    maxWidth: "min(520px, calc(100vw - 32px))",
+    padding: "12px 18px",
+    color: "#ffe4ad",
+    fontSize: 15,
+    fontWeight: 1000,
+    letterSpacing: 0.4,
+    textAlign: "center",
+    textTransform: "uppercase",
+    background:
+      "linear-gradient(180deg, rgba(71, 34, 24, 0.96), rgba(18, 12, 9, 0.96))",
+    border: "1px solid rgba(242, 176, 82, 0.42)",
+    boxShadow: "0 18px 38px rgba(0,0,0,0.58), 0 0 22px rgba(206, 88, 42, 0.18)",
+    pointerEvents: "none",
+  },
+
+  researchCelebrationOverlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 9400,
+    display: "grid",
+    placeItems: "center",
+    pointerEvents: "auto",
+    perspective: 1200,
+    background:
+      "radial-gradient(circle at center, rgba(223, 170, 61, 0.16), transparent 38%)",
+  },
+
+  researchCelebrationCardWrap: {
+    position: "relative",
+    width: 390,
+    maxWidth: "min(390px, 78vw)",
+    display: "grid",
+    placeItems: "center",
+    transformStyle: "preserve-3d",
+    filter: "drop-shadow(0 28px 54px rgba(0,0,0,0.82))",
+  },
+
+  researchCelebrationBack: {
+    position: "absolute",
+    inset: "5% 14%",
+    zIndex: -1,
+    border: "1px solid rgba(241, 213, 138, 0.36)",
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    opacity: 0.92,
+    transform: "translateZ(-18px) rotateY(180deg)",
+    boxShadow: "0 18px 36px rgba(0,0,0,0.68)",
+  },
+
+  researchCelebrationLabel: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: "12%",
+    zIndex: 12,
+    color: "#ffe7a9",
+    fontSize: 42,
+    fontWeight: 1000,
+    letterSpacing: 2.2,
+    textAlign: "center",
+    textTransform: "uppercase",
+    textShadow:
+      "0 4px 0 rgba(0,0,0,0.82), 0 0 26px rgba(242, 188, 77, 0.54)",
+    pointerEvents: "none",
   },
 
   cardPreviewOverlay: {
