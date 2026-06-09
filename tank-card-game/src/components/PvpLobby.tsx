@@ -23,7 +23,7 @@ import goldTracksIcon from "../assets/icons/gold_tracks_transparent.png";
 import silverTracksIcon from "../assets/icons/silver-tracks.png";
 import { getMissionIllustrationAsset } from "../assets/missionIllustrationAssets";
 import { getNationFlagAsset } from "../assets/nationFlagAssets";
-import { playMusic } from "../game/audio";
+import { createRadarScanSoundPlayer, playMusic } from "../game/audio";
 import { calculateDeckWeight, getDefaultDeckWeight } from "../game/deckWeight";
 import { CAMPAIGNS, isCampaignMissionUnlocked } from "../game/campaigns";
 import {
@@ -383,6 +383,7 @@ function PvpMatchmakingScreen({
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [reticleIndex, setReticleIndex] = useState(0);
+  const playRadarScanSoundRef = useRef(createRadarScanSoundPlayer());
   const matched = status === "matchPreview";
   const playerHeadquarters = HEADQUARTERS[playerHeadquartersId];
   const opponentHeadquarters = opponentHeadquartersId
@@ -422,6 +423,12 @@ function PvpMatchmakingScreen({
 
     return () => window.clearInterval(intervalId);
   }, [matched, reticlePositions.length]);
+
+  useEffect(() => {
+    if (matched) return;
+
+    playRadarScanSoundRef.current();
+  }, [matched, reticleIndex]);
 
   useEffect(() => {
     if (matched) return;

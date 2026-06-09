@@ -8,12 +8,16 @@ import cannonShot3Url from "../assets/sounds/cannon_shot/cannon_shot_3.mp3?url";
 import cannonShot4Url from "../assets/sounds/cannon_shot/cannon_shot_4.mp3?url";
 import cardDistribution1Url from "../assets/sounds/card_distrib/playing_card_distrib_1.mp3?url";
 import cardDistribution2Url from "../assets/sounds/card_distrib/playing_card_distrib_2.mp3?url";
+import cardDistribution3Url from "../assets/sounds/card_distrib/playing_card_distrib_3.mp3?url";
+import radarScanning1Url from "../assets/sounds/radar/Radar_scaning_1.mp3?url";
+import radarScanning2Url from "../assets/sounds/radar/Radar_scaning_2.mp3?url";
 
 type MusicTrack = "main" | "battle";
 type OneShotSound = "cannonShot" | "cardDistribution" | "turnStart" | "destroyed";
 
 const MUSIC_FADE_MS = 900;
 const MUSIC_VOLUME = 0.34;
+const RADAR_SCAN_VOLUME = 0.38;
 const EFFECT_VOLUME: Record<OneShotSound, number> = {
   cannonShot: 0.58,
   cardDistribution: 0.46,
@@ -33,10 +37,16 @@ const effectUrls: Record<OneShotSound, string[]> = {
     cannonShot3Url,
     cannonShot4Url,
   ],
-  cardDistribution: [cardDistribution1Url, cardDistribution2Url],
+  cardDistribution: [
+    cardDistribution1Url,
+    cardDistribution2Url,
+    cardDistribution3Url,
+  ],
   turnStart: [steelImpactUrl],
   destroyed: [paperBurningUrl],
 };
+
+const radarScanUrls = [radarScanning1Url, radarScanning2Url];
 
 const musicElements = new Map<MusicTrack, HTMLAudioElement>();
 const fadeTimers = new Map<MusicTrack, number>();
@@ -148,6 +158,14 @@ export function playRandomSound(sound: OneShotSound) {
   void audio.play().catch(() => undefined);
 }
 
+function playSoundUrl(url: string, volume: number) {
+  const audio = new Audio(url);
+  audio.preload = "auto";
+  audio.volume = volume;
+
+  void audio.play().catch(() => undefined);
+}
+
 export function playCannonShotSound() {
   playRandomSound("cannonShot");
 }
@@ -162,4 +180,10 @@ export function playTurnStartSound() {
 
 export function playDestroyedSound() {
   playRandomSound("destroyed");
+}
+
+export function createRadarScanSoundPlayer() {
+  const url = radarScanUrls[Math.floor(Math.random() * radarScanUrls.length)];
+
+  return () => playSoundUrl(url, RADAR_SCAN_VOLUME);
 }
