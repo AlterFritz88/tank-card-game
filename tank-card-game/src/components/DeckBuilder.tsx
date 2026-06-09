@@ -872,8 +872,7 @@ const styles: Record<string, CSSProperties> = {
       "radial-gradient(circle at 50% 6%, rgba(210, 168, 70, 0.16), transparent 35%), linear-gradient(90deg, rgba(3,5,5,0.96), rgba(15,18,14,0.88) 48%, rgba(3,5,5,0.98)), url('/menu-background.png')",
     backgroundSize: "cover",
     backgroundPosition: "center",
-    fontFamily:
-      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+    fontFamily: "var(--font-body)",
   },
 
   backgroundShade: {

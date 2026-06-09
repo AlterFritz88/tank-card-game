@@ -1,9 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Rajdhani:wght@400;500;600;700&display=swap');
+
+:root {
+  --font-display: 'Rajdhani', 'Arial Narrow', 'Roboto Condensed', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-digit: 'Rajdhani', 'Arial Narrow', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --brass-400: #ffe9a8;
+  --brass-600: #d7b665;
+
+  --fs-display: clamp(34px, 5vh, 48px);
+  --fs-h1: 32px;
+  --fs-h2: 24px;
+  --fs-h3: 18px;
+  --fs-title: 20px;
+  --fs-body: 15px;
+  --fs-sm: 13px;
+  --fs-xs: 11px;
+  --fs-micro: 9px;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --fw-heavy: 800;
+  --fw-black: 900;
+  --fw-ultra: 1000;
+
+  --lh-tight: 1;
+  --lh-snug: 1.1;
+  --lh-body: 1.45;
+
+  --ls-kicker: 0.2em;
+  --ls-title: 0.06em;
+  --ls-wide: 0.1em;
+  --ls-normal: 0.01em;
+
+  --text-shadow-emboss: 0 2px 0 rgba(0,0,0,0.95);
+  --text-shadow-gold-glow: 0 2px 0 rgba(0,0,0,0.95), 0 0 22px rgba(247,215,116,0.26);
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  font-family: var(--font-body);
 }
 
 .menu-carousel-scroll::-webkit-scrollbar {

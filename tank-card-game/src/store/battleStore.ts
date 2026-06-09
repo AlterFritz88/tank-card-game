@@ -272,21 +272,12 @@ function getAiOpponentSetup(
 ): { headquartersId: HeadquartersId; deckCardIds?: string[] } {
   if (!playerDeckCardIds) {
     return {
-      headquartersId: getRandomTrainingOpponentHeadquartersId(
-        playerHeadquartersId
-      ),
+      headquartersId: getRandomSameLevelOpponentHeadquartersId(playerHeadquartersId),
     };
   }
 
-  const playerHeadquarters = getHeadquartersDefinition(playerHeadquartersId);
-  const sameLevelCandidates = getDeckBuildingHeadquarters()
-    .filter(
-      (headquarters) =>
-        headquarters.id !== playerHeadquartersId &&
-        headquarters.level === playerHeadquarters.level &&
-        getDeckCardIds(headquarters.defaultDeckId).length > 0
-    )
-    .map((headquarters) => headquarters.id);
+  const sameLevelCandidates =
+    getSameLevelOpponentHeadquartersIds(playerHeadquartersId);
   const candidates =
     sameLevelCandidates.length > 0
       ? sameLevelCandidates
@@ -331,14 +322,35 @@ function getAiOpponentSetup(
       };
 }
 
-function getRandomTrainingOpponentHeadquartersId(
+function getSameLevelOpponentHeadquartersIds(
+  playerHeadquartersId: HeadquartersId
+): HeadquartersId[] {
+  const playerHeadquarters = getHeadquartersDefinition(playerHeadquartersId);
+  const candidates = getDeckBuildingHeadquarters()
+    .filter(
+      (headquarters) =>
+        headquarters.id !== playerHeadquartersId &&
+        headquarters.level === playerHeadquarters.level &&
+        headquarters.defaultDeckId.endsWith("_default") &&
+        getDeckCardIds(headquarters.defaultDeckId).length > 0
+    )
+    .map((headquarters) => headquarters.id);
+
+  return candidates;
+}
+
+function getRandomSameLevelOpponentHeadquartersId(
   playerHeadquartersId: HeadquartersId
 ): HeadquartersId {
-  const candidates = getTrainingHeadquartersIds().filter(
-    (headquartersId) => headquartersId !== playerHeadquartersId
+  const sameLevelCandidates = getSameLevelOpponentHeadquartersIds(
+    playerHeadquartersId
   );
   const availableCandidates =
-    candidates.length > 0 ? candidates : getTrainingHeadquartersIds();
+    sameLevelCandidates.length > 0
+      ? sameLevelCandidates
+      : getTrainingHeadquartersIds().filter(
+          (headquartersId) => headquartersId !== playerHeadquartersId
+        );
 
   if (availableCandidates.length === 0) {
     return DEFAULT_BOT_HEADQUARTERS_ID;

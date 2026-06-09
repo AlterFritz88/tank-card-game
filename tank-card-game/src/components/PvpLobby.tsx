@@ -70,6 +70,8 @@ const NATION_LABELS: Record<Nation, string> = {
   ussr: "СССР",
 };
 
+const TEST_BATTLE_HEADQUARTERS_LEVEL = 4;
+
 type BattleDeckOption = {
   id: string | null;
   name: string;
@@ -273,7 +275,13 @@ function PlayerProfileMenu({ onBack }: { onBack: () => void }) {
                 ? "Премиум аккаунт"
                 : "Базовый аккаунт"}
             </span>
-            <strong style={styles.profileFavorite}>
+            <strong
+              style={{
+                ...styles.profileFavorite,
+                ...styles.headquartersNameLabel,
+                fontFamily: getDisplayFontForText(favoriteHeadquarters.title),
+              }}
+            >
               {favoriteHeadquarters.title}
             </strong>
           </div>
@@ -326,7 +334,14 @@ function PlayerProfileMenu({ onBack }: { onBack: () => void }) {
                   style={styles.profileMiniAvatar}
                 />
                 <div style={styles.profileHeadquartersText}>
-                  <strong>{headquarters.title}</strong>
+                  <strong
+                    style={{
+                      ...styles.profileHeadquartersName,
+                      fontFamily: getDisplayFontForText(headquarters.title),
+                    }}
+                  >
+                    {headquarters.title}
+                  </strong>
                   <span>
                     {NATION_LABELS[headquarters.nation]} · боев: {matches} · побед:{" "}
                     {stats.wins} · поражений: {stats.losses} · опыта: {xp}
@@ -360,6 +375,10 @@ function getHeadquartersPortrait(headquartersId: HeadquartersId): string | null 
     getHeadquartersAvatarAsset(headquartersId) ??
     getHeadquartersImageAsset(headquartersId)
   );
+}
+
+function getDisplayFontForText(value: string): string {
+  return /[А-Яа-яЁё]/.test(value) ? "var(--font-body)" : "var(--font-display)";
 }
 
 function PvpMatchmakingScreen({
@@ -476,11 +495,23 @@ function PvpMatchmakingScreen({
                 style={styles.matchmakingPortrait}
               />
             ) : (
-              <div style={styles.matchmakingPortraitPlaceholder}>
+              <div
+                style={{
+                  ...styles.matchmakingPortraitPlaceholder,
+                  fontFamily: getDisplayFontForText(playerHeadquarters.title),
+                }}
+              >
                 {playerHeadquarters.title}
               </div>
             )}
-            <div style={styles.matchmakingName}>{playerHeadquarters.title}</div>
+            <div
+              style={{
+                ...styles.matchmakingName,
+                fontFamily: getDisplayFontForText(playerHeadquarters.title),
+              }}
+            >
+              {playerHeadquarters.title}
+            </div>
           </motion.div>
 
           {matched && opponentHeadquarters ? (
@@ -522,11 +553,25 @@ function PvpMatchmakingScreen({
                     style={styles.matchmakingPortrait}
                   />
                 ) : (
-                  <div style={styles.matchmakingPortraitPlaceholder}>
+                  <div
+                    style={{
+                      ...styles.matchmakingPortraitPlaceholder,
+                      fontFamily: getDisplayFontForText(
+                        opponentHeadquarters.title
+                      ),
+                    }}
+                  >
                     {opponentHeadquarters.title}
                   </div>
                 )}
-                <div style={styles.matchmakingName}>
+                <div
+                  style={{
+                    ...styles.matchmakingName,
+                    fontFamily: getDisplayFontForText(
+                      opponentHeadquarters.title
+                    ),
+                  }}
+                >
                   {opponentHeadquarters.title}
                 </div>
               </motion.div>
@@ -780,7 +825,9 @@ export function PvpLobby() {
   const headquartersList = useMemo(
     () =>
       getDeckBuildingHeadquarters().filter((headquarters) =>
-        playerProgress.unlockedHeadquartersIds.includes(headquarters.id)
+        playerProgress.unlockedHeadquartersIds.includes(headquarters.id) ||
+        (headquarters.level === TEST_BATTLE_HEADQUARTERS_LEVEL &&
+          headquarters.defaultDeckId.endsWith("_default"))
       ),
     [playerProgress.unlockedHeadquartersIds]
   );
@@ -1680,6 +1727,15 @@ export function PvpLobby() {
 }
 
 const styles: Record<string, CSSProperties> = {
+  headquartersNameLabel: {
+    fontFamily: "var(--font-display)",
+    fontSize: "var(--fs-title)",
+    fontWeight: "var(--fw-bold)",
+    letterSpacing: "var(--ls-title)",
+    textTransform: "uppercase",
+    color: "var(--brass-400)",
+  },
+
   page: {
     position: "relative",
     height: "100vh",
@@ -1689,8 +1745,7 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: "center",
     padding: "14px 0",
     color: "#f4e5bf",
-    fontFamily:
-      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+    fontFamily: "var(--font-body)",
     backgroundImage:
       "radial-gradient(circle at 50% 10%, rgba(179, 137, 59, 0.20), transparent 34%), linear-gradient(135deg, rgba(5, 7, 5, 0.50), rgba(17, 16, 11, 0.48)), url('/menu-background.png')",
     backgroundSize: "cover",
@@ -1957,9 +2012,11 @@ const styles: Record<string, CSSProperties> = {
     display: "grid",
     placeItems: "center",
     padding: 22,
-    color: "#f3dfad",
-    fontSize: 24,
-    fontWeight: 1000,
+    color: "var(--brass-400)",
+    fontFamily: "var(--font-display)",
+    fontSize: "var(--fs-title)",
+    fontWeight: "var(--fw-bold)",
+    letterSpacing: "var(--ls-title)",
     textAlign: "center",
     textTransform: "uppercase",
     background:
@@ -1973,9 +2030,11 @@ const styles: Record<string, CSSProperties> = {
     right: "8%",
     bottom: 14,
     zIndex: 2,
-    color: "#fff0c2",
-    fontSize: "clamp(16px, 2vw, 25px)",
-    fontWeight: 1000,
+    color: "var(--brass-400)",
+    fontFamily: "var(--font-display)",
+    fontSize: "var(--fs-title)",
+    fontWeight: "var(--fw-bold)",
+    letterSpacing: "var(--ls-title)",
     lineHeight: 1.04,
     textAlign: "center",
     textTransform: "uppercase",
@@ -2164,9 +2223,7 @@ const styles: Record<string, CSSProperties> = {
   },
 
   profileFavorite: {
-    color: "#f5d98f",
-    fontSize: 16,
-    fontWeight: 1000,
+    lineHeight: 1.05,
   },
 
   profileStatsGrid: {
@@ -2265,6 +2322,18 @@ const styles: Record<string, CSSProperties> = {
     gap: 4,
     color: "#e9d4a2",
     fontSize: 13,
+  },
+
+  profileHeadquartersName: {
+    fontFamily: "var(--font-display)",
+    fontSize: "var(--fs-title)",
+    fontWeight: "var(--fw-bold)",
+    letterSpacing: "var(--ls-title)",
+    textTransform: "uppercase",
+    color: "var(--brass-400)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
 
   profileFavoriteButton: {
@@ -2609,7 +2678,7 @@ const styles: Record<string, CSSProperties> = {
     color: "#ffe9a8",
     fontSize: 46,
     fontWeight: 1000,
-    fontFamily: "Georgia, Times New Roman, serif",
+    fontFamily: "var(--font-display)",
     boxShadow: "inset 0 0 18px rgba(255, 225, 145, 0.12)",
   },
 

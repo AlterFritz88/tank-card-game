@@ -831,8 +831,7 @@ const styles: Record<string, CSSProperties> = {
       "linear-gradient(90deg, rgba(4, 6, 5, 0.98), rgba(12, 16, 13, 0.9) 44%, rgba(5, 7, 6, 0.96)), url('/menu-background.png')",
     backgroundSize: "cover",
     backgroundPosition: "center",
-    fontFamily:
-      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+    fontFamily: "var(--font-body)",
   },
 
   backgroundShade: {

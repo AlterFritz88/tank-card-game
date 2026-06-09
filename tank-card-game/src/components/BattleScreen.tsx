@@ -2540,6 +2540,20 @@ function renderEnemyDeckWithTimer() {
   const visibleStartRollWinnerIsLocal =
     visibleStartRollState.winner === humanPlayerId;
   const localHand = getVisibleHand(humanPlayerId);
+  const selectedHandCard = selectedCardInstanceId
+    ? battle[humanPlayerId].hand.find(
+        (card) => card.instanceId === selectedCardInstanceId
+      )
+    : null;
+  const selectedHandCardDefinition =
+    selectedHandCard && !isHiddenCardInstance(selectedHandCard)
+      ? getCard(selectedHandCard.cardId)
+      : null;
+  const placingBattlefieldCard =
+    battle.status === "active" &&
+    battle.activePlayer === humanPlayerId &&
+    selectedHandCardDefinition !== null &&
+    selectedHandCardDefinition.deploymentZone !== "support";
   const battleBackground = getBattleBackgroundAsset(battle.backgroundId);
   const resultRestartLabel = "В меню";
   const handleResultRestart =
@@ -3433,6 +3447,8 @@ function renderEnemyDeckWithTimer() {
                   }
 
                   const moveCell = isMoveCell(position);
+                  const canPlaceBattlefieldCard =
+                    placingBattlefieldCard && ownSpawn;
 
                   return (
   <motion.button
@@ -3444,6 +3460,7 @@ function renderEnemyDeckWithTimer() {
       ...styles.cell,
       ...styles.emptyCell,
       ...(moveCell ? styles.moveCell : {}),
+      ...(canPlaceBattlefieldCard ? styles.spawnCellAvailable : {}),
     }}
     whileHover={{ scale: 1.02 }}
     whileTap={{ scale: 0.97 }}
@@ -3456,6 +3473,36 @@ function renderEnemyDeckWithTimer() {
     onClick={() => handleCellClick(position)}
     aria-label={`Клетка ${position.row}-${position.col}`}
   >
+    {canPlaceBattlefieldCard && (
+      <motion.span
+        style={styles.spawnCellPulse}
+        initial={{ opacity: 0.28, scale: 0.96 }}
+        animate={{
+          opacity: [0.18, 0.4, 0.24, 0.34, 0.18],
+          scale: [0.98, 1, 0.99, 1, 0.98],
+          background: [
+            "rgba(74, 177, 91, 0.12)",
+            "rgba(111, 228, 132, 0.24)",
+            "rgba(77, 188, 99, 0.15)",
+            "rgba(101, 217, 122, 0.2)",
+            "rgba(74, 177, 91, 0.12)",
+          ],
+          boxShadow: [
+            "inset 0 0 11px rgba(90, 214, 111, 0.1), 0 0 2px rgba(90, 214, 111, 0.06)",
+            "inset 0 0 18px rgba(124, 246, 145, 0.22), 0 0 6px rgba(102, 226, 123, 0.13)",
+            "inset 0 0 13px rgba(96, 220, 117, 0.14), 0 0 3px rgba(90, 214, 111, 0.08)",
+            "inset 0 0 16px rgba(118, 238, 139, 0.18), 0 0 5px rgba(102, 226, 123, 0.11)",
+            "inset 0 0 11px rgba(90, 214, 111, 0.1), 0 0 2px rgba(90, 214, 111, 0.06)",
+          ],
+        }}
+        transition={{
+          duration: 2.7,
+          ease: "easeInOut",
+          repeat: Infinity,
+        }}
+      />
+    )}
+
     {moveCell && (
       <motion.span
         style={styles.moveCellPulse}
@@ -3724,8 +3771,7 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundRepeat: "no-repeat",
     color: "#eef2f3",
     padding: 18,
-    fontFamily:
-      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+    fontFamily: "var(--font-body)",
   },
 
   vignette: {
@@ -3997,7 +4043,7 @@ actionSideColumn: {
   supportLineLabel: {
     alignSelf: "center",
     color: "rgba(228, 218, 184, 0.56)",
-    fontFamily: "'Rajdhani', 'Arial Narrow', sans-serif",
+    fontFamily: "var(--font-display)",
     fontSize: 9,
     fontWeight: 700,
     letterSpacing: 0.8,
@@ -4167,6 +4213,19 @@ actionSideColumn: {
   spawnCell: {
     background:
       "linear-gradient(135deg, rgba(35, 66, 36, 0.24), rgba(8, 13, 8, 0.36))",
+  },
+
+  spawnCellAvailable: {
+    background:
+      "linear-gradient(135deg, rgba(30, 70, 35, 0.28), rgba(8, 16, 9, 0.38))",
+  },
+
+  spawnCellPulse: {
+    position: "absolute",
+    inset: 3,
+    zIndex: 2,
+    borderRadius: 0,
+    pointerEvents: "none",
   },
 
   botSpawnCell: {

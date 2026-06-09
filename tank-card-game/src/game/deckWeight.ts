@@ -5,6 +5,7 @@ import type { HeadquartersId, SupportRole, TankCard, TankClass, TankRarity } fro
 
 export type DeckWeightBreakdown = {
   headquartersLevel: number;
+  headquartersWeight: number;
   cardWeight: number;
   totalWeight: number;
 };
@@ -193,6 +194,20 @@ export function getHeadquartersLevel(headquartersId: HeadquartersId): number {
   return normalizeLevel(getHeadquartersDefinition(headquartersId).level);
 }
 
+export function getHeadquartersWeight(headquartersId: HeadquartersId): number {
+  const headquarters = getHeadquartersDefinition(headquartersId);
+  const levelWeight = getExponentialLevelWeight(headquarters.level);
+  const durability = headquarters.hp * 0.35;
+  const firepower = headquarters.attack * 2.8;
+  const economy = headquarters.fuelGeneration * 2.2;
+  const range = headquarters.range > 1 ? 1 : 0;
+
+  return Math.max(
+    1,
+    Math.round(levelWeight + durability + firepower + economy + range)
+  );
+}
+
 export function getDefaultDeckWeight(
   headquartersId: HeadquartersId
 ): DeckWeightBreakdown {
@@ -206,6 +221,7 @@ export function calculateDeckWeight(
   cardIds: string[]
 ): DeckWeightBreakdown {
   const headquartersLevel = getHeadquartersLevel(headquartersId);
+  const headquartersWeight = getHeadquartersWeight(headquartersId);
   const cardWeight = cardIds.reduce((total, cardId) => {
     try {
       return total + getCardLevel(getCard(cardId));
@@ -216,8 +232,9 @@ export function calculateDeckWeight(
 
   return {
     headquartersLevel,
+    headquartersWeight,
     cardWeight,
-    totalWeight: headquartersLevel + cardWeight,
+    totalWeight: headquartersWeight + cardWeight,
   };
 }
 

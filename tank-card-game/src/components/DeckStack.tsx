@@ -74,8 +74,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "block",
     padding: 0,
     color: "#f6d27a",
-    fontFamily:
-      "'Rajdhani', 'Arial Narrow', Inter, ui-sans-serif, system-ui, sans-serif",
+    fontFamily: "var(--font-digit)",
     fontSize: 22,
     lineHeight: 1,
     fontWeight: 900,

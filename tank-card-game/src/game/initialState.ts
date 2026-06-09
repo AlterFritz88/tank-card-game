@@ -18,6 +18,7 @@ import type {
 
 export const STEP_TIME_MS = 15 * 1000;
 const TRAINING_DECK_CARD_LIMIT = 20;
+const DEFAULT_DECK_CARD_LIMIT = 40;
 
 export type CreateBattleOptions = {
   playerHeadquartersId?: HeadquartersId;
@@ -868,6 +869,16 @@ const TRAINING_DECK_IDS = new Set([
   "training_camp_default",
 ]);
 
+function isStandardDefaultDeck(deckId: string): boolean {
+  return deckId.endsWith("_default") && !TRAINING_DECK_IDS.has(deckId);
+}
+
+function expandDeckCardIds(cardIds: string[], count: number): string[] {
+  if (cardIds.length === 0) return [];
+
+  return Array.from({ length: count }, (_, index) => cardIds[index % cardIds.length]);
+}
+
 function normalizeDeckCardIds(cardIds: string[], deckLabel: string): string[] {
   const normalizedCardIds: string[] = [];
   const missingCardIds = new Set<string>();
@@ -898,6 +909,10 @@ export function getDeckCardIds(deckId: string): string[] {
 
   if (TRAINING_DECK_IDS.has(deckId)) {
     return normalizedCardIds.slice(0, TRAINING_DECK_CARD_LIMIT);
+  }
+
+  if (isStandardDefaultDeck(deckId)) {
+    return expandDeckCardIds(normalizedCardIds, DEFAULT_DECK_CARD_LIMIT);
   }
 
   return normalizedCardIds;

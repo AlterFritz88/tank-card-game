@@ -25,8 +25,7 @@ type BadgeConfig = {
 };
 
 export const CARD_UI = {
-  digitFont:
-    "'Rajdhani', 'Arial Narrow', Inter, ui-sans-serif, system-ui, sans-serif",
+  digitFont: "var(--font-digit)",
 
   statScale: {
     board: 1,
@@ -115,6 +114,14 @@ export const CARD_UI = {
       valueTop: "53%",
       fontSize: 18,
       fontWeight: 700,
+      modes: {
+        hand: {
+          fontSize: 17,
+        },
+        preview: {
+          fontSize: 17,
+        },
+      },
     },
   },
 

@@ -471,8 +471,7 @@ export function HandCardView({
 }
 
 
-const digitFont =
-  "'Rajdhani', 'Arial Narrow', Inter, ui-sans-serif, system-ui, sans-serif";
+const digitFont = "var(--font-digit)";
 
 const styles: Record<string, React.CSSProperties> = {
   card: {
@@ -482,8 +481,7 @@ const styles: Record<string, React.CSSProperties> = {
     aspectRatio: "1051 / 1496",
     overflow: "visible",
     color: "#eef2f3",
-    fontFamily:
-      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+    fontFamily: "var(--font-body)",
     userSelect: "none",
     transformOrigin: "center bottom",
     filter: "drop-shadow(0 16px 26px rgba(0,0,0,0.52))",

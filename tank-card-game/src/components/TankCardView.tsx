@@ -346,8 +346,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#eef2f3",
     background: "#080909",
     textAlign: "left",
-    fontFamily:
-      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+    fontFamily: "var(--font-body)",
     userSelect: "none",
   },
 
@@ -797,7 +796,7 @@ const styles: Record<string, React.CSSProperties> = {
     transform: "translate(-50%, -50%)",
     fontSize: 16,
     lineHeight: 1,
-    fontFamily: "'Rajdhani', 'Arial Narrow', sans-serif",
+    fontFamily: "var(--font-digit)",
     fontWeight: 600,
     textAlign: "center",
     textShadow: "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",
@@ -820,7 +819,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 16,
     lineHeight: 1,
     color: "#ffe4d8",
-    fontFamily: "'Rajdhani', 'Arial Narrow', sans-serif",
+    fontFamily: "var(--font-digit)",
     fontWeight: 600,
     textAlign: "center",
     textShadow: "0 1px 0 rgba(0,0,0,0.95), 0 0 5px rgba(0,0,0,0.85)",

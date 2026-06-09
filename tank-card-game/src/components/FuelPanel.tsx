@@ -111,8 +111,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 18,
     lineHeight: 1,
     fontWeight: 900,
-    fontFamily:
-      "'Rajdhani', 'Arial Narrow', Inter, ui-sans-serif, system-ui, sans-serif",
+    fontFamily: "var(--font-digit)",
     textShadow:
       "0 1px 0 rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85)",
     pointerEvents: "none",
@@ -136,6 +135,7 @@ const styles: Record<string, React.CSSProperties> = {
   currentFuelValue: {
     fontSize: 20,
     fontWeight: 800,
+    transform: "translate(-50%, calc(-50% + 2px))",
   },
 
   nextFuelValue: {

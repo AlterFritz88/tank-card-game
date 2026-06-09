@@ -500,8 +500,7 @@ const styles: Record<string, CSSProperties> = {
     background:
       "radial-gradient(circle at center, rgba(42,38,31,0.26), rgba(0,0,0,0.88) 72%), #050607",
     color: "#c9c0b2",
-    fontFamily:
-      "'Arial Narrow', 'Roboto Condensed', Inter, ui-sans-serif, system-ui, sans-serif",
+    fontFamily: "var(--font-body)",
   },
 
   resultWindow: {
@@ -546,7 +545,7 @@ const styles: Record<string, CSSProperties> = {
 
   title: {
     margin: 0,
-    fontFamily: "Impact, 'Arial Narrow', sans-serif",
+    fontFamily: "var(--font-body)",
     fontSize: 48,
     fontWeight: 900,
     letterSpacing: 3,
@@ -835,7 +834,7 @@ const styles: Record<string, CSSProperties> = {
 
   ratingValue: {
     color: "#fff",
-    fontFamily: "Arial, sans-serif",
+    fontFamily: "var(--font-digit)",
     fontSize: 44,
     fontWeight: 900,
     lineHeight: 1,
