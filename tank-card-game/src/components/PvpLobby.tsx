@@ -23,6 +23,7 @@ import goldTracksIcon from "../assets/icons/gold_tracks_transparent.png";
 import silverTracksIcon from "../assets/icons/silver-tracks.png";
 import { getMissionIllustrationAsset } from "../assets/missionIllustrationAssets";
 import { getNationFlagAsset } from "../assets/nationFlagAssets";
+import { playMusic } from "../game/audio";
 import { calculateDeckWeight, getDefaultDeckWeight } from "../game/deckWeight";
 import { CAMPAIGNS, isCampaignMissionUnlocked } from "../game/campaigns";
 import {
@@ -764,6 +765,10 @@ export function PvpLobby() {
   const campaignsCarouselRef = useRef<HTMLDivElement>(null);
   const missionsCarouselRef = useRef<HTMLDivElement>(null);
   const playerProgress = loadPlayerProgress();
+
+  useEffect(() => {
+    void playMusic("main");
+  }, []);
 
   const headquartersList = useMemo(
     () =>

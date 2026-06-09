@@ -39,6 +39,13 @@ import { DeckStack } from "./DeckStack";
 import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
 import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
 import { getHeadquartersImageAsset } from "../game/headquartersImages";
+import {
+  playCannonShotSound,
+  playCardDistributionSound,
+  playDestroyedSound,
+  playMusic,
+  playTurnStartSound,
+} from "../game/audio";
 import { calculateBattleReward, type BattleReward } from "../game/economy";
 import { applyBattleRewardToProgress } from "../game/playerProgress";
 import apShellImage from "../assets/ap-shell.png";
@@ -453,6 +460,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     player: new Set(battle.player.hand.map((card) => card.instanceId)),
     bot: new Set(battle.bot.hand.map((card) => card.instanceId)),
   });
+  const previousBattleStatusRef = useRef<string | null>(null);
   const previousActivePlayerRef = useRef(battle.activePlayer);
   const boardRef = useRef<HTMLDivElement | null>(null);
   const objectRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -551,6 +559,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const playDrawCardAnimationRef = useRef<
     (owner: PlayerId, cardInstanceId: string) => void
   >(() => undefined);
+
+  useEffect(() => {
+    void playMusic("battle");
+  }, []);
   const playSpawnCardAnimationRef = useRef<
     (
       owner: PlayerId,
@@ -963,12 +975,24 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
 
   useEffect(() => {
+    const previousBattleStatus = previousBattleStatusRef.current;
+    previousBattleStatusRef.current = battle.status;
+
+    if (battle.status !== "active") return;
+    if (previousBattleStatus === "active") return;
+
+    playTurnStartSound();
+  }, [battle.status]);
+
+  useEffect(() => {
   const previousActivePlayer = previousActivePlayerRef.current;
 
   previousActivePlayerRef.current = battle.activePlayer;
 
   if (battle.status !== "active") return;
   if (previousActivePlayer === battle.activePlayer) return;
+
+  playTurnStartSound();
 
   const nextBannerText =
     battle.activePlayer === humanPlayerId ? "ТВОЙ ХОД" : "ХОД ВРАГА";
@@ -1011,6 +1035,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     const to = getElementCenterRelativeToBoard(boardElement, targetElement);
 
     projectileIdRef.current += 1;
+    playCannonShotSound();
 
     setProjectileEffect({
       id: projectileIdRef.current,
@@ -1307,6 +1332,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
   async function playDestroyedCardAnimation(targetId: string): Promise<void> {
     await waitForNextFrame();
+    playDestroyedSound();
 
     const targetElement = objectRefs.current.get(targetId);
     const owner = getCombatObjectOwner(targetId);
@@ -1595,6 +1621,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }
 
   function playDrawCardAnimation(owner: PlayerId, cardInstanceId: string) {
+    playCardDistributionSound();
+
     const deckElement = deckRefs.current[owner];
     const targetCardElement = handCardRefs.current[owner].get(cardInstanceId);
 
@@ -1683,6 +1711,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     if (!sourceCardElement || !targetCellElement) {
       return Promise.resolve();
     }
+
+    playCardDistributionSound();
 
     const from = getElementCenterInViewport(sourceCardElement);
     const to = getElementCenterInViewport(targetCellElement);
@@ -1803,6 +1833,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         await delay(durationMs);
         return;
       }
+
+      playCardDistributionSound();
 
       movementArrowEffectIdRef.current += 1;
 
@@ -2070,6 +2102,18 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     dispatchQueuedBattleAction(action, { skipDamageEffects: true });
   }
 
+  async function executeQueuedEndTurn() {
+    const currentBattle = getCurrentCommandBattle();
+    const currentHumanPlayerId = humanPlayerIdRef.current;
+
+    if (!currentBattle) return;
+
+    dispatchQueuedBattleAction({
+      type: "END_TURN",
+      playerId: currentHumanPlayerId,
+    });
+  }
+
   function handleCellClick(position: Position) {
     if (debugPaused) return;
     if (battle.status !== "active") return;
@@ -2291,12 +2335,7 @@ function renderEnemyDeckWithTimer() {
             opacity: debugPaused || !isHumanTurn ? 0.45 : 1,
           }}
           disabled={debugPaused || !isHumanTurn}
-          onClick={() =>
-            dispatchBattleAction({
-              type: "END_TURN",
-              playerId: humanPlayerId,
-            })
-          }
+          onClick={() => enqueueBattleCommand(executeQueuedEndTurn)}
         >
           Конец хода
         </button>
