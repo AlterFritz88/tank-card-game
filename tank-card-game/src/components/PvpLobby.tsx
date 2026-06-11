@@ -45,6 +45,7 @@ import {
   getFavoriteHeadquartersId,
   loadPlayerProgress,
   setFavoriteHeadquartersId,
+  syncPlayerProgressFromServer,
   type PlayerProgress,
 } from "../game/playerProgress";
 import { getTankImage } from "../game/tankImages";
@@ -57,7 +58,8 @@ import { ResearchMenu } from "./ResearchMenu";
 
 const HAND_CARD_BASE_WIDTH = 175;
 const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
-const MENU_CARD_SCALE = 1.18;
+// Sized so all four mode cards fit on screen at once (no carousel scrolling).
+const MENU_CARD_SCALE = 1.08;
 const MENU_CARD_WIDTH = Math.round(HAND_CARD_BASE_WIDTH * MENU_CARD_SCALE);
 const MENU_CARD_HEIGHT = Math.round(HAND_CARD_BASE_HEIGHT * MENU_CARD_SCALE);
 
@@ -793,6 +795,7 @@ export function PvpLobby() {
     findPvpMatch,
     startPvpFallbackAiBattle,
     startAiBattle,
+    startTutorial,
     cancelMatchmaking,
   } = useBattleStore();
 
@@ -816,10 +819,25 @@ export function PvpLobby() {
   const headquartersCarouselRef = useRef<HTMLDivElement>(null);
   const campaignsCarouselRef = useRef<HTMLDivElement>(null);
   const missionsCarouselRef = useRef<HTMLDivElement>(null);
+  const [, setProfileRevision] = useState(0);
   const playerProgress = loadPlayerProgress();
 
   useEffect(() => {
     void playMusic("main");
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void syncPlayerProgressFromServer().then(() => {
+      if (!cancelled) {
+        setProfileRevision((revision) => revision + 1);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const headquartersList = useMemo(
@@ -1387,6 +1405,26 @@ export function PvpLobby() {
                   style={styles.campaignEntryImage}
                 />
                 <span style={styles.campaignEntryTitleOverlay}>Бой против ИИ</span>
+              </div>
+            </motion.button>
+
+            <motion.button
+              type="button"
+              style={styles.campaignEntryOption}
+              onClick={startTutorial}
+              aria-label="Начать обучение"
+              whileHover={{ y: -8, scale: 1.035 }}
+              whileTap={{ scale: 0.985 }}
+              transition={{ type: "spring", stiffness: 360, damping: 28 }}
+            >
+              <div style={styles.campaignEntryCard}>
+                <img
+                  src="/ui/menu/education.png"
+                  alt=""
+                  draggable={false}
+                  style={styles.campaignEntryImage}
+                />
+                <span style={styles.campaignEntryTitleOverlay}>Обучение</span>
               </div>
             </motion.button>
             </div>
@@ -2358,7 +2396,9 @@ const styles: Record<string, CSSProperties> = {
     position: "relative",
     zIndex: 1,
     width: "100%",
-    maxWidth: 1180,
+    // Wide enough for all four mode cards (Компании, Быстрый бой, ИИ, Обучение)
+    // to be visible at once without scrolling.
+    maxWidth: 1340,
     maxHeight: "100%",
     padding: "8px 24px 0",
     boxSizing: "border-box",
@@ -2427,7 +2467,7 @@ const styles: Record<string, CSSProperties> = {
     width: "100%",
     overflowX: "auto",
     overflowY: "hidden",
-    padding: "38px 58px 12px",
+    padding: "38px 40px 12px",
     boxSizing: "border-box",
     WebkitOverflowScrolling: "touch",
     scrollSnapType: "x mandatory",
@@ -2490,7 +2530,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     justifyContent: "center",
     alignItems: "flex-start",
-    gap: 36,
+    gap: 24,
     minWidth: "max-content",
     margin: "0 auto",
   },

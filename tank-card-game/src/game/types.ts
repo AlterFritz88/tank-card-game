@@ -303,6 +303,7 @@ export type BattleKillStats = {
   heavy: number;
   td: number;
   spg: number;
+  support: number;
 };
 
 export type BattleStats = {

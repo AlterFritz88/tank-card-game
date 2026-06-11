@@ -14,6 +14,7 @@ import type {
   BattleAction,
   BattleState,
   BoardUnit,
+  CardInstance,
   Position,
   TankCard,
 } from "./types";
@@ -328,13 +329,24 @@ function scoreCardForCurrentBattle(state: BattleState, cardId: string): number {
   );
 }
 
-function getBestPlayableCard(state: BattleState) {
+type PlayableCardCandidate = {
+  instance: CardInstance;
+  card: TankCard;
+  score: number;
+};
+
+type PlayableCardFilter = (candidate: PlayableCardCandidate) => boolean;
+
+function getPlayableCardCandidates(
+  state: BattleState,
+  filter?: PlayableCardFilter
+): PlayableCardCandidate[] {
   const freeSpawnCells = getFreeSpawnCells(state, "bot");
   const freeSupportSlots = getFreeSupportSlots(state, "bot");
 
-  if (freeSpawnCells.length === 0 && freeSupportSlots.length === 0) return null;
+  if (freeSpawnCells.length === 0 && freeSupportSlots.length === 0) return [];
 
-  const playableCards = state.bot.hand
+  return state.bot.hand
     .map((cardInstance) => ({
       instance: cardInstance,
       card: getCard(cardInstance.cardId),
@@ -347,12 +359,44 @@ function getBestPlayableCard(state: BattleState) {
           ? freeSupportSlots.length > 0
           : freeSpawnCells.length > 0)
     )
+    .filter((candidate) => !filter || filter(candidate))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       return b.card.cost - a.card.cost;
     });
+}
 
-  return playableCards[0] ?? null;
+function getBestPlayableCard(
+  state: BattleState,
+  filter?: PlayableCardFilter
+) {
+  return getPlayableCardCandidates(state, filter)[0] ?? null;
+}
+
+function isDevelopmentCard(card: TankCard): boolean {
+  if (card.deploymentZone === "support") return true;
+  if (card.fuelGeneration >= 2) return true;
+  if ((card.onPlayEffects?.draw ?? 0) > 0) return true;
+  if ((card.onPlayEffects?.hqProtection ?? 0) > 0) return true;
+
+  return false;
+}
+
+function shouldDevelopBeforeCombat(state: BattleState): boolean {
+  if (state.turn <= 4) return true;
+  if (getEconomyGap(state) > 0) return true;
+  if (state.bot.hand.length <= 2 && state.bot.deck.length > 0) return true;
+  if (getBotBattlefieldSpgs(state).length > 0) {
+    return state.units.some((unit) => {
+      if (unit.ownerId !== "player" || !isBattlefieldUnit(unit)) return false;
+
+      return getBotBattlefieldSpgs(state).some(
+        (spg) => getDistance(unit.position, spg.position) <= 3
+      );
+    });
+  }
+
+  return false;
 }
 
 function hasPlayableBattlefieldCard(state: BattleState): boolean {
@@ -806,11 +850,10 @@ function getKillUnitAttackAction(state: BattleState): BattleAction | null {
   return candidates[0]?.action ?? null;
 }
 
-function getStrategicPlayCardAction(state: BattleState): BattleAction | null {
-  const bestCard = getBestPlayableCard(state);
-
-  if (!bestCard) return null;
-
+function getPlayActionForCandidate(
+  state: BattleState,
+  bestCard: PlayableCardCandidate
+): BattleAction | null {
   if (bestCard.card.deploymentZone === "support") {
     const supportSlot = getFreeSupportSlots(state, "bot")[0];
 
@@ -873,6 +916,45 @@ function getStrategicPlayCardAction(state: BattleState): BattleAction | null {
     cardInstanceId: bestCard.instance.instanceId,
     position: bestSpawnCell.cell,
   };
+}
+
+function getDevelopmentPlayAction(state: BattleState): BattleAction | null {
+  if (!shouldDevelopBeforeCombat(state)) return null;
+
+  const bestCard = getBestPlayableCard(state, ({ card }) => {
+    if (!isDevelopmentCard(card)) return false;
+
+    if (card.deploymentZone === "support") {
+      const contextualScore = getContextualSupportCardBonus(state, card);
+      const hasStrongEconomyEffect =
+        (card.supportEffects?.fuelPerTurn ?? 0) > 0 ||
+        (card.supportEffects?.drawEveryTurns ?? 0) > 0;
+      const hasUsefulCombatEffect =
+        (card.supportEffects?.hqAttackBonus ?? 0) > 0 ||
+        (card.supportEffects?.hqDamageRedirect ?? 0) > 0;
+
+      return (
+        contextualScore >= 0 ||
+        hasStrongEconomyEffect ||
+        hasUsefulCombatEffect
+      );
+    }
+
+    return (
+      card.fuelGeneration >= 2 ||
+      (state.turn <= 3 && card.fuelGeneration > 0 && card.cost <= 2) ||
+      (card.onPlayEffects?.draw ?? 0) > 0 ||
+      (card.onPlayEffects?.hqProtection ?? 0) > 0
+    );
+  });
+
+  return bestCard ? getPlayActionForCandidate(state, bestCard) : null;
+}
+
+function getStrategicPlayCardAction(state: BattleState): BattleAction | null {
+  const bestCard = getBestPlayableCard(state);
+
+  return bestCard ? getPlayActionForCandidate(state, bestCard) : null;
 }
 
 function getNormalAttackAction(state: BattleState): BattleAction | null {
@@ -1087,6 +1169,9 @@ export function getNextBotAction(state: BattleState): BattleAction | null {
   // 1. Если можно немедленно победить — атакуем штаб.
   const lethalAttack = getLethalAttackAction(state);
   if (lethalAttack) return lethalAttack;
+
+  const developmentPlay = getDevelopmentPlayAction(state);
+  if (developmentPlay) return developmentPlay;
 
   // 2. Если можно уничтожить важный юнит — делаем это.
   const killUnitAttack = getKillUnitAttackAction(state);

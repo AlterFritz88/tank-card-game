@@ -13,6 +13,14 @@ import { getRandomBattleBackgroundId } from "../assets/battleBackgroundAssets";
 import { getCampaignMission, isCampaignMissionUnlocked } from "../game/campaigns";
 import { calculateDeckWeight } from "../game/deckWeight";
 import { createInitialBattleState, getDeckCardIds } from "../game/initialState";
+import {
+  TUTORIAL_BOT_DECK,
+  TUTORIAL_BOT_HEADQUARTERS_ID,
+  TUTORIAL_PLAYER_DECK,
+  TUTORIAL_PLAYER_HEADQUARTERS_ID,
+  getNextTutorialStepIndex,
+  isTutorialActionAllowed,
+} from "../game/tutorial";
 import type {
   GameMode,
   MainMenuView,
@@ -98,6 +106,14 @@ type BattleStore = {
   selectedCardInstanceId: string | null;
   opponentSelectedCardInstanceId: string | null;
   selectedAttacker: SelectedAttacker;
+
+  tutorialActive: boolean;
+  tutorialStepIndex: number;
+  tutorialEpilogueSeen: boolean;
+
+  startTutorial: () => void;
+  advanceTutorialStep: () => void;
+  completeTutorialEpilogue: () => void;
 
   selectCard: (cardInstanceId: string | null) => void;
   selectAttacker: (attacker: SelectedAttacker) => void;
@@ -525,6 +541,9 @@ function getCleanMenuState() {
   return {
     battle: null,
     mode: "ai" as GameMode,
+    tutorialActive: false,
+    tutorialStepIndex: 0,
+    tutorialEpilogueSeen: false,
     menuView: "main" as MainMenuView,
     localPlayerId: "player" as PlayerId,
     pvpRoomId: null,
@@ -826,6 +845,13 @@ function connectAndRun(onOpen: () => void) {
   pvpClient.connect(PVP_SERVER_URL);
 }
 
+declare global {
+  interface Window {
+    /** Dev-only handle for debugging and automated checks. */
+    __battleStore?: unknown;
+  }
+}
+
 export const useBattleStore = create<BattleStore>()((set, get) => ({
   battle: null,
   mode: "ai",
@@ -852,6 +878,42 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   selectedCardInstanceId: null,
   opponentSelectedCardInstanceId: null,
   selectedAttacker: null,
+
+  tutorialActive: false,
+  tutorialStepIndex: 0,
+  tutorialEpilogueSeen: false,
+
+  startTutorial: () => {
+    clearFirstTurnRollTimers();
+    clearReconnectTimer();
+    clearPendingPvpStart();
+    pvpClient.clearSession();
+
+    set({
+      ...getCleanMenuState(),
+      battle: createInitialBattleState({
+        playerHeadquartersId: TUTORIAL_PLAYER_HEADQUARTERS_ID,
+        botHeadquartersId: TUTORIAL_BOT_HEADQUARTERS_ID,
+        playerDeckCardIds: [...TUTORIAL_PLAYER_DECK],
+        botDeckCardIds: [...TUTORIAL_BOT_DECK],
+        backgroundId: getRandomBattleBackgroundId(),
+        shuffleDecks: false,
+      }),
+      tutorialActive: true,
+      tutorialStepIndex: 0,
+      tutorialEpilogueSeen: false,
+    });
+
+    pvpClient.disconnect();
+  },
+
+  advanceTutorialStep: () => {
+    set((state) => ({ tutorialStepIndex: state.tutorialStepIndex + 1 }));
+  },
+
+  completeTutorialEpilogue: () => {
+    set({ tutorialEpilogueSeen: true });
+  },
 
   selectCard: (cardInstanceId) => {
     if (get().mode === "pvp") {
@@ -1465,10 +1527,26 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       return;
     }
 
+    const { tutorialActive, tutorialStepIndex } = get();
+
+    if (tutorialActive) {
+      // No idle pressure while the instructor is talking.
+      if (action.type === "TIMER_TICK") return;
+
+      if (!isTutorialActionAllowed(tutorialStepIndex, action, currentBattle)) {
+        return;
+      }
+    }
+
+    const nextTutorialStepIndex = tutorialActive
+      ? getNextTutorialStepIndex(tutorialStepIndex, action, currentBattle)
+      : tutorialStepIndex;
+
     const nextBattle = applyAction(currentBattle, action);
 
     set({
       battle: nextBattle,
+      ...(tutorialActive ? { tutorialStepIndex: nextTutorialStepIndex } : {}),
       ...(shouldClearSelection(action)
         ? {
             selectedCardInstanceId: null,
@@ -1479,7 +1557,12 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   reset: () => {
-    const { battle, currentCampaignMissionId, mode } = get();
+    const { battle, currentCampaignMissionId, mode, tutorialActive } = get();
+
+    if (tutorialActive) {
+      set(getCleanMenuState());
+      return;
+    }
 
     if (mode === "pvp") {
       pvpClient.selectCard(null);
@@ -1533,3 +1616,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     });
   },
 }));
+
+if (import.meta.env.DEV && typeof window !== "undefined") {
+  window.__battleStore = useBattleStore;
+}

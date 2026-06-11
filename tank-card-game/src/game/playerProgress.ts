@@ -5,7 +5,14 @@ import {
 } from "./headquarters";
 import type { BattleReward } from "./economy";
 import { getDeckCardIds } from "./initialState";
-import type { HeadquartersId } from "./types";
+import { RESEARCH_TREES, type ResearchNode } from "./researchTrees";
+import { getPersistentPlayerId } from "./playerIdentity";
+import type {
+  ClientBattleState,
+  HeadquartersId,
+  PlayerId,
+} from "./types";
+import type { GameMode, MatchEndReason } from "./modes";
 
 export type PlayerAccountType = "base" | "premium";
 
@@ -40,6 +47,10 @@ const PLAYER_ACCOUNT_TYPE_STORAGE_KEY = "panzershrek.accountType";
 const FAVORITE_HEADQUARTERS_STORAGE_KEY = "panzershrek.favoriteHeadquartersId";
 const TEST_STARTING_IRON_TRACKS = 10_000;
 
+async function getProfileClient() {
+  return (await import("../network/profileClient")).profileClient;
+}
+
 export function loadPlayerProgress(): PlayerProgress {
   const fallbackProgress = createInitialPlayerProgress();
 
@@ -57,6 +68,53 @@ export function loadPlayerProgress(): PlayerProgress {
 
 export function savePlayerProgress(progress: PlayerProgress) {
   window.localStorage.setItem(PLAYER_PROGRESS_KEY, JSON.stringify(progress));
+}
+
+export async function syncPlayerProgressFromServer(): Promise<PlayerProgress> {
+  try {
+    const profileClient = await getProfileClient();
+    const profile = await profileClient.getProfile(getPersistentPlayerId());
+    savePlayerProgress(profile);
+    return profile;
+  } catch {
+    return loadPlayerProgress();
+  }
+}
+
+export async function savePlayerProgressToServer(
+  progress: PlayerProgress
+): Promise<PlayerProgress> {
+  try {
+    const profileClient = await getProfileClient();
+    const profile = await profileClient.saveProfile(
+      getPersistentPlayerId(),
+      progress
+    );
+    savePlayerProgress(profile);
+    return profile;
+  } catch {
+    savePlayerProgress(progress);
+    return progress;
+  }
+}
+
+export async function claimBattleRewardFromServer(input: {
+  battle: ClientBattleState;
+  mode: GameMode;
+  localPlayerId: PlayerId;
+  matchEndReason?: MatchEndReason | null;
+}): Promise<{ profile: PlayerProgress; reward?: BattleReward } | null> {
+  try {
+    const profileClient = await getProfileClient();
+    const result = await profileClient.claimBattleReward(
+      getPersistentPlayerId(),
+      input
+    );
+    savePlayerProgress(result.profile);
+    return result;
+  } catch {
+    return null;
+  }
 }
 
 export function applyBattleRewardToProgress(
@@ -274,6 +332,82 @@ export function setFavoriteHeadquartersId(
   return nextProgress;
 }
 
+export function isHeadquartersFullyResearched(
+  progress: PlayerProgress,
+  headquartersId: HeadquartersId
+): boolean {
+  const scope = getResearchScopeForHeadquarters(headquartersId);
+
+  if (scope.length === 0) return false;
+
+  return scope.every((node) => isResearchNodeCompleted(node, progress));
+}
+
+function getResearchScopeForHeadquarters(
+  headquartersId: HeadquartersId
+): ResearchNode[] {
+  for (const tree of Object.values(RESEARCH_TREES)) {
+    if (tree.starterHeadquarters.headquartersId === headquartersId) {
+      return tree.branches.flatMap((branch) =>
+        branch.nodes.filter((node) => node.status !== "planned")
+      );
+    }
+
+    for (const branch of tree.branches) {
+      const nodeById = new Map(branch.nodes.map((node) => [node.id, node]));
+      const headquartersNodeIndex = branch.nodes.findIndex(
+        (node) => node.headquartersId === headquartersId
+      );
+      const headquartersNode = branch.nodes[headquartersNodeIndex];
+
+      if (!headquartersNode) continue;
+
+      if (!branch.nodes.some((node) => node.requires && node.requires.length > 0)) {
+        return branch.nodes
+          .slice(headquartersNodeIndex + 1)
+          .filter((node) => node.status !== "planned");
+      }
+
+      return branch.nodes.filter((node) => {
+        if (node.status === "planned") return false;
+        if (node.id === headquartersNode.id) return false;
+
+        return dependsOnNode(node, headquartersNode.id, nodeById);
+      });
+    }
+  }
+
+  return [];
+}
+
+function dependsOnNode(
+  node: ResearchNode,
+  requiredNodeId: string,
+  nodeById: Map<string, ResearchNode>
+): boolean {
+  const requires = node.requires ?? [];
+  if (requires.includes(requiredNodeId)) return true;
+
+  return requires.some((dependencyId) => {
+    const dependency = nodeById.get(dependencyId);
+    return dependency
+      ? dependsOnNode(dependency, requiredNodeId, nodeById)
+      : false;
+  });
+}
+
+function isResearchNodeCompleted(
+  node: ResearchNode,
+  progress: PlayerProgress
+): boolean {
+  if (node.cardId) return progress.researchedCardIds.includes(node.cardId);
+  if (node.headquartersId) {
+    return progress.researchedHeadquartersIds.includes(node.headquartersId);
+  }
+
+  return true;
+}
+
 export function canSpendResearchExperience(
   progress: PlayerProgress,
   headquartersId: HeadquartersId,
@@ -330,6 +464,25 @@ export function researchCard(
   return savedProgress;
 }
 
+export async function researchCardOnServer(
+  cardId: string,
+  headquartersId: HeadquartersId,
+  cost: number
+): Promise<PlayerProgress | null> {
+  try {
+    const profileClient = await getProfileClient();
+    const profile = await profileClient.researchCard(
+      getPersistentPlayerId(),
+      cardId,
+      headquartersId
+    );
+    savePlayerProgress(profile);
+    return profile;
+  } catch {
+    return researchCard(cardId, headquartersId, cost);
+  }
+}
+
 export function researchHeadquarters(
   targetHeadquartersId: HeadquartersId,
   sourceHeadquartersId: HeadquartersId,
@@ -358,6 +511,25 @@ export function researchHeadquarters(
   return savedProgress;
 }
 
+export async function researchHeadquartersOnServer(
+  targetHeadquartersId: HeadquartersId,
+  sourceHeadquartersId: HeadquartersId,
+  cost: number
+): Promise<PlayerProgress | null> {
+  try {
+    const profileClient = await getProfileClient();
+    const profile = await profileClient.researchHeadquarters(
+      getPersistentPlayerId(),
+      targetHeadquartersId,
+      sourceHeadquartersId
+    );
+    savePlayerProgress(profile);
+    return profile;
+  } catch {
+    return researchHeadquarters(targetHeadquartersId, sourceHeadquartersId, cost);
+  }
+}
+
 export function purchaseCardCopy(
   cardId: string,
   cost: number,
@@ -381,6 +553,24 @@ export function purchaseCardCopy(
   return savedProgress;
 }
 
+export async function purchaseCardCopyOnServer(
+  cardId: string,
+  cost: number,
+  copyLimit = 4
+): Promise<PlayerProgress | null> {
+  try {
+    const profileClient = await getProfileClient();
+    const profile = await profileClient.purchaseCardCopy(
+      getPersistentPlayerId(),
+      cardId
+    );
+    savePlayerProgress(profile);
+    return profile;
+  } catch {
+    return purchaseCardCopy(cardId, cost, copyLimit);
+  }
+}
+
 export function purchaseHeadquarters(
   headquartersId: HeadquartersId,
   cost: number
@@ -399,6 +589,23 @@ export function purchaseHeadquarters(
   };
   savePlayerProgress(savedProgress);
   return savedProgress;
+}
+
+export async function purchaseHeadquartersOnServer(
+  headquartersId: HeadquartersId,
+  cost: number
+): Promise<PlayerProgress | null> {
+  try {
+    const profileClient = await getProfileClient();
+    const profile = await profileClient.purchaseHeadquarters(
+      getPersistentPlayerId(),
+      headquartersId
+    );
+    savePlayerProgress(profile);
+    return profile;
+  } catch {
+    return purchaseHeadquarters(headquartersId, cost);
+  }
 }
 
 function getPositiveInteger(value: unknown): number {

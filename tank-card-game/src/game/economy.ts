@@ -12,8 +12,11 @@ import { isHiddenCardInstance } from "./types";
 
 export type BattleReward = {
   headquartersId: HeadquartersId;
+  rawHeadquartersXp: number;
   headquartersXp: number;
   freeXp: number;
+  rawIronTracks: number;
+  repairCost: number;
   ironTracks: number;
   goldTracks: number;
   destructionProgress: number;
@@ -40,6 +43,7 @@ const CLASS_HP_ESTIMATE: BattleKillStats = {
   heavy: 7,
   td: 4,
   spg: 4,
+  support: 3,
 };
 
 const MODE_REWARD = {
@@ -108,7 +112,7 @@ export function calculateBattleReward({
         : rawHeadquartersXp * FREE_XP_SHARE
     )
   );
-  const ironTracks = Math.max(
+  const rawIronTracks = Math.max(
     1,
     Math.round(
       modeReward.ironTracks *
@@ -118,11 +122,19 @@ export function calculateBattleReward({
         (0.5 + destructionProgress * 0.5)
     )
   );
+  const repairCost = -Math.max(
+    0,
+    Math.round(rawIronTracks * (localWon ? 0.08 : 0.12))
+  );
+  const ironTracks = Math.max(0, rawIronTracks + repairCost);
 
   return {
     headquartersId,
+    rawHeadquartersXp,
     headquartersXp,
     freeXp,
+    rawIronTracks,
+    repairCost,
     ironTracks,
     goldTracks: 0,
     destructionProgress,
@@ -184,7 +196,7 @@ function getDestructionProgress(
 function estimateDestroyedHp(stats: BattleKillStats): number {
   return Object.entries(stats).reduce((total, [key, count]) => {
     const classKey = key as keyof BattleKillStats;
-    return total + CLASS_HP_ESTIMATE[classKey] * count;
+    return total + (CLASS_HP_ESTIMATE[classKey] ?? 0) * count;
   }, 0);
 }
 

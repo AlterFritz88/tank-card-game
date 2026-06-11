@@ -1,10 +1,14 @@
 import type {
   BattleAction,
+  ClientBattleState,
   BattleStateView,
   HeadquartersId,
   PlayerId,
 } from "../../tank-card-game/src/game/types";
 import type { AttackAnimationStrike } from "../../tank-card-game/src/game/engine";
+import type { BattleReward } from "../../tank-card-game/src/game/economy";
+import type { GameMode, MatchEndReason as GameMatchEndReason } from "../../tank-card-game/src/game/modes";
+import type { PlayerProgress } from "../../tank-card-game/src/game/playerProgress";
 
 export type PvpClientMessage =
   | {
@@ -31,7 +35,49 @@ export type PvpClientMessage =
   | { type: "SELECT_CARD"; cardInstanceId: string | null }
   | { type: "SURRENDER" }
   | { type: "LEAVE_MATCH" }
-  | { type: "CANCEL_MATCHMAKING" };
+  | { type: "CANCEL_MATCHMAKING" }
+  | { type: "GET_PROFILE"; requestId: string; playerId: string }
+  | {
+      type: "SAVE_PROFILE";
+      requestId: string;
+      playerId: string;
+      profile: PlayerProgress;
+    }
+  | {
+      type: "CLAIM_BATTLE_REWARD";
+      requestId: string;
+      playerId: string;
+      battle: ClientBattleState;
+      mode: GameMode;
+      localPlayerId: PlayerId;
+      matchEndReason?: GameMatchEndReason | null;
+    }
+  | {
+      type: "RESEARCH_CARD";
+      requestId: string;
+      playerId: string;
+      cardId: string;
+      sourceHeadquartersId: HeadquartersId;
+    }
+  | {
+      type: "RESEARCH_HEADQUARTERS";
+      requestId: string;
+      playerId: string;
+      headquartersId: HeadquartersId;
+      sourceHeadquartersId: HeadquartersId;
+    }
+  | {
+      type: "PURCHASE_CARD_COPY";
+      requestId: string;
+      playerId: string;
+      cardId: string;
+    }
+  | {
+      type: "PURCHASE_HEADQUARTERS";
+      requestId: string;
+      playerId: string;
+      headquartersId: HeadquartersId;
+    };
 
 export type MatchEndReason =
   | "surrender"
@@ -93,4 +139,16 @@ export type PvpServerMessage =
   | { type: "MATCHMAKING_CANCELLED" }
   | { type: "OPPONENT_LEFT"; reason: MatchEndReason }
   | { type: "OPPONENT_DISCONNECTED"; roomId: string }
+  | {
+      type: "PROFILE_UPDATED";
+      requestId: string;
+      profile: PlayerProgress;
+      reward?: BattleReward;
+    }
+  | {
+      type: "PROFILE_ERROR";
+      requestId: string;
+      message: string;
+      profile?: PlayerProgress;
+    }
   | { type: "ERROR"; message: string };

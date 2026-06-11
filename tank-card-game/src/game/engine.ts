@@ -145,15 +145,14 @@ function addLog(state: BattleState, message: string) {
 }
 
 function ensureBattleStats(state: BattleState) {
-  if (state.stats) return;
-
-  state.stats = {
+  state.stats ??= {
     destroyedByPlayer: {
       light: 0,
       medium: 0,
       heavy: 0,
       td: 0,
       spg: 0,
+      support: 0,
     },
     destroyedByBot: {
       light: 0,
@@ -161,8 +160,12 @@ function ensureBattleStats(state: BattleState) {
       heavy: 0,
       td: 0,
       spg: 0,
+      support: 0,
     },
   };
+
+  state.stats.destroyedByPlayer.support ??= 0;
+  state.stats.destroyedByBot.support ??= 0;
 }
 
 function recordDestroyedUnit(
@@ -178,7 +181,9 @@ function recordDestroyedUnit(
       ? state.stats.destroyedByPlayer
       : state.stats.destroyedByBot;
 
-  stats[card.class] += 1;
+  const statKey = isSupportUnit(unit) ? "support" : card.class;
+
+  stats[statKey] += 1;
 }
 
 function getAbility(

@@ -444,5 +444,40 @@ function makeUnit(partial: Partial<BoardUnit> & { instanceId: string; cardId: st
   );
 }
 
+// 14. Статистика: уничтоженный тыловой юнит идёт в категорию support, не в класс.
+{
+  const battle = makeBattle("training_unit", "t26_1931");
+
+  battle.units.push(
+    makeUnit({
+      instanceId: "sup1",
+      cardId: "leig_18",
+      ownerId: "bot",
+      zone: "support",
+      supportSlot: 0,
+      position: { row: 0, col: 4 },
+      currentHp: 1,
+      alreadyMoved: true,
+      alreadyAttacked: true,
+    })
+  );
+
+  const next = applyAction(battle, {
+    type: "ATTACK",
+    playerId: "player",
+    attackerType: "headquarters",
+    attackerId: "player_hq",
+    targetType: "unit",
+    targetId: "sup1",
+  });
+
+  check(
+    "Статистика: тыловой юнит посчитан в support",
+    next.stats.destroyedByPlayer.support === 1 &&
+      next.stats.destroyedByPlayer.spg === 0,
+    `support ${next.stats.destroyedByPlayer.support}, spg ${next.stats.destroyedByPlayer.spg}`
+  );
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

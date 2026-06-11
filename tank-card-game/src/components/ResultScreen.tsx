@@ -23,7 +23,7 @@ type ResultScreenProps = {
 };
 
 type ResultTab = "summary" | "trophies";
-type TrophyStatKey = keyof BattleKillStats | "support";
+type TrophyStatKey = keyof BattleKillStats;
 
 const STAT_ROWS: { key: TrophyStatKey; label: string }[] = [
   { key: "light", label: "Легкие танки" },
@@ -40,6 +40,7 @@ const emptyStats: BattleKillStats = {
   heavy: 0,
   td: 0,
   spg: 0,
+  support: 0,
 };
 
 function getTotal(stats: BattleKillStats): number {
@@ -47,7 +48,7 @@ function getTotal(stats: BattleKillStats): number {
 }
 
 function getStatCount(stats: BattleKillStats, key: TrophyStatKey): number {
-  return key === "support" ? 0 : stats[key];
+  return stats[key] ?? 0;
 }
 
 function formatNumber(value: number): string {
@@ -98,12 +99,11 @@ export function ResultScreen({
     ? getHeadquartersDefinition(reward.headquartersId)
     : null;
   const baseHeadquartersXp = reward?.headquartersXp ?? 0;
+  const rawHeadquartersXp = reward?.rawHeadquartersXp ?? baseHeadquartersXp;
   const freeXp = reward?.freeXp ?? 0;
-  const ironTracks = reward?.ironTracks ?? 0;
-  const repairCost = reward
-    ? -Math.max(0, Math.round(ironTracks * (localPlayerWon ? 0.08 : 0.12)))
-    : 0;
-  const netIronTracks = Math.max(0, ironTracks + repairCost);
+  const rawIronTracks = reward?.rawIronTracks ?? reward?.ironTracks ?? 0;
+  const repairCost = reward?.repairCost ?? 0;
+  const netIronTracks = reward?.ironTracks ?? Math.max(0, rawIronTracks + repairCost);
   const ratingDelta = getRatingDelta(localPlayerWon, matchEndReason);
   const ratingText = ratingDelta > 0 ? `+${ratingDelta}` : `${ratingDelta}`;
 
@@ -126,7 +126,7 @@ export function ResultScreen({
                   : "Ваш штаб потерял боеспособность.")}
             </div>
             <div style={styles.topRewards}>
-              <RewardTicker icon={silverTracksIcon} value={ironTracks} animated />
+              <RewardTicker icon={silverTracksIcon} value={netIronTracks} animated />
               <RewardTicker
                 icon={experienceIcon}
                 value={baseHeadquartersXp + freeXp}
@@ -176,15 +176,21 @@ export function ResultScreen({
                     rows={[
                       {
                         label: "Боевой опыт штаба",
-                        value: baseHeadquartersXp,
-                        premiumValue: getPremiumValue(baseHeadquartersXp),
+                        value: rawHeadquartersXp,
+                        premiumValue: getPremiumValue(rawHeadquartersXp),
                       },
                       {
                         label: reward?.fullyResearchedConversion
                           ? "Штаб изучен, перевод в свободный опыт"
                           : "Итого начислено на штаб",
-                        value: baseHeadquartersXp,
-                        premiumValue: getPremiumValue(baseHeadquartersXp),
+                        value: reward?.fullyResearchedConversion
+                          ? freeXp
+                          : baseHeadquartersXp,
+                        premiumValue: getPremiumValue(
+                          reward?.fullyResearchedConversion
+                            ? freeXp
+                            : baseHeadquartersXp
+                        ),
                       },
                       {
                         label: "Свободный опыт",
@@ -201,8 +207,8 @@ export function ResultScreen({
                     rows={[
                       {
                         label: "Базовая награда за бой",
-                        value: ironTracks,
-                        premiumValue: getPremiumValue(ironTracks),
+                        value: rawIronTracks,
+                        premiumValue: getPremiumValue(rawIronTracks),
                       },
                       {
                         label: "Автоматический ремонт штаба",
@@ -215,7 +221,7 @@ export function ResultScreen({
                         value: netIronTracks,
                         premiumValue: Math.max(
                           0,
-                          getPremiumValue(ironTracks) + repairCost
+                          getPremiumValue(rawIronTracks) + repairCost
                         ),
                       },
                     ]}
@@ -443,7 +449,9 @@ function StatsSummary({
         {STAT_ROWS.map((row) => (
           <div key={row.key} style={styles.statsTypeLine}>
             <span>{row.label}</span>
-            <strong>{getStatCount(ownStats, row.key)}</strong>
+            <strong style={styles.statsTypeValue}>
+              {getStatCount(ownStats, row.key)}
+            </strong>
           </div>
         ))}
       </div>
@@ -452,7 +460,9 @@ function StatsSummary({
         {STAT_ROWS.map((row) => (
           <div key={row.key} style={styles.statsTypeLine}>
             <span>{row.label}</span>
-            <strong>{getStatCount(enemyStats, row.key)}</strong>
+            <strong style={styles.statsTypeValue}>
+              {getStatCount(enemyStats, row.key)}
+            </strong>
           </div>
         ))}
       </div>
@@ -760,11 +770,12 @@ const styles: Record<string, CSSProperties> = {
   },
 
   statsTotalCard: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "baseline",
+    display: "grid",
+    gridTemplateColumns: "1fr 42px",
+    gap: 10,
+    alignItems: "end",
     minHeight: 34,
-    padding: "6px 11px",
+    padding: "6px 10px",
     border: "1px solid rgba(255,255,255,0.09)",
     background: "rgba(0,0,0,0.24)",
     color: "#d7c5a5",
@@ -778,6 +789,7 @@ const styles: Record<string, CSSProperties> = {
     color: "#f0d690",
     fontSize: 21,
     lineHeight: 1,
+    textAlign: "center",
   },
 
   statsTypeColumn: {
@@ -795,6 +807,10 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 21,
     padding: "0 10px",
     borderBottom: "1px solid rgba(255,255,255,0.07)",
+  },
+
+  statsTypeValue: {
+    textAlign: "center",
   },
 
   ratingBadge: {

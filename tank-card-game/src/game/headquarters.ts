@@ -210,7 +210,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
 
   soviet_motor_rifle_division: {
     id: "soviet_motor_rifle_division",
-    title: "1-я Московская мсд",
+    title: "1-я Московская",
     subtitle: "1-я Московская мотострелковая дивизия",
     type: "Мотопехотный штаб",
     description:

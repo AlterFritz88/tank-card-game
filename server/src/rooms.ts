@@ -25,6 +25,7 @@ import type {
 } from "../../tank-card-game/src/game/types";
 import { createBattleViewForPlayer } from "./battleView";
 import type { MatchEndReason, PvpClientMessage, PvpServerMessage } from "./protocol";
+import { PlayerProfileManager } from "./playerProfiles";
 
 type RoomPlayer = {
   id: PlayerId;
@@ -234,6 +235,7 @@ export class RoomManager {
   private waitingRoomId: string | null = null;
   private movementIntentSequence = 0;
   private attackIntentSequence = 0;
+  private profiles = new PlayerProfileManager();
 
   handleMessage(socket: WebSocket, rawData: WebSocket.RawData) {
     let message: PvpClientMessage;
@@ -287,6 +289,27 @@ export class RoomManager {
       case "CANCEL_MATCHMAKING":
         this.cancelMatchmaking(socket);
         break;
+      case "GET_PROFILE":
+        this.sendProfile(socket, message.requestId, message.playerId);
+        break;
+      case "SAVE_PROFILE":
+        this.saveProfile(socket, message.requestId, message.playerId, message.profile);
+        break;
+      case "CLAIM_BATTLE_REWARD":
+        this.claimBattleReward(socket, message);
+        break;
+      case "RESEARCH_CARD":
+        this.researchCard(socket, message);
+        break;
+      case "RESEARCH_HEADQUARTERS":
+        this.researchHeadquarters(socket, message);
+        break;
+      case "PURCHASE_CARD_COPY":
+        this.purchaseCardCopy(socket, message);
+        break;
+      case "PURCHASE_HEADQUARTERS":
+        this.purchaseHeadquarters(socket, message);
+        break;
       default:
         safeSend(socket, { type: "ERROR", message: "Неизвестное сообщение" });
     }
@@ -315,6 +338,144 @@ export class RoomManager {
     }
 
     this.deleteRoomIfEmpty(room);
+  }
+
+  private sendProfile(socket: WebSocket, requestId: string, playerId: string) {
+    try {
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId,
+        profile: this.profiles.getProfile(playerId),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, requestId, error);
+    }
+  }
+
+  private saveProfile(
+    socket: WebSocket,
+    requestId: string,
+    playerId: string,
+    profile: Extract<PvpClientMessage, { type: "SAVE_PROFILE" }>["profile"]
+  ) {
+    try {
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId,
+        profile: this.profiles.saveProfile(playerId, profile),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, requestId, error);
+    }
+  }
+
+  private claimBattleReward(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "CLAIM_BATTLE_REWARD" }>
+  ) {
+    try {
+      const { profile, reward } = this.profiles.claimBattleReward(
+        message.playerId,
+        {
+          battle: message.battle,
+          mode: message.mode,
+          localPlayerId: message.localPlayerId,
+          matchEndReason: message.matchEndReason,
+        }
+      );
+
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile,
+        reward,
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
+  private researchCard(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "RESEARCH_CARD" }>
+  ) {
+    try {
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile: this.profiles.researchCard(
+          message.playerId,
+          message.cardId,
+          message.sourceHeadquartersId
+        ),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
+  private researchHeadquarters(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "RESEARCH_HEADQUARTERS" }>
+  ) {
+    try {
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile: this.profiles.researchHeadquarters(
+          message.playerId,
+          message.headquartersId,
+          message.sourceHeadquartersId
+        ),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
+  private purchaseCardCopy(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "PURCHASE_CARD_COPY" }>
+  ) {
+    try {
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile: this.profiles.purchaseCardCopy(message.playerId, message.cardId),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
+  private purchaseHeadquarters(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "PURCHASE_HEADQUARTERS" }>
+  ) {
+    try {
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile: this.profiles.purchaseHeadquarters(
+          message.playerId,
+          message.headquartersId
+        ),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
+  private sendProfileError(
+    socket: WebSocket,
+    requestId: string,
+    error: unknown
+  ) {
+    safeSend(socket, {
+      type: "PROFILE_ERROR",
+      requestId,
+      message: error instanceof Error ? error.message : "Profile request failed",
+    });
   }
 
   private findMatch(

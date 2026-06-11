@@ -29,10 +29,11 @@ import { CARD_COPY_LIMIT } from "../game/customDecks";
 import {
   canSpendResearchExperience,
   loadPlayerProgress,
-  purchaseCardCopy,
-  purchaseHeadquarters,
-  researchCard,
-  researchHeadquarters,
+  purchaseCardCopyOnServer,
+  purchaseHeadquartersOnServer,
+  researchCardOnServer,
+  researchHeadquartersOnServer,
+  syncPlayerProgressFromServer,
   type PlayerProgress,
 } from "../game/playerProgress";
 import { HandCardView } from "./HandCardView";
@@ -423,7 +424,7 @@ function ResearchNodeCard({
 }: {
   node: ResearchNodeView;
   onPreview: (event: MouseEvent, node: ResearchNode) => void;
-  onAction?: (node: ResearchNodeView) => void;
+  onAction?: (node: ResearchNodeView) => void | Promise<void>;
 }) {
   const locked = node.stage === "locked" || node.stage === "planned";
   const actionable =
@@ -452,7 +453,9 @@ function ResearchNodeCard({
       transition={{ type: "spring", stiffness: 360, damping: 26 }}
       aria-label={`${node.title}: ${node.statusLabel}`}
       onContextMenu={(event) => onPreview(event, node)}
-      onClick={() => onAction?.(node)}
+      onClick={() => {
+        void onAction?.(node);
+      }}
     >
       {showBadge ? (
         <span
@@ -708,6 +711,20 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
   const [feedback, setFeedback] = useState<ResearchFeedback | null>(null);
   const [celebration, setCelebration] = useState<ResearchCelebration | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    void syncPlayerProgressFromServer().then((serverProgress) => {
+      if (!cancelled) {
+        setProgress(serverProgress);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Drag-to-pan: navigate the tree by grabbing it with the mouse, like a touch
   // screen. Touch keeps native scrolling; only mouse uses manual panning.
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -885,7 +902,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
     return Math.max(0, cost - availableExperience);
   }
 
-  function handleNodeAction(node: ResearchNodeView) {
+  async function handleNodeAction(node: ResearchNodeView) {
     if (!sourceHeadquartersId) return;
 
     let nextProgress: PlayerProgress | null = null;
@@ -925,9 +942,9 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
       }
 
       nextProgress = node.cardId
-        ? researchCard(node.cardId, sourceHeadquartersId, experienceCost)
+        ? await researchCardOnServer(node.cardId, sourceHeadquartersId, experienceCost)
         : node.headquartersId
-          ? researchHeadquarters(node.headquartersId, sourceHeadquartersId, experienceCost)
+          ? await researchHeadquartersOnServer(node.headquartersId, sourceHeadquartersId, experienceCost)
           : null;
       celebrationLabel = "Исследовано";
     } else if (
@@ -950,7 +967,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
         return;
       }
 
-      nextProgress = purchaseCardCopy(node.cardId, purchaseCost);
+      nextProgress = await purchaseCardCopyOnServer(node.cardId, purchaseCost);
       celebrationLabel = "Куплено";
     } else if (node.stage === "researched" && node.headquartersId) {
       const purchaseCost = node.purchaseCost ?? 0;
@@ -964,7 +981,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
         return;
       }
 
-      nextProgress = purchaseHeadquarters(node.headquartersId, purchaseCost);
+      nextProgress = await purchaseHeadquartersOnServer(node.headquartersId, purchaseCost);
       celebrationLabel = "Куплено";
     }
 

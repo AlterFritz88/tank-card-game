@@ -55,6 +55,24 @@ body {
   display: none;
 }
 
+@keyframes tutorial-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 3px rgba(247, 215, 116, 0.55),
+      0 0 12px rgba(247, 215, 116, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px rgba(247, 215, 116, 1),
+      0 0 28px rgba(247, 215, 116, 0.75);
+  }
+}
+
+.tutorial-highlight-pulse {
+  animation: tutorial-pulse 1.5s ease-in-out infinite;
+}
+
 .menu-image-button {
   transition:
     transform 160ms ease,

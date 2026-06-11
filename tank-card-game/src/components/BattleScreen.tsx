@@ -47,7 +47,20 @@ import {
   playTurnStartSound,
 } from "../game/audio";
 import { calculateBattleReward, type BattleReward } from "../game/economy";
-import { applyBattleRewardToProgress } from "../game/playerProgress";
+import {
+  applyBattleRewardToProgress,
+  claimBattleRewardFromServer,
+  isHeadquartersFullyResearched,
+  loadPlayerProgress,
+} from "../game/playerProgress";
+import {
+  TUTORIAL_EPILOGUE_TEXT,
+  TUTORIAL_REWARD,
+  getTutorialBotAction,
+  getTutorialHighlights,
+  getTutorialStep,
+} from "../game/tutorial";
+import { TutorialOverlay } from "./TutorialOverlay";
 import apShellImage from "../assets/ap-shell.png";
 import buttonImage from "../assets/button.png";
 import explosionFlashImage from "../assets/effects/explosion-flash.png";
@@ -333,6 +346,77 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   } = battleStore;
 
   const firstTurnRoll = battleStore.firstTurnRoll;
+  const tutorialActive = battleStore.tutorialActive;
+  const tutorialStepIndex = battleStore.tutorialStepIndex;
+  const tutorialEpilogueSeen = battleStore.tutorialEpilogueSeen;
+  const advanceTutorialStep = battleStore.advanceTutorialStep;
+  const completeTutorialEpilogue = battleStore.completeTutorialEpilogue;
+  const tutorialStep = tutorialActive
+    ? getTutorialStep(tutorialStepIndex)
+    : null;
+  // Active-task hints: what to highlight; everything else gets dimmed/blocked.
+  const tutorialHighlights =
+    tutorialActive && battle.status === "active"
+      ? getTutorialHighlights(tutorialStepIndex)
+      : null;
+
+  function isTutorialCellHighlighted(position: Position): boolean {
+    return Boolean(
+      tutorialHighlights?.cells?.some(
+        (cell) => cell.row === position.row && cell.col === position.col
+      )
+    );
+  }
+
+  // Two-stage HQ attack hint: until the own HQ is selected only it blinks,
+  // afterwards only the intended target blinks.
+  function isTutorialOwnHqSelected(): boolean {
+    return (
+      selectedAttacker?.type === "headquarters" &&
+      selectedAttacker.id === "player_hq"
+    );
+  }
+
+  function isTutorialUnitHighlighted(unit: {
+    ownerId: PlayerId;
+    cardId: string;
+    zone?: string;
+  }): boolean {
+    if (!tutorialHighlights) return false;
+
+    if (unit.ownerId === "player") {
+      return Boolean(tutorialHighlights.unitCardIds?.includes(unit.cardId));
+    }
+
+    const isEnemyTarget =
+      (tutorialHighlights.enemySupport && unit.zone === "support") ||
+      Boolean(tutorialHighlights.enemyUnitCardIds?.includes(unit.cardId));
+
+    if (!isEnemyTarget) return false;
+
+    return tutorialHighlights.hqAttackSequence
+      ? isTutorialOwnHqSelected()
+      : true;
+  }
+
+  function isTutorialHqHighlighted(owner: PlayerId): boolean {
+    if (!tutorialHighlights) return false;
+
+    if (tutorialHighlights.hqAttackSequence) {
+      const ownHqSelected = isTutorialOwnHqSelected();
+
+      if (owner === "player") {
+        return Boolean(tutorialHighlights.playerHq) && !ownHqSelected;
+      }
+
+      return Boolean(tutorialHighlights.enemyHq) && ownHqSelected;
+    }
+
+    return owner === "player"
+      ? Boolean(tutorialHighlights.playerHq)
+      : Boolean(tutorialHighlights.enemyHq);
+  }
+
   const humanPlayerId: PlayerId = mode === "pvp" ? localPlayerId : "player";
   const opponentPlayerId: PlayerId =
     humanPlayerId === "player" ? "bot" : "player";
@@ -759,18 +843,40 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     rewardedBattleKeyRef.current = rewardKey;
 
-    const reward = calculateBattleReward({
-      battle,
-      mode,
-      localPlayerId: humanPlayerId,
-      matchEndReason: mode === "pvp" ? matchEndReason : null,
-    });
+    const rewardHeadquartersId =
+      battle.headquarters[humanPlayerId].headquartersId ??
+      battle[humanPlayerId].headquartersId;
+    const progress = loadPlayerProgress();
+    const reward = tutorialActive
+      ? TUTORIAL_REWARD
+      : calculateBattleReward({
+          battle,
+          mode,
+          localPlayerId: humanPlayerId,
+          matchEndReason: mode === "pvp" ? matchEndReason : null,
+          headquartersFullyResearched: isHeadquartersFullyResearched(
+            progress,
+            rewardHeadquartersId
+          ),
+        });
 
     const localPlayerWon =
       (battle.status === "player_won" && humanPlayerId === "player") ||
       (battle.status === "bot_won" && humanPlayerId === "bot");
 
     applyBattleRewardToProgress(reward, localPlayerWon);
+    if (!tutorialActive) {
+      void claimBattleRewardFromServer({
+        battle,
+        mode,
+        localPlayerId: humanPlayerId,
+        matchEndReason: mode === "pvp" ? matchEndReason : null,
+      }).then((serverResult) => {
+        if (serverResult?.reward) {
+          setBattleReward(serverResult.reward);
+        }
+      });
+    }
     frameId = window.requestAnimationFrame(() => {
       setBattleReward(reward);
     });
@@ -780,7 +886,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [battle, humanPlayerId, matchEndReason, mode]);
+  }, [battle, humanPlayerId, matchEndReason, mode, tutorialActive]);
 
   useEffect(() => {
     if (!cardPreview) return;
@@ -814,7 +920,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     startRollRunningRef.current = true;
 
-    const winner = getRandomLocalStartingPlayer();
+    const winner = tutorialActive ? "player" : getRandomLocalStartingPlayer();
     const targetAngle = winner === "player" ? 135 : -45;
     const finalRotation = 360 * 8 + targetAngle;
 
@@ -860,7 +966,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       window.clearTimeout(finishTimer);
       startRollRunningRef.current = false;
     };
-  }, [battle.status, humanPlayerId, mode]);
+  }, [battle.status, humanPlayerId, mode, tutorialActive]);
 
   useEffect(() => {
     const owners: PlayerId[] = ["player", "bot"];
@@ -1107,7 +1213,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         if (currentBattle.status !== "active") break;
         if (currentBattle.activePlayer !== "bot") break;
 
-        const action: BattleAction | null = getNextBotAction(currentBattle);
+        const tutorialNow = useBattleStore.getState().tutorialActive;
+        const action: BattleAction | null = tutorialNow
+          ? getTutorialBotAction(currentBattle)
+          : getNextBotAction(currentBattle);
 
         if (!action) break;
 
@@ -2330,9 +2439,17 @@ function renderEnemyDeckWithTimer() {
         />
 
         <button
+          className={
+            tutorialHighlights?.endTurn ? "tutorial-highlight-pulse" : undefined
+          }
           style={{
             ...styles.endTurnButton,
             opacity: debugPaused || !isHumanTurn ? 0.45 : 1,
+            ...(tutorialHighlights
+              ? tutorialHighlights.endTurn
+                ? styles.tutorialHighlight
+                : styles.tutorialDimmedControl
+              : {}),
           }}
           disabled={debugPaused || !isHumanTurn}
           onClick={() => enqueueBattleCommand(executeQueuedEndTurn)}
@@ -2394,11 +2511,21 @@ function renderEnemyDeckWithTimer() {
               key={`${owner}-support-${supportSlot}`}
               ref={setSupportCellRef(owner, supportSlot)}
               type="button"
+              className={
+                tutorialHighlights && unit && isTutorialUnitHighlighted(unit)
+                  ? "tutorial-highlight-pulse"
+                  : undefined
+              }
               style={{
                 ...styles.supportCell,
                 ...(unit ? styles.supportUnitCell : {}),
                 ...(canPlace ? styles.supportCellAvailable : {}),
                 ...(canBeTarget ? styles.targetCell : {}),
+                ...(tutorialHighlights
+                  ? unit && isTutorialUnitHighlighted(unit)
+                    ? styles.tutorialHighlight
+                    : styles.tutorialDimmedBoard
+                  : {}),
               }}
               onMouseEnter={() => {
                 if (!unit || !canBeTarget) return;
@@ -3137,6 +3264,11 @@ function renderEnemyDeckWithTimer() {
                         layout
                         layoutId={unit.instanceId}
                         key={unit.instanceId}
+                        className={
+                          tutorialHighlights && isTutorialUnitHighlighted(unit)
+                            ? "tutorial-highlight-pulse"
+                            : undefined
+                        }
                         style={{
                           ...styles.cell,
                           zIndex: 6,
@@ -3148,6 +3280,11 @@ function renderEnemyDeckWithTimer() {
                             : styles.botUnit),
                           ...(canBeTarget ? styles.targetCell : {}),
                           ...(isSelected ? styles.selectedUnitCell : {}),
+                          ...(tutorialHighlights
+                            ? isTutorialUnitHighlighted(unit)
+                              ? styles.tutorialHighlight
+                              : styles.tutorialDimmedBoard
+                            : {}),
                         }}
                         initial={{ scale: 0.88, opacity: 0 }}
                         animate={{
@@ -3302,6 +3439,11 @@ function renderEnemyDeckWithTimer() {
                         layout
                         layoutId={hqId}
                         key={hqId}
+                        className={
+                          tutorialHighlights && isTutorialHqHighlighted(owner)
+                            ? "tutorial-highlight-pulse"
+                            : undefined
+                        }
                         style={{
                           ...styles.cell,
                           zIndex: 6,
@@ -3312,6 +3454,11 @@ function renderEnemyDeckWithTimer() {
                             ? styles.playerUnit
                             : styles.botUnit),
                           ...(canBeTarget ? styles.targetCell : {}),
+                          ...(tutorialHighlights
+                            ? isTutorialHqHighlighted(owner)
+                              ? styles.tutorialHighlight
+                              : styles.tutorialDimmedBoard
+                            : {}),
                         }}
                         initial={{ scale: 0.88, opacity: 0 }}
                         animate={{
@@ -3456,11 +3603,23 @@ function renderEnemyDeckWithTimer() {
     ref={setCellRef(position)}
     layout
     key={`${row}-${col}`}
+    className={
+      tutorialHighlights && isTutorialCellHighlighted(position)
+        ? "tutorial-highlight-pulse"
+        : undefined
+    }
     style={{
       ...styles.cell,
       ...styles.emptyCell,
       ...(moveCell ? styles.moveCell : {}),
       ...(canPlaceBattlefieldCard ? styles.spawnCellAvailable : {}),
+      ...(tutorialHighlights
+        ? isTutorialCellHighlighted(position)
+          ? styles.tutorialHighlight
+          : moveCell || canPlaceBattlefieldCard
+            ? {}
+            : styles.tutorialDimmedBoard
+        : {}),
     }}
     whileHover={{ scale: 1.02 }}
     whileTap={{ scale: 0.97 }}
@@ -3545,16 +3704,18 @@ function renderEnemyDeckWithTimer() {
   </div>
 
   <div style={styles.actionSideColumn}>
-            <button
-              type="button"
-              style={{
-                ...styles.pauseButton,
-                ...(debugPaused ? styles.pauseButtonActive : {}),
-              }}
-              onClick={() => setDebugPaused((current) => !current)}
-            >
-              {debugPaused ? "Продолжить" : "Пауза"}
-            </button>
+            {!tutorialActive ? (
+              <button
+                type="button"
+                style={{
+                  ...styles.pauseButton,
+                  ...(debugPaused ? styles.pauseButtonActive : {}),
+                }}
+                onClick={() => setDebugPaused((current) => !current)}
+              >
+                {debugPaused ? "Продолжить" : "Пауза"}
+              </button>
+            ) : null}
 
             {mode === "pvp" && battle.status === "active" ? (
               <button
@@ -3566,9 +3727,11 @@ function renderEnemyDeckWithTimer() {
               </button>
             ) : null}
 
-            <button style={styles.secondaryButton} onClick={reset}>
-              Новый бой
-            </button>
+            {!tutorialActive ? (
+              <button style={styles.secondaryButton} onClick={reset}>
+                Новый бой
+              </button>
+            ) : null}
 
             {mode !== "pvp" ? (
               <button
@@ -3605,12 +3768,23 @@ function renderEnemyDeckWithTimer() {
                 const isHiddenSpawningCard = hiddenSpawningCardIds.has(
                   cardInstance.instanceId
                 );
+                const tutorialCardHighlighted = Boolean(
+                  tutorialHighlights?.handCardIds?.includes(card.id)
+                );
+                const tutorialCardBlocked = Boolean(
+                  tutorialHighlights && !tutorialCardHighlighted
+                );
 
                 return (
                   <motion.button
                     key={cardInstance.instanceId}
                     ref={setHandCardRef(humanPlayerId, cardInstance.instanceId)}
                     layout="position"
+                    className={
+                      tutorialCardHighlighted
+                        ? "tutorial-highlight-pulse"
+                        : undefined
+                    }
                     style={{
                       ...styles.card,
                       marginLeft: getPlayerHandCardMarginLeft(
@@ -3619,9 +3793,15 @@ function renderEnemyDeckWithTimer() {
                       ),
                       zIndex: selected ? 120 : index + 1,
                       pointerEvents:
-                        isHiddenDrawnCard || isHiddenSpawningCard
+                        isHiddenDrawnCard ||
+                        isHiddenSpawningCard ||
+                        tutorialCardBlocked
                           ? "none"
                           : "auto",
+                      ...(tutorialCardHighlighted
+                        ? styles.tutorialHighlight
+                        : {}),
+                      ...(tutorialCardBlocked ? styles.tutorialDimmedBoard : {}),
                     }}
                     initial={{ opacity: 0, y: 16 }}
                     animate={{
@@ -3747,16 +3927,40 @@ function renderEnemyDeckWithTimer() {
         )}
       </AnimatePresence>
 
-      {(battle.status === "player_won" || battle.status === "bot_won") && (
-  <ResultScreen
-    battle={battle}
-    onRestart={handleResultRestart}
-    localPlayerId={humanPlayerId}
-    matchEndReason={mode === "pvp" ? matchEndReason : null}
-    restartLabel={resultRestartLabel}
-    reward={battleReward}
-  />
-)}
+      {tutorialActive && battle.status === "active" && tutorialStep ? (
+        <TutorialOverlay
+          kind={tutorialStep.kind}
+          text={tutorialStep.text}
+          visible={battle.activePlayer === "player" && !startRollState.visible}
+          onNext={advanceTutorialStep}
+        />
+      ) : null}
+
+      {tutorialActive &&
+      battle.status === "player_won" &&
+      !tutorialEpilogueSeen ? (
+        <TutorialOverlay
+          kind="dialogue"
+          text={TUTORIAL_EPILOGUE_TEXT}
+          visible
+          onNext={completeTutorialEpilogue}
+          nextLabel="К наградам"
+        />
+      ) : null}
+
+      {(battle.status === "player_won" || battle.status === "bot_won") &&
+        (!tutorialActive ||
+          battle.status === "bot_won" ||
+          tutorialEpilogueSeen) && (
+          <ResultScreen
+            battle={battle}
+            onRestart={handleResultRestart}
+            localPlayerId={humanPlayerId}
+            matchEndReason={mode === "pvp" ? matchEndReason : null}
+            restartLabel={resultRestartLabel}
+            reward={battleReward}
+          />
+        )}
     </div>
   );
 }
@@ -4300,6 +4504,23 @@ actionSideColumn: {
 
   targetCell: {
     zIndex: 7,
+  },
+
+  // Tutorial: the element the player must interact with on the current step.
+  tutorialHighlight: {
+    boxShadow:
+      "0 0 0 3px rgba(247, 215, 116, 0.9), 0 0 22px rgba(247, 215, 116, 0.5)",
+  },
+
+  // Tutorial: board elements outside the current step are dimmed.
+  tutorialDimmedBoard: {
+    filter: "brightness(0.5) saturate(0.6)",
+  },
+
+  // Tutorial: controls outside the current step (still clickable as fallback).
+  tutorialDimmedControl: {
+    opacity: 0.35,
+    filter: "grayscale(0.5)",
   },
 
   playerZone: {

@@ -36,6 +36,8 @@ export type CreateBattleOptions = {
   playerDeckCardIds?: string[];
   botDeckCardIds?: string[];
   backgroundId?: BattleBackgroundId;
+  /** Set to false for scripted battles (tutorial) that need deterministic draws. */
+  shuffleDecks?: boolean;
 };
 
 const DECK_CARD_IDS: Record<string, string[]> = {
@@ -65,7 +67,6 @@ const DECK_CARD_IDS: Record<string, string[]> = {
   trainingslager_default: [
     "pzkpfw_i_ausf_a",
     "pzkpfw_i_ausf_a",
-    "pzkpfw_i_ausf_a",
     "pzkpfw_i_ausf_b",
     "pzkpfw_i_ausf_b",
     "pzkpfw_i_ausf_b",
@@ -77,9 +78,10 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "pzkpfw_ii_ausf_d",
     "pzkpfw_ii_ausf_d",
     "pzbef_i",
-    "pzbef_i",
     "panzer_35t",
     "panzer_35t",
+    "panzer_35t",
+    "leig_18",
     "leig_18",
     "mercedes_g3a",
     "adler_type_10_n",
@@ -88,7 +90,6 @@ const DECK_CARD_IDS: Record<string, string[]> = {
   training_camp_default: [
     "m1_combat_car",
     "m1_combat_car",
-    "m1_combat_car",
     "m2_light_tank",
     "m2_light_tank",
     "m2_light_tank",
@@ -96,6 +97,7 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "m3_stuart",
     "m3_stuart",
     "m3_stuart",
+    "m2_medium_tank",
     "m2_medium_tank",
     "m2_medium_tank",
     "m3_lee",
@@ -984,16 +986,19 @@ function createPlayerState(
   owner: PlayerId,
   headquartersId: HeadquartersId,
   deckId?: string,
-  customDeckCardIds?: string[]
+  customDeckCardIds?: string[],
+  shuffleDecks = true
 ): PlayerState {
   const headquarters = getHeadquartersDefinition(headquartersId);
   const resolvedDeckId = deckId ?? headquarters.defaultDeckId;
-  const deckCardIds = resolveDeckCardIds(
-    owner,
-    resolvedDeckId,
-    customDeckCardIds
-  );
-  const deck = shuffleCards(createCardInstances(deckCardIds, owner));
+  // Scripted battles (shuffleDecks === false) use their deck list verbatim:
+  // they are authored by the game, not loaded from player storage.
+  const deckCardIds =
+    !shuffleDecks && customDeckCardIds
+      ? normalizeDeckCardIds(customDeckCardIds, `${owner}_scripted`)
+      : resolveDeckCardIds(owner, resolvedDeckId, customDeckCardIds);
+  const cardInstances = createCardInstances(deckCardIds, owner);
+  const deck = shuffleDecks ? shuffleCards(cardInstances) : cardInstances;
 
   return {
     headquartersId,
@@ -1054,13 +1059,15 @@ export function createInitialBattleState(
       "player",
       playerHeadquartersId,
       options.playerDeckId,
-      options.playerDeckCardIds
+      options.playerDeckCardIds,
+      options.shuffleDecks ?? true
     ),
     bot: createPlayerState(
       "bot",
       botHeadquartersId,
       options.botDeckId,
-      options.botDeckCardIds
+      options.botDeckCardIds,
+      options.shuffleDecks ?? true
     ),
 
     headquarters: {
@@ -1082,6 +1089,7 @@ export function createInitialBattleState(
         heavy: 0,
         td: 0,
         spg: 0,
+        support: 0,
       },
       destroyedByBot: {
         light: 0,
@@ -1089,6 +1097,7 @@ export function createInitialBattleState(
         heavy: 0,
         td: 0,
         spg: 0,
+        support: 0,
       },
     },
 

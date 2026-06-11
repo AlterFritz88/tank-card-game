@@ -1,0 +1,198 @@
+import type { CSSProperties } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import eduAvatarImage from "../assets/headquarters/avatars/edu_avatar.png";
+import buttonImage from "../assets/button.png";
+
+type TutorialOverlayProps = {
+  /** Dialogue blocks the battle and shows the «Далее» button. */
+  kind: "dialogue" | "task";
+  text: string;
+  visible: boolean;
+  onNext?: () => void;
+  nextLabel?: string;
+};
+
+export function TutorialOverlay({
+  kind,
+  text,
+  visible,
+  onNext,
+  nextLabel = "Далее",
+}: TutorialOverlayProps) {
+  return (
+    <AnimatePresence>
+      {visible ? (
+        kind === "dialogue" ? (
+          <motion.div
+            key="tutorial-dialogue"
+            style={styles.dialogueLayer}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22 }}
+          >
+            <motion.div
+              style={styles.dialoguePanel}
+              initial={{ y: 26, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 18, opacity: 0 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+            >
+              <img
+                src={eduAvatarImage}
+                alt=""
+                draggable={false}
+                style={styles.dialogueAvatar}
+              />
+              <div style={styles.dialogueBody}>
+                <div style={styles.speakerName}>Инструктор</div>
+                <p style={styles.dialogueText}>{text}</p>
+                <button type="button" style={styles.nextButton} onClick={onNext}>
+                  {nextLabel}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="tutorial-task"
+            style={styles.taskBanner}
+            initial={{ opacity: 0, x: "-50%", y: -10 }}
+            animate={{ opacity: 1, x: "-50%", y: 0 }}
+            exit={{ opacity: 0, x: "-50%", y: -8 }}
+            transition={{ duration: 0.2 }}
+          >
+            <img
+              src={eduAvatarImage}
+              alt=""
+              draggable={false}
+              style={styles.taskAvatar}
+            />
+            <span style={styles.taskText}>{text}</span>
+          </motion.div>
+        )
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
+const styles: Record<string, CSSProperties> = {
+  dialogueLayer: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 2600,
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    padding: "0 24px 36px",
+    background:
+      "linear-gradient(180deg, rgba(0,0,0,0.18), rgba(0,0,0,0.55) 78%)",
+    // The layer itself must not swallow board clicks (especially while the
+    // exit animation is still playing); only the panel is interactive.
+    pointerEvents: "none",
+  },
+
+  dialoguePanel: {
+    display: "flex",
+    alignItems: "flex-end",
+    gap: 18,
+    width: "min(760px, calc(100vw - 48px))",
+    pointerEvents: "auto",
+  },
+
+  dialogueAvatar: {
+    width: 168,
+    height: 196,
+    flex: "0 0 auto",
+    objectFit: "contain",
+    objectPosition: "center bottom",
+    filter: "drop-shadow(0 14px 22px rgba(0,0,0,0.7))",
+    // Bottom fade, same as the battle headquarters avatars.
+    WebkitMaskImage:
+      "linear-gradient(180deg, #000 0%, #000 78%, rgba(0,0,0,0.58) 91%, transparent 100%)",
+    maskImage:
+      "linear-gradient(180deg, #000 0%, #000 78%, rgba(0,0,0,0.58) 91%, transparent 100%)",
+  },
+
+  dialogueBody: {
+    position: "relative",
+    flex: "1 1 auto",
+    padding: "16px 18px 14px",
+    border: "1px solid rgba(213, 178, 102, 0.45)",
+    background:
+      "linear-gradient(180deg, rgba(26, 28, 23, 0.97), rgba(10, 12, 10, 0.97))",
+    boxShadow: "0 18px 40px rgba(0,0,0,0.65)",
+    color: "#ece2c8",
+    fontFamily: "var(--font-body)",
+  },
+
+  speakerName: {
+    marginBottom: 6,
+    color: "#e9c878",
+    fontSize: 11,
+    fontWeight: 1000,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+  },
+
+  dialogueText: {
+    margin: 0,
+    fontSize: 15,
+    lineHeight: 1.45,
+  },
+
+  nextButton: {
+    display: "block",
+    width: 150,
+    height: 38,
+    margin: "14px 0 0 auto",
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    backgroundImage: `url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    color: "#fff0bd",
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 900,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    textShadow: "0 2px 2px #000",
+  },
+
+  taskBanner: {
+    position: "fixed",
+    left: "50%",
+    top: 14,
+    zIndex: 2500,
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    maxWidth: "min(640px, calc(100vw - 200px))",
+    padding: "8px 16px 8px 8px",
+    border: "1px solid rgba(213, 178, 102, 0.45)",
+    background:
+      "linear-gradient(180deg, rgba(26, 28, 23, 0.96), rgba(10, 12, 10, 0.96))",
+    boxShadow: "0 12px 28px rgba(0,0,0,0.6)",
+    color: "#ece2c8",
+    fontFamily: "var(--font-body)",
+    pointerEvents: "none",
+  },
+
+  taskAvatar: {
+    width: 46,
+    height: 46,
+    flex: "0 0 auto",
+    objectFit: "cover",
+    objectPosition: "center top",
+    border: "1px solid rgba(213, 178, 102, 0.4)",
+  },
+
+  taskText: {
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1.35,
+  },
+};
