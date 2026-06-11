@@ -20,6 +20,14 @@ export const STEP_TIME_MS = 15 * 1000;
 const TRAINING_DECK_CARD_LIMIT = 20;
 const DEFAULT_DECK_CARD_LIMIT = 40;
 
+/**
+ * Minimum number of valid cards a custom deck must contain to be playable.
+ * A deck below this size (corrupted localStorage, cards removed from the
+ * collection, hand-edited save) would start the battle in a degraded state,
+ * so we fall back to the headquarters default deck instead.
+ */
+const MIN_PLAYABLE_DECK_CARD_COUNT = 20;
+
 export type CreateBattleOptions = {
   playerHeadquartersId?: HeadquartersId;
   botHeadquartersId?: HeadquartersId;
@@ -941,6 +949,37 @@ function shuffleCards<T>(items: T[]): T[] {
   return result;
 }
 
+/**
+ * Picks the card list a player will battle with, guarding against custom decks
+ * that are too small to be playable. Invalid custom decks fall back to the
+ * headquarters default deck so a battle never starts in a degraded state.
+ */
+function resolveDeckCardIds(
+  owner: PlayerId,
+  resolvedDeckId: string,
+  customDeckCardIds?: string[]
+): string[] {
+  if (!customDeckCardIds) {
+    return getDeckCardIds(resolvedDeckId);
+  }
+
+  const validCustomCardIds = normalizeDeckCardIds(
+    customDeckCardIds,
+    `${owner}_custom`
+  );
+
+  if (validCustomCardIds.length >= MIN_PLAYABLE_DECK_CARD_COUNT) {
+    return validCustomCardIds;
+  }
+
+  console.warn(
+    `[deck:${owner}_custom] custom deck has only ${validCustomCardIds.length} valid cards ` +
+      `(min ${MIN_PLAYABLE_DECK_CARD_COUNT}); falling back to default deck "${resolvedDeckId}".`
+  );
+
+  return getDeckCardIds(resolvedDeckId);
+}
+
 function createPlayerState(
   owner: PlayerId,
   headquartersId: HeadquartersId,
@@ -949,7 +988,11 @@ function createPlayerState(
 ): PlayerState {
   const headquarters = getHeadquartersDefinition(headquartersId);
   const resolvedDeckId = deckId ?? headquarters.defaultDeckId;
-  const deckCardIds = customDeckCardIds ?? getDeckCardIds(resolvedDeckId);
+  const deckCardIds = resolveDeckCardIds(
+    owner,
+    resolvedDeckId,
+    customDeckCardIds
+  );
   const deck = shuffleCards(createCardInstances(deckCardIds, owner));
 
   return {

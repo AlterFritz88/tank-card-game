@@ -1,9 +1,12 @@
 import { getCard } from "./cards";
+import { getHeadquartersAbility } from "./headquarters";
 import type {
   AttackAction,
   BattleAction,
   BattleState,
   BoardUnit,
+  HeadquartersAbility,
+  HeadquartersAbilityTracking,
   PlayerId,
   Position,
   SupportSlot,
@@ -178,6 +181,46 @@ function recordDestroyedUnit(
   stats[card.class] += 1;
 }
 
+function getAbility(
+  state: BattleState,
+  playerId: PlayerId
+): HeadquartersAbility | null {
+  return getHeadquartersAbility(state[playerId].headquartersId);
+}
+
+function getAbilityTracking(
+  state: BattleState,
+  playerId: PlayerId
+): HeadquartersAbilityTracking {
+  const player = state[playerId];
+
+  if (!player.abilityTracking) {
+    player.abilityTracking = {
+      unitsPlayedThisTurn: 0,
+      tanksPlayedThisTurn: 0,
+      lightUnitsPlayedThisTurn: 0,
+      destroyedUnitReturnedThisBattle: false,
+    };
+  }
+
+  return player.abilityTracking;
+}
+
+function resetAbilityTurnCounters(state: BattleState, playerId: PlayerId) {
+  const tracking = getAbilityTracking(state, playerId);
+
+  tracking.unitsPlayedThisTurn = 0;
+  tracking.tanksPlayedThisTurn = 0;
+  tracking.lightUnitsPlayedThisTurn = 0;
+}
+
+function isTankClassCard(card: TankCard): boolean {
+  return (
+    card.deploymentZone !== "support" &&
+    (card.class === "light" || card.class === "medium" || card.class === "heavy")
+  );
+}
+
 function calculateFuelGeneration(
   state: BattleState,
   playerId: PlayerId
@@ -195,7 +238,23 @@ function calculateFuelGeneration(
       return total + generatedFuel;
     }, 0);
 
-  return headquartersFuel + unitsFuel;
+  // Combined Arms: extra fuel while controlling both a tank and a support unit.
+  const ability = getAbility(state, playerId);
+  let abilityFuel = 0;
+
+  if (ability?.combinedArmsFuelBonus) {
+    const ownUnits = state.units.filter((unit) => unit.ownerId === playerId);
+    const hasTank = ownUnits.some(
+      (unit) => isBattlefieldUnit(unit) && isTankClassCard(getCard(unit.cardId))
+    );
+    const hasSupport = ownUnits.some((unit) => isSupportUnit(unit));
+
+    if (hasTank && hasSupport) {
+      abilityFuel = ability.combinedArmsFuelBonus;
+    }
+  }
+
+  return headquartersFuel + unitsFuel + abilityFuel;
 }
 
 function getSupportUnits(state: BattleState, playerId: PlayerId): BoardUnit[] {
@@ -245,6 +304,49 @@ function applySupportTurnEffects(state: BattleState, playerId: PlayerId) {
           target.currentHp + effects.healRandomUnitPerTurn
         );
       }
+    }
+  }
+}
+
+function applyHeadquartersTurnAbility(state: BattleState, playerId: PlayerId) {
+  const ability = getAbility(state, playerId);
+
+  if (!ability) return;
+
+  if (ability.drawEveryTurns && state.turn % ability.drawEveryTurns === 0) {
+    const drawnCount = drawCardsWithEmptyDeckPenalty(state, playerId, 1);
+
+    if (drawnCount > 0) {
+      addLog(
+        state,
+        `${ability.name}: ${getPlayerLabel(playerId).toLowerCase()} добирает дополнительную карту.`
+      );
+    }
+
+    if (state.status !== "active") return;
+  }
+
+  if (ability.healRandomUnitPerTurn) {
+    const damagedUnits = state.units.filter((unit) => {
+      if (unit.ownerId !== playerId || !isBattlefieldUnit(unit)) return false;
+
+      return unit.currentHp < getCard(unit.cardId).hp;
+    });
+    const target =
+      damagedUnits[Math.floor(Math.random() * damagedUnits.length)];
+
+    if (target) {
+      const targetCard = getCard(target.cardId);
+
+      target.currentHp = Math.min(
+        targetCard.hp,
+        target.currentHp + ability.healRandomUnitPerTurn
+      );
+
+      addLog(
+        state,
+        `${ability.name}: ${targetCard.name} восстанавливает ${ability.healRandomUnitPerTurn} прочности.`
+      );
     }
   }
 }
@@ -398,6 +500,9 @@ function beginBattle(
     state.timers[owner].actedThisStep = false;
 
     state.headquarters[owner].alreadyAttacked = false;
+
+    resetAbilityTurnCounters(state, owner);
+    getAbilityTracking(state, owner).destroyedUnitReturnedThisBattle = false;
   }
 
   for (const unit of state.units) {
@@ -478,6 +583,14 @@ function startTurn(state: BattleState, playerId: PlayerId) {
     return;
   }
 
+  applyHeadquartersTurnAbility(state, playerId);
+
+  if (state.status !== "active") {
+    return;
+  }
+
+  resetAbilityTurnCounters(state, playerId);
+
   for (const unit of state.units) {
     unit.tdAmbushUsedThisTurn = false;
 
@@ -512,7 +625,17 @@ function playCard(
   const card = getCard(cardInHand.cardId);
   if (card.deploymentZone === "support") return;
 
-  if (!spendFuel(state, action.playerId, card.cost, "размещение юнита")) {
+  const ability = getAbility(state, action.playerId);
+  const tracking = getAbilityTracking(state, action.playerId);
+
+  // Motorized march: the first unit played each turn costs less fuel.
+  const fuelDiscount =
+    ability?.firstUnitFuelDiscount && tracking.unitsPlayedThisTurn === 0
+      ? ability.firstUnitFuelDiscount
+      : 0;
+  const fuelCost = Math.max(0, card.cost - fuelDiscount);
+
+  if (!spendFuel(state, action.playerId, fuelCost, "размещение юнита")) {
     return;
   }
 
@@ -521,7 +644,14 @@ function playCard(
   );
 
   const isLightTank = card.class === "light";
-  const hasBlitz = card.combatAbilities?.blitz === true;
+
+  // Headquarters abilities can grant blitz on top of the card's own ability.
+  const abilityBlitz =
+    (ability?.firstTankBlitz === true &&
+      tracking.tanksPlayedThisTurn === 0 &&
+      isTankClassCard(card)) ||
+    (ability?.lightUnitsBlitz === true && isLightTank);
+  const hasBlitz = card.combatAbilities?.blitz === true || abilityBlitz;
   const canActAfterSpawn = isLightTank || hasBlitz;
 
   const unit: BoardUnit = {
@@ -569,13 +699,39 @@ function playCard(
     }
   }
 
+  // Armored escort: the first light unit each turn reinforces the headquarters.
+  if (
+    ability?.firstLightUnitHqProtection &&
+    isLightTank &&
+    tracking.lightUnitsPlayedThisTurn === 0
+  ) {
+    state.headquarters[action.playerId].hp += ability.firstLightUnitHqProtection;
+
+    addLog(
+      state,
+      `${ability.name}: штаб укреплён на +${ability.firstLightUnitHqProtection}.`
+    );
+  }
+
+  if (fuelDiscount > 0) {
+    addLog(state, `${ability?.name}: скидка ${fuelDiscount} топлива.`);
+  }
+
+  if (abilityBlitz && card.combatAbilities?.blitz !== true) {
+    addLog(state, `${ability?.name}: ${card.name} получает «Блиц».`);
+  }
+
+  tracking.unitsPlayedThisTurn += 1;
+  if (isTankClassCard(card)) tracking.tanksPlayedThisTurn += 1;
+  if (isLightTank) tracking.lightUnitsPlayedThisTurn += 1;
+
   markSuccessfulAction(state, action.playerId);
 
   addLog(
     state,
     `${action.playerId === "player" ? "Игрок" : "Бот"} размещает ${
       card.name
-    } за ${card.cost} топлива на [${action.position.row},${
+    } за ${fuelCost} топлива на [${action.position.row},${
       action.position.col
     }].`
   );
@@ -600,9 +756,24 @@ function playSupportCard(
   const card = getCard(cardInHand.cardId);
 
   if (card.deploymentZone !== "support" || !card.supportRole) return;
-  if (!spendFuel(state, action.playerId, card.cost, "support deployment")) {
+
+  const ability = getAbility(state, action.playerId);
+  const tracking = getAbilityTracking(state, action.playerId);
+  const fuelDiscount =
+    ability?.firstUnitFuelDiscount && tracking.unitsPlayedThisTurn === 0
+      ? ability.firstUnitFuelDiscount
+      : 0;
+  const fuelCost = Math.max(0, card.cost - fuelDiscount);
+
+  if (!spendFuel(state, action.playerId, fuelCost, "support deployment")) {
     return;
   }
+
+  if (fuelDiscount > 0) {
+    addLog(state, `${ability?.name}: скидка ${fuelDiscount} топлива.`);
+  }
+
+  tracking.unitsPlayedThisTurn += 1;
 
   player.hand = player.hand.filter(
     (item) => item.instanceId !== action.cardInstanceId
@@ -665,8 +836,60 @@ export function getHeadquartersAttackValue(
       total + (getCard(unit.cardId).supportEffects?.hqAttackBonus ?? 0),
     0
   );
+  const abilityBonus = getAbility(state, ownerId)?.hqAttackBonus ?? 0;
 
-  return state.headquarters[ownerId].attack + supportBonus;
+  return state.headquarters[ownerId].attack + supportBonus + abilityBonus;
+}
+
+/**
+ * Tank ambush: own tanks that have not moved this turn strike harder. For the
+ * defender the flag reflects its owner's previous turn, which matches the
+ * "dug-in tank" flavor of the ability.
+ */
+function getStationaryTankAttackBonus(
+  state: BattleState,
+  unit: BoardUnit
+): number {
+  const ability = getAbility(state, unit.ownerId);
+
+  if (!ability?.stationaryTankAttackBonus) return 0;
+  if (!isBattlefieldUnit(unit)) return 0;
+  if (!isTankClassCard(getCard(unit.cardId))) return 0;
+  if (unit.moveCountThisTurn > 0) return 0;
+
+  return ability.stationaryTankAttackBonus;
+}
+
+function getUnitCombatBonuses(
+  state: BattleState,
+  attacker: BoardUnit,
+  target: BoardUnit
+) {
+  return {
+    attackerAttackBonus: getStationaryTankAttackBonus(state, attacker),
+    targetAttackBonus: getStationaryTankAttackBonus(state, target),
+  };
+}
+
+/** Extra headquarters damage against an already damaged enemy unit. */
+function getHeadquartersBonusVsDamagedUnit(
+  state: BattleState,
+  attackerOwnerId: PlayerId,
+  target: BoardUnit
+): number {
+  const ability = getAbility(state, attackerOwnerId);
+
+  if (!ability?.hqAttackBonusVsDamaged) return 0;
+  if (target.currentHp >= getCard(target.cardId).hp) return 0;
+
+  return ability.hqAttackBonusVsDamaged;
+}
+
+function headquartersAttackIgnoresCover(
+  state: BattleState,
+  attackerOwnerId: PlayerId
+): boolean {
+  return getAbility(state, attackerOwnerId)?.hqAttackIgnoresCover === true;
 }
 
 function canUnitAttackTarget(
@@ -732,32 +955,42 @@ function getCombatObjectId(
   return "cardId" in object ? object.instanceId : `${object.ownerId}_hq`;
 }
 
+export type UnitCombatBonuses = {
+  /** Extra damage added to the attacker's strike. */
+  attackerAttackBonus?: number;
+  /** Extra damage added to the target's counterattack. */
+  targetAttackBonus?: number;
+};
+
 export function getUnitCombatPreview(
   attacker: BoardUnit,
-  target: BoardUnit
+  target: BoardUnit,
+  bonuses: UnitCombatBonuses = {}
 ): UnitCombatPreview {
   const attackerCard = getCard(attacker.cardId);
   const targetCard = getCard(target.cardId);
   const strikes: AttackAnimationStrike[] = [];
+  const attackerDamage = attackerCard.attack + (bonuses.attackerAttackBonus ?? 0);
+  const targetDamage = targetCard.attack + (bonuses.targetAttackBonus ?? 0);
   let attackerHpAfter = attacker.currentHp;
   let targetHpAfter = target.currentHp;
   let tdAmbushTriggered = false;
 
   const attackTarget = () => {
-    targetHpAfter -= attackerCard.attack;
+    targetHpAfter -= attackerDamage;
     strikes.push({
       sourceId: attacker.instanceId,
       targetId: target.instanceId,
-      damage: attackerCard.attack,
+      damage: attackerDamage,
     });
   };
 
   const counterAttack = () => {
-    attackerHpAfter -= targetCard.attack;
+    attackerHpAfter -= targetDamage;
     strikes.push({
       sourceId: target.instanceId,
       targetId: attacker.instanceId,
-      damage: targetCard.attack,
+      damage: targetDamage,
     });
   };
 
@@ -859,18 +1092,23 @@ export function getAttackAnimationSequence(
   if (!canAttackTarget(state, attacker, target)) return [];
 
   if ("cardId" in attacker && "cardId" in target) {
-    return getUnitCombatPreview(attacker, target).strikes;
+    return getUnitCombatPreview(
+      attacker,
+      target,
+      getUnitCombatBonuses(state, attacker, target)
+    ).strikes;
   }
 
   const sourceId = getCombatObjectId(attacker);
   const attackValue = getAttackValue(state, attacker);
+  const attackerIsHeadquarters = !("cardId" in attacker);
 
   if (!("cardId" in target)) {
-    const distribution = getHeadquartersDamageDistribution(
-      state,
-      target.ownerId,
-      attackValue
-    );
+    const distribution =
+      attackerIsHeadquarters &&
+      headquartersAttackIgnoresCover(state, attacker.ownerId)
+        ? { redirected: [], headquartersDamage: attackValue }
+        : getHeadquartersDamageDistribution(state, target.ownerId, attackValue);
 
     return [
       ...distribution.redirected.map(({ unit, damage }) => ({
@@ -894,7 +1132,11 @@ export function getAttackAnimationSequence(
     {
       sourceId,
       targetId: getCombatObjectId(target),
-      damage: attackValue,
+      damage:
+        attackValue +
+        (attackerIsHeadquarters
+          ? getHeadquartersBonusVsDamagedUnit(state, attacker.ownerId, target)
+          : 0),
     },
   ];
 }
@@ -915,12 +1157,32 @@ function destroyUnit(
     (item) => item.instanceId !== unit.instanceId
   );
 
+  addLog(state, `${card.name} ${reason}`);
+
+  // Recovery and repair: once per battle the first destroyed own unit is
+  // returned to its owner's hand instead of the discard pile.
+  const ability = getAbility(state, unit.ownerId);
+  const tracking = getAbilityTracking(state, unit.ownerId);
+
+  if (
+    ability?.returnFirstDestroyedUnit &&
+    !tracking.destroyedUnitReturnedThisBattle
+  ) {
+    tracking.destroyedUnitReturnedThisBattle = true;
+
+    state[unit.ownerId].hand.push({
+      instanceId: unit.instanceId,
+      cardId: unit.cardId,
+    });
+
+    addLog(state, `${ability.name}: ${card.name} возвращается в руку.`);
+    return;
+  }
+
   state[unit.ownerId].discard.push({
     instanceId: unit.instanceId,
     cardId: unit.cardId,
   });
-
-  addLog(state, `${card.name} ${reason}`);
 }
 
 function attack(state: BattleState, action: AttackAction) {
@@ -949,7 +1211,15 @@ function attack(state: BattleState, action: AttackAction) {
 
   if (targetIsUnit) {
     if (attackerIsUnit && attackerCard && targetCard) {
-      const preview = getUnitCombatPreview(attacker, target);
+      const combatBonuses = getUnitCombatBonuses(state, attacker, target);
+      const preview = getUnitCombatPreview(attacker, target, combatBonuses);
+
+      if (combatBonuses.attackerAttackBonus > 0) {
+        addLog(
+          state,
+          `${getAbility(state, attacker.ownerId)?.name}: ${attackerCard.name} бьёт с позиции (+${combatBonuses.attackerAttackBonus} к атаке).`
+        );
+      }
 
       attacker.currentHp = preview.attackerHpAfter;
       target.currentHp = preview.targetHpAfter;
@@ -983,11 +1253,25 @@ function attack(state: BattleState, action: AttackAction) {
         );
       }
     } else {
-      target.currentHp -= attackValue;
+      const damagedBonus = getHeadquartersBonusVsDamagedUnit(
+        state,
+        action.playerId,
+        target
+      );
+      const totalDamage = attackValue + damagedBonus;
+
+      target.currentHp -= totalDamage;
+
+      if (damagedBonus > 0) {
+        addLog(
+          state,
+          `${getAbility(state, action.playerId)?.name}: +${damagedBonus} урона по повреждённой технике.`
+        );
+      }
 
       addLog(
         state,
-        `${attackerName} атакует ${targetName} и наносит ${attackValue} урона.`
+        `${attackerName} атакует ${targetName} и наносит ${totalDamage} урона.`
       );
     }
 
@@ -1004,11 +1288,25 @@ function attack(state: BattleState, action: AttackAction) {
       );
     }
   } else {
-    const distribution = getHeadquartersDamageDistribution(
+    const normalDistribution = getHeadquartersDamageDistribution(
       state,
       target.ownerId,
       attackValue
     );
+    const ignoresCover =
+      !attackerIsUnit &&
+      headquartersAttackIgnoresCover(state, action.playerId) &&
+      normalDistribution.redirected.length > 0;
+    const distribution: HeadquartersDamageDistribution = ignoresCover
+      ? { redirected: [], headquartersDamage: attackValue }
+      : normalDistribution;
+
+    if (ignoresCover) {
+      addLog(
+        state,
+        `${getAbility(state, action.playerId)?.name}: удар штаба нельзя перехватить.`
+      );
+    }
 
     for (const { unit, damage } of distribution.redirected) {
       unit.currentHp -= damage;
@@ -1033,6 +1331,11 @@ function attack(state: BattleState, action: AttackAction) {
   }
 
   attacker.alreadyAttacked = true;
+
+  // Heavy tanks either move or attack in a turn, never both.
+  if (attackerIsUnit && attackerCard?.class === "heavy") {
+    attacker.alreadyMoved = true;
+  }
 
   if (state.status === "active") {
     markSuccessfulAction(state, action.playerId);
@@ -1162,6 +1465,11 @@ function moveUnit(
     unit.alreadyMoved = true;
     unit.spawnedThisTurn = false;
     unit.moveCountThisTurn = 1;
+  }
+
+  // Heavy tanks either move or attack in a turn, never both.
+  if (card.class === "heavy") {
+    unit.alreadyAttacked = true;
   }
 
   markSuccessfulAction(state, action.playerId);

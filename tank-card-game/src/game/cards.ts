@@ -33,7 +33,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 1,
     abilityText:
-      "Тяжелый танк. Генерирует 2 топлива. Высокая живучесть, дорогие действия.",
+      "Тяжелый танк. Генерирует 2 топлива. Высокая живучесть. За ход — либо движение, либо атака.",
   },
   {
     id: "su76",
@@ -278,7 +278,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 1,
     abilityText:
-      "Тяжёлый многобашенный танк",
+      "Тяжёлый многобашенный танк. За ход — либо движение, либо атака.",
   },
   {
     id: "t46_1",
@@ -432,7 +432,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 1,
     abilityText:
-      "Тяжелый танк. Генерирует 2 топлива. Мощная атака, высокая стоимость действий.",
+      "Тяжелый танк. Генерирует 2 топлива. Мощная атака. За ход — либо движение, либо атака.",
   },
   {
     id: "stug_iii",
@@ -634,7 +634,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 1,
     abilityText:
-      "Тяжелый танк. Генерирует 2 топлива. Очень крепкая броня, но дорогие действия.",
+      "Тяжелый танк. Генерирует 2 топлива. Очень крепкая броня. За ход — либо движение, либо атака.",
   },
   {
     id: "marder_iii",
@@ -992,7 +992,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 3,
     initiative: 1,
-    abilityText: "Бронепоезд. Тяжёлая огневая платформа с высокой живучестью и снабжением.",
+    abilityText: "Бронепоезд. Тяжёлая огневая платформа с высокой живучестью и снабжением. За ход — либо движение, либо атака.",
   },
   {
     id: "pociag_pancerny_smialy",
@@ -1008,7 +1008,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 2,
     initiative: 1,
-    abilityText: "Бронепоезд. Мощная ударная платформа для последнего рубежа обороны.",
+    abilityText: "Бронепоезд. Мощная ударная платформа для последнего рубежа обороны. За ход — либо движение, либо атака.",
   },
 
   // === 1. Panzer-Division — ранние немецкие машины (Польша 1939) ===
@@ -1316,7 +1316,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 0,
     initiative: 2,
-    abilityText: "",
+    abilityText: "Тяжёлый прототип. За ход — либо движение, либо атака.",
   },
   {
     id: "grosstraktor",
@@ -1332,7 +1332,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 1,
     initiative: 1,
-    abilityText: "",
+    abilityText: "Тяжёлый прототип. За ход — либо движение, либо атака.",
   },
   // === Поддержка — Польша 1939 (конкретная техника, а не колонны) ===
   {

@@ -1,4 +1,4 @@
-import type { HeadquartersId, Nation } from "./types";
+import type { HeadquartersAbility, HeadquartersId, Nation } from "./types";
 
 export type HeadquartersDefinition = {
   id: HeadquartersId;
@@ -16,7 +16,17 @@ export type HeadquartersDefinition = {
   level: number;
   defaultDeckId: string;
   availableInMainMenu?: boolean;
+  /** Особая способность штаба, применяется движком боя. */
+  ability?: HeadquartersAbility;
 };
+
+export function getHeadquartersAbility(
+  headquartersId: HeadquartersId | undefined
+): HeadquartersAbility | null {
+  if (!headquartersId) return null;
+
+  return HEADQUARTERS[headquartersId]?.ability ?? null;
+}
 
 export function getMainMenuHeadquarters(): HeadquartersDefinition[] {
   return Object.values(HEADQUARTERS).filter(
@@ -94,7 +104,11 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "Передовое танковое соединение",
     type: "Танковая дивизия",
     description:
-      "Танковый клин: первый танк, выставленный за ход, получает +1 движение.",
+      "Танковый клин: первый танк, разыгранный за ход, получает «Блиц» — может двигаться и атаковать сразу.",
+    ability: {
+      name: "Танковый клин",
+      firstTankBlitz: true,
+    },
     faction: "Wehrmacht",
     nation: "germany",
     hp: 20,
@@ -112,7 +126,11 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "29. Infanterie-Division (motorisiert)",
     type: "Мотопехотный штаб",
     description:
-      "Моторизованный марш: первый юнит за ход стоит на 1 топливо дешевле.",
+      "Моторизованный марш: первый юнит каждого хода стоит на 1 топливо дешевле.",
+    ability: {
+      name: "Моторизованный марш",
+      firstUnitFuelDiscount: 1,
+    },
     faction: "Wehrmacht",
     nation: "germany",
     hp: 19,
@@ -130,7 +148,11 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "45. Infanterie-Division",
     type: "Артиллерийский штаб",
     description:
-      "Артиллерийская подготовка: первый удар штаба за ход наносит +1 урон.",
+      "Артиллерийская подготовка: атака штаба наносит +1 урон.",
+    ability: {
+      name: "Артиллерийская подготовка",
+      hqAttackBonus: 1,
+    },
     faction: "Wehrmacht",
     nation: "germany",
     hp: 18,
@@ -148,7 +170,11 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "XIX. Armeekorps",
     type: "Тыловой штаб",
     description:
-      "Организованный тыл: штаб имеет повышенное здоровье и стабильный прирост топлива.",
+      "Снабжение по графику: каждый третий ход штаб добирает дополнительную карту.",
+    ability: {
+      name: "Снабжение по графику",
+      drawEveryTurns: 3,
+    },
     faction: "Wehrmacht",
     nation: "germany",
     hp: 22,
@@ -166,7 +192,11 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "4-я танковая бригада",
     type: "Танковый штаб",
     description:
-      "Массовый натиск: танковые части получают преимущество в живучести и удержании линии.",
+      "Танковая засада: танки, не двигавшиеся в этом ходу, получают +1 к атаке.",
+    ability: {
+      name: "Танковая засада",
+      stationaryTankAttackBonus: 1,
+    },
     faction: "Красная армия",
     nation: "ussr",
     hp: 22,
@@ -184,7 +214,11 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "1-я Московская мотострелковая дивизия",
     type: "Мотопехотный штаб",
     description:
-      "Быстрая переброска: лёгкие части быстрее занимают ключевые клетки.",
+      "Быстрая переброска: лёгкие юниты входят в бой с «Блицем» — сразу готовы двигаться и атаковать.",
+    ability: {
+      name: "Быстрая переброска",
+      lightUnitsBlitz: true,
+    },
     faction: "Красная армия",
     nation: "ussr",
     hp: 21,
@@ -202,7 +236,11 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "13-й гвардейский миномётный полк",
     type: "Артиллерийский штаб",
     description:
-      "Залп миномётов: артиллерийский штаб сильнее наказывает уже повреждённые цели.",
+      "Залп «Катюш»: атака штаба по уже повреждённой технике наносит +1 урон.",
+    ability: {
+      name: "Залп «Катюш»",
+      hqAttackBonusVsDamaged: 1,
+    },
     faction: "Красная армия",
     nation: "ussr",
     hp: 19,
@@ -220,7 +258,11 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "389-й автомобильный батальон",
     type: "Тыловой штаб",
     description:
-      "Ремонтные колонны: ставка на восстановление техники и долгую игру.",
+      "Ремонтные колонны: в начале хода восстанавливает 1 прочность случайному повреждённому юниту.",
+    ability: {
+      name: "Ремонтные колонны",
+      healRandomUnitPerTurn: 1,
+    },
     faction: "Красная армия",
     nation: "ussr",
     hp: 23,
@@ -238,7 +280,11 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "1st Armored Division",
     type: "Танковый штаб",
     description:
-      "Combined Arms: бронетанковая ветка США делает ставку на сочетание танков и снабжения.",
+      "Combined Arms: пока на поле есть и танк, и юнит поддержки, штаб даёт +1 топлива в ход.",
+    ability: {
+      name: "Combined Arms",
+      combinedArmsFuelBonus: 1,
+    },
     faction: "U.S. Army",
     nation: "usa",
     hp: 20,
@@ -256,7 +302,11 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "6th Armored Infantry Regiment",
     type: "Мотопехотный штаб",
     description:
-      "Motor Pool: высокий прирост топлива поддерживает плотное развёртывание юнитов.",
+      "Бронедесант: первый лёгкий юнит за ход укрепляет штаб на +1 прочности.",
+    ability: {
+      name: "Бронедесант",
+      firstLightUnitHqProtection: 1,
+    },
     faction: "U.S. Army",
     nation: "usa",
     hp: 19,
@@ -274,7 +324,11 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "27th Armored Field Artillery Battalion",
     type: "Артиллерийский штаб",
     description:
-      "Fire Mission: артиллерийский штаб эффективнее добивает повреждённые цели.",
+      "Time on Target: атаку штаба нельзя перехватить — прикрывающие юниты не перенаправляют урон.",
+    ability: {
+      name: "Time on Target",
+      hqAttackIgnoresCover: true,
+    },
     faction: "U.S. Army",
     nation: "usa",
     hp: 18,
@@ -292,7 +346,11 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "123rd Armored Ordnance Maintenance Battalion",
     type: "Тыловой штаб",
     description:
-      "Field Maintenance: тыловой штаб США силён экономикой и устойчивым снабжением.",
+      "Эвакуация и ремонт: первый уничтоженный за бой свой юнит возвращается в руку.",
+    ability: {
+      name: "Эвакуация и ремонт",
+      returnFirstDestroyedUnit: true,
+    },
     faction: "U.S. Army",
     nation: "usa",
     hp: 21,

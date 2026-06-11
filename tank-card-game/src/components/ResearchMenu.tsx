@@ -1,4 +1,12 @@
-import { useEffect, useState, type CSSProperties, type MouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import buttonImage from "../assets/button.png";
 import cardBackImage from "../assets/cards/card-back.png";
@@ -6,7 +14,7 @@ import experienceIcon from "../assets/icons/expa.png";
 import goldTracksIcon from "../assets/icons/gold_tracks_transparent.png";
 import silverTracksIcon from "../assets/icons/silver-tracks.png";
 import { getNationFlagAsset } from "../assets/nationFlagAssets";
-import { cards } from "../game/cards";
+import { getCardOrNull } from "../game/cards";
 import { getHeadquartersDefinition } from "../game/headquarters";
 import { getHeadquartersImageAsset } from "../game/headquartersImages";
 import {
@@ -52,7 +60,71 @@ type ResearchNodeView = ResearchNode & {
   headquartersXp?: number;
   ownedCopies?: number;
   requiredPreviousTitle?: string;
+  /** Whether the node directly above this one in the branch is already acquired. */
+  incomingPathComplete?: boolean;
 };
+
+type ResearchBranchProgress = {
+  acquired: number;
+  total: number;
+  ratio: number;
+};
+
+type ResearchNodeBadge = {
+  glyph: string;
+  tone: "owned" | "available" | "ready" | "locked" | "planned";
+  label: string;
+};
+
+const NODE_BADGES: Record<ResearchNodeStage, ResearchNodeBadge> = {
+  owned: { glyph: "✓", tone: "owned", label: "В наличии" },
+  researched: { glyph: "₸", tone: "ready", label: "Можно купить" },
+  researchable: { glyph: "!", tone: "available", label: "Доступно для исследования" },
+  locked: { glyph: "🔒", tone: "locked", label: "Закрыто" },
+  planned: { glyph: "⏳", tone: "planned", label: "Скоро" },
+};
+
+function isAcquiredStage(stage: ResearchNodeStage): boolean {
+  return stage === "owned" || stage === "researched";
+}
+
+function getBranchProgress(nodes: ResearchNodeView[]): ResearchBranchProgress {
+  const realNodes = nodes.filter((node) => node.stage !== "planned");
+  const acquired = realNodes.filter((node) => node.stage === "owned").length;
+  const total = realNodes.length;
+
+  return {
+    acquired,
+    total,
+    ratio: total > 0 ? acquired / total : 0,
+  };
+}
+
+/**
+ * Groups branch nodes into tier rows for the non-linear (graph) layout. Returns
+ * null when the branch has no tier information, in which case the caller renders
+ * the classic linear chain.
+ */
+function getBranchTiers(
+  nodes: ResearchNodeView[]
+): ResearchNodeView[][] | null {
+  if (!nodes.some((node) => node.tier !== undefined)) {
+    return null;
+  }
+
+  const tierMap = new Map<number, ResearchNodeView[]>();
+
+  nodes.forEach((node, index) => {
+    const tier = node.tier ?? index;
+    const row = tierMap.get(tier) ?? [];
+    row.push(node);
+    tierMap.set(tier, row);
+  });
+
+  return Array.from(tierMap.entries())
+    .sort(([leftTier], [rightTier]) => leftTier - rightTier)
+    .map(([, row]) => row.sort((left, right) => (left.slot ?? 0) - (right.slot ?? 0)));
+}
 
 type ResearchFeedback = {
   id: number;
@@ -189,6 +261,27 @@ function createNodeView({
   };
 }
 
+function isNodeAcquired(node: ResearchNode, progress: PlayerProgress): boolean {
+  return isNodeOwned(node, progress) || isNodeResearched(node, progress);
+}
+
+/**
+ * Whether a prerequisite node opens the path to its successors. Headquarters
+ * must be researched AND purchased (owned) to act as a gate, so a player has to
+ * actually field the HQ before its branch units unlock. Unit prerequisites only
+ * need to be researched.
+ */
+function isPrerequisiteSatisfied(
+  node: ResearchNode,
+  progress: PlayerProgress
+): boolean {
+  if (node.type === "headquarters") {
+    return isNodeOwned(node, progress);
+  }
+
+  return isNodeAcquired(node, progress);
+}
+
 function createBranchNodeViews({
   nodes,
   progress,
@@ -198,8 +291,45 @@ function createBranchNodeViews({
   progress: PlayerProgress;
   sourceHeadquartersId: HeadquartersId;
 }): ResearchNodeView[] {
+  // A branch is a directed graph when any node declares prerequisites; in that
+  // case gating is driven by `requires`. Otherwise we keep the original linear
+  // "previous node in the list" gating used by the linear trees.
+  const isGraph = nodes.some((node) => node.requires && node.requires.length > 0);
+
+  if (isGraph) {
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+
+    return nodes.map((node) => {
+      const requires = node.requires ?? [];
+      const blocking = requires
+        .map((requiredId) => nodeById.get(requiredId))
+        .find((required) => required && !isPrerequisiteSatisfied(required, progress));
+      const reachable = !blocking;
+
+      const view = createNodeView({
+        node,
+        progress,
+        sourceHeadquartersId,
+        previousComplete: reachable,
+        previousNodeTitle: blocking?.title,
+      });
+
+      // The path into a node is "lit" once every prerequisite is satisfied
+      // (units researched, headquarters purchased).
+      view.incomingPathComplete = requires.every((requiredId) => {
+        const required = nodeById.get(requiredId);
+        return required ? isPrerequisiteSatisfied(required, progress) : true;
+      });
+
+      return view;
+    });
+  }
+
   let previousComplete = true;
   let previousNodeTitle: string | undefined;
+  // The trunk feeding the first node of a branch is always considered laid,
+  // so the path visibly originates from the branch header.
+  let previousAcquired = true;
 
   return nodes.map((node) => {
     const view = createNodeView({
@@ -209,10 +339,14 @@ function createBranchNodeViews({
       previousComplete,
       previousNodeTitle,
     });
+
+    view.incomingPathComplete = previousAcquired;
+
     previousComplete =
       view.stage === "owned" ||
       view.stage === "researched" ||
       node.status === "unlocked";
+    previousAcquired = isAcquiredStage(view.stage);
     previousNodeTitle = node.title;
 
     return view;
@@ -249,9 +383,7 @@ function ResourceBadge({
 }
 
 function ResearchNodeHandCard({ node }: { node: ResearchNode }) {
-  const card = node.cardId
-    ? cards.find((item) => item.id === node.cardId) ?? null
-    : null;
+  const card = node.cardId ? getCardOrNull(node.cardId) : null;
   const headquarters = node.headquartersId
     ? getHeadquartersDefinition(node.headquartersId)
     : null;
@@ -301,6 +433,11 @@ function ResearchNodeCard({
       Boolean(node.cardId && node.costValue && node.costValue > 0));
   const headquarters = node.type === "headquarters";
   const ownedCopies = Math.min(CARD_COPY_LIMIT, node.ownedCopies ?? 0);
+  const badge = NODE_BADGES[node.stage];
+  // The "!" (researchable) and "₸" (purchasable) badges are intentionally
+  // hidden — the footer label already conveys those actions.
+  const showBadge =
+    node.stage !== "researchable" && node.stage !== "researched";
 
   return (
     <motion.div
@@ -317,6 +454,16 @@ function ResearchNodeCard({
       onContextMenu={(event) => onPreview(event, node)}
       onClick={() => onAction?.(node)}
     >
+      {showBadge ? (
+        <span
+          style={{ ...styles.nodeBadge, ...badgeToneStyles[badge.tone] }}
+          title={badge.label}
+          aria-hidden="true"
+        >
+          {badge.glyph}
+        </span>
+      ) : null}
+
       <div style={styles.nodeCardArea}>
         {node.cardId && ownedCopies > 0 ? (
           <div style={styles.ownedCardStack}>
@@ -367,6 +514,124 @@ function ResearchNodeCard({
   );
 }
 
+// Deterministic grid for the non-linear (graph) branches. Node positions are
+// computed from tier/slot so edges can be drawn precisely without measuring the
+// DOM. All cards keep the same full size as the linear trees.
+const GRAPH_BRANCH_WIDTH = 372;
+const GRAPH_CARD_WIDTH = 175;
+const GRAPH_NODE_HEIGHT = 286;
+const GRAPH_ROW_GAP = 74;
+const GRAPH_ROW_HEIGHT = GRAPH_NODE_HEIGHT + GRAPH_ROW_GAP;
+const GRAPH_SLOT_CENTERS_TWO = [95, 277];
+const GRAPH_SLOT_CENTER_SINGLE = GRAPH_BRANCH_WIDTH / 2;
+
+function getGraphNodeCenterX(tierSize: number, indexInTier: number): number {
+  if (tierSize === 1) return GRAPH_SLOT_CENTER_SINGLE;
+  return GRAPH_SLOT_CENTERS_TWO[indexInTier] ?? GRAPH_SLOT_CENTER_SINGLE;
+}
+
+function BranchGraph({
+  nodes,
+  onPreview,
+  onAction,
+}: {
+  nodes: ResearchNodeView[];
+  onPreview: (event: MouseEvent, node: ResearchNode) => void;
+  onAction?: (node: ResearchNodeView) => void;
+}) {
+  const tiers = getBranchTiers(nodes);
+  if (!tiers) return null;
+
+  const positions = new Map<string, { cx: number; top: number }>();
+  tiers.forEach((row, tierIndex) => {
+    row.forEach((node, indexInTier) => {
+      positions.set(node.id, {
+        cx: getGraphNodeCenterX(row.length, indexInTier),
+        top: tierIndex * GRAPH_ROW_HEIGHT,
+      });
+    });
+  });
+
+  const height = tiers.length * GRAPH_ROW_HEIGHT - GRAPH_ROW_GAP + 12;
+
+  const edges = nodes.flatMap((node) => {
+    const child = positions.get(node.id);
+    if (!child || !node.requires) return [];
+
+    return node.requires.flatMap((requiredId) => {
+      const parent = positions.get(requiredId);
+      if (!parent) return [];
+
+      const startY = parent.top + GRAPH_NODE_HEIGHT;
+      const endY = child.top;
+      const midY = (startY + endY) / 2;
+
+      return [
+        {
+          id: `${requiredId}->${node.id}`,
+          d: `M ${parent.cx} ${startY} C ${parent.cx} ${midY} ${child.cx} ${midY} ${child.cx} ${endY}`,
+          complete: Boolean(node.incomingPathComplete),
+        },
+      ];
+    });
+  });
+
+  return (
+    <div style={{ ...styles.branchGraph, height }}>
+      <svg
+        width={GRAPH_BRANCH_WIDTH}
+        height={height}
+        style={styles.branchGraphEdges}
+        aria-hidden="true"
+      >
+        {edges.map((edge) => (
+          <path
+            key={edge.id}
+            d={edge.d}
+            fill="none"
+            strokeWidth={edge.complete ? 3 : 2.5}
+            strokeLinecap="round"
+            stroke={
+              edge.complete
+                ? "rgba(243, 205, 108, 0.92)"
+                : "rgba(196, 168, 104, 0.5)"
+            }
+            style={
+              edge.complete
+                ? { filter: "drop-shadow(0 0 5px rgba(228, 184, 84, 0.55))" }
+                : undefined
+            }
+          />
+        ))}
+      </svg>
+
+      {nodes.map((node) => {
+        const position = positions.get(node.id);
+        if (!position) return null;
+
+        return (
+          <div
+            key={node.id}
+            style={{
+              position: "absolute",
+              zIndex: 1,
+              left: position.cx - GRAPH_CARD_WIDTH / 2,
+              top: position.top,
+              width: GRAPH_CARD_WIDTH,
+            }}
+          >
+            <ResearchNodeCard
+              node={node}
+              onPreview={onPreview}
+              onAction={onAction}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ResearchCelebrationOverlay({
   celebration,
   onClose,
@@ -375,7 +640,7 @@ function ResearchCelebrationOverlay({
   onClose: () => void;
 }) {
   const card = celebration.node.cardId
-    ? cards.find((item) => item.id === celebration.node.cardId) ?? null
+    ? getCardOrNull(celebration.node.cardId)
     : null;
   const headquarters = celebration.node.headquartersId
     ? getHeadquartersDefinition(celebration.node.headquartersId)
@@ -442,6 +707,91 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
   const [progress, setProgress] = useState(() => loadPlayerProgress());
   const [feedback, setFeedback] = useState<ResearchFeedback | null>(null);
   const [celebration, setCelebration] = useState<ResearchCelebration | null>(null);
+
+  // Drag-to-pan: navigate the tree by grabbing it with the mouse, like a touch
+  // screen. Touch keeps native scrolling; only mouse uses manual panning.
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const panState = useRef({
+    active: false,
+    moved: false,
+    pointerId: -1,
+    startX: 0,
+    startY: 0,
+    scrollLeft: 0,
+    scrollTop: 0,
+  });
+
+  function handlePanPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== "mouse" || event.button !== 0) return;
+
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    panState.current = {
+      active: true,
+      moved: false,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: viewport.scrollLeft,
+      scrollTop: viewport.scrollTop,
+    };
+  }
+
+  function handlePanPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const pan = panState.current;
+    if (!pan.active) return;
+
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const deltaX = event.clientX - pan.startX;
+    const deltaY = event.clientY - pan.startY;
+
+    if (!pan.moved && Math.hypot(deltaX, deltaY) < 5) return;
+
+    if (!pan.moved) {
+      pan.moved = true;
+      try {
+        viewport.setPointerCapture(pan.pointerId);
+      } catch {
+        // Pointer may already be gone; panning still works without capture.
+      }
+      viewport.style.cursor = "grabbing";
+    }
+
+    viewport.scrollLeft = pan.scrollLeft - deltaX;
+    viewport.scrollTop = pan.scrollTop - deltaY;
+  }
+
+  function endPan(event: ReactPointerEvent<HTMLDivElement>) {
+    const pan = panState.current;
+    if (!pan.active) return;
+
+    const viewport = viewportRef.current;
+    if (viewport) {
+      viewport.style.cursor = "grab";
+      try {
+        if (pan.moved && viewport.hasPointerCapture(event.pointerId)) {
+          viewport.releasePointerCapture(event.pointerId);
+        }
+      } catch {
+        // Capture already released.
+      }
+    }
+
+    pan.active = false;
+    // `moved` stays true until the click is swallowed by handlePanClickCapture.
+  }
+
+  // After a drag, suppress the click so a pan does not trigger a node action.
+  function handlePanClickCapture(event: MouseEvent<HTMLDivElement>) {
+    if (panState.current.moved) {
+      event.stopPropagation();
+      event.preventDefault();
+      panState.current.moved = false;
+    }
+  }
   const tree = RESEARCH_TREES[selectedNation];
   const sourceHeadquartersId = tree.starterHeadquarters.headquartersId;
   const starterNodeView: ResearchNodeView = {
@@ -458,18 +808,42 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
       ? progress.headquartersXp[sourceHeadquartersId] ?? 0
       : 0,
   };
-  const branchNodeViews = sourceHeadquartersId
-    ? tree.branches.map((branch) => ({
-        branch,
-        nodes: createBranchNodeViews({
-          nodes: branch.nodes,
-          progress,
-          sourceHeadquartersId,
-        }),
-      }))
-    : [];
+  const branchNodeViews = useMemo(
+    () =>
+      sourceHeadquartersId
+        ? tree.branches.map((branch) => {
+            const nodes = createBranchNodeViews({
+              nodes: branch.nodes,
+              progress,
+              sourceHeadquartersId,
+            });
+
+            return {
+              branch,
+              nodes,
+              branchProgress: getBranchProgress(nodes),
+            };
+          })
+        : [],
+    [tree, progress, sourceHeadquartersId]
+  );
+
+  const nationProgress = useMemo<ResearchBranchProgress>(() => {
+    const totals = branchNodeViews.reduce(
+      (accumulator, { branchProgress }) => ({
+        acquired: accumulator.acquired + branchProgress.acquired,
+        total: accumulator.total + branchProgress.total,
+      }),
+      { acquired: 0, total: 0 }
+    );
+
+    return {
+      ...totals,
+      ratio: totals.total > 0 ? totals.acquired / totals.total : 0,
+    };
+  }, [branchNodeViews]);
   const previewCard = previewNode?.cardId
-    ? cards.find((card) => card.id === previewNode.cardId) ?? null
+    ? getCardOrNull(previewNode.cardId)
     : null;
   const previewHeadquarters = previewNode?.headquartersId
     ? getHeadquartersDefinition(previewNode.headquartersId)
@@ -630,9 +1004,27 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
         <div>
           <div style={styles.kicker}>Развитие армии</div>
           <h1 style={styles.title}>Исследования</h1>
-          <p style={styles.subtitle}>
-            Открывай карты и штабы, затем приобретай технику для своих колод
-          </p>
+          <div style={styles.nationProgressRow}>
+            <span style={styles.nationProgressLabel}>
+              {NATION_LABELS[selectedNation]} · в наличии{" "}
+              {nationProgress.acquired}/{nationProgress.total}
+            </span>
+            <div
+              style={styles.nationProgressTrack}
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={nationProgress.total}
+              aria-valuenow={nationProgress.acquired}
+              aria-label={`Прогресс нации: ${nationProgress.acquired} из ${nationProgress.total}`}
+            >
+              <div
+                style={{
+                  ...styles.nationProgressFill,
+                  width: `${Math.round(nationProgress.ratio * 100)}%`,
+                }}
+              />
+            </div>
+          </div>
         </div>
 
         <div style={styles.resources}>
@@ -687,7 +1079,16 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
       </aside>
 
       <section style={styles.treePanel}>
-        <div className="research-tree-scroll" style={styles.treeViewport}>
+        <div
+          ref={viewportRef}
+          className="research-tree-scroll"
+          style={styles.treeViewport}
+          onPointerDown={handlePanPointerDown}
+          onPointerMove={handlePanPointerMove}
+          onPointerUp={endPan}
+          onPointerCancel={endPan}
+          onClickCapture={handlePanClickCapture}
+        >
           <div style={styles.treeCanvas}>
             <div style={styles.starterArea}>
               <div style={styles.starterCaption}>Начало пути</div>
@@ -701,28 +1102,71 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
 
             <div style={styles.branchesGrid}>
               <div style={styles.branchBus} />
-              {branchNodeViews.map(({ branch, nodes }) => (
-                <div key={branch.id} style={styles.branchColumn}>
-                  <div style={styles.branchDrop} />
-                  <div style={styles.branchInfo}>
-                    <strong style={styles.branchTitle}>{branch.shortTitle}</strong>
-                    <span style={styles.branchDescription}>{branch.description}</span>
-                  </div>
+              {branchNodeViews.map(({ branch, nodes, branchProgress }) => {
+                const tiers = getBranchTiers(nodes);
 
-                  <div style={styles.branchNodes}>
-                    {nodes.map((node) => (
-                      <div key={node.id} style={styles.nodeStep}>
-                        <div style={styles.nodeConnector} />
-                        <ResearchNodeCard
-                          node={node}
-                          onPreview={openNodePreview}
-                          onAction={handleNodeAction}
+                return (
+                  <div key={branch.id} style={styles.branchColumn}>
+                    <div style={styles.branchDrop} />
+                    <div style={styles.branchInfo}>
+                      <div style={styles.branchHeadRow}>
+                        <strong style={styles.branchTitle}>
+                          {branch.shortTitle}
+                        </strong>
+                        <span style={styles.branchCount}>
+                          {branchProgress.acquired}/{branchProgress.total}
+                        </span>
+                      </div>
+                      <span style={styles.branchDescription}>
+                        {branch.description}
+                      </span>
+                      <div
+                        style={styles.branchProgressTrack}
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={branchProgress.total}
+                        aria-valuenow={branchProgress.acquired}
+                        aria-label={`${branch.shortTitle}: ${branchProgress.acquired} из ${branchProgress.total} в наличии`}
+                      >
+                        <div
+                          style={{
+                            ...styles.branchProgressFill,
+                            width: `${Math.round(branchProgress.ratio * 100)}%`,
+                          }}
                         />
                       </div>
-                    ))}
+                    </div>
+
+                    {tiers ? (
+                      <BranchGraph
+                        nodes={nodes}
+                        onPreview={openNodePreview}
+                        onAction={handleNodeAction}
+                      />
+                    ) : (
+                      <div style={styles.branchNodes}>
+                        {nodes.map((node) => (
+                          <div key={node.id} style={styles.nodeStep}>
+                            <div
+                              style={{
+                                ...styles.nodeConnector,
+                                ...(node.incomingPathComplete
+                                  ? styles.nodeConnectorComplete
+                                  : {}),
+                              }}
+                            />
+                            <ResearchNodeCard
+                              node={node}
+                              onPreview={openNodePreview}
+                              onAction={handleNodeAction}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -880,6 +1324,42 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 12,
   },
 
+  nationProgressRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 8,
+  },
+
+  nationProgressLabel: {
+    color: "rgba(239, 225, 191, 0.78)",
+    fontSize: 11,
+    fontWeight: 800,
+    letterSpacing: 0.4,
+    whiteSpace: "nowrap",
+    fontVariantNumeric: "tabular-nums",
+  },
+
+  nationProgressTrack: {
+    position: "relative",
+    width: 220,
+    maxWidth: "32vw",
+    height: 6,
+    borderRadius: 999,
+    overflow: "hidden",
+    background: "rgba(0, 0, 0, 0.46)",
+    boxShadow: "inset 0 0 0 1px rgba(208, 166, 71, 0.2)",
+  },
+
+  nationProgressFill: {
+    height: "100%",
+    borderRadius: 999,
+    background:
+      "linear-gradient(90deg, rgba(208, 166, 71, 0.9), rgba(247, 224, 150, 0.98))",
+    boxShadow: "0 0 10px rgba(228, 184, 84, 0.5)",
+    transition: "width 320ms ease",
+  },
+
   resources: {
     display: "flex",
     gap: 10,
@@ -990,16 +1470,20 @@ const styles: Record<string, CSSProperties> = {
     width: "100%",
     height: "100%",
     overflowX: "auto",
-    overflowY: "scroll",
+    overflowY: "auto",
     overscrollBehavior: "contain",
-    scrollbarWidth: "thin",
-    scrollbarColor: "rgba(204, 165, 77, 0.72) rgba(7, 9, 8, 0.68)",
+    // The tree is panned by dragging; scrollbars are hidden (see index.css for
+    // the WebKit counterpart).
+    scrollbarWidth: "none",
     WebkitOverflowScrolling: "touch",
+    cursor: "grab",
+    userSelect: "none",
+    touchAction: "pan-x pan-y",
   },
 
   treeCanvas: {
     position: "relative",
-    minWidth: 1260,
+    minWidth: 1700,
     minHeight: 1800,
     display: "flex",
     flexDirection: "column",
@@ -1034,16 +1518,16 @@ const styles: Record<string, CSSProperties> = {
   branchesGrid: {
     position: "relative",
     display: "grid",
-    gridTemplateColumns: "repeat(4, 258px)",
+    gridTemplateColumns: "repeat(4, 372px)",
     alignItems: "start",
-    gap: 38,
+    gap: 36,
     paddingTop: 22,
   },
 
   branchBus: {
     position: "absolute",
-    left: 129,
-    right: 129,
+    left: 186,
+    right: 186,
     top: 0,
     height: 1,
     background: "rgba(207, 165, 77, 0.58)",
@@ -1078,11 +1562,25 @@ const styles: Record<string, CSSProperties> = {
     background: "linear-gradient(180deg, rgba(24, 27, 22, 0.96), rgba(13, 16, 13, 0.72))",
   },
 
+  branchHeadRow: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+
   branchTitle: {
     color: "#e9cf8c",
     fontSize: 12,
     letterSpacing: 0.7,
     textTransform: "uppercase",
+  },
+
+  branchCount: {
+    color: "rgba(243, 205, 108, 0.9)",
+    fontSize: 11,
+    fontWeight: 900,
+    fontVariantNumeric: "tabular-nums",
   },
 
   branchDescription: {
@@ -1091,12 +1589,46 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.25,
   },
 
+  branchProgressTrack: {
+    position: "relative",
+    height: 4,
+    marginTop: 2,
+    borderRadius: 999,
+    overflow: "hidden",
+    background: "rgba(0, 0, 0, 0.42)",
+    boxShadow: "inset 0 0 0 1px rgba(208, 166, 71, 0.18)",
+  },
+
+  branchProgressFill: {
+    height: "100%",
+    borderRadius: 999,
+    background:
+      "linear-gradient(90deg, rgba(208, 166, 71, 0.85), rgba(243, 205, 108, 0.95))",
+    boxShadow: "0 0 8px rgba(228, 184, 84, 0.45)",
+    transition: "width 320ms ease",
+  },
+
   branchNodes: {
     position: "relative",
     zIndex: 2,
     display: "grid",
     justifyItems: "center",
     gap: 28,
+  },
+
+  branchGraph: {
+    position: "relative",
+    zIndex: 2,
+    width: 372,
+    margin: "0 auto",
+  },
+
+  branchGraphEdges: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 0,
+    pointerEvents: "none",
+    overflow: "visible",
   },
 
   nodeStep: {
@@ -1108,9 +1640,16 @@ const styles: Record<string, CSSProperties> = {
     position: "absolute",
     left: "50%",
     bottom: "100%",
-    width: 1,
+    width: 2,
     height: 22,
-    background: "rgba(203, 164, 79, 0.46)",
+    background: "rgba(150, 130, 92, 0.28)",
+    transition: "background 200ms ease, box-shadow 200ms ease",
+  },
+
+  nodeConnectorComplete: {
+    background:
+      "linear-gradient(180deg, rgba(243, 205, 108, 0.92), rgba(208, 166, 71, 0.7))",
+    boxShadow: "0 0 8px rgba(228, 184, 84, 0.5)",
   },
 
   node: {
@@ -1143,6 +1682,24 @@ const styles: Record<string, CSSProperties> = {
   nodeUnlocked: {
     filter:
       "drop-shadow(0 0 10px rgba(130, 187, 101, 0.18)) drop-shadow(0 8px 18px rgba(0,0,0,0.36))",
+  },
+
+  nodeBadge: {
+    position: "absolute",
+    top: -7,
+    right: -7,
+    zIndex: 6,
+    display: "grid",
+    placeItems: "center",
+    width: 24,
+    height: 24,
+    borderRadius: 999,
+    border: "1.5px solid rgba(0, 0, 0, 0.55)",
+    fontSize: 13,
+    fontWeight: 1000,
+    lineHeight: 1,
+    boxShadow: "0 3px 8px rgba(0,0,0,0.5)",
+    pointerEvents: "none",
   },
 
   nodeCardArea: {
@@ -1396,5 +1953,28 @@ const styles: Record<string, CSSProperties> = {
     whiteSpace: "nowrap",
     textShadow: "0 2px 8px rgba(0,0,0,0.85)",
     pointerEvents: "none",
+  },
+};
+
+const badgeToneStyles: Record<ResearchNodeBadge["tone"], CSSProperties> = {
+  owned: {
+    color: "#0c150a",
+    background: "linear-gradient(180deg, #b6e58a, #79bb65)",
+  },
+  ready: {
+    color: "#0c1314",
+    background: "linear-gradient(180deg, #e3eaec, #b3c0c4)",
+  },
+  available: {
+    color: "#1c1405",
+    background: "linear-gradient(180deg, #ffdd7a, #f0b94a)",
+  },
+  locked: {
+    color: "#f0e6cf",
+    background: "linear-gradient(180deg, #4a4136, #221c14)",
+  },
+  planned: {
+    color: "#e9ddc2",
+    background: "linear-gradient(180deg, #3a4032, #1f2419)",
   },
 };

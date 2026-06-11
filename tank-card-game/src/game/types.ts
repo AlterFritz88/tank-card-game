@@ -57,6 +57,47 @@ export type SupportEffects = {
   hqHealPerTurn?: number;
 };
 
+/**
+ * Special ability of an advanced headquarters. Each flag is an independent
+ * mechanic; a headquarters usually has exactly one of them set.
+ */
+export type HeadquartersAbility = {
+  /** Short ability name shown in logs and on the card. */
+  name: string;
+  /** First tank (light/medium/heavy) played each turn enters with blitz. */
+  firstTankBlitz?: boolean;
+  /** Fuel discount for the first unit (any zone) played each turn. */
+  firstUnitFuelDiscount?: number;
+  /** Flat bonus to this headquarters' own attack. */
+  hqAttackBonus?: number;
+  /** Draw an extra card at the start of every Nth own turn. */
+  drawEveryTurns?: number;
+  /** Attack bonus for own tanks that have not moved this turn. */
+  stationaryTankAttackBonus?: number;
+  /** Light units enter the battlefield with blitz. */
+  lightUnitsBlitz?: boolean;
+  /** Extra headquarters damage against already damaged enemy units. */
+  hqAttackBonusVsDamaged?: number;
+  /** Heal a random damaged own battlefield unit at the start of the turn. */
+  healRandomUnitPerTurn?: number;
+  /** Extra fuel per turn while controlling both a tank and a support unit. */
+  combinedArmsFuelBonus?: number;
+  /** First light unit played each turn adds HP to the headquarters. */
+  firstLightUnitHqProtection?: number;
+  /** This headquarters' attacks cannot be intercepted by covering units. */
+  hqAttackIgnoresCover?: boolean;
+  /** Once per battle, the first destroyed own unit returns to hand. */
+  returnFirstDestroyedUnit?: boolean;
+};
+
+/** Per-player counters used by headquarters abilities. */
+export type HeadquartersAbilityTracking = {
+  unitsPlayedThisTurn: number;
+  tanksPlayedThisTurn: number;
+  lightUnitsPlayedThisTurn: number;
+  destroyedUnitReturnedThisBattle: boolean;
+};
+
 export type TankCard = {
   id: string;
   name: string;
@@ -118,6 +159,9 @@ export type PlayerState = {
 
   resources: number;
   maxResources: number;
+
+  /** Lazily initialized by the engine; absent in older saved states. */
+  abilityTracking?: HeadquartersAbilityTracking;
 };
 
 export type HeadquartersState = {
