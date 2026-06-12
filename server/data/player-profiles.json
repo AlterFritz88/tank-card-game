@@ -4,28 +4,52 @@
     "accountType": "base",
     "favoriteHeadquartersId": null,
     "battleStats": {
-      "wins": 3,
-      "losses": 0
+      "wins": 14,
+      "losses": 1
     },
-    "ironTracks": 10139,
+    "ironTracks": 8843,
     "goldTracks": 0,
-    "freeXp": 17,
+    "freeXp": 84,
     "headquartersXp": {
-      "trainingslager": 155,
-      "soviet_motor_rifle_division": 61
+      "trainingslager": 231,
+      "soviet_motor_rifle_division": 61,
+      "first_panzer_division": 423,
+      "soviet_tank_brigade": 60,
+      "training_unit": 79,
+      "german_motorized_division": 78
     },
     "headquartersMatchCounts": {
-      "trainingslager": 2,
-      "soviet_motor_rifle_division": 1
+      "trainingslager": 3,
+      "soviet_motor_rifle_division": 1,
+      "first_panzer_division": 5,
+      "soviet_tank_brigade": 1,
+      "training_unit": 3,
+      "german_motorized_division": 2
     },
     "headquartersBattleStats": {
       "trainingslager": {
-        "wins": 2,
+        "wins": 3,
         "losses": 0
       },
       "soviet_motor_rifle_division": {
         "wins": 1,
         "losses": 0
+      },
+      "first_panzer_division": {
+        "wins": 5,
+        "losses": 0
+      },
+      "soviet_tank_brigade": {
+        "wins": 1,
+        "losses": 0
+      },
+      "training_unit": {
+        "wins": 3,
+        "losses": 0
+      },
+      "german_motorized_division": {
+        "wins": 1,
+        "losses": 1
       }
     },
     "researchedHeadquartersIds": [
@@ -65,7 +89,8 @@
       "m3_lee",
       "m5_stuart",
       "m3_halftrack",
-      "dodge_wc54"
+      "dodge_wc54",
+      "amo_f15"
     ],
     "unlockedHeadquartersIds": [
       "training_unit",
@@ -104,7 +129,8 @@
       "m3_lee",
       "m5_stuart",
       "m3_halftrack",
-      "dodge_wc54"
+      "dodge_wc54",
+      "amo_f15"
     ],
     "ownedCardCopies": {
       "ms_1_t18": 2,
@@ -114,7 +140,7 @@
       "bt_2": 2,
       "bt_5": 2,
       "bt_7": 1,
-      "t37a": 1,
+      "t37a": 2,
       "t38": 1,
       "t24": 1,
       "t28": 1,
@@ -138,8 +164,23 @@
       "m3_lee": 1,
       "m5_stuart": 2,
       "m3_halftrack": 3,
-      "dodge_wc54": 2
-    }
+      "dodge_wc54": 2,
+      "amo_f15": 1
+    },
+    "savedDecks": [],
+    "claimedBattleRewardIds": [
+      "battle:1obtmsf",
+      "battle:10pzpe",
+      "battle:1w8pyzu",
+      "battle:tsiqxj",
+      "battle:3n6el9",
+      "battle:fuolrp",
+      "battle:1x1trm2",
+      "battle:1g662sm",
+      "battle:1ro3sd0",
+      "battle:171keu6",
+      "battle:veq5m"
+    ]
   },
   "cf5aa0b3-2e8a-4c35-a356-de7f3a202101": {
     "nickname": "Командир",

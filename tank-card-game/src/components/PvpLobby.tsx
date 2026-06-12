@@ -29,10 +29,13 @@ import { CAMPAIGNS, isCampaignMissionUnlocked } from "../game/campaigns";
 import {
   DECK_UNIT_LIMIT,
   deleteCustomDeck,
+  deleteCustomDeckFromServer,
   getGroupedDeckCards,
   loadRecentDeckSelectionForHeadquarters,
   loadSavedDecksForHeadquarters,
   markRecentDeckSelection,
+  syncSavedDecksFromServer,
+  validateDeck,
   type SavedDeck,
 } from "../game/customDecks";
 import {
@@ -829,7 +832,10 @@ export function PvpLobby() {
   useEffect(() => {
     let cancelled = false;
 
-    void syncPlayerProgressFromServer().then(() => {
+    void Promise.allSettled([
+      syncPlayerProgressFromServer(),
+      syncSavedDecksFromServer(),
+    ]).then(() => {
       if (!cancelled) {
         setProfileRevision((revision) => revision + 1);
       }
@@ -938,6 +944,14 @@ export function PvpLobby() {
     deckCardIds?: string[]
   ) {
     if (buttonsDisabled) return;
+    if (deckCardIds) {
+      const validation = validateDeck(headquartersId, deckCardIds, playerProgress);
+      if (!validation.valid) {
+        window.alert(validation.message ?? "Invalid deck");
+        return;
+      }
+    }
+
     setSelectedHeadquartersId(headquartersId);
     markRecentDeckSelection(headquartersId, deckId);
 
@@ -979,7 +993,7 @@ export function PvpLobby() {
     setPreviewUnitCard(card);
   }
 
-  function deletePreviewDeck() {
+  async function deletePreviewDeck() {
     if (!previewDeck?.deck.savedDeck) return;
 
     const confirmed = window.confirm(
@@ -987,7 +1001,15 @@ export function PvpLobby() {
     );
     if (!confirmed) return;
 
-    deleteCustomDeck(previewDeck.deck.savedDeck.id);
+    try {
+      await deleteCustomDeckFromServer(previewDeck.deck.savedDeck.id);
+      deleteCustomDeck(previewDeck.deck.savedDeck.id);
+    } catch (error) {
+      window.alert(
+        error instanceof Error ? error.message : "Не удалось удалить колоду"
+      );
+      return;
+    }
     closeHeadquartersPreview();
   }
 

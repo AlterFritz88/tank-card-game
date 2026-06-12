@@ -4,6 +4,7 @@ import {
   applyAction,
   getAttackAnimationSequence,
   getAvailableMoveCells,
+  getEffectiveCardCost,
   getFreeSpawnCells,
   getFreeSupportSlots,
   getTargetsInRange,
@@ -316,7 +317,9 @@ function scoreCardForCurrentBattle(state: BattleState, cardId: string): number {
     return (
       scoreCardForBot(cardId) +
       getContextualSupportCardBonus(state, card) +
-      (card.cost <= state.bot.resources ? 3 : 0)
+      (getEffectiveCardCost(state, "bot", cardId) <= state.bot.resources
+        ? 3
+        : 0)
     );
   }
 
@@ -325,7 +328,7 @@ function scoreCardForCurrentBattle(state: BattleState, cardId: string): number {
     card.fuelGeneration * economyMultiplier +
     getSpgProtectionCardBonus(state, card) +
     (needsBoard ? card.hp + card.attack * 2 : 0) +
-    (card.cost <= state.bot.resources ? 2 : 0)
+    (getEffectiveCardCost(state, "bot", cardId) <= state.bot.resources ? 2 : 0)
   );
 }
 
@@ -354,7 +357,7 @@ function getPlayableCardCandidates(
     }))
     .filter(
       ({ card }) =>
-        card.cost <= state.bot.resources &&
+        getEffectiveCardCost(state, "bot", card.id) <= state.bot.resources &&
         (card.deploymentZone === "support"
           ? freeSupportSlots.length > 0
           : freeSpawnCells.length > 0)
@@ -405,7 +408,7 @@ function hasPlayableBattlefieldCard(state: BattleState): boolean {
 
     return (
       card.deploymentZone !== "support" &&
-      card.cost <= state.bot.resources
+      getEffectiveCardCost(state, "bot", card.id) <= state.bot.resources
     );
   });
 }
@@ -1092,7 +1095,10 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
           getDistance(mostDangerousEnemy.position, state.headquarters.bot.position) <= 3
             ? getUnitThreatScore(state, mostDangerousEnemy)
             : 0;
+        // Heavy tanks either move or attack in a turn — a move never leads to
+        // an attack on the same turn, so the bonus must not apply to them.
         const canAttackAfterMove =
+          card.class !== "heavy" &&
           mostDangerousEnemy &&
           canCardAttackPosition(card.id, cell, mostDangerousEnemy.position);
         const spgProtectionBonus = getSpgProtectionPositionScore(

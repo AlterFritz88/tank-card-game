@@ -21,6 +21,15 @@ export type PlayerBattleStats = {
   losses: number;
 };
 
+export type PlayerSavedDeck = {
+  id: string;
+  name: string;
+  headquartersId: HeadquartersId;
+  cardIds: string[];
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type PlayerProfile = {
   nickname: string;
   accountType: PlayerAccountType;
@@ -37,6 +46,8 @@ export type PlayerProfile = {
   unlockedHeadquartersIds: HeadquartersId[];
   unlockedCardIds: string[];
   ownedCardCopies: Record<string, number>;
+  savedDecks: PlayerSavedDeck[];
+  claimedBattleRewardIds: string[];
 };
 
 export type PlayerProgress = PlayerProfile;
@@ -45,10 +56,69 @@ const PLAYER_PROGRESS_KEY = "tank-card-game:player-progress";
 const PLAYER_NICKNAME_STORAGE_KEY = "panzershrek.playerNickname";
 const PLAYER_ACCOUNT_TYPE_STORAGE_KEY = "panzershrek.accountType";
 const FAVORITE_HEADQUARTERS_STORAGE_KEY = "panzershrek.favoriteHeadquartersId";
-const TEST_STARTING_IRON_TRACKS = 10_000;
+const STARTING_IRON_TRACKS = 0;
 
 async function getProfileClient() {
   return (await import("../network/profileClient")).profileClient;
+}
+
+function hashText(value: string): string {
+  let hash = 5381;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 33) ^ value.charCodeAt(index);
+  }
+
+  return (hash >>> 0).toString(36);
+}
+
+function getDeckCountForClaim(battle: ClientBattleState, playerId: PlayerId): number {
+  const player = battle[playerId] as { deck?: unknown[]; deckCount?: number };
+
+  return typeof player.deckCount === "number"
+    ? player.deckCount
+    : Array.isArray(player.deck)
+      ? player.deck.length
+      : 0;
+}
+
+function createBattleRewardClaimId(input: {
+  battle: ClientBattleState;
+  mode: GameMode;
+  localPlayerId: PlayerId;
+  matchEndReason?: MatchEndReason | null;
+}): string {
+  const { battle } = input;
+  const payload = JSON.stringify({
+    mode: input.mode,
+    localPlayerId: input.localPlayerId,
+    matchEndReason: input.matchEndReason ?? null,
+    status: battle.status,
+    turn: battle.turn,
+    backgroundId: battle.backgroundId,
+    activePlayer: battle.activePlayer,
+    playerHeadquartersId:
+      battle.headquarters.player.headquartersId ?? battle.player.headquartersId,
+    botHeadquartersId:
+      battle.headquarters.bot.headquartersId ?? battle.bot.headquartersId,
+    playerDeckId: battle.player.deckId,
+    botDeckId: battle.bot.deckId,
+    playerDeckCount: getDeckCountForClaim(battle, "player"),
+    botDeckCount: getDeckCountForClaim(battle, "bot"),
+    units: battle.units.map((unit) => [
+      unit.instanceId,
+      unit.cardId,
+      unit.ownerId,
+      unit.currentHp,
+      unit.position.row,
+      unit.position.col,
+      unit.zone ?? "battlefield",
+    ]),
+    stats: battle.stats,
+    log: battle.log,
+  });
+
+  return `battle:${hashText(payload)}`;
 }
 
 export function loadPlayerProgress(): PlayerProgress {
@@ -108,7 +178,26 @@ export async function claimBattleRewardFromServer(input: {
     const profileClient = await getProfileClient();
     const result = await profileClient.claimBattleReward(
       getPersistentPlayerId(),
+      createBattleRewardClaimId(input),
       input
+    );
+    savePlayerProgress(result.profile);
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+export async function claimPvpBattleRewardFromServer(input: {
+  roomId: string;
+  localPlayerId: PlayerId;
+}): Promise<{ profile: PlayerProgress; reward?: BattleReward } | null> {
+  try {
+    const profileClient = await getProfileClient();
+    const result = await profileClient.claimPvpBattleReward(
+      getPersistentPlayerId(),
+      input.roomId,
+      input.localPlayerId
     );
     savePlayerProgress(result.profile);
     return result;
@@ -189,7 +278,7 @@ export function createInitialPlayerProgress(): PlayerProgress {
       wins: 0,
       losses: 0,
     },
-    ironTracks: TEST_STARTING_IRON_TRACKS,
+    ironTracks: STARTING_IRON_TRACKS,
     goldTracks: 0,
     freeXp: 0,
     headquartersXp: {},
@@ -206,6 +295,8 @@ export function createInitialPlayerProgress(): PlayerProgress {
         : [DEFAULT_PLAYER_HEADQUARTERS_ID],
     unlockedCardIds: starterCardIds,
     ownedCardCopies: starterCardCopies,
+    savedDecks: [],
+    claimedBattleRewardIds: [],
   };
 }
 
@@ -266,10 +357,7 @@ function normalizePlayerProgress(
       getValidHeadquartersId(progress.favoriteHeadquartersId) ??
       fallback.favoriteHeadquartersId,
     battleStats: normalizeBattleStats(progress.battleStats),
-    ironTracks: Math.max(
-      TEST_STARTING_IRON_TRACKS,
-      getPositiveInteger(progress.ironTracks)
-    ),
+    ironTracks: getPositiveInteger(progress.ironTracks),
     goldTracks: getPositiveInteger(progress.goldTracks),
     freeXp: getPositiveInteger(progress.freeXp),
     headquartersXp:
@@ -297,6 +385,14 @@ function normalizePlayerProgress(
             ...progress.ownedCardCopies,
           })
         : fallback.ownedCardCopies,
+    savedDecks: Array.isArray(progress.savedDecks)
+      ? normalizeSavedDecks(progress.savedDecks)
+      : fallback.savedDecks,
+    claimedBattleRewardIds: Array.isArray(progress.claimedBattleRewardIds)
+      ? progress.claimedBattleRewardIds.filter(
+          (rewardId): rewardId is string => typeof rewardId === "string"
+        )
+      : fallback.claimedBattleRewardIds,
   };
 }
 
@@ -467,7 +563,7 @@ export function researchCard(
 export async function researchCardOnServer(
   cardId: string,
   headquartersId: HeadquartersId,
-  cost: number
+  _cost: number
 ): Promise<PlayerProgress | null> {
   try {
     const profileClient = await getProfileClient();
@@ -479,7 +575,7 @@ export async function researchCardOnServer(
     savePlayerProgress(profile);
     return profile;
   } catch {
-    return researchCard(cardId, headquartersId, cost);
+    return null;
   }
 }
 
@@ -514,7 +610,7 @@ export function researchHeadquarters(
 export async function researchHeadquartersOnServer(
   targetHeadquartersId: HeadquartersId,
   sourceHeadquartersId: HeadquartersId,
-  cost: number
+  _cost: number
 ): Promise<PlayerProgress | null> {
   try {
     const profileClient = await getProfileClient();
@@ -526,7 +622,7 @@ export async function researchHeadquartersOnServer(
     savePlayerProgress(profile);
     return profile;
   } catch {
-    return researchHeadquarters(targetHeadquartersId, sourceHeadquartersId, cost);
+    return null;
   }
 }
 
@@ -555,8 +651,8 @@ export function purchaseCardCopy(
 
 export async function purchaseCardCopyOnServer(
   cardId: string,
-  cost: number,
-  copyLimit = 4
+  _cost: number,
+  _copyLimit = 4
 ): Promise<PlayerProgress | null> {
   try {
     const profileClient = await getProfileClient();
@@ -567,7 +663,7 @@ export async function purchaseCardCopyOnServer(
     savePlayerProgress(profile);
     return profile;
   } catch {
-    return purchaseCardCopy(cardId, cost, copyLimit);
+    return null;
   }
 }
 
@@ -593,7 +689,7 @@ export function purchaseHeadquarters(
 
 export async function purchaseHeadquartersOnServer(
   headquartersId: HeadquartersId,
-  cost: number
+  _cost: number
 ): Promise<PlayerProgress | null> {
   try {
     const profileClient = await getProfileClient();
@@ -604,7 +700,7 @@ export async function purchaseHeadquartersOnServer(
     savePlayerProgress(profile);
     return profile;
   } catch {
-    return purchaseHeadquarters(headquartersId, cost);
+    return null;
   }
 }
 
@@ -649,6 +745,36 @@ function normalizeCardCopies(copies: Record<string, unknown>): Record<string, nu
       getPositiveInteger(count),
     ])
   );
+}
+
+function normalizeSavedDecks(decks: unknown[]): PlayerSavedDeck[] {
+  return decks.flatMap((deck): PlayerSavedDeck[] => {
+    if (!deck || typeof deck !== "object") return [];
+
+    const candidate = deck as Partial<PlayerSavedDeck>;
+    if (
+      typeof candidate.id !== "string" ||
+      typeof candidate.name !== "string" ||
+      typeof candidate.headquartersId !== "string" ||
+      !(candidate.headquartersId in HEADQUARTERS) ||
+      !Array.isArray(candidate.cardIds)
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        id: candidate.id,
+        name: candidate.name,
+        headquartersId: candidate.headquartersId as HeadquartersId,
+        cardIds: candidate.cardIds.filter(
+          (cardId): cardId is string => typeof cardId === "string"
+        ),
+        createdAt: getPositiveInteger(candidate.createdAt),
+        updatedAt: getPositiveInteger(candidate.updatedAt),
+      },
+    ];
+  });
 }
 
 function normalizeBattleStats(value: unknown): PlayerProgress["battleStats"] {

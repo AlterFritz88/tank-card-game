@@ -50,6 +50,7 @@ import { calculateBattleReward, type BattleReward } from "../game/economy";
 import {
   applyBattleRewardToProgress,
   claimBattleRewardFromServer,
+  claimPvpBattleRewardFromServer,
   isHeadquartersFullyResearched,
   loadPlayerProgress,
 } from "../game/playerProgress";
@@ -329,6 +330,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const {
     mode,
     localPlayerId,
+    pvpRoomId,
     pvpTimer,
     pvpMovementIntent,
     pvpAttackIntent,
@@ -864,13 +866,25 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       (battle.status === "player_won" && humanPlayerId === "player") ||
       (battle.status === "bot_won" && humanPlayerId === "bot");
 
-    applyBattleRewardToProgress(reward, localPlayerWon);
-    if (!tutorialActive) {
+    if (tutorialActive) {
+      applyBattleRewardToProgress(reward, localPlayerWon);
+    } else if (mode === "pvp") {
+      if (pvpRoomId) {
+        void claimPvpBattleRewardFromServer({
+          roomId: pvpRoomId,
+          localPlayerId: humanPlayerId,
+        }).then((serverResult) => {
+          if (serverResult?.reward) {
+            setBattleReward(serverResult.reward);
+          }
+        });
+      }
+    } else {
       void claimBattleRewardFromServer({
         battle,
         mode,
         localPlayerId: humanPlayerId,
-        matchEndReason: mode === "pvp" ? matchEndReason : null,
+        matchEndReason: null,
       }).then((serverResult) => {
         if (serverResult?.reward) {
           setBattleReward(serverResult.reward);
@@ -886,7 +900,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [battle, humanPlayerId, matchEndReason, mode, tutorialActive]);
+  }, [battle, humanPlayerId, matchEndReason, mode, pvpRoomId, tutorialActive]);
 
   useEffect(() => {
     if (!cardPreview) return;

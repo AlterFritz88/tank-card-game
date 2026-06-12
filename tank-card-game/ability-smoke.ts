@@ -2,8 +2,10 @@
 import { createInitialBattleState } from "./src/game/initialState";
 import {
   applyAction,
+  getEffectiveCardCost,
   getHeadquartersAttackValue,
 } from "./src/game/engine";
+import { getNextBotAction } from "./src/game/bot";
 import { getCard } from "./src/game/cards";
 import type { BattleState, BoardUnit, HeadquartersId } from "./src/game/types";
 
@@ -476,6 +478,58 @@ function makeUnit(partial: Partial<BoardUnit> & { instanceId: string; cardId: st
     next.stats.destroyedByPlayer.support === 1 &&
       next.stats.destroyedByPlayer.spg === 0,
     `support ${next.stats.destroyedByPlayer.support}, spg ${next.stats.destroyedByPlayer.spg}`
+  );
+}
+
+// 14. Бот учитывает скидку «Моторизованного марша» при планировании.
+{
+  const runBotWithFuel = (botHq: HeadquartersId): boolean => {
+    let state = applyAction(
+      createInitialBattleState({
+        botHeadquartersId: botHq,
+        botDeckCardIds: Array.from({ length: 40 }, () => "panzer_35t"),
+      }),
+      { type: "BEGIN_BATTLE", startingPlayer: "bot" }
+    );
+
+    // Топлива меньше полной стоимости (2): сыграть можно только со скидкой.
+    state.bot.resources = 1;
+
+    let guard = 0;
+
+    while (guard < 15) {
+      guard += 1;
+      const action = getNextBotAction(state);
+
+      if (!action || action.type === "END_TURN") return false;
+      if (action.type === "PLAY_CARD") return true;
+
+      state = applyAction(state, action);
+    }
+
+    return false;
+  };
+
+  const discountedState = applyAction(
+    createInitialBattleState({
+      botHeadquartersId: "german_motorized_division",
+      botDeckCardIds: Array.from({ length: 40 }, () => "panzer_35t"),
+    }),
+    { type: "BEGIN_BATTLE", startingPlayer: "bot" }
+  );
+
+  check(
+    "Эффективная стоимость первого юнита со скидкой = 1",
+    getEffectiveCardCost(discountedState, "bot", "panzer_35t") === 1,
+    `got ${getEffectiveCardCost(discountedState, "bot", "panzer_35t")}`
+  );
+  check(
+    "Бот 29.Inf.mot играет карту при 1 топливе (цена 2, скидка 1)",
+    runBotWithFuel("german_motorized_division")
+  );
+  check(
+    "Контроль: бот без скидки карту при 1 топливе не играет",
+    !runBotWithFuel("first_panzer_division")
   );
 }
 

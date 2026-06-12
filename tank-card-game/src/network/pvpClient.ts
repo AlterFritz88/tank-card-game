@@ -1,4 +1,5 @@
 import type { MatchEndReason } from "../game/modes";
+import { getPersistentPlayerId } from "../game/playerIdentity";
 import type {
   BattleAction,
   BattleStateView,
@@ -61,12 +62,14 @@ export type PvpServerMessage =
   | {
       type: "FIND_MATCH";
       sessionId: string;
+      playerId: string;
       headquartersId: HeadquartersId;
       deckCardIds?: string[];
     }
   | {
       type: "CREATE_ROOM";
       sessionId: string;
+      playerId: string;
       headquartersId: HeadquartersId;
       deckCardIds?: string[];
     }
@@ -74,6 +77,7 @@ export type PvpServerMessage =
       type: "JOIN_ROOM";
       roomId: string;
       sessionId: string;
+      playerId: string;
       headquartersId: HeadquartersId;
       deckCardIds?: string[];
     }
@@ -181,6 +185,7 @@ class PvpClient {
     this.send({
       type: "FIND_MATCH",
       sessionId: this.getSessionId(),
+      playerId: getPersistentPlayerId(),
       headquartersId,
       deckCardIds,
     });
@@ -190,6 +195,7 @@ class PvpClient {
     this.send({
       type: "CREATE_ROOM",
       sessionId: this.getSessionId(),
+      playerId: getPersistentPlayerId(),
       headquartersId,
       deckCardIds,
     });
@@ -200,6 +206,7 @@ class PvpClient {
       type: "JOIN_ROOM",
       roomId,
       sessionId: this.getSessionId(),
+      playerId: getPersistentPlayerId(),
       headquartersId,
       deckCardIds,
     });

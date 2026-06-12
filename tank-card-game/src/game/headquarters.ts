@@ -232,7 +232,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
 
   soviet_guards_mortar_regiment: {
     id: "soviet_guards_mortar_regiment",
-    title: "13-й гв. миномётный",
+    title: "13-й миномётный",
     subtitle: "13-й гвардейский миномётный полк",
     type: "Артиллерийский штаб",
     description:
@@ -298,7 +298,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
 
   usa_armored_infantry_regiment: {
     id: "usa_armored_infantry_regiment",
-    title: "6th Armored Infantry",
+    title: "6th Arm. Inf.",
     subtitle: "6th Armored Infantry Regiment",
     type: "Мотопехотный штаб",
     description:
@@ -320,7 +320,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
 
   usa_armored_artillery_battalion: {
     id: "usa_armored_artillery_battalion",
-    title: "27th Armored Artillery",
+    title: "27th Arm. Art.",
     subtitle: "27th Armored Field Artillery Battalion",
     type: "Артиллерийский штаб",
     description:

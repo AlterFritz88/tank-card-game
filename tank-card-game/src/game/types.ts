@@ -45,6 +45,13 @@ export type SupportEffects = {
   hqAttackBonus?: number;
   /** Incoming headquarters damage redirected into this support unit. */
   hqDamageRedirect?: number;
+  /**
+   * Anti-tank screen for the support line. Melee attacks against any friendly
+   * support unit are met with this much preemptive return fire (once per turn;
+   * the attack is cancelled if the attacker dies). Ranged attacks (SPG or
+   * enemy headquarters) against any friendly support unit hit this unit first.
+   */
+  supportLineCover?: number;
   /** Additional fuel generated at the beginning of this side's turn. */
   fuelPerTurn?: number;
   /** Draw one additional card every N own turns. */
@@ -195,6 +202,8 @@ export type BoardUnit = {
   spawnedThisTurn: boolean;
   moveCountThisTurn: number;
   tdAmbushUsedThisTurn: boolean;
+  /** Anti-tank screen already fired this turn (see supportLineCover). */
+  coverFiredThisTurn?: boolean;
 };
 
 export type PlayerTimerState = {

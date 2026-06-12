@@ -1,6 +1,6 @@
 import type { BattleReward } from "../game/economy";
 import type { GameMode, MatchEndReason } from "../game/modes";
-import type { PlayerProgress } from "../game/playerProgress";
+import type { PlayerProgress, PlayerSavedDeck } from "../game/playerProgress";
 import type {
   ClientBattleState,
   HeadquartersId,
@@ -19,10 +19,18 @@ type ProfileClientMessage =
       type: "CLAIM_BATTLE_REWARD";
       requestId: string;
       playerId: string;
+      claimId: string;
       battle: ClientBattleState;
       mode: GameMode;
       localPlayerId: PlayerId;
       matchEndReason?: MatchEndReason | null;
+    }
+  | {
+      type: "CLAIM_PVP_BATTLE_REWARD";
+      requestId: string;
+      playerId: string;
+      roomId: string;
+      localPlayerId?: PlayerId;
     }
   | {
       type: "RESEARCH_CARD";
@@ -49,6 +57,18 @@ type ProfileClientMessage =
       requestId: string;
       playerId: string;
       headquartersId: HeadquartersId;
+    }
+  | {
+      type: "SAVE_CUSTOM_DECK";
+      requestId: string;
+      playerId: string;
+      deck: PlayerSavedDeck;
+    }
+  | {
+      type: "DELETE_CUSTOM_DECK";
+      requestId: string;
+      playerId: string;
+      deckId: string;
     };
 
 type ProfileServerMessage =
@@ -120,6 +140,7 @@ class ProfileClient {
 
   async claimBattleReward(
     playerId: string,
+    claimId: string,
     input: {
       battle: ClientBattleState;
       mode: GameMode;
@@ -131,7 +152,27 @@ class ProfileClient {
       type: "CLAIM_BATTLE_REWARD",
       requestId: createRequestId(),
       playerId,
+      claimId,
       ...input,
+    });
+
+    return {
+      profile: response.profile,
+      reward: response.reward,
+    };
+  }
+
+  async claimPvpBattleReward(
+    playerId: string,
+    roomId: string,
+    localPlayerId?: PlayerId
+  ): Promise<{ profile: PlayerProgress; reward?: BattleReward }> {
+    const response = await this.request({
+      type: "CLAIM_PVP_BATTLE_REWARD",
+      requestId: createRequestId(),
+      playerId,
+      roomId,
+      localPlayerId,
     });
 
     return {
@@ -195,6 +236,34 @@ class ProfileClient {
       requestId: createRequestId(),
       playerId,
       headquartersId,
+    });
+
+    return response.profile;
+  }
+
+  async saveCustomDeck(
+    playerId: string,
+    deck: PlayerSavedDeck
+  ): Promise<PlayerProgress> {
+    const response = await this.request({
+      type: "SAVE_CUSTOM_DECK",
+      requestId: createRequestId(),
+      playerId,
+      deck,
+    });
+
+    return response.profile;
+  }
+
+  async deleteCustomDeck(
+    playerId: string,
+    deckId: string
+  ): Promise<PlayerProgress> {
+    const response = await this.request({
+      type: "DELETE_CUSTOM_DECK",
+      requestId: createRequestId(),
+      playerId,
+      deckId,
     });
 
     return response.profile;

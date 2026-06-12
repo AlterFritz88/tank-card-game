@@ -92,6 +92,23 @@ function getHeadquartersClassIcon(ownerId: PlayerId): string | null {
   ]);
 }
 
+function getHeadquartersTitleFontSize(title: string): number {
+  const visualLength = Array.from(title).reduce((total, char) => {
+    if (char === " ") return total + 0.45;
+    if (".,-–—()".includes(char)) return total + 0.35;
+    if (/[A-ZА-ЯЁ]/.test(char)) return total + 1.05;
+
+    return total + 0.9;
+  }, 0);
+
+  if (visualLength <= 14) return 10;
+  if (visualLength <= 18) return 9;
+  if (visualLength <= 23) return 8;
+  if (visualLength <= 29) return 7;
+
+  return 6.5;
+}
+
 export function HeadquartersCardView({
   ownerId,
   headquartersId,
@@ -114,6 +131,8 @@ export function HeadquartersCardView({
     artOwnerId ?? ownerId
   );
   const headquartersClassIcon = getHeadquartersClassIcon(ownerId);
+  const title = headquarters?.title ?? "Штаб";
+  const titleFontSize = getHeadquartersTitleFontSize(title);
 
   return (
     <div
@@ -158,7 +177,9 @@ export function HeadquartersCardView({
             </span>
           )}
 
-          <strong style={styles.title}>{headquarters?.title ?? "Штаб"}</strong>
+          <strong style={{ ...styles.title, fontSize: titleFontSize }}>
+            {title}
+          </strong>
         </div>
       </div>
 
@@ -245,7 +266,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   titleArea: {
     position: "absolute",
-    left: 4,
+    left: 1,
     right: 3,
     top: 3,
     zIndex: 6,

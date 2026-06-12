@@ -19,6 +19,7 @@ import type {
 export const STEP_TIME_MS = 15 * 1000;
 const TRAINING_DECK_CARD_LIMIT = 20;
 const DEFAULT_DECK_CARD_LIMIT = 40;
+const STOCK_DECK_COPY_LIMIT = 4;
 
 /**
  * Minimum number of valid cards a custom deck must contain to be playable.
@@ -883,10 +884,49 @@ function isStandardDefaultDeck(deckId: string): boolean {
   return deckId.endsWith("_default") && !TRAINING_DECK_IDS.has(deckId);
 }
 
-function expandDeckCardIds(cardIds: string[], count: number): string[] {
+function limitCardCopies(cardIds: string[], copyLimit = STOCK_DECK_COPY_LIMIT): string[] {
+  const copies = new Map<string, number>();
+  const result: string[] = [];
+
+  for (const cardId of cardIds) {
+    const nextCopies = (copies.get(cardId) ?? 0) + 1;
+    if (nextCopies > copyLimit) continue;
+
+    copies.set(cardId, nextCopies);
+    result.push(cardId);
+  }
+
+  return result;
+}
+
+function expandDeckCardIds(
+  cardIds: string[],
+  count: number,
+  copyLimit = STOCK_DECK_COPY_LIMIT
+): string[] {
   if (cardIds.length === 0) return [];
 
-  return Array.from({ length: count }, (_, index) => cardIds[index % cardIds.length]);
+  const copies = new Map<string, number>();
+  const result: string[] = [];
+
+  while (result.length < count) {
+    let addedThisPass = false;
+
+    for (const cardId of cardIds) {
+      const nextCopies = (copies.get(cardId) ?? 0) + 1;
+      if (nextCopies > copyLimit) continue;
+
+      copies.set(cardId, nextCopies);
+      result.push(cardId);
+      addedThisPass = true;
+
+      if (result.length >= count) break;
+    }
+
+    if (!addedThisPass) break;
+  }
+
+  return result;
 }
 
 function normalizeDeckCardIds(cardIds: string[], deckLabel: string): string[] {
@@ -918,14 +958,14 @@ export function getDeckCardIds(deckId: string): string[] {
   const normalizedCardIds = normalizeDeckCardIds(cardIds, deckId);
 
   if (TRAINING_DECK_IDS.has(deckId)) {
-    return normalizedCardIds.slice(0, TRAINING_DECK_CARD_LIMIT);
+    return limitCardCopies(normalizedCardIds).slice(0, TRAINING_DECK_CARD_LIMIT);
   }
 
   if (isStandardDefaultDeck(deckId)) {
     return expandDeckCardIds(normalizedCardIds, DEFAULT_DECK_CARD_LIMIT);
   }
 
-  return normalizedCardIds;
+  return limitCardCopies(normalizedCardIds);
 }
 
 function createCardInstances(cardIds: string[], owner: PlayerId): CardInstance[] {

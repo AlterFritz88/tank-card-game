@@ -173,6 +173,23 @@ function getHeadquartersClassIcon(ownerId: PlayerId): string | null {
   ]);
 }
 
+function getHeadquartersTitleFontSize(title: string): number {
+  const visualLength = Array.from(title).reduce((total, char) => {
+    if (char === " ") return total + 0.45;
+    if (".,-–—()".includes(char)) return total + 0.35;
+    if (/[A-ZА-ЯЁ]/.test(char)) return total + 1.05;
+
+    return total + 0.9;
+  }, 0);
+
+  if (visualLength <= 14) return 15;
+  if (visualLength <= 18) return 14;
+  if (visualLength <= 23) return 12;
+  if (visualLength <= 29) return 10;
+
+  return 8.5;
+}
+
 
 export function HandCardView({
   card,
@@ -221,6 +238,9 @@ export function HandCardView({
   const title = isHeadquarters
     ? headquartersDefinition?.title ?? "Штаб"
     : card!.name;
+  const titleFontSize = isHeadquarters
+    ? getHeadquartersTitleFontSize(title)
+    : 15;
   const subtitle = isHeadquarters
     ? headquartersDefinition?.type ?? headquartersDefinition?.subtitle ?? "Командный пункт"
     : `${nation!.label} · ${unitClass!.label}`;
@@ -319,7 +339,7 @@ export function HandCardView({
         <strong
           style={{
             ...styles.title,
-            fontSize: scaled(15),
+            fontSize: scaled(titleFontSize),
             letterSpacing: 0.4 * uiScale,
           }}
         >
@@ -585,6 +605,7 @@ const styles: Record<string, React.CSSProperties> = {
   headquartersTitleArea: {
     left: "23.8%",
     right: "8%",
+    transform: "translateX(-3px)",
   },
 
   titleAreaWithoutSpawnCost: {

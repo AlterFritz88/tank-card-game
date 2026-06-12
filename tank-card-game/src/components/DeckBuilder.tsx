@@ -22,12 +22,13 @@ import {
   DECK_UNIT_LIMIT,
   NATION_FILTERS,
   UNIT_TYPE_FILTERS,
+  createCustomDeckDraft,
+  createUpdatedCustomDeckDraft,
   countCardCopies,
   getAvailableDeckCards,
   getGroupedDeckCards,
   getNextDefaultDeckName,
-  saveCustomDeck,
-  updateCustomDeck,
+  saveCustomDeckToServer,
   validateDeck,
   type NationFilter,
   type SavedDeck,
@@ -242,27 +243,31 @@ export function DeckBuilder({
     setSaveMessage(null);
   }
 
-  function saveDeck() {
+  async function saveDeck() {
     if (!selectedHeadquartersId || !validation.valid) {
       setSaveMessage(validation.message);
       return;
     }
 
-    const savedDeck = editingDeck
-      ? updateCustomDeck(
-          editingDeck.id,
+    const deckDraft = editingDeck
+      ? createUpdatedCustomDeckDraft(
+          editingDeck,
           selectedHeadquartersId,
           deckCardIds,
           deckName
         )
-      : saveCustomDeck(selectedHeadquartersId, deckCardIds, deckName);
+      : createCustomDeckDraft(selectedHeadquartersId, deckCardIds, deckName);
 
-    if (!savedDeck) {
-      setSaveMessage("Не удалось обновить колоду");
+    try {
+      const savedDeck = await saveCustomDeckToServer(deckDraft);
+      setSaveMessage(`Колода ${savedDeck.name} сохранена`);
+    } catch (error) {
+      setSaveMessage(
+        error instanceof Error ? error.message : "Server rejected deck"
+      );
       return;
     }
 
-    setSaveMessage(`Колода ${savedDeck.name} сохранена`);
     onSaved();
   }
 

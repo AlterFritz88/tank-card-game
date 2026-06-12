@@ -1,6 +1,7 @@
-import { cards, getCardOrNull, normalizeCardId } from "./cards";
+import { cards, getCardOrNull } from "./cards";
 import { HEADQUARTERS } from "./headquarters";
-import type { PlayerProgress } from "./playerProgress";
+import { loadPlayerProgress, savePlayerProgress, type PlayerProgress } from "./playerProgress";
+import { getPersistentPlayerId } from "./playerIdentity";
 import type { HeadquartersId, Nation, TankCard, TankClass } from "./types";
 
 export const DECK_UNIT_LIMIT = 40;
@@ -58,6 +59,10 @@ function createDeckId(): string {
   }
 
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+async function getProfileClient() {
+  return (await import("../network/profileClient")).profileClient;
 }
 
 function getCardById(cardId: string): TankCard | null {
@@ -189,46 +194,48 @@ export function validateDeck(
   return { valid: true, message: null };
 }
 
-function parseSavedDecks(value: string | null): SavedDeck[] {
-  if (!value) return [];
-
-  try {
-    const parsedValue = JSON.parse(value);
-    if (!Array.isArray(parsedValue)) return [];
-
-    return parsedValue.flatMap((item): SavedDeck[] => {
-      const validShape =
-        typeof item?.id === "string" &&
-        typeof item.name === "string" &&
-        typeof item.headquartersId === "string" &&
-        item.headquartersId in HEADQUARTERS &&
-        Array.isArray(item.cardIds) &&
-        item.cardIds.every((cardId: unknown) => typeof cardId === "string");
-
-      if (!validShape) return [];
-
-      const cardIds = item.cardIds
-        .map((cardId: string) => normalizeCardId(cardId))
-        .filter((cardId: string | null): cardId is string => Boolean(cardId));
-
-      return [
-        {
-          ...item,
-          cardIds,
-        },
-      ];
-    });
-  } catch {
-    return [];
-  }
-}
-
 export function loadSavedDecks(): SavedDeck[] {
-  return parseSavedDecks(window.localStorage.getItem(SAVED_DECKS_STORAGE_KEY));
+  return loadPlayerProgress().savedDecks.sort(
+    (left, right) => right.updatedAt - left.updatedAt
+  );
 }
 
 export function saveDecks(decks: SavedDeck[]) {
   window.localStorage.setItem(SAVED_DECKS_STORAGE_KEY, JSON.stringify(decks));
+}
+
+export async function syncSavedDecksFromServer(): Promise<SavedDeck[]> {
+  const profileClient = await getProfileClient();
+  const profile = await profileClient.getProfile(getPersistentPlayerId());
+
+  savePlayerProgress(profile);
+  saveDecks(profile.savedDecks);
+
+  return profile.savedDecks;
+}
+
+export async function saveCustomDeckToServer(deck: SavedDeck): Promise<SavedDeck> {
+  const profileClient = await getProfileClient();
+  const profile = await profileClient.saveCustomDeck(
+    getPersistentPlayerId(),
+    deck
+  );
+
+  savePlayerProgress(profile);
+  saveDecks(profile.savedDecks);
+
+  return profile.savedDecks.find((item) => item.id === deck.id) ?? deck;
+}
+
+export async function deleteCustomDeckFromServer(deckId: string): Promise<void> {
+  const profileClient = await getProfileClient();
+  const profile = await profileClient.deleteCustomDeck(
+    getPersistentPlayerId(),
+    deckId
+  );
+
+  savePlayerProgress(profile);
+  saveDecks(profile.savedDecks);
 }
 
 export function loadSavedDecksForHeadquarters(headquartersId: HeadquartersId): SavedDeck[] {
@@ -305,6 +312,38 @@ export function markRecentDeckSelection(
       ...selections,
     ])
   );
+}
+
+export function createCustomDeckDraft(
+  headquartersId: HeadquartersId,
+  cardIds: string[],
+  name: string
+): SavedDeck {
+  const now = Date.now();
+
+  return {
+    id: createDeckId(),
+    name: name.trim() || "ÐÐ¾Ð²Ð°Ñ ÐºÐ¾Ð»Ð¾Ð´Ð°",
+    headquartersId,
+    cardIds,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function createUpdatedCustomDeckDraft(
+  deck: SavedDeck,
+  headquartersId: HeadquartersId,
+  cardIds: string[],
+  name: string
+): SavedDeck {
+  return {
+    ...deck,
+    name: name.trim() || deck.name,
+    headquartersId,
+    cardIds,
+    updatedAt: Date.now(),
+  };
 }
 
 export function saveCustomDeck(

@@ -29,6 +29,7 @@ import { PlayerProfileManager } from "./playerProfiles";
 
 type RoomPlayer = {
   id: PlayerId;
+  profilePlayerId: string | null;
   headquartersId: HeadquartersId;
   deckCardIds: string[] | null;
   deckWeight: number;
@@ -84,6 +85,14 @@ type Room = {
   cleanupTimer: NodeJS.Timeout | null;
 };
 
+type CompletedPvpMatch = {
+  roomId: string;
+  battle: BattleState;
+  endReason: MatchEndReason | null;
+  players: Partial<Record<PlayerId, { profilePlayerId: string | null }>>;
+  timeoutId: NodeJS.Timeout;
+};
+
 const START_ROLL_DURATION_MS = 2800;
 const START_ROLL_RESULT_DELAY_MS = 350;
 const START_ROLL_FINISH_DELAY_MS = 900;
@@ -93,6 +102,7 @@ const PVP_MOVE_INTENT_DURATION_MS = 520;
 const PVP_ATTACK_STRIKE_DURATION_MS = 960;
 const PVP_DESTROYED_CARD_ANIMATION_MS = 920;
 const ROOM_CLEANUP_DELAY_MS = 30_000;
+const PVP_REWARD_CLAIM_TTL_MS = 10 * 60_000;
 const RECONNECT_GRACE_MS = Number(process.env.PVP_RECONNECT_GRACE_MS ?? 15_000);
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
@@ -236,6 +246,7 @@ export class RoomManager {
   private movementIntentSequence = 0;
   private attackIntentSequence = 0;
   private profiles = new PlayerProfileManager();
+  private completedPvpMatches = new Map<string, CompletedPvpMatch>();
 
   handleMessage(socket: WebSocket, rawData: WebSocket.RawData) {
     let message: PvpClientMessage;
@@ -252,12 +263,14 @@ export class RoomManager {
         this.findMatch(
           socket,
           message.sessionId,
+          message.playerId,
           message.headquartersId,
           message.deckCardIds
         );
         break;
       case "CREATE_ROOM":
         this.createRoom(socket, message.sessionId, {
+          profilePlayerId: message.playerId,
           headquartersId: message.headquartersId,
           deckCardIds: message.deckCardIds,
         });
@@ -267,6 +280,7 @@ export class RoomManager {
           socket,
           message.roomId,
           message.sessionId,
+          message.playerId,
           message.headquartersId,
           message.deckCardIds
         );
@@ -298,6 +312,9 @@ export class RoomManager {
       case "CLAIM_BATTLE_REWARD":
         this.claimBattleReward(socket, message);
         break;
+      case "CLAIM_PVP_BATTLE_REWARD":
+        this.claimPvpBattleReward(socket, message);
+        break;
       case "RESEARCH_CARD":
         this.researchCard(socket, message);
         break;
@@ -309,6 +326,12 @@ export class RoomManager {
         break;
       case "PURCHASE_HEADQUARTERS":
         this.purchaseHeadquarters(socket, message);
+        break;
+      case "SAVE_CUSTOM_DECK":
+        this.saveCustomDeck(socket, message);
+        break;
+      case "DELETE_CUSTOM_DECK":
+        this.deleteCustomDeck(socket, message);
         break;
       default:
         safeSend(socket, { type: "ERROR", message: "Неизвестное сообщение" });
@@ -377,10 +400,68 @@ export class RoomManager {
       const { profile, reward } = this.profiles.claimBattleReward(
         message.playerId,
         {
+          claimId: message.claimId,
           battle: message.battle,
           mode: message.mode,
           localPlayerId: message.localPlayerId,
           matchEndReason: message.matchEndReason,
+        }
+      );
+
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile,
+        reward,
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
+  private claimPvpBattleReward(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "CLAIM_PVP_BATTLE_REWARD" }>
+  ) {
+    try {
+      const roomId = message.roomId.trim().toUpperCase();
+      const completedMatch = this.completedPvpMatches.get(roomId);
+      const currentRoom = this.rooms.get(roomId);
+      const battle =
+        completedMatch?.battle ??
+        (currentRoom?.battle?.status === "player_won" ||
+        currentRoom?.battle?.status === "bot_won"
+          ? currentRoom.battle
+          : null);
+      const players =
+        completedMatch?.players ??
+        ({
+          player: currentRoom?.players.player
+            ? { profilePlayerId: currentRoom.players.player.profilePlayerId }
+            : undefined,
+          bot: currentRoom?.players.bot
+            ? { profilePlayerId: currentRoom.players.bot.profilePlayerId }
+            : undefined,
+        } satisfies CompletedPvpMatch["players"]);
+      const endReason = completedMatch?.endReason ?? currentRoom?.endReason ?? null;
+
+      if (!battle) {
+        throw new Error("Finished PVP match was not found");
+      }
+
+      const localPlayerId = this.getPvpRewardPlayerId(
+        players,
+        message.playerId,
+        message.localPlayerId
+      );
+      const { profile, reward } = this.profiles.claimBattleReward(
+        message.playerId,
+        {
+          claimId: `pvp:${roomId}:${localPlayerId}`,
+          battle,
+          mode: "pvp",
+          localPlayerId,
+          matchEndReason: endReason,
         }
       );
 
@@ -466,6 +547,36 @@ export class RoomManager {
     }
   }
 
+  private saveCustomDeck(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "SAVE_CUSTOM_DECK" }>
+  ) {
+    try {
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile: this.profiles.saveCustomDeck(message.playerId, message.deck),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
+  private deleteCustomDeck(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "DELETE_CUSTOM_DECK" }>
+  ) {
+    try {
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile: this.profiles.deleteCustomDeck(message.playerId, message.deckId),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
   private sendProfileError(
     socket: WebSocket,
     requestId: string,
@@ -478,22 +589,73 @@ export class RoomManager {
     });
   }
 
+  private getPvpRewardPlayerId(
+    players: CompletedPvpMatch["players"],
+    profilePlayerId: string,
+    requestedPlayerId?: PlayerId
+  ): PlayerId {
+    if (
+      requestedPlayerId &&
+      players[requestedPlayerId]?.profilePlayerId === profilePlayerId
+    ) {
+      return requestedPlayerId;
+    }
+
+    for (const candidateId of ["player", "bot"] as const) {
+      if (players[candidateId]?.profilePlayerId === profilePlayerId) {
+        return candidateId;
+      }
+    }
+
+    throw new Error("Player did not participate in this PVP match");
+  }
+
+  private validateIncomingCustomDeck(
+    profilePlayerId: string | undefined,
+    headquartersId: HeadquartersId,
+    deckCardIds: string[] | undefined
+  ): string[] | null {
+    if (deckCardIds === undefined) return null;
+    if (!profilePlayerId) {
+      throw new Error("Custom deck requires a player profile");
+    }
+
+    return this.profiles.validatePlayableDeck(
+      profilePlayerId,
+      headquartersId,
+      deckCardIds
+    );
+  }
+
   private findMatch(
     socket: WebSocket,
     sessionId: string,
+    profilePlayerId: string | undefined,
     headquartersId: HeadquartersId,
     deckCardIds?: string[]
   ) {
-    safeSend(socket, { type: "MATCHMAKING_STARTED" });
-
     const normalizedHeadquartersId = normalizeHeadquartersId(
       headquartersId,
       DEFAULT_PLAYER_HEADQUARTERS_ID
     );
-    const normalizedDeckCardIds = normalizeCustomDeckCardIds(
-      normalizedHeadquartersId,
-      deckCardIds
-    );
+    let normalizedDeckCardIds: string[] | null;
+
+    try {
+      normalizedDeckCardIds = this.validateIncomingCustomDeck(
+        profilePlayerId,
+        normalizedHeadquartersId,
+        deckCardIds
+      );
+    } catch (error) {
+      safeSend(socket, {
+        type: "ERROR",
+        message: error instanceof Error ? error.message : "Invalid custom deck",
+      });
+      return;
+    }
+
+    safeSend(socket, { type: "MATCHMAKING_STARTED" });
+
     const deckWeight = getDeckWeight(
       normalizedHeadquartersId,
       normalizedDeckCardIds
@@ -505,6 +667,7 @@ export class RoomManager {
         socket,
         waitingRoom,
         sessionId,
+        profilePlayerId,
         normalizedHeadquartersId,
         normalizedDeckCardIds ?? undefined
       );
@@ -513,6 +676,7 @@ export class RoomManager {
 
     this.createRoom(socket, sessionId, {
       makePublicWaiting: true,
+      profilePlayerId,
       headquartersId: normalizedHeadquartersId,
       deckCardIds: normalizedDeckCardIds ?? undefined,
     });
@@ -546,6 +710,7 @@ export class RoomManager {
     sessionId: string,
     options?: {
       makePublicWaiting?: boolean;
+      profilePlayerId?: string;
       headquartersId?: HeadquartersId;
       deckCardIds?: string[];
     }
@@ -559,6 +724,21 @@ export class RoomManager {
       options?.headquartersId,
       DEFAULT_PLAYER_HEADQUARTERS_ID
     );
+    let playerDeckCardIds: string[] | null;
+
+    try {
+      playerDeckCardIds = this.validateIncomingCustomDeck(
+        options?.profilePlayerId,
+        playerHeadquartersId,
+        options?.deckCardIds
+      );
+    } catch (error) {
+      safeSend(socket, {
+        type: "ERROR",
+        message: error instanceof Error ? error.message : "Invalid custom deck",
+      });
+      return;
+    }
 
     const room: Room = {
       id: roomId,
@@ -567,8 +747,9 @@ export class RoomManager {
           "player",
           socket,
           sessionId,
+          options?.profilePlayerId ?? null,
           playerHeadquartersId,
-          normalizeCustomDeckCardIds(playerHeadquartersId, options?.deckCardIds)
+          playerDeckCardIds
         ),
       },
       publicMatchmaking: Boolean(options?.makePublicWaiting),
@@ -599,24 +780,42 @@ export class RoomManager {
     socket: WebSocket,
     room: Room,
     sessionId: string,
+    profilePlayerId: string | undefined,
     headquartersId: HeadquartersId,
     deckCardIds?: string[]
   ) {
-    if (this.waitingRoomId === room.id) {
-      this.waitingRoomId = null;
-    }
-    room.publicMatchmaking = false;
     const botHeadquartersId = normalizeHeadquartersId(
       headquartersId,
       DEFAULT_BOT_HEADQUARTERS_ID
     );
+    let botDeckCardIds: string[] | null;
+
+    try {
+      botDeckCardIds = this.validateIncomingCustomDeck(
+        profilePlayerId,
+        botHeadquartersId,
+        deckCardIds
+      );
+    } catch (error) {
+      safeSend(socket, {
+        type: "ERROR",
+        message: error instanceof Error ? error.message : "Invalid custom deck",
+      });
+      return;
+    }
+
+    if (this.waitingRoomId === room.id) {
+      this.waitingRoomId = null;
+    }
+    room.publicMatchmaking = false;
 
     room.players.bot = this.createRoomPlayer(
       "bot",
       socket,
       sessionId,
+      profilePlayerId ?? null,
       botHeadquartersId,
-      normalizeCustomDeckCardIds(botHeadquartersId, deckCardIds)
+      botDeckCardIds
     );
     this.bindSocket(socket, room, "bot");
     this.sessionToRoom.set(sessionId, { roomId: room.id, playerId: "bot" });
@@ -630,6 +829,7 @@ export class RoomManager {
     socket: WebSocket,
     unsafeRoomId: string,
     sessionId: string,
+    profilePlayerId: string | undefined,
     headquartersId: HeadquartersId,
     deckCardIds?: string[]
   ) {
@@ -646,22 +846,38 @@ export class RoomManager {
       return;
     }
 
+    const botHeadquartersId = normalizeHeadquartersId(
+      headquartersId,
+      DEFAULT_BOT_HEADQUARTERS_ID
+    );
+    let botDeckCardIds: string[] | null;
+
+    try {
+      botDeckCardIds = this.validateIncomingCustomDeck(
+        profilePlayerId,
+        botHeadquartersId,
+        deckCardIds
+      );
+    } catch (error) {
+      safeSend(socket, {
+        type: "ERROR",
+        message: error instanceof Error ? error.message : "Invalid custom deck",
+      });
+      return;
+    }
+
     if (this.waitingRoomId === roomId) {
       this.waitingRoomId = null;
     }
     room.publicMatchmaking = false;
 
-    const botHeadquartersId = normalizeHeadquartersId(
-      headquartersId,
-      DEFAULT_BOT_HEADQUARTERS_ID
-    );
-
     room.players.bot = this.createRoomPlayer(
       "bot",
       socket,
       sessionId,
+      profilePlayerId ?? null,
       botHeadquartersId,
-      normalizeCustomDeckCardIds(botHeadquartersId, deckCardIds)
+      botDeckCardIds
     );
     this.bindSocket(socket, room, "bot");
     this.sessionToRoom.set(sessionId, { roomId, playerId: "bot" });
@@ -795,6 +1011,7 @@ export class RoomManager {
 
     if (room.battle.status !== "active") {
       this.clearTurnTimer(room);
+      this.finishNaturallyCompletedBattle(room);
       return;
     }
 
@@ -1195,11 +1412,13 @@ export class RoomManager {
     id: PlayerId,
     socket: WebSocket,
     sessionId: string,
+    profilePlayerId: string | null,
     headquartersId: HeadquartersId,
     deckCardIds: string[] | null
   ): RoomPlayer {
     return {
       id,
+      profilePlayerId,
       headquartersId,
       deckCardIds,
       deckWeight: getDeckWeight(headquartersId, deckCardIds),
@@ -1348,6 +1567,59 @@ export class RoomManager {
     }
   }
 
+  private getBattleWinnerPlayerId(battle: BattleState): PlayerId | null {
+    if (battle.status === "player_won") return "player";
+    if (battle.status === "bot_won") return "bot";
+    return null;
+  }
+
+  private rememberCompletedPvpMatch(
+    room: Room,
+    endReason: MatchEndReason | null
+  ) {
+    if (!room.battle) return;
+    if (room.battle.status !== "player_won" && room.battle.status !== "bot_won") {
+      return;
+    }
+
+    const previousMatch = this.completedPvpMatches.get(room.id);
+    if (previousMatch) {
+      clearTimeout(previousMatch.timeoutId);
+    }
+
+    const timeoutId = setTimeout(() => {
+      this.completedPvpMatches.delete(room.id);
+    }, PVP_REWARD_CLAIM_TTL_MS);
+
+    this.completedPvpMatches.set(room.id, {
+      roomId: room.id,
+      battle: structuredClone(room.battle),
+      endReason,
+      players: {
+        player: room.players.player
+          ? { profilePlayerId: room.players.player.profilePlayerId }
+          : undefined,
+        bot: room.players.bot
+          ? { profilePlayerId: room.players.bot.profilePlayerId }
+          : undefined,
+      },
+      timeoutId,
+    });
+  }
+
+  private finishNaturallyCompletedBattle(room: Room) {
+    if (!room.battle) return;
+
+    const winner = this.getBattleWinnerPlayerId(room.battle);
+    if (!winner) return;
+
+    room.ended = true;
+    room.winner = winner;
+    room.endReason = null;
+    this.rememberCompletedPvpMatch(room, null);
+    this.scheduleRoomCleanup(room.id);
+  }
+
   private finishMatchByPlayerExit(room: Room, loser: PlayerId, reason: MatchEndReason) {
     if (room.ended) return;
     if (!room.battle) return;
@@ -1374,6 +1646,7 @@ export class RoomManager {
     this.clearPendingStartRoll(room);
     this.clearPendingMovement(room);
     this.clearPendingAttack(room);
+    this.rememberCompletedPvpMatch(room, reason);
     this.broadcastBattleState(room);
     this.broadcastMatchEnded(room, winner, reason);
     this.scheduleRoomCleanup(room.id);
@@ -1553,6 +1826,7 @@ export class RoomManager {
       this.restartTurnTimer(room);
     } else {
       this.clearTurnTimer(room);
+      this.finishNaturallyCompletedBattle(room);
     }
   }
 

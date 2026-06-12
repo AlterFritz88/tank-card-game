@@ -8,18 +8,23 @@ import type {
 import type { AttackAnimationStrike } from "../../tank-card-game/src/game/engine";
 import type { BattleReward } from "../../tank-card-game/src/game/economy";
 import type { GameMode, MatchEndReason as GameMatchEndReason } from "../../tank-card-game/src/game/modes";
-import type { PlayerProgress } from "../../tank-card-game/src/game/playerProgress";
+import type {
+  PlayerProgress,
+  PlayerSavedDeck,
+} from "../../tank-card-game/src/game/playerProgress";
 
 export type PvpClientMessage =
   | {
       type: "FIND_MATCH";
       sessionId: string;
+      playerId?: string;
       headquartersId: HeadquartersId;
       deckCardIds?: string[];
     }
   | {
       type: "CREATE_ROOM";
       sessionId: string;
+      playerId?: string;
       headquartersId: HeadquartersId;
       deckCardIds?: string[];
     }
@@ -27,6 +32,7 @@ export type PvpClientMessage =
       type: "JOIN_ROOM";
       roomId: string;
       sessionId: string;
+      playerId?: string;
       headquartersId: HeadquartersId;
       deckCardIds?: string[];
     }
@@ -47,10 +53,18 @@ export type PvpClientMessage =
       type: "CLAIM_BATTLE_REWARD";
       requestId: string;
       playerId: string;
+      claimId: string;
       battle: ClientBattleState;
       mode: GameMode;
       localPlayerId: PlayerId;
       matchEndReason?: GameMatchEndReason | null;
+    }
+  | {
+      type: "CLAIM_PVP_BATTLE_REWARD";
+      requestId: string;
+      playerId: string;
+      roomId: string;
+      localPlayerId?: PlayerId;
     }
   | {
       type: "RESEARCH_CARD";
@@ -77,6 +91,18 @@ export type PvpClientMessage =
       requestId: string;
       playerId: string;
       headquartersId: HeadquartersId;
+    }
+  | {
+      type: "SAVE_CUSTOM_DECK";
+      requestId: string;
+      playerId: string;
+      deck: PlayerSavedDeck;
+    }
+  | {
+      type: "DELETE_CUSTOM_DECK";
+      requestId: string;
+      playerId: string;
+      deckId: string;
     };
 
 export type MatchEndReason =

@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { getCard, normalizeCardId } from "../../tank-card-game/src/game/cards";
 import { calculateBattleReward, type BattleReward } from "../../tank-card-game/src/game/economy";
-import { HEADQUARTERS } from "../../tank-card-game/src/game/headquarters";
+import { getHeadquartersDefinition, HEADQUARTERS } from "../../tank-card-game/src/game/headquarters";
 import type { GameMode, MatchEndReason } from "../../tank-card-game/src/game/modes";
 import {
   canSpendResearchExperience,
@@ -9,6 +10,7 @@ import {
   isHeadquartersFullyResearched,
   spendResearchExperience,
   type PlayerProgress,
+  type PlayerSavedDeck,
 } from "../../tank-card-game/src/game/playerProgress";
 import {
   RESEARCH_TREES,
@@ -29,6 +31,7 @@ type ResearchNodeContext = {
 };
 
 type ClaimBattleRewardInput = {
+  claimId: string;
   battle: ClientBattleState;
   mode: GameMode;
   localPlayerId: PlayerId;
@@ -39,6 +42,8 @@ const PROFILE_DB_PATH =
   process.env.PLAYER_PROFILE_DB_PATH ??
   join(process.cwd(), "data", "player-profiles.json");
 const CARD_COPY_LIMIT = 4;
+const CUSTOM_DECK_CARD_LIMIT = 40;
+const MAX_SAVED_DECKS = 80;
 
 function sanitizePlayerId(playerId: string): string {
   return playerId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
@@ -62,6 +67,12 @@ function readDb(): ProfileDb {
 function writeDb(db: ProfileDb) {
   mkdirSync(dirname(PROFILE_DB_PATH), { recursive: true });
   writeFileSync(PROFILE_DB_PATH, JSON.stringify(db, null, 2), "utf8");
+}
+
+function getPositiveInteger(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : 0;
 }
 
 function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProgress {
@@ -119,7 +130,47 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
       ...fallback.ownedCardCopies,
       ...profile.ownedCardCopies,
     },
+    savedDecks: Array.isArray(profile.savedDecks)
+      ? normalizeSavedDecks(profile.savedDecks)
+      : fallback.savedDecks,
+    claimedBattleRewardIds: Array.isArray(profile.claimedBattleRewardIds)
+      ? profile.claimedBattleRewardIds.filter(
+          (rewardId): rewardId is string => typeof rewardId === "string"
+        )
+      : fallback.claimedBattleRewardIds,
   };
+}
+
+function normalizeSavedDecks(decks: unknown[]): PlayerSavedDeck[] {
+  return decks.flatMap((deck): PlayerSavedDeck[] => {
+    if (!deck || typeof deck !== "object") return [];
+
+    const candidate = deck as Partial<PlayerSavedDeck>;
+    if (
+      typeof candidate.id !== "string" ||
+      typeof candidate.name !== "string" ||
+      typeof candidate.headquartersId !== "string" ||
+      !(candidate.headquartersId in HEADQUARTERS) ||
+      !Array.isArray(candidate.cardIds)
+    ) {
+      return [];
+    }
+
+    const cardIds = candidate.cardIds
+      .map((cardId) => (typeof cardId === "string" ? normalizeCardId(cardId) : null))
+      .filter((cardId): cardId is string => Boolean(cardId));
+
+    return [
+      {
+        id: candidate.id,
+        name: candidate.name.trim().slice(0, 40) || "Deck",
+        headquartersId: candidate.headquartersId as HeadquartersId,
+        cardIds,
+        createdAt: getPositiveInteger(candidate.createdAt),
+        updatedAt: getPositiveInteger(candidate.updatedAt),
+      },
+    ];
+  });
 }
 
 function sanitizeNickname(nickname: unknown, fallback: string): string {
@@ -142,6 +193,67 @@ function getUnlockedFavoriteHeadquartersId(
   }
 
   return profile.favoriteHeadquartersId;
+}
+
+function validateDeckForProfile(
+  profile: PlayerProgress,
+  headquartersId: HeadquartersId,
+  cardIds: unknown
+): string[] {
+  if (!profile.unlockedHeadquartersIds.includes(headquartersId)) {
+    throw new Error("Headquarters is not unlocked");
+  }
+
+  if (!Array.isArray(cardIds) || cardIds.length !== CUSTOM_DECK_CARD_LIMIT) {
+    throw new Error(`Deck must contain ${CUSTOM_DECK_CARD_LIMIT} cards`);
+  }
+
+  const headquarters = getHeadquartersDefinition(headquartersId);
+  const trainingHeadquarters = headquarters.level === 1;
+  const copies = new Map<string, number>();
+  const normalizedCardIds: string[] = [];
+
+  for (const rawCardId of cardIds) {
+    if (typeof rawCardId !== "string") {
+      throw new Error("Deck contains invalid card id");
+    }
+
+    const cardId = normalizeCardId(rawCardId);
+    if (!cardId) {
+      throw new Error(`Unknown card: ${rawCardId}`);
+    }
+
+    const card = getCard(cardId);
+    if (!trainingHeadquarters && card.nation !== headquarters.nation) {
+      throw new Error("Deck contains cards from another nation");
+    }
+
+    const nextCopies = (copies.get(cardId) ?? 0) + 1;
+    if (nextCopies > CARD_COPY_LIMIT) {
+      throw new Error(`Too many copies of ${cardId}`);
+    }
+
+    if (nextCopies > (profile.ownedCardCopies[cardId] ?? 0)) {
+      throw new Error(`Card is not owned: ${cardId}`);
+    }
+
+    copies.set(cardId, nextCopies);
+    normalizedCardIds.push(cardId);
+  }
+
+  return normalizedCardIds;
+}
+
+function normalizeDeckName(name: unknown): string {
+  if (typeof name !== "string") return "Deck";
+
+  return name.trim().slice(0, 40) || "Deck";
+}
+
+function sanitizeClaimId(claimId: unknown): string {
+  if (typeof claimId !== "string") return "";
+
+  return claimId.replace(/[^a-zA-Z0-9:_-]/g, "").slice(0, 180);
 }
 
 function getBattleWinner(battle: ClientBattleState, localPlayerId: PlayerId) {
@@ -461,9 +573,46 @@ export class PlayerProfileManager {
     input: ClaimBattleRewardInput
   ): { profile: PlayerProgress; reward: BattleReward } {
     const profile = this.getProfile(playerId);
+    const claimId = sanitizeClaimId(input.claimId);
+    if (!claimId) {
+      throw new Error("Invalid reward claim id");
+    }
+
     const rewardHeadquartersId =
       input.battle.headquarters[input.localPlayerId].headquartersId ??
       input.battle[input.localPlayerId].headquartersId;
+
+    if (profile.claimedBattleRewardIds.includes(claimId)) {
+      const reward = calculateBattleReward({
+        battle: input.battle,
+        mode: input.mode,
+        localPlayerId: input.localPlayerId,
+        matchEndReason: input.matchEndReason ?? null,
+        headquartersFullyResearched: isHeadquartersFullyResearched(
+          profile,
+          rewardHeadquartersId
+        ),
+      });
+
+      return {
+        profile,
+        reward: {
+          ...reward,
+          rawHeadquartersXp: 0,
+          headquartersXp: 0,
+          freeXp: 0,
+          rawIronTracks: 0,
+          repairCost: 0,
+          ironTracks: 0,
+          goldTracks: 0,
+        },
+      };
+    }
+
+    if (input.battle.status !== "player_won" && input.battle.status !== "bot_won") {
+      throw new Error("Battle is not finished");
+    }
+
     const reward = calculateBattleReward({
       battle: input.battle,
       mode: input.mode,
@@ -475,12 +624,72 @@ export class PlayerProfileManager {
       ),
     });
     const localPlayerWon = getBattleWinner(input.battle, input.localPlayerId);
-    const nextProfile = applyReward(profile, reward, localPlayerWon);
+    const nextProfile = {
+      ...applyReward(profile, reward, localPlayerWon),
+      claimedBattleRewardIds: [
+        claimId,
+        ...profile.claimedBattleRewardIds,
+      ].slice(0, 500),
+    };
 
     return {
       profile: this.persistProfile(playerId, nextProfile),
       reward,
     };
+  }
+
+  validatePlayableDeck(
+    playerId: string,
+    headquartersId: HeadquartersId,
+    cardIds: unknown
+  ): string[] {
+    return validateDeckForProfile(
+      this.getProfile(playerId),
+      headquartersId,
+      cardIds
+    );
+  }
+
+  saveCustomDeck(
+    playerId: string,
+    deck: PlayerSavedDeck
+  ): PlayerProgress {
+    const profile = this.getProfile(playerId);
+    const cardIds = validateDeckForProfile(
+      profile,
+      deck.headquartersId,
+      deck.cardIds
+    );
+    const now = Date.now();
+    const existingDeck = profile.savedDecks.find((item) => item.id === deck.id);
+    const requestedCreatedAt = getPositiveInteger(deck.createdAt);
+    const savedDeck: PlayerSavedDeck = {
+      id: deck.id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80) || `${now}`,
+      name: normalizeDeckName(deck.name),
+      headquartersId: deck.headquartersId,
+      cardIds,
+      createdAt: existingDeck?.createdAt ?? (requestedCreatedAt || now),
+      updatedAt: now,
+    };
+    const nextDecks = [
+      savedDeck,
+      ...profile.savedDecks.filter((item) => item.id !== savedDeck.id),
+    ].slice(0, MAX_SAVED_DECKS);
+
+    return this.persistProfile(playerId, {
+      ...profile,
+      savedDecks: nextDecks,
+    });
+  }
+
+  deleteCustomDeck(playerId: string, deckId: string): PlayerProgress {
+    const profile = this.getProfile(playerId);
+    const safeDeckId = deckId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
+
+    return this.persistProfile(playerId, {
+      ...profile,
+      savedDecks: profile.savedDecks.filter((deck) => deck.id !== safeDeckId),
+    });
   }
 
   researchCard(

@@ -7,6 +7,7 @@ import type {
   BoardUnit,
   HeadquartersAbility,
   HeadquartersAbilityTracking,
+  HeadquartersState,
   PlayerId,
   Position,
   SupportSlot,
@@ -219,6 +220,28 @@ function resetAbilityTurnCounters(state: BattleState, playerId: PlayerId) {
   tracking.lightUnitsPlayedThisTurn = 0;
 }
 
+/**
+ * Effective fuel cost of playing a card, including headquarters ability
+ * discounts (e.g. «Моторизованный марш»: the first unit each turn is cheaper).
+ * Used by the engine when charging fuel and by the bot AI when planning.
+ */
+export function getEffectiveCardCost(
+  state: BattleState,
+  playerId: PlayerId,
+  cardId: string
+): number {
+  const card = getCard(cardId);
+  const ability = getAbility(state, playerId);
+  const unitsPlayedThisTurn =
+    state[playerId].abilityTracking?.unitsPlayedThisTurn ?? 0;
+  const discount =
+    ability?.firstUnitFuelDiscount && unitsPlayedThisTurn === 0
+      ? ability.firstUnitFuelDiscount
+      : 0;
+
+  return Math.max(0, card.cost - discount);
+}
+
 function isTankClassCard(card: TankCard): boolean {
   return (
     card.deploymentZone !== "support" &&
@@ -265,6 +288,20 @@ function calculateFuelGeneration(
 function getSupportUnits(state: BattleState, playerId: PlayerId): BoardUnit[] {
   return state.units.filter(
     (unit) => unit.ownerId === playerId && isSupportUnit(unit)
+  );
+}
+
+/** Live anti-tank gun screening this side's support line, if any. */
+function getSupportCoverUnit(
+  state: BattleState,
+  ownerId: PlayerId
+): BoardUnit | null {
+  return (
+    getSupportUnits(state, ownerId).find(
+      (unit) =>
+        unit.currentHp > 0 &&
+        (getCard(unit.cardId).supportEffects?.supportLineCover ?? 0) > 0
+    ) ?? null
   );
 }
 
@@ -516,6 +553,7 @@ function beginBattle(
     unit.spawnedThisTurn = false;
     unit.moveCountThisTurn = 0;
     unit.tdAmbushUsedThisTurn = false;
+    unit.coverFiredThisTurn = false;
   }
 
   const startingPlayerDrawnCards = drawCardsWithoutPenalty(
@@ -598,6 +636,7 @@ function startTurn(state: BattleState, playerId: PlayerId) {
 
   for (const unit of state.units) {
     unit.tdAmbushUsedThisTurn = false;
+    unit.coverFiredThisTurn = false;
 
     if (unit.ownerId === playerId) {
       unit.alreadyAttacked = isSupportUnit(unit);
@@ -634,11 +673,8 @@ function playCard(
   const tracking = getAbilityTracking(state, action.playerId);
 
   // Motorized march: the first unit played each turn costs less fuel.
-  const fuelDiscount =
-    ability?.firstUnitFuelDiscount && tracking.unitsPlayedThisTurn === 0
-      ? ability.firstUnitFuelDiscount
-      : 0;
-  const fuelCost = Math.max(0, card.cost - fuelDiscount);
+  const fuelCost = getEffectiveCardCost(state, action.playerId, card.id);
+  const fuelDiscount = card.cost - fuelCost;
 
   if (!spendFuel(state, action.playerId, fuelCost, "размещение юнита")) {
     return;
@@ -764,11 +800,8 @@ function playSupportCard(
 
   const ability = getAbility(state, action.playerId);
   const tracking = getAbilityTracking(state, action.playerId);
-  const fuelDiscount =
-    ability?.firstUnitFuelDiscount && tracking.unitsPlayedThisTurn === 0
-      ? ability.firstUnitFuelDiscount
-      : 0;
-  const fuelCost = Math.max(0, card.cost - fuelDiscount);
+  const fuelCost = getEffectiveCardCost(state, action.playerId, card.id);
+  const fuelDiscount = card.cost - fuelCost;
 
   if (!spendFuel(state, action.playerId, fuelCost, "support deployment")) {
     return;
@@ -1096,12 +1129,51 @@ export function getAttackAnimationSequence(
   if (attacker.alreadyAttacked) return [];
   if (!canAttackTarget(state, attacker, target)) return [];
 
-  if ("cardId" in attacker && "cardId" in target) {
-    return getUnitCombatPreview(
-      attacker,
-      target,
-      getUnitCombatBonuses(state, attacker, target)
-    ).strikes;
+  // Anti-tank screen on the support line (mirrors attack()).
+  let effectiveTarget = target;
+  const coverStrikes: AttackAnimationStrike[] = [];
+
+  if ("cardId" in target && isSupportUnit(target)) {
+    const coverUnit = getSupportCoverUnit(state, target.ownerId);
+    const rangedAttack =
+      !("cardId" in attacker) || getCard(attacker.cardId).class === "spg";
+
+    if (
+      coverUnit &&
+      rangedAttack &&
+      coverUnit.instanceId !== target.instanceId
+    ) {
+      effectiveTarget = coverUnit;
+    } else if (
+      coverUnit &&
+      !rangedAttack &&
+      "cardId" in attacker &&
+      !coverUnit.coverFiredThisTurn
+    ) {
+      const coverDamage =
+        getCard(coverUnit.cardId).supportEffects?.supportLineCover ?? 0;
+
+      coverStrikes.push({
+        sourceId: coverUnit.instanceId,
+        targetId: attacker.instanceId,
+        damage: coverDamage,
+      });
+
+      if (attacker.currentHp - coverDamage <= 0) {
+        return coverStrikes;
+      }
+    }
+  }
+
+  if ("cardId" in attacker && "cardId" in effectiveTarget) {
+    return [
+      ...coverStrikes,
+      ...getUnitCombatPreview(
+        attacker,
+        effectiveTarget,
+        getUnitCombatBonuses(state, attacker, effectiveTarget)
+      ).strikes,
+    ];
   }
 
   const sourceId = getCombatObjectId(attacker);
@@ -1195,7 +1267,7 @@ function attack(state: BattleState, action: AttackAction) {
   if (state.activePlayer !== action.playerId) return;
 
   const attacker = getAttacker(state, action);
-  const target = getTarget(state, action);
+  let target = getTarget(state, action);
 
   if (!attacker || !target) return;
   if (attacker.ownerId !== action.playerId) return;
@@ -1206,18 +1278,70 @@ function attack(state: BattleState, action: AttackAction) {
   const attackValue = getAttackValue(state, attacker);
 
   const attackerIsUnit = "cardId" in attacker;
+
+  // Anti-tank screen on the support line.
+  if ("cardId" in target && isSupportUnit(target)) {
+    const coverUnit = getSupportCoverUnit(state, target.ownerId);
+    const rangedAttack =
+      !attackerIsUnit ||
+      (attackerIsUnit && getCard(attacker.cardId).class === "spg");
+
+    if (coverUnit && rangedAttack && coverUnit.instanceId !== target.instanceId) {
+      // Ranged fire against the support line hits the screen first.
+      addLog(
+        state,
+        `${getCard(coverUnit.cardId).name} принимает дистанционный удар на себя.`
+      );
+      target = coverUnit;
+    } else if (
+      coverUnit &&
+      !rangedAttack &&
+      attackerIsUnit &&
+      !coverUnit.coverFiredThisTurn
+    ) {
+      // Melee raid on the support line is met with preemptive return fire.
+      const coverDamage =
+        getCard(coverUnit.cardId).supportEffects?.supportLineCover ?? 0;
+
+      coverUnit.coverFiredThisTurn = true;
+      attacker.currentHp -= coverDamage;
+
+      addLog(
+        state,
+        `Противотанковый заслон: ${getCard(coverUnit.cardId).name} встречает ${
+          getCard(attacker.cardId).name
+        } огнём (${coverDamage} урона).`
+      );
+
+      if (attacker.currentHp <= 0) {
+        destroyUnit(
+          state,
+          attacker,
+          "уничтожен заслоном на подступах к тылу.",
+          target.ownerId
+        );
+        markSuccessfulAction(state, action.playerId);
+        return;
+      }
+    }
+  }
+
   const targetIsUnit = "cardId" in target;
+  const targetUnit = targetIsUnit ? (target as BoardUnit) : null;
+  const targetHeadquarters = targetIsUnit ? null : (target as HeadquartersState);
 
   const attackerCard = attackerIsUnit ? getCard(attacker.cardId) : null;
-  const targetCard = targetIsUnit ? getCard(target.cardId) : null;
+  const targetCard = targetUnit ? getCard(targetUnit.cardId) : null;
 
   const attackerName = attackerCard ? attackerCard.name : "Штаб";
   const targetName = targetCard ? targetCard.name : "штаб";
 
   if (targetIsUnit) {
+    if (!targetUnit) return;
+
     if (attackerIsUnit && attackerCard && targetCard) {
-      const combatBonuses = getUnitCombatBonuses(state, attacker, target);
-      const preview = getUnitCombatPreview(attacker, target, combatBonuses);
+      const combatBonuses = getUnitCombatBonuses(state, attacker, targetUnit);
+      const preview = getUnitCombatPreview(attacker, targetUnit, combatBonuses);
 
       if (combatBonuses.attackerAttackBonus > 0) {
         addLog(
@@ -1227,9 +1351,9 @@ function attack(state: BattleState, action: AttackAction) {
       }
 
       attacker.currentHp = preview.attackerHpAfter;
-      target.currentHp = preview.targetHpAfter;
-      target.tdAmbushUsedThisTurn =
-        target.tdAmbushUsedThisTurn || preview.tdAmbushTriggered;
+      targetUnit.currentHp = preview.targetHpAfter;
+      targetUnit.tdAmbushUsedThisTurn =
+        targetUnit.tdAmbushUsedThisTurn || preview.tdAmbushTriggered;
 
       for (const [index, strike] of preview.strikes.entries()) {
         const isAttackerStrike = strike.sourceId === attacker.instanceId;
@@ -1261,11 +1385,11 @@ function attack(state: BattleState, action: AttackAction) {
       const damagedBonus = getHeadquartersBonusVsDamagedUnit(
         state,
         action.playerId,
-        target
+        targetUnit
       );
       const totalDamage = attackValue + damagedBonus;
 
-      target.currentHp -= totalDamage;
+      targetUnit.currentHp -= totalDamage;
 
       if (damagedBonus > 0) {
         addLog(
@@ -1280,8 +1404,8 @@ function attack(state: BattleState, action: AttackAction) {
       );
     }
 
-    if (target.currentHp <= 0) {
-      destroyUnit(state, target, "уничтожен.", action.playerId);
+    if (targetUnit.currentHp <= 0) {
+      destroyUnit(state, targetUnit, "уничтожен.", action.playerId);
     }
 
     if (attackerIsUnit && attacker.currentHp <= 0) {
@@ -1293,9 +1417,11 @@ function attack(state: BattleState, action: AttackAction) {
       );
     }
   } else {
+    if (!targetHeadquarters) return;
+
     const normalDistribution = getHeadquartersDamageDistribution(
       state,
-      target.ownerId,
+      targetHeadquarters.ownerId,
       attackValue
     );
     const ignoresCover =
@@ -1322,15 +1448,15 @@ function attack(state: BattleState, action: AttackAction) {
     }
 
     const incoming = distribution.headquartersDamage;
-    target.hp -= incoming;
+    targetHeadquarters.hp -= incoming;
     addLog(state, `${attackerName} атакует штаб и наносит ${incoming} урона.`);
 
-    if (target.hp <= 0) {
-      state.status = target.ownerId === "player" ? "bot_won" : "player_won";
+    if (targetHeadquarters.hp <= 0) {
+      state.status = targetHeadquarters.ownerId === "player" ? "bot_won" : "player_won";
 
       addLog(
         state,
-        target.ownerId === "player" ? "Бот победил." : "Игрок победил."
+        targetHeadquarters.ownerId === "player" ? "Бот победил." : "Игрок победил."
       );
     }
   }
