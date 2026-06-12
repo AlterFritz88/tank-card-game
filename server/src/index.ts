@@ -2,7 +2,8 @@ import { WebSocketServer } from "ws";
 import { RoomManager } from "./rooms";
 
 const port = Number(process.env.PORT ?? 8787);
-const server = new WebSocketServer({ port });
+const host = process.env.HOST;
+const server = new WebSocketServer(host ? { port, host } : { port });
 const rooms = new RoomManager();
 
 server.on("connection", (socket) => {
@@ -11,4 +12,6 @@ server.on("connection", (socket) => {
   socket.on("error", () => rooms.handleClose(socket));
 });
 
-console.log(`PVP WebSocket server started on ws://localhost:${port}`);
+console.log(
+  `Panzershrek WebSocket server started on ws://${host ?? "0.0.0.0"}:${port}`
+);

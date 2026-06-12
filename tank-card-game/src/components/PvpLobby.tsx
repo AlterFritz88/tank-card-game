@@ -1,8 +1,10 @@
 import {
   useEffect,
+  lazy,
   useMemo,
   useRef,
   useState,
+  Suspense,
   type CSSProperties,
   type MouseEvent,
   type PointerEvent,
@@ -55,9 +57,19 @@ import { getTankImage } from "../game/tankImages";
 import type { HeadquartersId, Nation, TankCard } from "../game/types";
 import type { PvpConnectionState } from "../game/modes";
 import { useBattleStore } from "../store/battleStore";
-import { DeckBuilder } from "./DeckBuilder";
 import { HandCardView } from "./HandCardView";
-import { ResearchMenu } from "./ResearchMenu";
+import {
+  isProfileServerUnavailable,
+  retryProfileConnection,
+  useProfileConnection,
+} from "../network/useProfileConnection";
+
+const DeckBuilder = lazy(() =>
+  import("./DeckBuilder").then((module) => ({ default: module.DeckBuilder }))
+);
+const ResearchMenu = lazy(() =>
+  import("./ResearchMenu").then((module) => ({ default: module.ResearchMenu }))
+);
 
 const HAND_CARD_BASE_WIDTH = 175;
 const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
@@ -201,6 +213,38 @@ function PlayerResourcesPanel() {
   );
 }
 
+function ProfileServerBanner({
+  message,
+  onRetry,
+}: {
+  message: string | null;
+  onRetry: () => void;
+}) {
+  return (
+    <div style={styles.profileServerBanner}>
+      <span>{message ?? "Сервер профиля недоступен"}</span>
+      <button
+        type="button"
+        style={styles.profileServerRetryButton}
+        onClick={onRetry}
+      >
+        Повторить
+      </button>
+    </div>
+  );
+}
+
+function MenuChunkLoadingScreen() {
+  return (
+    <main style={styles.page}>
+      <div style={styles.backgroundShade} />
+      <section style={styles.menuLayer}>
+        <div style={styles.menuChunkLoading}>Загрузка...</div>
+      </section>
+    </main>
+  );
+}
+
 function getTotalMatchCount(progress: PlayerProgress) {
   return Object.values(progress.headquartersMatchCounts).reduce(
     (total, count) => total + (count ?? 0),
@@ -210,6 +254,9 @@ function getTotalMatchCount(progress: PlayerProgress) {
 
 function PlayerProfileMenu({ onBack }: { onBack: () => void }) {
   const [progress, setProgress] = useState(() => loadPlayerProgress());
+  const profileConnection = useProfileConnection();
+  const profileServerUnavailable = isProfileServerUnavailable(profileConnection);
+  const profileServerReady = profileConnection.status === "online";
   const favoriteHeadquartersId = getFavoriteHeadquartersId(progress);
   const favoriteHeadquarters = HEADQUARTERS[favoriteHeadquartersId];
   const favoriteFlag = getNationFlagAsset(favoriteHeadquarters.nation);
@@ -235,7 +282,26 @@ function PlayerProfileMenu({ onBack }: { onBack: () => void }) {
     }))
     .sort((left, right) => right.matches - left.matches);
 
+  async function retryProfileSync() {
+    try {
+      await retryProfileConnection();
+      const serverProgress = await syncPlayerProgressFromServer();
+      setProgress(serverProgress);
+    } catch {
+      window.alert("Сервер профиля недоступен");
+    }
+  }
+
   function makeFavorite(headquartersId: HeadquartersId) {
+    if (!profileServerReady) {
+      window.alert(
+        profileServerUnavailable
+          ? "Сервер профиля недоступен"
+          : "Дождитесь синхронизации профиля"
+      );
+      return;
+    }
+
     void setFavoriteHeadquartersIdOnServer(headquartersId).then((nextProgress) => {
       if (nextProgress) {
         setProgress(nextProgress);
@@ -248,6 +314,12 @@ function PlayerProfileMenu({ onBack }: { onBack: () => void }) {
       <div style={styles.backgroundShade} />
       <PlayerAccountPanel />
       <PlayerResourcesPanel />
+      {profileServerUnavailable ? (
+        <ProfileServerBanner
+          message={profileConnection.message}
+          onRetry={() => void retryProfileSync()}
+        />
+      ) : null}
 
       <section style={{ ...styles.menuLayer, ...styles.profileLayer }}>
         <div style={styles.profileHero}>
@@ -398,6 +470,7 @@ function PvpMatchmakingScreen({
   error,
   searchDeadlineAt,
   onCancel,
+  onRetry,
   onFallback,
 }: {
   playerHeadquartersId: HeadquartersId;
@@ -407,12 +480,15 @@ function PvpMatchmakingScreen({
   error: string | null;
   searchDeadlineAt: number | null;
   onCancel: () => void;
+  onRetry: () => void;
   onFallback: () => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [reticleIndex, setReticleIndex] = useState(0);
   const playRadarScanSoundRef = useRef(createRadarScanSoundPlayer());
   const matched = status === "matchPreview";
+  const failed = status === "error";
+  const canAutoFallback = status === "searching" || status === "waiting";
   const playerHeadquarters = HEADQUARTERS[playerHeadquartersId];
   const opponentHeadquarters = opponentHeadquartersId
     ? HEADQUARTERS[opponentHeadquartersId]
@@ -443,28 +519,29 @@ function PvpMatchmakingScreen({
   }, []);
 
   useEffect(() => {
-    if (matched) return;
+    if (matched || failed) return;
 
     const intervalId = window.setInterval(() => {
       setReticleIndex((current) => (current + 1) % reticlePositions.length);
     }, 1250);
 
     return () => window.clearInterval(intervalId);
-  }, [matched, reticlePositions.length]);
+  }, [failed, matched, reticlePositions.length]);
 
   useEffect(() => {
-    if (matched) return;
+    if (matched || failed) return;
 
     playRadarScanSoundRef.current();
-  }, [matched, reticleIndex]);
+  }, [failed, matched, reticleIndex]);
 
   useEffect(() => {
+    if (!canAutoFallback) return;
     if (matched) return;
     if (!searchDeadlineAt) return;
     if (now < searchDeadlineAt) return;
 
     onFallback();
-  }, [matched, now, onFallback, searchDeadlineAt]);
+  }, [canAutoFallback, matched, now, onFallback, searchDeadlineAt]);
 
   return (
     <main style={styles.page}>
@@ -622,14 +699,23 @@ function PvpMatchmakingScreen({
 
         <footer style={styles.matchmakingFooter}>
           <div style={styles.matchmakingTimer}>
-            {matched
+            {failed ? "PVP-СЕРВЕР НЕДОСТУПЕН" : matched
               ? "ПРОТИВНИК НАЙДЕН"
               : `АВТОБОЙ ЧЕРЕЗ ${String(remainingSeconds).padStart(2, "0")} СЕК`}
           </div>
           <button type="button" style={styles.cancelButton} onClick={onCancel}>
-            Отмена поиска
+            {failed ? "В меню" : "Отмена поиска"}
           </button>
           {error ? <div style={styles.error}>{error}</div> : null}
+          {failed ? (
+            <button
+              type="button"
+              style={{ ...styles.cancelButton, ...styles.retryButton }}
+              onClick={onRetry}
+            >
+              Повторить
+            </button>
+          ) : null}
         </footer>
       </section>
     </main>
@@ -800,6 +886,7 @@ export function PvpLobby() {
     closeCampaignMenu,
     startCampaignMission,
     findPvpMatch,
+    retryPvpMatchmaking,
     startPvpFallbackAiBattle,
     startAiBattle,
     startTutorial,
@@ -828,6 +915,9 @@ export function PvpLobby() {
   const missionsCarouselRef = useRef<HTMLDivElement>(null);
   const [, setProfileRevision] = useState(0);
   const playerProgress = loadPlayerProgress();
+  const profileConnection = useProfileConnection();
+  const profileServerUnavailable = isProfileServerUnavailable(profileConnection);
+  const profileServerReady = profileConnection.status === "online";
 
   useEffect(() => {
     void playMusic("main");
@@ -849,6 +939,30 @@ export function PvpLobby() {
       cancelled = true;
     };
   }, []);
+
+  async function retryProfileSync() {
+    try {
+      await retryProfileConnection();
+      await Promise.allSettled([
+        syncPlayerProgressFromServer(),
+        syncSavedDecksFromServer(),
+      ]);
+      setProfileRevision((revision) => revision + 1);
+    } catch {
+      window.alert("Сервер профиля недоступен");
+    }
+  }
+
+  function renderProfileServerBanner() {
+    if (!profileServerUnavailable) return null;
+
+    return (
+      <ProfileServerBanner
+        message={profileConnection.message}
+        onRetry={() => void retryProfileSync()}
+      />
+    );
+  }
 
   const headquartersList = useMemo(
     () =>
@@ -891,7 +1005,8 @@ export function PvpLobby() {
       pvpStatus === "waiting" ||
       pvpStatus === "matched" ||
       pvpStatus === "matchPreview" ||
-      pvpStatus === "rolling");
+      pvpStatus === "rolling" ||
+      pvpStatus === "error");
   const matchmakingAvatar =
     pvpBusy ? getHeadquartersAvatarAsset(selectedHeadquartersId) : null;
 
@@ -999,6 +1114,15 @@ export function PvpLobby() {
 
   async function deletePreviewDeck() {
     if (!previewDeck?.deck.savedDeck) return;
+
+    if (!profileServerReady) {
+      window.alert(
+        profileServerUnavailable
+          ? "Сервер профиля недоступен"
+          : "Дождитесь синхронизации профиля"
+      );
+      return;
+    }
 
     const confirmed = window.confirm(
       `Удалить колоду "${previewDeck.deck.name}"?`
@@ -1166,6 +1290,7 @@ export function PvpLobby() {
         error={pvpError}
         searchDeadlineAt={pvpSearchDeadlineAt}
         onCancel={cancelMatchmaking}
+        onRetry={retryPvpMatchmaking}
         onFallback={startPvpFallbackAiBattle}
       />
     );
@@ -1177,6 +1302,7 @@ export function PvpLobby() {
         <div style={styles.backgroundShade} />
         <PlayerAccountPanel onOpenProfile={openProfileMenu} />
         <PlayerResourcesPanel />
+        {renderProfileServerBanner()}
 
         <section style={styles.menuLayer}>
           <header style={styles.header}>
@@ -1234,6 +1360,7 @@ export function PvpLobby() {
         <div style={styles.backgroundShade} />
         <PlayerAccountPanel onOpenProfile={openProfileMenu} />
         <PlayerResourcesPanel />
+        {renderProfileServerBanner()}
 
         <section style={styles.menuLayer}>
           <header style={styles.header}>
@@ -1336,7 +1463,11 @@ export function PvpLobby() {
   }
 
   if (menuView === "research") {
-    return <ResearchMenu onBack={closeResearchMenu} />;
+    return (
+      <Suspense fallback={<MenuChunkLoadingScreen />}>
+        <ResearchMenu onBack={closeResearchMenu} />
+      </Suspense>
+    );
   }
 
   if (menuView === "profile") {
@@ -1345,14 +1476,16 @@ export function PvpLobby() {
 
   if (menuView === "deckBuilder") {
     return (
-      <DeckBuilder
-        editingDeck={editingDeck}
-        onBack={closeDeckBuilderMenu}
-        onSaved={() => {
-          setEditingDeck(null);
-          closeHeadquartersMenu();
-        }}
-      />
+      <Suspense fallback={<MenuChunkLoadingScreen />}>
+        <DeckBuilder
+          editingDeck={editingDeck}
+          onBack={closeDeckBuilderMenu}
+          onSaved={() => {
+            setEditingDeck(null);
+            closeHeadquartersMenu();
+          }}
+        />
+      </Suspense>
     );
   }
 
@@ -1362,6 +1495,7 @@ export function PvpLobby() {
         <div style={styles.backgroundShade} />
         <PlayerAccountPanel onOpenProfile={openProfileMenu} />
         <PlayerResourcesPanel />
+        {renderProfileServerBanner()}
 
         <section style={styles.menuLayer}>
           <header style={styles.header}>
@@ -1474,6 +1608,7 @@ export function PvpLobby() {
       <div style={styles.backgroundShade} />
       <PlayerAccountPanel onOpenProfile={openProfileMenu} />
       <PlayerResourcesPanel />
+      {renderProfileServerBanner()}
 
       <section style={{ ...styles.menuLayer, ...styles.headquartersMenuLayer }}>
         <header style={{ ...styles.header, ...styles.headquartersHeader }}>
@@ -1952,6 +2087,40 @@ const styles: Record<string, CSSProperties> = {
     filter: "drop-shadow(0 10px 18px rgba(0,0,0,0.56))",
   },
 
+  profileServerBanner: {
+    position: "absolute",
+    top: 62,
+    left: "50%",
+    zIndex: 45,
+    transform: "translateX(-50%)",
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    padding: "10px 16px",
+    background:
+      "linear-gradient(180deg, rgba(80, 30, 24, 0.92), rgba(21, 10, 8, 0.92))",
+    color: "#ffe8ce",
+    fontSize: 13,
+    fontWeight: 900,
+    boxShadow: "0 12px 28px rgba(0,0,0,0.42)",
+    textShadow: "0 2px 4px rgba(0,0,0,0.7)",
+  },
+
+  profileServerRetryButton: {
+    height: 30,
+    padding: "0 14px",
+    border: "1px solid rgba(255, 226, 163, 0.34)",
+    background:
+      "linear-gradient(180deg, rgba(97, 78, 42, 0.92), rgba(37, 31, 18, 0.96))",
+    color: "#fff0bd",
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 1000,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    pointerEvents: "auto",
+  },
+
   playerResourceItem: {
     minWidth: 0,
     display: "flex",
@@ -1980,6 +2149,19 @@ const styles: Record<string, CSSProperties> = {
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
+  },
+
+  menuChunkLoading: {
+    alignSelf: "center",
+    justifySelf: "center",
+    padding: "14px 28px",
+    color: "var(--brass-400)",
+    fontFamily: "var(--font-display)",
+    fontSize: 18,
+    fontWeight: 800,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    textShadow: "0 3px 12px rgba(0,0,0,0.82)",
   },
 
   matchmakingScreen: {
@@ -2896,6 +3078,13 @@ const styles: Record<string, CSSProperties> = {
     textTransform: "uppercase",
     textShadow: "0 2px 0 rgba(0,0,0,0.86), 0 0 8px rgba(255,255,255,0.12)",
     boxShadow: "none",
+  },
+
+  retryButton: {
+    marginTop: 0,
+    backgroundColor: "#7b5a24",
+    backgroundImage: `linear-gradient(180deg, rgba(234, 190, 94, 0.48), rgba(84, 58, 20, 0.82)), url(${buttonImage})`,
+    color: "#fff0c2",
   },
 
   status: {

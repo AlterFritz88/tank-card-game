@@ -78,6 +78,38 @@ function getPositiveInteger(value: unknown): number {
 function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProgress {
   const fallback = createInitialPlayerProgress();
   if (!profile) return fallback;
+  const researchedHeadquartersIds = Array.from(
+    new Set([
+      ...fallback.researchedHeadquartersIds,
+      ...(profile.researchedHeadquartersIds ?? []),
+    ])
+  ).filter((headquartersId): headquartersId is HeadquartersId =>
+    Boolean(HEADQUARTERS[headquartersId as HeadquartersId])
+  );
+  const unlockedHeadquartersIds = Array.from(
+    new Set([
+      ...fallback.unlockedHeadquartersIds,
+      ...(profile.unlockedHeadquartersIds ?? []),
+    ])
+  ).filter((headquartersId): headquartersId is HeadquartersId =>
+    Boolean(HEADQUARTERS[headquartersId as HeadquartersId])
+  );
+  const researchedCardIds = Array.from(
+    new Set([
+      ...fallback.researchedCardIds,
+      ...(profile.researchedCardIds ?? []),
+    ])
+  );
+  const unlockedCardIds = Array.from(
+    new Set([
+      ...fallback.unlockedCardIds,
+      ...(profile.unlockedCardIds ?? []),
+    ])
+  );
+  const ownedCardCopies = {
+    ...fallback.ownedCardCopies,
+    ...profile.ownedCardCopies,
+  };
 
   return {
     ...fallback,
@@ -98,40 +130,16 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
       ...fallback.headquartersBattleStats,
       ...profile.headquartersBattleStats,
     },
-    researchedHeadquartersIds: Array.from(
-      new Set([
-        ...fallback.researchedHeadquartersIds,
-        ...(profile.researchedHeadquartersIds ?? []),
-      ])
-    ).filter((headquartersId): headquartersId is HeadquartersId =>
-      Boolean(HEADQUARTERS[headquartersId as HeadquartersId])
-    ),
-    researchedCardIds: Array.from(
-      new Set([
-        ...fallback.researchedCardIds,
-        ...(profile.researchedCardIds ?? []),
-      ])
-    ),
-    unlockedHeadquartersIds: Array.from(
-      new Set([
-        ...fallback.unlockedHeadquartersIds,
-        ...(profile.unlockedHeadquartersIds ?? []),
-      ])
-    ).filter((headquartersId): headquartersId is HeadquartersId =>
-      Boolean(HEADQUARTERS[headquartersId as HeadquartersId])
-    ),
-    unlockedCardIds: Array.from(
-      new Set([
-        ...fallback.unlockedCardIds,
-        ...(profile.unlockedCardIds ?? []),
-      ])
-    ),
-    ownedCardCopies: {
-      ...fallback.ownedCardCopies,
-      ...profile.ownedCardCopies,
-    },
+    researchedHeadquartersIds,
+    researchedCardIds,
+    unlockedHeadquartersIds,
+    unlockedCardIds,
+    ownedCardCopies,
     savedDecks: Array.isArray(profile.savedDecks)
-      ? normalizeSavedDecks(profile.savedDecks)
+      ? normalizeSavedDecks(profile.savedDecks, {
+          ownedCardCopies,
+          unlockedHeadquartersIds,
+        })
       : fallback.savedDecks,
     claimedBattleRewardIds: Array.isArray(profile.claimedBattleRewardIds)
       ? profile.claimedBattleRewardIds.filter(
@@ -141,7 +149,10 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
   };
 }
 
-function normalizeSavedDecks(decks: unknown[]): PlayerSavedDeck[] {
+function normalizeSavedDecks(
+  decks: unknown[],
+  progress: Pick<PlayerProgress, "ownedCardCopies" | "unlockedHeadquartersIds">
+): PlayerSavedDeck[] {
   return decks.flatMap((deck): PlayerSavedDeck[] => {
     if (!deck || typeof deck !== "object") return [];
 
@@ -156,21 +167,63 @@ function normalizeSavedDecks(decks: unknown[]): PlayerSavedDeck[] {
       return [];
     }
 
-    const cardIds = candidate.cardIds
-      .map((cardId) => (typeof cardId === "string" ? normalizeCardId(cardId) : null))
-      .filter((cardId): cardId is string => Boolean(cardId));
+    const headquartersId = candidate.headquartersId as HeadquartersId;
+    if (!progress.unlockedHeadquartersIds.includes(headquartersId)) return [];
+
+    const cardIds = normalizeSavedDeckCardIds(
+      headquartersId,
+      candidate.cardIds,
+      progress.ownedCardCopies
+    );
+    if (!cardIds) return [];
+    const id = candidate.id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
+    if (!id) return [];
 
     return [
       {
-        id: candidate.id,
+        id,
         name: candidate.name.trim().slice(0, 40) || "Deck",
-        headquartersId: candidate.headquartersId as HeadquartersId,
+        headquartersId,
         cardIds,
         createdAt: getPositiveInteger(candidate.createdAt),
         updatedAt: getPositiveInteger(candidate.updatedAt),
       },
     ];
   });
+}
+
+function normalizeSavedDeckCardIds(
+  headquartersId: HeadquartersId,
+  rawCardIds: unknown[],
+  ownedCardCopies: Record<string, number>
+): string[] | null {
+  if (rawCardIds.length !== CUSTOM_DECK_CARD_LIMIT) return null;
+
+  const headquarters = getHeadquartersDefinition(headquartersId);
+  const trainingHeadquarters = headquarters.level === 1;
+  const copies = new Map<string, number>();
+  const cardIds: string[] = [];
+
+  for (const rawCardId of rawCardIds) {
+    if (typeof rawCardId !== "string") return null;
+
+    const cardId = normalizeCardId(rawCardId);
+    if (!cardId) return null;
+
+    const card = getCard(cardId);
+    if (!trainingHeadquarters && card.nation !== headquarters.nation) {
+      return null;
+    }
+
+    const nextCopies = (copies.get(cardId) ?? 0) + 1;
+    if (nextCopies > CARD_COPY_LIMIT) return null;
+    if (nextCopies > (ownedCardCopies[cardId] ?? 0)) return null;
+
+    copies.set(cardId, nextCopies);
+    cardIds.push(cardId);
+  }
+
+  return cardIds;
 }
 
 function sanitizeNickname(nickname: unknown, fallback: string): string {

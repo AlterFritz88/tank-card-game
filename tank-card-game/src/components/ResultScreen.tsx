@@ -20,6 +20,9 @@ type ResultScreenProps = {
   matchEndReason?: MatchEndReason | null;
   restartLabel?: string;
   reward?: BattleReward | null;
+  rewardStatus?: "pending" | "claimed" | "failed" | "idle";
+  rewardError?: string | null;
+  onRetryReward?: () => void;
 };
 
 type ResultTab = "summary" | "trophies";
@@ -74,6 +77,9 @@ export function ResultScreen({
   matchEndReason = null,
   restartLabel = "В меню",
   reward = null,
+  rewardStatus = "idle",
+  rewardError = null,
+  onRetryReward,
 }: ResultScreenProps) {
   const [activeTab, setActiveTab] = useState<ResultTab>("summary");
 
@@ -168,6 +174,17 @@ export function ResultScreen({
           </aside>
 
           <div style={styles.summary}>
+            {rewardStatus === "pending" ? (
+              <RewardClaimNotice tone="pending">
+                Начисляем награду на сервере профиля...
+              </RewardClaimNotice>
+            ) : null}
+            {rewardStatus === "failed" ? (
+              <RewardClaimNotice tone="failed">
+                {rewardError ?? "Награда не начислена: сервер профиля недоступен"}
+              </RewardClaimNotice>
+            ) : null}
+
             {activeTab === "summary" ? (
               <>
                 <ResultSection title="Опыт" icon={experienceIcon}>
@@ -241,6 +258,15 @@ export function ResultScreen({
         </section>
 
         <footer style={styles.footer}>
+          {rewardStatus === "failed" && onRetryReward ? (
+            <button
+              type="button"
+              style={{ ...styles.continueButton, ...styles.retryRewardButton }}
+              onClick={onRetryReward}
+            >
+              Повторить начисление
+            </button>
+          ) : null}
           <button type="button" style={styles.continueButton} onClick={onRestart}>
             {restartLabel}
           </button>
@@ -270,6 +296,25 @@ function ResultTabButton({
     >
       {children}
     </button>
+  );
+}
+
+function RewardClaimNotice({
+  children,
+  tone,
+}: {
+  children: ReactNode;
+  tone: "pending" | "failed";
+}) {
+  return (
+    <div
+      style={{
+        ...styles.rewardClaimNotice,
+        ...(tone === "failed" ? styles.rewardClaimNoticeFailed : {}),
+      }}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -678,6 +723,24 @@ const styles: Record<string, CSSProperties> = {
     gap: 18,
   },
 
+  rewardClaimNotice: {
+    padding: "9px 12px",
+    border: "1px solid rgba(218, 179, 91, 0.28)",
+    background:
+      "linear-gradient(180deg, rgba(47, 40, 24, 0.72), rgba(14, 13, 10, 0.72))",
+    color: "#f3d996",
+    fontSize: 13,
+    fontWeight: 900,
+    textShadow: "0 2px 4px rgba(0,0,0,0.75)",
+  },
+
+  rewardClaimNoticeFailed: {
+    border: "1px solid rgba(228, 101, 82, 0.36)",
+    background:
+      "linear-gradient(180deg, rgba(83, 31, 24, 0.78), rgba(18, 10, 8, 0.78))",
+    color: "#ffd1c6",
+  },
+
   section: {
     minHeight: 0,
   },
@@ -877,6 +940,7 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 14,
     display: "flex",
     justifyContent: "center",
+    gap: 12,
   },
 
   continueButton: {
@@ -896,5 +960,12 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: 0.3,
     textTransform: "uppercase",
     textShadow: "0 2px 2px #000",
+  },
+
+  retryRewardButton: {
+    width: 218,
+    backgroundColor: "#4f565b",
+    backgroundImage: `linear-gradient(rgba(82, 88, 92, 0.82), rgba(33, 36, 39, 0.9)), url(${buttonImage})`,
+    backgroundSize: "100% 100%, 100% 100%",
   },
 };

@@ -56,6 +56,11 @@ export type SupportEffects = {
   fuelPerTurn?: number;
   /** Draw one additional card every N own turns. */
   drawEveryTurns?: number;
+  /**
+   * Every N own turns move a random support card from the deck to the hand
+   * (nothing happens when the deck holds no support cards).
+   */
+  fetchSupportCardEveryTurns?: number;
   /** Restore health to a damaged battlefield unit at the beginning of the turn. */
   healRandomUnitPerTurn?: number;
   /** Restrict battlefield healing to one tank class. */
@@ -141,6 +146,11 @@ export type TankCard = {
   combatAbilities?: {
     /** Unit enters the battlefield ready for a full move and attack. */
     blitz?: boolean;
+    /**
+     * Once per turn the first enemy strike aimed at a friendly light tank is
+     * redirected into this unit instead.
+     */
+    lightScreen?: boolean;
   };
 };
 

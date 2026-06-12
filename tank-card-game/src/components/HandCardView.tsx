@@ -292,6 +292,7 @@ export function HandCardView({
           style={styles.tankArt}
           draggable={false}
         />
+        <div style={styles.artTopScrim} />
         <div style={styles.artVignette} />
       </div>
 
@@ -334,19 +335,32 @@ export function HandCardView({
         style={{
           ...styles.titleArea,
           ...(isHeadquarters ? styles.headquartersTitleArea : {}),
+          // Without a fuel badge the title starts right after the cost badge.
+          ...(!isHeadquarters && fuelGenerationValue <= 0
+            ? styles.titleAreaWithoutFuelBadge
+            : {}),
           gap: scaled(4),
         }}
       >
-        <FitText
-          maxFontSize={scaled(titleFontSize)}
-          minFontSize={scaled(7)}
+        {/* Fixed-height line: a shrunken title must not shift itself or the
+            subtitle below. */}
+        <div
           style={{
-            ...styles.title,
-            letterSpacing: 0.4 * uiScale,
+            ...styles.titleLine,
+            height: scaled(titleFontSize),
           }}
         >
-          {title}
-        </FitText>
+          <FitText
+            maxFontSize={scaled(titleFontSize)}
+            minFontSize={scaled(7)}
+            style={{
+              ...styles.title,
+              letterSpacing: 0.4 * uiScale,
+            }}
+          >
+            {title}
+          </FitText>
+        </div>
         <span
           style={{
             ...styles.subtitle,
@@ -546,26 +560,42 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: "hidden",
     pointerEvents: "none",
 
+    // Webkit and standard properties must stay in sync: a vertical offset
+    // here lifts the mask window above the frame and exposes a light strip
+    // of the art along the card's top edge.
     WebkitMaskRepeat: "no-repeat",
-    WebkitMaskSize: "95% 100%",
-    WebkitMaskPosition: "center",
+    WebkitMaskSize: "95% 98%",
+    WebkitMaskPosition: "center -2px",
 
     maskRepeat: "no-repeat",
-    
-    maskSize: "96% 100%",
-    maskPosition: "center -6px",
+    maskSize: "95% 98%",
+    maskPosition: "center -2px",
   },
 
   tankArt: {
-  position: "absolute",
-  left: "-3%",
-  top: "7%",
-  width: "99%",
-  height: "60%",
-  objectFit: "contain",
-  objectPosition: "45% center",
-  display: "block",
-},
+    position: "absolute",
+    left: "-3%",
+    top: "calc(9% + 2px)",
+    width: "99%",
+    height: "60%",
+    objectFit: "contain",
+    objectPosition: "45% center",
+    display: "block",
+  },
+
+  // Darkens the very top of the art window. Most unit photos have a bright
+  // sky along their upper edge, which otherwise reads as a light band right
+  // under the window's top border. The strip lives inside the masked layer,
+  // so the mask clips it precisely to the window's edge.
+  artTopScrim: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: "12%",
+    height: "9%",
+    background: "linear-gradient(180deg, rgba(0,0,0,0.6), transparent)",
+    pointerEvents: "none",
+  },
 
   artVignette: {
     position: "absolute",
@@ -612,6 +642,21 @@ const styles: Record<string, React.CSSProperties> = {
 
   titleAreaWithoutSpawnCost: {
     left: "7%",
+  },
+
+  // Units without fuel generation have no fuel badge — the title starts right
+  // after the spawn-cost badge (its right edge is at ~22.7% of the card).
+  titleAreaWithoutFuelBadge: {
+    left: "24%",
+  },
+
+  // Reserves the full max-font-size line height, so a shrunken title stays
+  // vertically centered and never shifts the subtitle below it.
+  titleLine: {
+    alignSelf: "stretch",
+    display: "flex",
+    alignItems: "center",
+    overflow: "visible",
   },
 
   title: {

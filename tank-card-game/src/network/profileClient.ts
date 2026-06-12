@@ -90,13 +90,31 @@ type PendingRequest = {
   reject: (error: Error) => void;
 };
 
+export type ProfileConnectionStatus =
+  | "idle"
+  | "connecting"
+  | "online"
+  | "offline"
+  | "error";
+
+export type ProfileConnectionSnapshot = {
+  status: ProfileConnectionStatus;
+  message: string | null;
+};
+
+type ProfileConnectionListener = (
+  snapshot: ProfileConnectionSnapshot
+) => void;
+
 type ProfileImportMeta = ImportMeta & {
   env: {
+    VITE_PROFILE_SERVER_URL?: string;
     VITE_PVP_SERVER_URL?: string;
   };
 };
 
 const PROFILE_SERVER_URL =
+  (import.meta as ProfileImportMeta).env.VITE_PROFILE_SERVER_URL ??
   (import.meta as ProfileImportMeta).env.VITE_PVP_SERVER_URL ??
   "ws://localhost:8787";
 const PROFILE_REQUEST_TIMEOUT_MS = 5_000;
@@ -113,6 +131,34 @@ class ProfileClient {
   private socket: WebSocket | null = null;
   private connecting: Promise<void> | null = null;
   private pending = new Map<string, PendingRequest>();
+  private connection: ProfileConnectionSnapshot = {
+    status: "idle",
+    message: null,
+  };
+  private listeners = new Set<ProfileConnectionListener>();
+
+  getConnectionSnapshot(): ProfileConnectionSnapshot {
+    return this.connection;
+  }
+
+  subscribe(listener: ProfileConnectionListener): () => void {
+    this.listeners.add(listener);
+    listener(this.connection);
+
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  async reconnect(): Promise<void> {
+    if (this.socket && this.socket.readyState !== WebSocket.CLOSED) {
+      this.socket.close();
+    }
+
+    this.socket = null;
+    this.connecting = null;
+    await this.ensureConnected();
+  }
 
   async getProfile(playerId: string): Promise<PlayerProgress> {
     const response = await this.request({
@@ -277,6 +323,7 @@ class ProfileClient {
     return new Promise((resolve, reject) => {
       const timeoutId = window.setTimeout(() => {
         this.pending.delete(message.requestId);
+        this.setConnection("error", "Сервер профиля не ответил вовремя");
         reject(new Error("Profile server request timed out"));
       }, PROFILE_REQUEST_TIMEOUT_MS);
 
@@ -296,15 +343,24 @@ class ProfileClient {
   }
 
   private async ensureConnected(): Promise<void> {
-    if (this.socket?.readyState === WebSocket.OPEN) return;
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.setConnection("online", null);
+      return;
+    }
+
     if (this.connecting) return this.connecting;
+
+    this.setConnection("connecting", null);
 
     this.connecting = new Promise((resolve, reject) => {
       const socket = new WebSocket(PROFILE_SERVER_URL);
       this.socket = socket;
 
       socket.addEventListener("open", () => {
+        if (this.socket !== socket) return;
+
         this.connecting = null;
+        this.setConnection("online", null);
         resolve();
       });
 
@@ -314,14 +370,19 @@ class ProfileClient {
 
       socket.addEventListener("close", () => {
         this.rejectPending("Profile server connection closed");
-        if (this.socket === socket) {
-          this.socket = null;
-        }
+        if (this.socket !== socket) return;
+
+        this.connecting = null;
+        this.socket = null;
+        this.setConnection("offline", "Соединение с сервером профиля закрыто");
       });
 
       socket.addEventListener("error", () => {
         this.rejectPending("Profile server connection error");
+        if (this.socket !== socket) return;
+
         this.connecting = null;
+        this.setConnection("error", "Сервер профиля недоступен");
         reject(new Error("Profile server connection error"));
       });
     });
@@ -344,10 +405,12 @@ class ProfileClient {
     this.pending.delete(message.requestId);
 
     if (message.type === "PROFILE_ERROR") {
+      this.setConnection("online", null);
       pendingRequest.reject(new Error(message.message));
       return;
     }
 
+    this.setConnection("online", null);
     pendingRequest.resolve(message);
   }
 
@@ -357,6 +420,22 @@ class ProfileClient {
     }
 
     this.pending.clear();
+  }
+
+  private setConnection(status: ProfileConnectionStatus, message: string | null) {
+    if (
+      this.connection.status === status &&
+      this.connection.message === message
+    ) {
+      return;
+    }
+
+    this.connection = {
+      status,
+      message,
+    };
+
+    this.listeners.forEach((listener) => listener(this.connection));
   }
 }
 

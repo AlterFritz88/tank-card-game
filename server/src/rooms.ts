@@ -103,6 +103,16 @@ const PVP_ATTACK_STRIKE_DURATION_MS = 960;
 const PVP_DESTROYED_CARD_ANIMATION_MS = 920;
 const ROOM_CLEANUP_DELAY_MS = 30_000;
 const PVP_REWARD_CLAIM_TTL_MS = 10 * 60_000;
+const MAX_INCOMING_MESSAGE_BYTES = Number(
+  process.env.WS_MAX_MESSAGE_BYTES ?? 256 * 1024
+);
+const WS_RATE_LIMIT_WINDOW_MS = Number(
+  process.env.WS_RATE_LIMIT_WINDOW_MS ?? 1000
+);
+const WS_RATE_LIMIT_MAX_MESSAGES = Number(
+  process.env.WS_RATE_LIMIT_MAX_MESSAGES ?? 60
+);
+const WS_RATE_LIMIT_BLOCK_MS = Number(process.env.WS_RATE_LIMIT_BLOCK_MS ?? 2000);
 const RECONNECT_GRACE_MS = Number(process.env.PVP_RECONNECT_GRACE_MS ?? 15_000);
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
@@ -140,6 +150,29 @@ function createRoomId(): string {
 function safeSend(socket: WebSocket | null | undefined, message: PvpServerMessage) {
   if (!socket || socket.readyState !== socket.OPEN) return;
   socket.send(JSON.stringify(message));
+}
+
+type SocketRateLimitState = {
+  windowStartedAt: number;
+  count: number;
+  blockedUntil: number;
+};
+
+function getRawDataByteLength(rawData: WebSocket.RawData): number {
+  if (typeof rawData === "string") return Buffer.byteLength(rawData);
+  if (Array.isArray(rawData)) {
+    return rawData.reduce((total, item) => total + item.byteLength, 0);
+  }
+
+  return rawData.byteLength;
+}
+
+function hasMessageType(value: unknown): value is { type: string } {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    typeof (value as { type?: unknown }).type === "string"
+  );
 }
 
 function overwritePlayerId(action: BattleAction, playerId: PlayerId): BattleAction {
@@ -242,6 +275,7 @@ export class RoomManager {
   private sessionToRoom = new Map<string, { roomId: string; playerId: PlayerId }>();
   private socketToRoom = new WeakMap<WebSocket, string>();
   private socketToPlayer = new WeakMap<WebSocket, PlayerId>();
+  private socketRateLimits = new WeakMap<WebSocket, SocketRateLimitState>();
   private waitingRoomId: string | null = null;
   private movementIntentSequence = 0;
   private attackIntentSequence = 0;
@@ -249,10 +283,26 @@ export class RoomManager {
   private completedPvpMatches = new Map<string, CompletedPvpMatch>();
 
   handleMessage(socket: WebSocket, rawData: WebSocket.RawData) {
+    if (getRawDataByteLength(rawData) > MAX_INCOMING_MESSAGE_BYTES) {
+      safeSend(socket, { type: "ERROR", message: "Сообщение слишком большое" });
+      return;
+    }
+
+    if (this.isRateLimited(socket)) {
+      safeSend(socket, { type: "ERROR", message: "Слишком много сообщений" });
+      return;
+    }
+
     let message: PvpClientMessage;
 
     try {
-      message = JSON.parse(rawData.toString()) as PvpClientMessage;
+      const parsedMessage = JSON.parse(rawData.toString());
+      if (!hasMessageType(parsedMessage)) {
+        safeSend(socket, { type: "ERROR", message: "Некорректное сообщение" });
+        return;
+      }
+
+      message = parsedMessage as PvpClientMessage;
     } catch {
       safeSend(socket, { type: "ERROR", message: "Некорректное JSON-сообщение" });
       return;
@@ -336,6 +386,32 @@ export class RoomManager {
       default:
         safeSend(socket, { type: "ERROR", message: "Неизвестное сообщение" });
     }
+  }
+
+  private isRateLimited(socket: WebSocket): boolean {
+    const now = Date.now();
+    const current = this.socketRateLimits.get(socket);
+
+    if (!current || now - current.windowStartedAt >= WS_RATE_LIMIT_WINDOW_MS) {
+      this.socketRateLimits.set(socket, {
+        windowStartedAt: now,
+        count: 1,
+        blockedUntil: 0,
+      });
+      return false;
+    }
+
+    if (current.blockedUntil > now) {
+      return true;
+    }
+
+    current.count += 1;
+    if (current.count <= WS_RATE_LIMIT_MAX_MESSAGES) {
+      return false;
+    }
+
+    current.blockedUntil = now + WS_RATE_LIMIT_BLOCK_MS;
+    return true;
   }
 
   handleClose(socket: WebSocket) {

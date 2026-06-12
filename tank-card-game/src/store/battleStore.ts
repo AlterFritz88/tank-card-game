@@ -45,6 +45,7 @@ type SelectedAttacker = {
 
 const AI_CUSTOM_OPPONENT_DECK_CARD_COUNT = 40;
 const PVP_MATCH_FOUND_PREVIEW_MS = 5_000;
+const PVP_CONNECT_TIMEOUT_MS = 6_000;
 
 export type FirstTurnRollState = {
   visible: boolean;
@@ -135,6 +136,7 @@ type BattleStore = {
   startAiBattle: (deckCardIds?: string[]) => void;
   startCampaignMission: (missionId: string) => void;
   findPvpMatch: (deckCardIds?: string[]) => void;
+  retryPvpMatchmaking: () => void;
   startPvpFallbackAiBattle: () => void;
   createPvpRoom: (deckCardIds?: string[]) => void;
   joinPvpRoom: (roomId: string, deckCardIds?: string[]) => void;
@@ -794,6 +796,7 @@ function setupPvpSubscriptions() {
   pvpClient.onClose(() => {
     const state = useBattleStore.getState();
     if (state.mode !== "pvp") return;
+    if (state.pvpStatus === "error") return;
     if (state.pvpStatus === "finished") return;
     if (state.pvpStatus === "matchPreview" && !pvpClient.getStoredRoomId()) {
       return;
@@ -837,10 +840,38 @@ function setupPvpSubscriptions() {
 function connectAndRun(onOpen: () => void) {
   setupPvpSubscriptions();
 
-  const unsubscribe = pvpClient.onOpen(() => {
-    unsubscribe();
+  let timeoutId: number | null = window.setTimeout(() => {
+    cleanup();
+    pvpClient.disconnect();
+    useBattleStore
+      .getState()
+      .setPvpError("PVP-сервер недоступен. Проверьте запуск сервера и попробуйте снова.");
+  }, PVP_CONNECT_TIMEOUT_MS);
+
+  let unsubscribeOpen = () => {};
+  let unsubscribeClose = () => {};
+  let unsubscribeError = () => {};
+
+  function cleanup() {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+
+    unsubscribeOpen();
+    unsubscribeClose();
+    unsubscribeError();
+    unsubscribeOpen = () => {};
+    unsubscribeClose = () => {};
+    unsubscribeError = () => {};
+  }
+
+  unsubscribeOpen = pvpClient.onOpen(() => {
+    cleanup();
     onOpen();
   });
+  unsubscribeClose = pvpClient.onClose(cleanup);
+  unsubscribeError = pvpClient.onError(cleanup);
 
   pvpClient.connect(PVP_SERVER_URL);
 }
@@ -1096,11 +1127,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   startPvpFallbackAiBattle: () => {
     const state = get();
     if (state.mode !== "pvp") return;
-    if (
-      state.pvpStatus !== "connecting" &&
-      state.pvpStatus !== "searching" &&
-      state.pvpStatus !== "waiting"
-    ) {
+    if (state.pvpStatus !== "searching" && state.pvpStatus !== "waiting") {
       return;
     }
 
@@ -1259,6 +1286,13 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     connectAndRun(() =>
       pvpClient.findMatch(get().selectedHeadquartersId, deckCardIds)
     );
+  },
+
+  retryPvpMatchmaking: () => {
+    const state = get();
+    if (state.mode !== "pvp" || state.pvpStatus !== "error") return;
+
+    get().findPvpMatch(state.pvpFallbackDeckCardIds ?? undefined);
   },
 
   createPvpRoom: (deckCardIds) => {

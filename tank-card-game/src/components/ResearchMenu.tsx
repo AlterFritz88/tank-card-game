@@ -37,6 +37,11 @@ import {
   type PlayerProgress,
 } from "../game/playerProgress";
 import { HandCardView } from "./HandCardView";
+import {
+  isProfileServerUnavailable,
+  retryProfileConnection,
+  useProfileConnection,
+} from "../network/useProfileConnection";
 
 const NATION_LABELS: Record<ResearchNation, string> = {
   germany: "Германия",
@@ -710,6 +715,9 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
   const [progress, setProgress] = useState(() => loadPlayerProgress());
   const [feedback, setFeedback] = useState<ResearchFeedback | null>(null);
   const [celebration, setCelebration] = useState<ResearchCelebration | null>(null);
+  const profileConnection = useProfileConnection();
+  const profileServerUnavailable = isProfileServerUnavailable(profileConnection);
+  const profileServerReady = profileConnection.status === "online";
 
   useEffect(() => {
     let cancelled = false;
@@ -894,6 +902,16 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
     });
   }
 
+  async function retryProfileSync() {
+    try {
+      await retryProfileConnection();
+      const serverProgress = await syncPlayerProgressFromServer();
+      setProgress(serverProgress);
+    } catch {
+      showFeedback("Сервер профиля недоступен");
+    }
+  }
+
   function getResearchShortage(cost: number) {
     const headquartersXp = sourceHeadquartersId
       ? progress.headquartersXp[sourceHeadquartersId] ?? 0
@@ -904,6 +922,15 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
 
   async function handleNodeAction(node: ResearchNodeView) {
     if (!sourceHeadquartersId) return;
+
+    if (!profileServerReady) {
+      showFeedback(
+        profileServerUnavailable
+          ? "Сервер профиля недоступен"
+          : "Дождитесь синхронизации профиля"
+      );
+      return;
+    }
 
     let nextProgress: PlayerProgress | null = null;
     let celebrationLabel: ResearchCelebration["label"] | null = null;
@@ -990,6 +1017,8 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
       if (celebrationLabel) {
         showCelebration(celebrationLabel, node);
       }
+    } else if (celebrationLabel) {
+      showFeedback("Операция не была подтверждена сервером");
     }
   }
 
@@ -1062,6 +1091,21 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
           />
         </div>
       </header>
+
+      {profileServerUnavailable ? (
+        <div style={styles.profileServerBanner}>
+          <span>
+            {profileConnection.message ?? "Сервер профиля недоступен"}
+          </span>
+          <button
+            type="button"
+            style={styles.profileServerRetryButton}
+            onClick={() => void retryProfileSync()}
+          >
+            Повторить
+          </button>
+        </div>
+      ) : null}
 
       <aside style={styles.nationsRail}>
         {RESEARCH_NATIONS.map((nation) => {
@@ -1315,6 +1359,39 @@ const styles: Record<string, CSSProperties> = {
     borderBottom: "1px solid rgba(205, 168, 85, 0.22)",
     background: "rgba(4, 6, 5, 0.68)",
     boxShadow: "0 12px 26px rgba(0,0,0,0.26)",
+  },
+
+  profileServerBanner: {
+    position: "absolute",
+    top: 112,
+    left: "50%",
+    zIndex: 20,
+    transform: "translateX(-50%)",
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    padding: "10px 16px",
+    background:
+      "linear-gradient(180deg, rgba(80, 30, 24, 0.92), rgba(21, 10, 8, 0.92))",
+    color: "#ffe8ce",
+    fontSize: 13,
+    fontWeight: 900,
+    boxShadow: "0 12px 28px rgba(0,0,0,0.42)",
+    textShadow: "0 2px 4px rgba(0,0,0,0.7)",
+  },
+
+  profileServerRetryButton: {
+    height: 30,
+    padding: "0 14px",
+    border: "1px solid rgba(255, 226, 163, 0.34)",
+    background:
+      "linear-gradient(180deg, rgba(97, 78, 42, 0.92), rgba(37, 31, 18, 0.96))",
+    color: "#fff0bd",
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 1000,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
 
   kicker: {

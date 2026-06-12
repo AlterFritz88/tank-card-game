@@ -37,7 +37,15 @@ import {
 import type { HeadquartersId, TankCard } from "../game/types";
 import { HandCardView } from "./HandCardView";
 import { calculateDeckWeight, getCardLevel } from "../game/deckWeight";
-import { loadPlayerProgress } from "../game/playerProgress";
+import {
+  loadPlayerProgress,
+  syncPlayerProgressFromServer,
+} from "../game/playerProgress";
+import {
+  isProfileServerUnavailable,
+  retryProfileConnection,
+  useProfileConnection,
+} from "../network/useProfileConnection";
 
 const HAND_CARD_BASE_WIDTH = 175;
 const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
@@ -137,7 +145,10 @@ export function DeckBuilder({
   const [deckDropActive, setDeckDropActive] = useState(false);
   const [collectionDropActive, setCollectionDropActive] = useState(false);
   const [preview, setPreview] = useState<DeckBuilderPreview | null>(null);
-  const [progress] = useState(() => loadPlayerProgress());
+  const [progress, setProgress] = useState(() => loadPlayerProgress());
+  const profileConnection = useProfileConnection();
+  const profileServerUnavailable = isProfileServerUnavailable(profileConnection);
+  const profileServerReady = profileConnection.status === "online";
   const collectionRowRef = useRef<HTMLDivElement>(null);
   const deckRowRef = useRef<HTMLDivElement>(null);
   const collectionDragScrollRef = useRef<DragScrollState | null>(null);
@@ -244,6 +255,15 @@ export function DeckBuilder({
   }
 
   async function saveDeck() {
+    if (!profileServerReady) {
+      setSaveMessage(
+        profileServerUnavailable
+          ? "Сервер профиля недоступен"
+          : "Дождитесь синхронизации профиля"
+      );
+      return;
+    }
+
     if (!selectedHeadquartersId || !validation.valid) {
       setSaveMessage(validation.message);
       return;
@@ -269,6 +289,17 @@ export function DeckBuilder({
     }
 
     onSaved();
+  }
+
+  async function retryProfileSync() {
+    try {
+      await retryProfileConnection();
+      const serverProgress = await syncPlayerProgressFromServer();
+      setProgress(serverProgress);
+      setSaveMessage(null);
+    } catch {
+      setSaveMessage("Сервер профиля недоступен");
+    }
   }
 
   function openCardPreview(event: MouseEvent, previewValue: DeckBuilderPreview) {
@@ -555,6 +586,21 @@ export function DeckBuilder({
           </button>
         </div>
       </header>
+
+      {profileServerUnavailable ? (
+        <div style={styles.profileServerBanner}>
+          <span>
+            {profileConnection.message ?? "Сервер профиля недоступен"}
+          </span>
+          <button
+            type="button"
+            style={styles.profileServerRetryButton}
+            onClick={() => void retryProfileSync()}
+          >
+            Повторить
+          </button>
+        </div>
+      ) : null}
 
       <section style={styles.workspace}>
         <section style={styles.collectionPanel}>
@@ -900,6 +946,39 @@ const styles: Record<string, CSSProperties> = {
     background: "transparent",
     boxShadow: "none",
     boxSizing: "border-box",
+  },
+
+  profileServerBanner: {
+    position: "absolute",
+    top: 84,
+    left: "50%",
+    zIndex: 30,
+    transform: "translateX(-50%)",
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    padding: "10px 16px",
+    background:
+      "linear-gradient(180deg, rgba(80, 30, 24, 0.92), rgba(21, 10, 8, 0.92))",
+    color: "#ffe8ce",
+    fontSize: 13,
+    fontWeight: 900,
+    boxShadow: "0 12px 28px rgba(0,0,0,0.42)",
+    textShadow: "0 2px 4px rgba(0,0,0,0.7)",
+  },
+
+  profileServerRetryButton: {
+    height: 30,
+    padding: "0 14px",
+    border: "1px solid rgba(255, 226, 163, 0.34)",
+    background:
+      "linear-gradient(180deg, rgba(97, 78, 42, 0.92), rgba(37, 31, 18, 0.96))",
+    color: "#fff0bd",
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 1000,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
 
   backButton: {

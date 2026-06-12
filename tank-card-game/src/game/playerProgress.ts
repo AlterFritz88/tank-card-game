@@ -3,6 +3,7 @@ import {
   HEADQUARTERS,
   getTrainingHeadquartersIds,
 } from "./headquarters";
+import { getCardOrNull, normalizeCardId } from "./cards";
 import type { BattleReward } from "./economy";
 import { getDeckCardIds } from "./initialState";
 import { RESEARCH_TREES, type ResearchNode } from "./researchTrees";
@@ -57,6 +58,8 @@ const PLAYER_NICKNAME_STORAGE_KEY = "panzershrek.playerNickname";
 const PLAYER_ACCOUNT_TYPE_STORAGE_KEY = "panzershrek.accountType";
 const FAVORITE_HEADQUARTERS_STORAGE_KEY = "panzershrek.favoriteHeadquartersId";
 const STARTING_IRON_TRACKS = 0;
+const CUSTOM_DECK_CARD_LIMIT = 40;
+const CUSTOM_DECK_COPY_LIMIT = 4;
 
 async function getProfileClient() {
   return (await import("../network/profileClient")).profileClient;
@@ -329,6 +332,13 @@ function normalizePlayerProgress(
         : []),
     ])
   );
+  const ownedCardCopies =
+    typeof progress.ownedCardCopies === "object" && progress.ownedCardCopies
+      ? normalizeCardCopies({
+          ...fallback.ownedCardCopies,
+          ...progress.ownedCardCopies,
+        })
+      : fallback.ownedCardCopies;
 
   return {
     nickname:
@@ -361,15 +371,12 @@ function normalizePlayerProgress(
     researchedCardIds,
     unlockedHeadquartersIds,
     unlockedCardIds,
-    ownedCardCopies:
-      typeof progress.ownedCardCopies === "object" && progress.ownedCardCopies
-        ? normalizeCardCopies({
-            ...fallback.ownedCardCopies,
-            ...progress.ownedCardCopies,
-          })
-        : fallback.ownedCardCopies,
+    ownedCardCopies,
     savedDecks: Array.isArray(progress.savedDecks)
-      ? normalizeSavedDecks(progress.savedDecks)
+      ? normalizeSavedDecks(progress.savedDecks, {
+          ownedCardCopies,
+          unlockedHeadquartersIds,
+        })
       : fallback.savedDecks,
     claimedBattleRewardIds: Array.isArray(progress.claimedBattleRewardIds)
       ? progress.claimedBattleRewardIds.filter(
@@ -644,7 +651,10 @@ function normalizeCardCopies(copies: Record<string, unknown>): Record<string, nu
   );
 }
 
-function normalizeSavedDecks(decks: unknown[]): PlayerSavedDeck[] {
+function normalizeSavedDecks(
+  decks: unknown[],
+  progress: Pick<PlayerProgress, "ownedCardCopies" | "unlockedHeadquartersIds">
+): PlayerSavedDeck[] {
   return decks.flatMap((deck): PlayerSavedDeck[] => {
     if (!deck || typeof deck !== "object") return [];
 
@@ -659,19 +669,61 @@ function normalizeSavedDecks(decks: unknown[]): PlayerSavedDeck[] {
       return [];
     }
 
+    const headquartersId = candidate.headquartersId as HeadquartersId;
+    if (!progress.unlockedHeadquartersIds.includes(headquartersId)) return [];
+
+    const normalizedCardIds = normalizeSavedDeckCardIds(
+      headquartersId,
+      candidate.cardIds,
+      progress.ownedCardCopies
+    );
+    if (!normalizedCardIds) return [];
+
     return [
       {
-        id: candidate.id,
-        name: candidate.name,
-        headquartersId: candidate.headquartersId as HeadquartersId,
-        cardIds: candidate.cardIds.filter(
-          (cardId): cardId is string => typeof cardId === "string"
-        ),
+        id: candidate.id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80),
+        name: candidate.name.trim().slice(0, 40) || "Deck",
+        headquartersId,
+        cardIds: normalizedCardIds,
         createdAt: getPositiveInteger(candidate.createdAt),
         updatedAt: getPositiveInteger(candidate.updatedAt),
       },
-    ];
+    ].filter((item) => Boolean(item.id));
   });
+}
+
+function normalizeSavedDeckCardIds(
+  headquartersId: HeadquartersId,
+  rawCardIds: unknown[],
+  ownedCardCopies: Record<string, number>
+): string[] | null {
+  if (rawCardIds.length !== CUSTOM_DECK_CARD_LIMIT) return null;
+
+  const headquarters = HEADQUARTERS[headquartersId];
+  const trainingHeadquarters = headquarters.level === 1;
+  const copies = new Map<string, number>();
+  const cardIds: string[] = [];
+
+  for (const rawCardId of rawCardIds) {
+    if (typeof rawCardId !== "string") return null;
+
+    const cardId = normalizeCardId(rawCardId);
+    const card = cardId ? getCardOrNull(cardId) : null;
+    if (!card || !cardId) return null;
+
+    if (!trainingHeadquarters && card.nation !== headquarters.nation) {
+      return null;
+    }
+
+    const nextCopies = (copies.get(cardId) ?? 0) + 1;
+    if (nextCopies > CUSTOM_DECK_COPY_LIMIT) return null;
+    if (nextCopies > (ownedCardCopies[cardId] ?? 0)) return null;
+
+    copies.set(cardId, nextCopies);
+    cardIds.push(cardId);
+  }
+
+  return cardIds;
 }
 
 function normalizeBattleStats(value: unknown): PlayerProgress["battleStats"] {

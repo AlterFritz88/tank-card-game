@@ -291,6 +291,32 @@ function getSupportUnits(state: BattleState, playerId: PlayerId): BoardUnit[] {
   );
 }
 
+/**
+ * Battlefield unit that screens friendly light tanks (combatAbilities
+ * lightScreen): redirects the first strike per turn aimed at a friendly light
+ * tank into itself. Returns null when the target is not a light tank, the
+ * screen already fired this turn, or no live screen is present.
+ */
+function findLightScreenUnit(
+  state: BattleState,
+  target: BoardUnit
+): BoardUnit | null {
+  if (getCard(target.cardId).class !== "light") return null;
+  if (getCard(target.cardId).combatAbilities?.lightScreen) return null;
+
+  return (
+    state.units.find(
+      (unit) =>
+        unit.ownerId === target.ownerId &&
+        isBattlefieldUnit(unit) &&
+        unit.instanceId !== target.instanceId &&
+        unit.currentHp > 0 &&
+        !unit.coverFiredThisTurn &&
+        getCard(unit.cardId).combatAbilities?.lightScreen === true
+    ) ?? null
+  );
+}
+
 /** Live anti-tank gun screening this side's support line, if any. */
 function getSupportCoverUnit(
   state: BattleState,
@@ -321,6 +347,32 @@ function applySupportTurnEffects(state: BattleState, playerId: PlayerId) {
       drawCardsWithEmptyDeckPenalty(state, playerId, 1);
 
       if (state.status !== "active") return;
+    }
+
+    if (
+      effects.fetchSupportCardEveryTurns &&
+      state.turn % effects.fetchSupportCardEveryTurns === 0
+    ) {
+      const player = state[playerId];
+      const supportCardsInDeck = player.deck.filter(
+        (item) => getCard(item.cardId).deploymentZone === "support"
+      );
+      const fetched =
+        supportCardsInDeck[
+          Math.floor(Math.random() * supportCardsInDeck.length)
+        ];
+
+      if (fetched) {
+        player.hand.push(fetched);
+        player.deck = player.deck.filter(
+          (item) => item.instanceId !== fetched.instanceId
+        );
+
+        addLog(
+          state,
+          `${getCard(supportUnit.cardId).name}: ${getCard(fetched.cardId).name} доставлена в руку.`
+        );
+      }
     }
 
     if (effects.hqHealPerTurn) {
@@ -1165,6 +1217,15 @@ export function getAttackAnimationSequence(
     }
   }
 
+  // Light-tank screen redirect (animation mirror; flags are set in attack()).
+  if ("cardId" in effectiveTarget && isBattlefieldUnit(effectiveTarget)) {
+    const screen = findLightScreenUnit(state, effectiveTarget);
+
+    if (screen) {
+      effectiveTarget = screen;
+    }
+  }
+
   if ("cardId" in attacker && "cardId" in effectiveTarget) {
     return [
       ...coverStrikes,
@@ -1325,6 +1386,25 @@ function attack(state: BattleState, action: AttackAction) {
         markSuccessfulAction(state, action.playerId);
         return;
       }
+    }
+  }
+
+  // Light-tank screen: once per turn the first strike aimed at a friendly
+  // light tank is redirected into the screening unit (e.g. Porsche-823).
+  if ("cardId" in target && isBattlefieldUnit(target)) {
+    const screen = findLightScreenUnit(state, target);
+
+    if (screen) {
+      screen.coverFiredThisTurn = true;
+
+      addLog(
+        state,
+        `${getCard(screen.cardId).name} принимает удар по ${
+          getCard(target.cardId).name
+        } на себя.`
+      );
+
+      target = screen;
     }
   }
 

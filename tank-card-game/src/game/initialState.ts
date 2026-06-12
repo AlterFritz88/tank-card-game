@@ -175,6 +175,8 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "panzer_35t",
     "panzer_38t",
     "pzkpfw_iii_ausf_a",
+    "horch_830r",
+    "porsche_823",
   ],
 
   german_artillery_division_default: [
@@ -261,6 +263,7 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "lefh_18",
     "mercedes_g3a",
     "sanitaetskraftwagen",
+    "krupp_l3h163",
   ],
 
   soviet_tank_brigade_default: [
@@ -304,6 +307,8 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "bt_7",
     "t34_76",
     "kv1",
+    "t34_1940",
+    "kv1_1940",
   ],
 
   soviet_motor_rifle_division_default: [
@@ -433,6 +438,8 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "ford_aa_ammo",
     "gaz_55_ambulance",
     "gaz_55_ambulance",
+    "gaz_m1",
+    "gaz_m1",
   ],
 
   usa_old_ironsides_default: [
@@ -476,6 +483,8 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "m3_halftrack",
     "dodge_wc54",
     "dodge_wc54",
+    "sherman_early",
+    "sherman_early",
   ],
 
   usa_armored_infantry_regiment_default: [
@@ -605,6 +614,8 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "m3_halftrack",
     "dodge_wc54",
     "dodge_wc54",
+    "ford_gpa",
+    "ford_gpa",
   ],
 
   // === Прогрессивные колоды 1. Panzer-Division (Польша 1939) ===

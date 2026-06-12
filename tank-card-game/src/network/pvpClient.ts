@@ -106,6 +106,7 @@ function createSessionId(): string {
 
 class PvpClient {
   private socket: WebSocket | null = null;
+  private intentionallyClosedSockets = new WeakSet<WebSocket>();
   private messageHandlers = new Set<PvpMessageHandler>();
   private closeHandlers = new Set<PvpCloseHandler>();
   private errorHandlers = new Set<PvpErrorHandler>();
@@ -114,13 +115,14 @@ class PvpClient {
   connect(url: string) {
     this.disconnect();
 
-    this.socket = new WebSocket(url);
+    const socket = new WebSocket(url);
+    this.socket = socket;
 
-    this.socket.addEventListener("open", () => {
+    socket.addEventListener("open", () => {
       this.openHandlers.forEach((handler) => handler());
     });
 
-    this.socket.addEventListener("message", (event) => {
+    socket.addEventListener("message", (event) => {
       try {
         const message = JSON.parse(event.data) as PvpClientMessage;
         this.messageHandlers.forEach((handler) => handler(message));
@@ -131,11 +133,19 @@ class PvpClient {
       }
     });
 
-    this.socket.addEventListener("close", () => {
+    socket.addEventListener("close", () => {
+      if (this.socket === socket) {
+        this.socket = null;
+      }
+
+      if (this.intentionallyClosedSockets.has(socket)) {
+        return;
+      }
+
       this.closeHandlers.forEach((handler) => handler());
     });
 
-    this.socket.addEventListener("error", () => {
+    socket.addEventListener("error", () => {
       this.errorHandlers.forEach((handler) =>
         handler("Ошибка соединения с PVP-сервером"),
       );
@@ -144,6 +154,7 @@ class PvpClient {
 
   disconnect() {
     if (!this.socket) return;
+    this.intentionallyClosedSockets.add(this.socket);
     this.socket.close();
     this.socket = null;
   }

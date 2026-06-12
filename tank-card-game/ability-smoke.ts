@@ -703,5 +703,98 @@ function makeUnit(partial: Partial<BoardUnit> & { instanceId: string; cardId: st
   }
 }
 
+// 16. ГАЗ-М1: каждый второй ход доставляет карту поддержки из колоды в руку.
+{
+  let battle = makeBattle("training_unit", "t34_76");
+
+  // Колода игрока: вставим карту поддержки в глубину колоды.
+  battle.player.deck.push({ instanceId: "support_in_deck", cardId: "gun_76_1927" });
+  battle.units.push(
+    makeUnit({
+      instanceId: "emka",
+      cardId: "gaz_m1",
+      ownerId: "player",
+      zone: "support",
+      supportSlot: 0,
+      alreadyMoved: true,
+      alreadyAttacked: true,
+    })
+  );
+
+  // Ход 2 наступает после END_TURN игрока и бота.
+  battle = applyAction(battle, { type: "END_TURN", playerId: "player" });
+  battle = applyAction(battle, { type: "END_TURN", playerId: "bot" });
+
+  const inHand = battle.player.hand.some(
+    (card) => card.instanceId === "support_in_deck"
+  );
+
+  check(
+    "ГАЗ-М1: карта поддержки из колоды доставлена в руку на 2-м ходу",
+    battle.turn === 2 && inHand,
+    `turn ${battle.turn}, inHand ${inHand}`
+  );
+}
+
+// 17. Porsche-823: принимает удар по союзному лёгкому танку на себя.
+{
+  const battle = makeBattle("training_unit", "t34_76");
+
+  battle.units.push(
+    makeUnit({ instanceId: "light", cardId: "t26_1931", ownerId: "bot", position: { row: 1, col: 3 } }),
+    makeUnit({ instanceId: "screen", cardId: "porsche_823", ownerId: "bot", position: { row: 0, col: 3 } }),
+    makeUnit({ instanceId: "hunter", cardId: "t34_76", ownerId: "player", position: { row: 1, col: 2 } })
+  );
+
+  const next = applyAction(battle, {
+    type: "ATTACK",
+    playerId: "player",
+    attackerType: "unit",
+    attackerId: "hunter",
+    targetType: "unit",
+    targetId: "light",
+  });
+
+  const light = next.units.find((unit) => unit.instanceId === "light");
+  const screen = next.units.find((unit) => unit.instanceId === "screen");
+
+  check(
+    "Porsche-823: урон ушёл в эскорт, лёгкий танк цел",
+    light?.currentHp === getCard("t26_1931").hp &&
+      (screen?.currentHp ?? 0) < getCard("porsche_823").hp,
+    `light hp ${light?.currentHp}, screen hp ${screen?.currentHp}`
+  );
+
+  // Второй удар за тот же ход уже не перехватывается.
+  battle.units.push(
+    makeUnit({ instanceId: "hunter2", cardId: "bt_7", ownerId: "player", position: { row: 2, col: 3 } })
+  );
+  let second = applyAction(battle, {
+    type: "ATTACK",
+    playerId: "player",
+    attackerType: "unit",
+    attackerId: "hunter",
+    targetType: "unit",
+    targetId: "light",
+  });
+  second = applyAction(second, {
+    type: "ATTACK",
+    playerId: "player",
+    attackerType: "unit",
+    attackerId: "hunter2",
+    targetType: "unit",
+    targetId: "light",
+  });
+
+  const lightAfterSecond = second.units.find((unit) => unit.instanceId === "light");
+
+  check(
+    "Porsche-823: второй удар за ход проходит по лёгкому танку",
+    (lightAfterSecond?.currentHp ?? 0) < getCard("t26_1931").hp ||
+      !lightAfterSecond,
+    `light hp ${lightAfterSecond?.currentHp}`
+  );
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

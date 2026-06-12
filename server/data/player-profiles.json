@@ -4,12 +4,12 @@
     "accountType": "base",
     "favoriteHeadquartersId": null,
     "battleStats": {
-      "wins": 15,
+      "wins": 16,
       "losses": 2
     },
-    "ironTracks": 8906,
+    "ironTracks": 8946,
     "goldTracks": 0,
-    "freeXp": 91,
+    "freeXp": 96,
     "headquartersXp": {
       "trainingslager": 231,
       "soviet_motor_rifle_division": 61,
@@ -17,7 +17,8 @@
       "soviet_tank_brigade": 76,
       "training_unit": 79,
       "german_motorized_division": 78,
-      "soviet_auto_battalion": 81
+      "soviet_auto_battalion": 81,
+      "german_artillery_division": 60
     },
     "headquartersMatchCounts": {
       "trainingslager": 3,
@@ -26,7 +27,8 @@
       "soviet_tank_brigade": 2,
       "training_unit": 3,
       "german_motorized_division": 2,
-      "soviet_auto_battalion": 1
+      "soviet_auto_battalion": 1,
+      "german_artillery_division": 1
     },
     "headquartersBattleStats": {
       "trainingslager": {
@@ -54,6 +56,10 @@
         "losses": 1
       },
       "soviet_auto_battalion": {
+        "wins": 1,
+        "losses": 0
+      },
+      "german_artillery_division": {
         "wins": 1,
         "losses": 0
       }
@@ -175,6 +181,7 @@
     },
     "savedDecks": [],
     "claimedBattleRewardIds": [
+      "battle:189a73f",
       "battle:cov8gl",
       "battle:131kvsj",
       "battle:1obtmsf",

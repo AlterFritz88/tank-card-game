@@ -192,6 +192,8 @@ type CardPreview =
       fuelGeneration: number;
     };
 
+type RewardClaimStatus = "idle" | "pending" | "claimed" | "failed";
+
 function setObjectRef(
   refs: React.MutableRefObject<Map<string, HTMLElement>>,
   id: string
@@ -616,6 +618,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const [cardPreview, setCardPreview] = useState<CardPreview | null>(null);
   const [debugPaused, setDebugPaused] = useState(false);
   const [battleReward, setBattleReward] = useState<BattleReward | null>(null);
+  const [rewardClaimStatus, setRewardClaimStatus] =
+    useState<RewardClaimStatus>("idle");
+  const [rewardClaimError, setRewardClaimError] = useState<string | null>(null);
   const debugPausedRef = useRef(false);
   const rewardedBattleKeyRef = useRef<string | null>(null);
 
@@ -810,6 +815,64 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     commandQueueRef.current = [];
   }, [battle.status]);
 
+  async function claimCurrentBattleReward() {
+    if (battle.status !== "player_won" && battle.status !== "bot_won") return;
+
+    const localPlayerWon =
+      (battle.status === "player_won" && humanPlayerId === "player") ||
+      (battle.status === "bot_won" && humanPlayerId === "bot");
+
+    if (tutorialActive) {
+      applyTutorialBattleRewardToProgress(TUTORIAL_REWARD, localPlayerWon);
+      setBattleReward(TUTORIAL_REWARD);
+      setRewardClaimStatus("claimed");
+      setRewardClaimError(null);
+      return;
+    }
+
+    setRewardClaimStatus("pending");
+    setRewardClaimError(null);
+
+    if (mode === "pvp") {
+      if (!pvpRoomId) {
+        setRewardClaimStatus("failed");
+        setRewardClaimError("Награда не начислена: PVP-комната не найдена");
+        return;
+      }
+
+      const serverResult = await claimPvpBattleRewardFromServer({
+        roomId: pvpRoomId,
+        localPlayerId: humanPlayerId,
+      });
+
+      if (serverResult?.reward) {
+        setBattleReward(serverResult.reward);
+        setRewardClaimStatus("claimed");
+        return;
+      }
+
+      setRewardClaimStatus("failed");
+      setRewardClaimError("Награда не начислена: сервер профиля недоступен");
+      return;
+    }
+
+    const serverResult = await claimBattleRewardFromServer({
+      battle,
+      mode,
+      localPlayerId: humanPlayerId,
+      matchEndReason: null,
+    });
+
+    if (serverResult?.reward) {
+      setBattleReward(serverResult.reward);
+      setRewardClaimStatus("claimed");
+      return;
+    }
+
+    setRewardClaimStatus("failed");
+    setRewardClaimError("Награда не начислена: сервер профиля недоступен");
+  }
+
   useEffect(() => {
     let frameId: number | null = null;
 
@@ -817,6 +880,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       rewardedBattleKeyRef.current = null;
       frameId = window.requestAnimationFrame(() => {
         setBattleReward(null);
+        setRewardClaimStatus("idle");
+        setRewardClaimError(null);
       });
 
       return () => {
@@ -843,44 +908,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     rewardedBattleKeyRef.current = rewardKey;
 
-    const localPlayerWon =
-      (battle.status === "player_won" && humanPlayerId === "player") ||
-      (battle.status === "bot_won" && humanPlayerId === "bot");
-
-    if (tutorialActive) {
-      applyTutorialBattleRewardToProgress(TUTORIAL_REWARD, localPlayerWon);
-      frameId = window.requestAnimationFrame(() => {
-        setBattleReward(TUTORIAL_REWARD);
-      });
-
-      return () => {
-        if (frameId !== null) {
-          window.cancelAnimationFrame(frameId);
-        }
-      };
-    } else if (mode === "pvp") {
-      if (pvpRoomId) {
-        void claimPvpBattleRewardFromServer({
-          roomId: pvpRoomId,
-          localPlayerId: humanPlayerId,
-        }).then((serverResult) => {
-          if (serverResult?.reward) {
-            setBattleReward(serverResult.reward);
-          }
-        });
-      }
-    } else {
-      void claimBattleRewardFromServer({
-        battle,
-        mode,
-        localPlayerId: humanPlayerId,
-        matchEndReason: null,
-      }).then((serverResult) => {
-        if (serverResult?.reward) {
-          setBattleReward(serverResult.reward);
-        }
-      });
-    }
+    void claimCurrentBattleReward();
   }, [battle, humanPlayerId, matchEndReason, mode, pvpRoomId, tutorialActive]);
 
   useEffect(() => {
@@ -3954,6 +3982,9 @@ function renderEnemyDeckWithTimer() {
             matchEndReason={mode === "pvp" ? matchEndReason : null}
             restartLabel={resultRestartLabel}
             reward={battleReward}
+            rewardStatus={rewardClaimStatus}
+            rewardError={rewardClaimError}
+            onRetryReward={() => void claimCurrentBattleReward()}
           />
         )}
     </div>

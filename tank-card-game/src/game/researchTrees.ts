@@ -230,6 +230,17 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             tier: 0,
             slot: 0,
           }),
+          // Параллельное исследование: штабная машина и линейный танк.
+          unitNode({
+            id: "de-motor-horch",
+            title: "Horch 830R",
+            cardId: "horch_830r",
+            experienceCost: 260,
+            purchaseCost: 1900,
+            requires: ["de-motor-marder"],
+            tier: 1,
+            slot: 0,
+          }),
           unitNode({
             id: "de-motor-pz4b",
             title: "Panzer IV B",
@@ -238,7 +249,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             purchaseCost: 2300,
             requires: ["de-motor-marder"],
             tier: 1,
-            slot: 0,
+            slot: 1,
           }),
           headquartersNode({
             id: "de-motor-hq",
@@ -270,6 +281,17 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             requires: ["de-motor-hq"],
             tier: 3,
             slot: 1,
+          }),
+          // Вершина: бронированный эскорт для быстрых лёгких танков.
+          unitNode({
+            id: "de-motor-porsche823",
+            title: "Porsche-823",
+            cardId: "porsche_823",
+            experienceCost: 700,
+            purchaseCost: 5800,
+            requires: ["de-motor-pz38"],
+            tier: 4,
+            slot: 0,
           }),
         ],
       },
@@ -348,6 +370,17 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             tier: 0,
             slot: 0,
           }),
+          // Параллельное исследование: снабжение и ПТ-самоходка.
+          unitNode({
+            id: "de-rear-krupp",
+            title: "Krupp L3H163",
+            cardId: "krupp_l3h163",
+            experienceCost: 200,
+            purchaseCost: 1400,
+            requires: ["de-rear-medic"],
+            tier: 1,
+            slot: 0,
+          }),
           unitNode({
             id: "de-rear-pzjager",
             title: "PzJäger I",
@@ -356,7 +389,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             purchaseCost: 1300,
             requires: ["de-rear-medic"],
             tier: 1,
-            slot: 0,
+            slot: 1,
           }),
           headquartersNode({
             id: "de-rear-hq",
@@ -431,6 +464,17 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             tier: 0,
             slot: 0,
           }),
+          // Параллельное исследование: ранний Т-34 и серийный Т-34/76.
+          unitNode({
+            id: "ussr-tank-t34-1940",
+            title: "Т-34 обр. 1940",
+            cardId: "t34_1940",
+            experienceCost: 320,
+            purchaseCost: 2300,
+            requires: ["ussr-tank-t40"],
+            tier: 1,
+            slot: 0,
+          }),
           unitNode({
             id: "ussr-tank-t34",
             title: "Т-34/76",
@@ -439,7 +483,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             purchaseCost: 2600,
             requires: ["ussr-tank-t40"],
             tier: 1,
-            slot: 0,
+            slot: 1,
           }),
           headquartersNode({
             id: "ussr-tank-hq",
@@ -451,13 +495,13 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             tier: 2,
             slot: 0,
           }),
-          // После покупки штаба: линия тяжёлых и экспериментальная броня.
+          // После покупки штаба: линия КВ и экспериментальная броня.
           unitNode({
-            id: "ussr-tank-kv1",
-            title: "КВ-1",
-            cardId: "kv1",
-            experienceCost: 560,
-            purchaseCost: 4500,
+            id: "ussr-tank-kv1-1940",
+            title: "КВ-1 обр. 1940",
+            cardId: "kv1_1940",
+            experienceCost: 520,
+            purchaseCost: 4200,
             requires: ["ussr-tank-hq"],
             tier: 3,
             slot: 0,
@@ -473,13 +517,23 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             slot: 1,
           }),
           unitNode({
+            id: "ussr-tank-kv1",
+            title: "КВ-1",
+            cardId: "kv1",
+            experienceCost: 640,
+            purchaseCost: 5200,
+            requires: ["ussr-tank-kv1-1940"],
+            tier: 4,
+            slot: 0,
+          }),
+          unitNode({
             id: "ussr-tank-kv2",
             title: "КВ-2",
             cardId: "kv2",
             experienceCost: 820,
             purchaseCost: 7000,
             requires: ["ussr-tank-kv1"],
-            tier: 4,
+            tier: 5,
             slot: 0,
           }),
         ],
@@ -636,6 +690,17 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             tier: 0,
             slot: 0,
           }),
+          // Параллельное исследование: штабная «эмка» и противотанковый заслон.
+          unitNode({
+            id: "ussr-rear-gaz-m1",
+            title: "ГАЗ-М1",
+            cardId: "gaz_m1",
+            experienceCost: 240,
+            purchaseCost: 1700,
+            requires: ["ussr-rear-letuchka"],
+            tier: 1,
+            slot: 0,
+          }),
           unitNode({
             id: "ussr-rear-53k",
             title: "45-мм 53-К",
@@ -644,7 +709,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             purchaseCost: 2000,
             requires: ["ussr-rear-letuchka"],
             tier: 1,
-            slot: 0,
+            slot: 1,
           }),
           headquartersNode({
             id: "ussr-rear-hq",
@@ -718,6 +783,17 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             tier: 0,
             slot: 0,
           }),
+          // Параллельное исследование: ранний Шерман и переходный M2A1.
+          unitNode({
+            id: "usa-tank-sherman-early",
+            title: "M4A1 (ранний)",
+            cardId: "sherman_early",
+            experienceCost: 340,
+            purchaseCost: 2500,
+            requires: ["usa-tank-m2a4"],
+            tier: 1,
+            slot: 0,
+          }),
           unitNode({
             id: "usa-tank-m2a1",
             title: "M2A1 Medium",
@@ -726,7 +802,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             purchaseCost: 2100,
             requires: ["usa-tank-m2a4"],
             tier: 1,
-            slot: 0,
+            slot: 1,
           }),
           headquartersNode({
             id: "usa-tank-hq",
@@ -903,6 +979,17 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             tier: 0,
             slot: 0,
           }),
+          // Параллельное исследование: амфибия-разведчик и противотанковый заслон.
+          unitNode({
+            id: "usa-rear-gpa",
+            title: "Ford GPA",
+            cardId: "ford_gpa",
+            experienceCost: 240,
+            purchaseCost: 1700,
+            requires: ["usa-rear-willys"],
+            tier: 1,
+            slot: 0,
+          }),
           unitNode({
             id: "usa-rear-37mm",
             title: "37-мм M3",
@@ -911,7 +998,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             purchaseCost: 2000,
             requires: ["usa-rear-willys"],
             tier: 1,
-            slot: 0,
+            slot: 1,
           }),
           headquartersNode({
             id: "usa-rear-hq",
