@@ -1205,14 +1205,16 @@ export function getAttackAnimationSequence(
     ];
   }
 
+  const unitTarget = "cardId" in effectiveTarget ? effectiveTarget : target;
+
   return [
     {
       sourceId,
-      targetId: getCombatObjectId(target),
+      targetId: getCombatObjectId(unitTarget),
       damage:
         attackValue +
         (attackerIsHeadquarters
-          ? getHeadquartersBonusVsDamagedUnit(state, attacker.ownerId, target)
+          ? getHeadquartersBonusVsDamagedUnit(state, attacker.ownerId, unitTarget)
           : 0),
     },
   ];

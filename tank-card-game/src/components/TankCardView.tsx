@@ -6,6 +6,7 @@ import {
   getNationVisual,
 } from "../game/cardVisuals";
 import { getTankImage } from "../game/tankImages";
+import { FitText } from "./FitText";
 import { StatBadge } from "./StatBadge";
 import ussrCardBackground from "../assets/cards/nation-ussr-bg.png";
 import fuelCanisterIcon from "../assets/icons/fuel-canister-icon.png";
@@ -273,7 +274,9 @@ export function TankCardView({
             ...getNationFlagStyle(nation),
           }}
         />
-        <strong style={styles.handTitle}>{card.name}</strong>
+        <FitText maxFontSize={20} minFontSize={10} style={styles.handTitle}>
+          {card.name}
+        </FitText>
         <span style={styles.subtitle}>
           {nation.label} · {unitClass.label}
         </span>

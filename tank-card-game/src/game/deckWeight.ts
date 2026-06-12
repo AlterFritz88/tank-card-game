@@ -271,6 +271,7 @@ function getAbilityStrength(card: TankCard): number {
   if (supportEffects) {
     score += (supportEffects.hqAttackBonus ?? 0) * 0.85;
     score += (supportEffects.hqDamageRedirect ?? 0) * 0.55;
+    score += (supportEffects.supportLineCover ?? 0) * 0.9;
     score += (supportEffects.fuelPerTurn ?? 0) * 0.72;
     score += supportEffects.drawEveryTurns
       ? 1.2 / supportEffects.drawEveryTurns

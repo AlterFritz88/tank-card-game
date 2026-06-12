@@ -47,7 +47,7 @@ import { getDeckCardIds } from "../game/initialState";
 import {
   getFavoriteHeadquartersId,
   loadPlayerProgress,
-  setFavoriteHeadquartersId,
+  setFavoriteHeadquartersIdOnServer,
   syncPlayerProgressFromServer,
   type PlayerProgress,
 } from "../game/playerProgress";
@@ -236,7 +236,11 @@ function PlayerProfileMenu({ onBack }: { onBack: () => void }) {
     .sort((left, right) => right.matches - left.matches);
 
   function makeFavorite(headquartersId: HeadquartersId) {
-    setProgress(setFavoriteHeadquartersId(headquartersId));
+    void setFavoriteHeadquartersIdOnServer(headquartersId).then((nextProgress) => {
+      if (nextProgress) {
+        setProgress(nextProgress);
+      }
+    });
   }
 
   return (

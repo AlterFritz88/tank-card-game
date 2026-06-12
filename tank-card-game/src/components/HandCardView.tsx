@@ -17,6 +17,7 @@ import {
 } from "../game/cardVisuals";
 import { getTankImage } from "../game/tankImages";
 import prototypeTankImage from "../assets/tanks/prototype-tank.png";
+import { FitText } from "./FitText";
 import { StatBadge } from "./StatBadge";
 import cardHandFrameImage from "../assets/cards/card-hand-frame.png";
 import handCardArtMaskImage from "../assets/cards/hand-card-art-mask.png";
@@ -336,15 +337,16 @@ export function HandCardView({
           gap: scaled(4),
         }}
       >
-        <strong
+        <FitText
+          maxFontSize={scaled(titleFontSize)}
+          minFontSize={scaled(7)}
           style={{
             ...styles.title,
-            fontSize: scaled(titleFontSize),
             letterSpacing: 0.4 * uiScale,
           }}
         >
           {title}
-        </strong>
+        </FitText>
         <span
           style={{
             ...styles.subtitle,

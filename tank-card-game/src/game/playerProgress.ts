@@ -151,23 +151,6 @@ export async function syncPlayerProgressFromServer(): Promise<PlayerProgress> {
   }
 }
 
-export async function savePlayerProgressToServer(
-  progress: PlayerProgress
-): Promise<PlayerProgress> {
-  try {
-    const profileClient = await getProfileClient();
-    const profile = await profileClient.saveProfile(
-      getPersistentPlayerId(),
-      progress
-    );
-    savePlayerProgress(profile);
-    return profile;
-  } catch {
-    savePlayerProgress(progress);
-    return progress;
-  }
-}
-
 export async function claimBattleRewardFromServer(input: {
   battle: ClientBattleState;
   mode: GameMode;
@@ -206,7 +189,7 @@ export async function claimPvpBattleRewardFromServer(input: {
   }
 }
 
-export function applyBattleRewardToProgress(
+export function applyTutorialBattleRewardToProgress(
   reward: BattleReward,
   localPlayerWon?: boolean
 ): PlayerProgress {
@@ -416,16 +399,26 @@ export function getFavoriteHeadquartersId(
   return mostPlayedHeadquarters?.[0] ?? DEFAULT_PLAYER_HEADQUARTERS_ID;
 }
 
-export function setFavoriteHeadquartersId(
+export async function setFavoriteHeadquartersIdOnServer(
   headquartersId: HeadquartersId
-): PlayerProgress {
+): Promise<PlayerProgress | null> {
   const progress = loadPlayerProgress();
   const nextProgress = {
     ...progress,
     favoriteHeadquartersId: headquartersId in HEADQUARTERS ? headquartersId : null,
   };
-  savePlayerProgress(nextProgress);
-  return nextProgress;
+
+  try {
+    const profileClient = await getProfileClient();
+    const profile = await profileClient.saveProfile(
+      getPersistentPlayerId(),
+      nextProgress
+    );
+    savePlayerProgress(profile);
+    return profile;
+  } catch {
+    return null;
+  }
 }
 
 export function isHeadquartersFullyResearched(
@@ -535,31 +528,6 @@ export function spendResearchExperience(
   };
 }
 
-export function researchCard(
-  cardId: string,
-  headquartersId: HeadquartersId,
-  cost: number
-): PlayerProgress | null {
-  const progress = loadPlayerProgress();
-  if (progress.researchedCardIds.includes(cardId)) return progress;
-  if (!canSpendResearchExperience(progress, headquartersId, cost)) return null;
-
-  const nextProgress = spendResearchExperience(progress, headquartersId, cost);
-  const researchedCardIds = Array.from(
-    new Set([...nextProgress.researchedCardIds, cardId])
-  );
-  const unlockedCardIds = Array.from(
-    new Set([...nextProgress.unlockedCardIds, cardId])
-  );
-  const savedProgress = {
-    ...nextProgress,
-    researchedCardIds,
-    unlockedCardIds,
-  };
-  savePlayerProgress(savedProgress);
-  return savedProgress;
-}
-
 export async function researchCardOnServer(
   cardId: string,
   headquartersId: HeadquartersId,
@@ -577,34 +545,6 @@ export async function researchCardOnServer(
   } catch {
     return null;
   }
-}
-
-export function researchHeadquarters(
-  targetHeadquartersId: HeadquartersId,
-  sourceHeadquartersId: HeadquartersId,
-  cost: number
-): PlayerProgress | null {
-  const progress = loadPlayerProgress();
-  if (progress.researchedHeadquartersIds.includes(targetHeadquartersId)) {
-    return progress;
-  }
-  if (!canSpendResearchExperience(progress, sourceHeadquartersId, cost)) {
-    return null;
-  }
-
-  const nextProgress = spendResearchExperience(
-    progress,
-    sourceHeadquartersId,
-    cost
-  );
-  const savedProgress = {
-    ...nextProgress,
-    researchedHeadquartersIds: Array.from(
-      new Set([...nextProgress.researchedHeadquartersIds, targetHeadquartersId])
-    ),
-  };
-  savePlayerProgress(savedProgress);
-  return savedProgress;
 }
 
 export async function researchHeadquartersOnServer(
@@ -626,29 +566,6 @@ export async function researchHeadquartersOnServer(
   }
 }
 
-export function purchaseCardCopy(
-  cardId: string,
-  cost: number,
-  copyLimit = 4
-): PlayerProgress | null {
-  const progress = loadPlayerProgress();
-  if (!progress.researchedCardIds.includes(cardId)) return null;
-  const ownedCopies = progress.ownedCardCopies[cardId] ?? 0;
-  if (ownedCopies >= copyLimit) return null;
-  if (progress.ironTracks < cost) return null;
-
-  const savedProgress = {
-    ...progress,
-    ironTracks: progress.ironTracks - cost,
-    ownedCardCopies: {
-      ...progress.ownedCardCopies,
-      [cardId]: ownedCopies + 1,
-    },
-  };
-  savePlayerProgress(savedProgress);
-  return savedProgress;
-}
-
 export async function purchaseCardCopyOnServer(
   cardId: string,
   _cost: number,
@@ -665,26 +582,6 @@ export async function purchaseCardCopyOnServer(
   } catch {
     return null;
   }
-}
-
-export function purchaseHeadquarters(
-  headquartersId: HeadquartersId,
-  cost: number
-): PlayerProgress | null {
-  const progress = loadPlayerProgress();
-  if (!progress.researchedHeadquartersIds.includes(headquartersId)) return null;
-  if (progress.unlockedHeadquartersIds.includes(headquartersId)) return progress;
-  if (progress.ironTracks < cost) return null;
-
-  const savedProgress = {
-    ...progress,
-    ironTracks: progress.ironTracks - cost,
-    unlockedHeadquartersIds: Array.from(
-      new Set([...progress.unlockedHeadquartersIds, headquartersId])
-    ),
-  };
-  savePlayerProgress(savedProgress);
-  return savedProgress;
 }
 
 export async function purchaseHeadquartersOnServer(

@@ -46,13 +46,11 @@ import {
   playMusic,
   playTurnStartSound,
 } from "../game/audio";
-import { calculateBattleReward, type BattleReward } from "../game/economy";
+import type { BattleReward } from "../game/economy";
 import {
-  applyBattleRewardToProgress,
+  applyTutorialBattleRewardToProgress,
   claimBattleRewardFromServer,
   claimPvpBattleRewardFromServer,
-  isHeadquartersFullyResearched,
-  loadPlayerProgress,
 } from "../game/playerProgress";
 import {
   TUTORIAL_EPILOGUE_TEXT,
@@ -845,29 +843,21 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     rewardedBattleKeyRef.current = rewardKey;
 
-    const rewardHeadquartersId =
-      battle.headquarters[humanPlayerId].headquartersId ??
-      battle[humanPlayerId].headquartersId;
-    const progress = loadPlayerProgress();
-    const reward = tutorialActive
-      ? TUTORIAL_REWARD
-      : calculateBattleReward({
-          battle,
-          mode,
-          localPlayerId: humanPlayerId,
-          matchEndReason: mode === "pvp" ? matchEndReason : null,
-          headquartersFullyResearched: isHeadquartersFullyResearched(
-            progress,
-            rewardHeadquartersId
-          ),
-        });
-
     const localPlayerWon =
       (battle.status === "player_won" && humanPlayerId === "player") ||
       (battle.status === "bot_won" && humanPlayerId === "bot");
 
     if (tutorialActive) {
-      applyBattleRewardToProgress(reward, localPlayerWon);
+      applyTutorialBattleRewardToProgress(TUTORIAL_REWARD, localPlayerWon);
+      frameId = window.requestAnimationFrame(() => {
+        setBattleReward(TUTORIAL_REWARD);
+      });
+
+      return () => {
+        if (frameId !== null) {
+          window.cancelAnimationFrame(frameId);
+        }
+      };
     } else if (mode === "pvp") {
       if (pvpRoomId) {
         void claimPvpBattleRewardFromServer({
@@ -891,15 +881,6 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         }
       });
     }
-    frameId = window.requestAnimationFrame(() => {
-      setBattleReward(reward);
-    });
-
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
-      }
-    };
   }, [battle, humanPlayerId, matchEndReason, mode, pvpRoomId, tutorialActive]);
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { cards, getCardOrNull } from "./cards";
+import { cards, getCardOrNull, normalizeCardId } from "./cards";
 import { HEADQUARTERS } from "./headquarters";
 import { loadPlayerProgress, savePlayerProgress, type PlayerProgress } from "./playerProgress";
 import { getPersistentPlayerId } from "./playerIdentity";
@@ -8,6 +8,8 @@ export const DECK_UNIT_LIMIT = 40;
 export const CARD_COPY_LIMIT = 4;
 
 const SAVED_DECKS_STORAGE_KEY = "tank-card-game:saved-decks";
+const SAVED_DECKS_MIGRATION_BACKUP_KEY =
+  "tank-card-game:saved-decks:migration-backup";
 const RECENT_DECK_STORAGE_KEY = "tank-card-game:recent-deck-selections";
 
 export type UnitTypeFilter = "all" | TankClass | "support";
@@ -67,6 +69,64 @@ async function getProfileClient() {
 
 function getCardById(cardId: string): TankCard | null {
   return getCardOrNull(cardId);
+}
+
+function parseSavedDecks(value: string | null): SavedDeck[] {
+  if (!value) return [];
+
+  try {
+    const parsedValue = JSON.parse(value);
+    if (!Array.isArray(parsedValue)) return [];
+
+    return parsedValue
+      .map((item): SavedDeck | null => {
+        if (
+          typeof item?.id !== "string" ||
+          typeof item.name !== "string" ||
+          typeof item.headquartersId !== "string" ||
+          !(item.headquartersId in HEADQUARTERS) ||
+          !Array.isArray(item.cardIds)
+        ) {
+          return null;
+        }
+
+        const cardIds = item.cardIds
+          .map((cardId: unknown) =>
+            typeof cardId === "string" ? normalizeCardId(cardId) : null
+          )
+          .filter((cardId: string | null): cardId is string => Boolean(cardId));
+
+        return {
+          id: item.id,
+          name: item.name.trim() || item.id,
+          headquartersId: item.headquartersId,
+          cardIds,
+          createdAt:
+            typeof item.createdAt === "number" ? item.createdAt : Date.now(),
+          updatedAt:
+            typeof item.updatedAt === "number" ? item.updatedAt : Date.now(),
+        };
+      })
+      .filter((deck): deck is SavedDeck => Boolean(deck));
+  } catch {
+    return [];
+  }
+}
+
+function loadLegacySavedDecks(): SavedDeck[] {
+  return parseSavedDecks(window.localStorage.getItem(SAVED_DECKS_STORAGE_KEY));
+}
+
+function saveMigrationBackup(decks: SavedDeck[]) {
+  if (decks.length === 0) {
+    window.localStorage.removeItem(SAVED_DECKS_MIGRATION_BACKUP_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(
+    SAVED_DECKS_MIGRATION_BACKUP_KEY,
+    JSON.stringify(decks)
+  );
 }
 
 export function isTrainingHeadquarters(headquartersId: HeadquartersId): boolean {
@@ -206,8 +266,27 @@ export function saveDecks(decks: SavedDeck[]) {
 
 export async function syncSavedDecksFromServer(): Promise<SavedDeck[]> {
   const profileClient = await getProfileClient();
-  const profile = await profileClient.getProfile(getPersistentPlayerId());
+  const playerId = getPersistentPlayerId();
+  const legacyDecks = loadLegacySavedDecks();
+  let profile = await profileClient.getProfile(playerId);
+  const failedMigrationDecks: SavedDeck[] = [];
 
+  for (const legacyDeck of legacyDecks) {
+    const alreadyOnServer = profile.savedDecks.some(
+      (serverDeck) => serverDeck.id === legacyDeck.id
+    );
+
+    if (alreadyOnServer) continue;
+
+    try {
+      profile = await profileClient.saveCustomDeck(playerId, legacyDeck);
+    } catch (error) {
+      failedMigrationDecks.push(legacyDeck);
+      console.warn("Failed to migrate legacy custom deck", legacyDeck.name, error);
+    }
+  }
+
+  saveMigrationBackup(failedMigrationDecks);
   savePlayerProgress(profile);
   saveDecks(profile.savedDecks);
 
@@ -346,55 +425,6 @@ export function createUpdatedCustomDeckDraft(
   };
 }
 
-export function saveCustomDeck(
-  headquartersId: HeadquartersId,
-  cardIds: string[],
-  name: string
-): SavedDeck {
-  const now = Date.now();
-  const deck: SavedDeck = {
-    id: createDeckId(),
-    name: name.trim() || "Новая колода",
-    headquartersId,
-    cardIds,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  saveDecks([...loadSavedDecks(), deck]);
-
-  return deck;
-}
-
-export function updateCustomDeck(
-  deckId: string,
-  headquartersId: HeadquartersId,
-  cardIds: string[],
-  name: string
-): SavedDeck | null {
-  const decks = loadSavedDecks();
-  const deckIndex = decks.findIndex((deck) => deck.id === deckId);
-
-  if (deckIndex < 0) return null;
-
-  const existingDeck = decks[deckIndex];
-  const updatedDeck: SavedDeck = {
-    ...existingDeck,
-    name: name.trim() || existingDeck.name,
-    headquartersId,
-    cardIds,
-    updatedAt: Date.now(),
-  };
-
-  saveDecks([
-    ...decks.slice(0, deckIndex),
-    updatedDeck,
-    ...decks.slice(deckIndex + 1),
-  ]);
-
-  return updatedDeck;
-}
-
 export function deleteCustomDeck(deckId: string): void {
   saveDecks(loadSavedDecks().filter((deck) => deck.id !== deckId));
 
@@ -410,3 +440,4 @@ export function deleteCustomDeck(deckId: string): void {
 
   window.localStorage.setItem(RECENT_DECK_STORAGE_KEY, JSON.stringify(selections));
 }
+

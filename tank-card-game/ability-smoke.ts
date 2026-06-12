@@ -533,5 +533,175 @@ function makeUnit(partial: Partial<BoardUnit> & { instanceId: string; cardId: st
   );
 }
 
+// 15. Противотанковый заслон (supportLineCover).
+{
+  const makeCoverBattle = () => {
+    const battle = makeBattle("training_unit", "t34_76");
+
+    battle.units.push(
+      makeUnit({
+        instanceId: "cover",
+        cardId: "gun_53k",
+        ownerId: "bot",
+        zone: "support",
+        supportSlot: 0,
+        alreadyMoved: true,
+        alreadyAttacked: true,
+      }),
+      makeUnit({
+        instanceId: "medic",
+        cardId: "gaz_55_ambulance",
+        ownerId: "bot",
+        zone: "support",
+        supportSlot: 1,
+        alreadyMoved: true,
+        alreadyAttacked: true,
+      })
+    );
+
+    return battle;
+  };
+
+  // а) Дистанционный удар штаба по тыловому юниту принимает заслон.
+  {
+    const battle = makeCoverBattle();
+    const next = applyAction(battle, {
+      type: "ATTACK",
+      playerId: "player",
+      attackerType: "headquarters",
+      attackerId: "player_hq",
+      targetType: "unit",
+      targetId: "medic",
+    });
+    const cover = next.units.find((unit) => unit.instanceId === "cover");
+    const medic = next.units.find((unit) => unit.instanceId === "medic");
+
+    check(
+      "Заслон: удар штаба по санитарке уходит в 45-мм 53-К",
+      cover?.currentHp === 1 && medic?.currentHp === getCard("gaz_55_ambulance").hp,
+      `cover hp ${cover?.currentHp}, medic hp ${medic?.currentHp}`
+    );
+  }
+
+  // б) Дальний выстрел САУ по тылу — тоже в заслон.
+  {
+    const battle = makeCoverBattle();
+
+    battle.units.push(
+      makeUnit({ instanceId: "spg", cardId: "su_122", ownerId: "player", position: { row: 1, col: 1 } })
+    );
+
+    const next = applyAction(battle, {
+      type: "ATTACK",
+      playerId: "player",
+      attackerType: "unit",
+      attackerId: "spg",
+      targetType: "unit",
+      targetId: "medic",
+    });
+    const cover = next.units.find((unit) => unit.instanceId === "cover");
+    const medic = next.units.find((unit) => unit.instanceId === "medic");
+
+    check(
+      "Заслон: выстрел САУ по санитарке уничтожает заслон, санитарка цела",
+      !cover && Boolean(medic),
+      `cover ${Boolean(cover)}, medic ${Boolean(medic)}`
+    );
+  }
+
+  // в) Ближний рейд: атакующий получает 2 урона упреждающим огнём.
+  {
+    const battle = makeCoverBattle();
+
+    battle.units.push(
+      makeUnit({ instanceId: "raider", cardId: "bt_7", ownerId: "player", position: { row: 2, col: 4 } })
+    );
+
+    const next = applyAction(battle, {
+      type: "ATTACK",
+      playerId: "player",
+      attackerType: "unit",
+      attackerId: "raider",
+      targetType: "unit",
+      targetId: "medic",
+    });
+    const raider = next.units.find((unit) => unit.instanceId === "raider");
+    const medic = next.units.find((unit) => unit.instanceId === "medic");
+
+    check(
+      "Заслон: рейдер получает 2 урона, но добивает цель",
+      raider?.currentHp === getCard("bt_7").hp - 2 && !medic,
+      `raider hp ${raider?.currentHp}, medic ${Boolean(medic)}`
+    );
+  }
+
+  // г) Слабый рейдер уничтожается заслоном — атака срывается.
+  {
+    const battle = makeCoverBattle();
+
+    battle.units.push(
+      makeUnit({
+        instanceId: "weak",
+        cardId: "t27",
+        ownerId: "player",
+        position: { row: 2, col: 4 },
+        currentHp: 1,
+      })
+    );
+
+    const next = applyAction(battle, {
+      type: "ATTACK",
+      playerId: "player",
+      attackerType: "unit",
+      attackerId: "weak",
+      targetType: "unit",
+      targetId: "medic",
+    });
+    const weak = next.units.find((unit) => unit.instanceId === "weak");
+    const medic = next.units.find((unit) => unit.instanceId === "medic");
+
+    check(
+      "Заслон: слабый рейдер уничтожен, атака сорвана",
+      !weak && medic?.currentHp === getCard("gaz_55_ambulance").hp,
+      `weak ${Boolean(weak)}, medic hp ${medic?.currentHp}`
+    );
+  }
+
+  // д) Заслон стреляет один раз за ход: второй рейдер проходит без огня.
+  {
+    const battle = makeCoverBattle();
+
+    battle.units.push(
+      makeUnit({ instanceId: "r1", cardId: "bt_7", ownerId: "player", position: { row: 2, col: 4 } }),
+      makeUnit({ instanceId: "r2", cardId: "bt_5", ownerId: "player", position: { row: 1, col: 4 } })
+    );
+
+    let next = applyAction(battle, {
+      type: "ATTACK",
+      playerId: "player",
+      attackerType: "unit",
+      attackerId: "r1",
+      targetType: "unit",
+      targetId: "cover",
+    });
+    next = applyAction(next, {
+      type: "ATTACK",
+      playerId: "player",
+      attackerType: "unit",
+      attackerId: "r2",
+      targetType: "unit",
+      targetId: "medic",
+    });
+
+    const r2 = next.units.find((unit) => unit.instanceId === "r2");
+
+    check(
+      "Заслон: второй рейдер за ход не получает упреждающего огня",
+      r2?.currentHp === getCard("bt_5").hp,
+      `r2 hp ${r2?.currentHp}`
+    );
+  }
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
