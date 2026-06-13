@@ -8,21 +8,33 @@ This is the fastest private staging path for the current project shape:
 
 ## 1. Deploy The Server On Render
 
-Create a new Render Web Service from the repository.
+Create a new Render Blueprint from the repository. The repository now includes
+`render.yaml`, so Render can fill most server settings automatically.
 
-Settings:
+The Blueprint defines:
 
 ```text
 Root Directory: server
 Runtime: Node
+Plan: starter
 Build Command: npm install && npm run build
 Start Command: npm run start
+Persistent Disk: /var/data
 ```
 
-Environment variables:
+The `starter` plan is used because the staging server needs persistent profile
+storage. If you choose a free service manually, make sure player data will not
+be wiped on redeploy/restart.
+
+Render will ask for this value because it is deployment-specific:
 
 ```bash
 WS_ALLOWED_ORIGINS=https://your-vercel-app.vercel.app
+```
+
+The rest is already in `render.yaml`:
+
+```bash
 PLAYER_PROFILE_DB_PATH=/var/data/player-profiles.json
 PLAYER_ACCOUNT_DB_PATH=/var/data/player-accounts.json
 PVP_RECONNECT_GRACE_MS=15000
@@ -35,12 +47,6 @@ WS_RATE_LIMIT_BLOCK_MS=2000
 
 Leave `PORT` unset unless the platform explicitly asks you to set it. The server
 already reads the hosting provider's `PORT` environment variable.
-
-Persistent disk:
-
-```text
-Mount Path: /var/data
-```
 
 After deploy, copy the Render service URL and convert it to WebSocket form:
 
@@ -58,13 +64,19 @@ wss://your-server.onrender.com
 
 Create a new Vercel project from the same repository.
 
-Settings:
+Set the Vercel project root to:
 
 ```text
 Root Directory: tank-card-game
+```
+
+The client now includes `tank-card-game/vercel.json`, which defines:
+
+```text
 Framework Preset: Vite
 Build Command: npm run build
 Output Directory: dist
+SPA fallback: /* -> /index.html
 ```
 
 Environment variables:

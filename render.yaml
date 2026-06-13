@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: panzershrek-server
+    runtime: node
+    plan: starter
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    disk:
+      name: panzershrek-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: WS_ALLOWED_ORIGINS
+        sync: false
+      - key: PLAYER_PROFILE_DB_PATH
+        value: /var/data/player-profiles.json
+      - key: PLAYER_ACCOUNT_DB_PATH
+        value: /var/data/player-accounts.json
+      - key: PVP_RECONNECT_GRACE_MS
+        value: "15000"
+      - key: PVP_MATCH_WEIGHT_TOLERANCE
+        value: "12"
+      - key: WS_MAX_MESSAGE_BYTES
+        value: "262144"
+      - key: WS_RATE_LIMIT_WINDOW_MS
+        value: "1000"
+      - key: WS_RATE_LIMIT_MAX_MESSAGES
+        value: "60"
+      - key: WS_RATE_LIMIT_BLOCK_MS
+        value: "2000"
