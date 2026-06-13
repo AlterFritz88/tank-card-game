@@ -5,6 +5,8 @@ Use this when you want to put the current build online for a private test.
 For a concrete Render + Vercel route, use
 `docs/STAGING_DEPLOY_RENDER_VERCEL.md`.
 
+For Amvera, use `docs/AMVERA_DEPLOY.md`.
+
 ## 1. Server
 
 Deploy `server/` as a Node service.

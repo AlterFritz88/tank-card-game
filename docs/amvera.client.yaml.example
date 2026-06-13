@@ -1,0 +1,10 @@
+meta:
+  environment: node
+  toolchain:
+    name: browser
+    version: 22
+
+build:
+  additionalCommands: cd tank-card-game && npm install && npm run build
+  artifacts:
+    "tank-card-game/dist/*": /
