@@ -2,11 +2,14 @@
 
 Use this path if you want a Russian hosting provider for the staging build.
 
-Amvera uses one `amvera.yaml` file in the repository root. The repository now
-contains a server-oriented `amvera.yaml`, so the first Amvera app should be the
-WebSocket backend.
+The current setup uses one Amvera app for both parts of the game:
 
-## 1. Deploy The Server
+- the frontend is built from `tank-card-game/`;
+- the Node server is built from `server/`;
+- the Node server serves `tank-card-game/dist`;
+- PVP/profile WebSocket connections use the same domain.
+
+## 1. Deploy The App
 
 Create an Amvera project from the repository and use the included root
 `amvera.yaml`.
@@ -16,7 +19,7 @@ It deploys:
 ```text
 Environment: Node.js server
 Node image: node:22
-Build: cd server && npm install && npm run build
+Build: cd tank-card-game && npm install && npm run build && cd ../server && npm install && npm run build
 Run: cd server && npm run start
 Container port: 8787
 Persistent storage mount: /data
@@ -35,54 +38,24 @@ WS_RATE_LIMIT_MAX_MESSAGES=60
 WS_RATE_LIMIT_BLOCK_MS=2000
 ```
 
-At first, set `WS_ALLOWED_ORIGINS` to a temporary value:
+Set `WS_ALLOWED_ORIGINS` to your Amvera app origin:
 
 ```bash
-WS_ALLOWED_ORIGINS=https://example.com
+WS_ALLOWED_ORIGINS=https://panzershrek-server-burdin009.amvera.io
 ```
 
-After the client is deployed, replace it with the real client origin.
-
-When Amvera gives you the server HTTPS URL:
+With the current same-domain build, you do not need to set client variables.
+If `VITE_PVP_SERVER_URL` and `VITE_PROFILE_SERVER_URL` are omitted, the client
+automatically connects back to the same host:
 
 ```text
-https://your-server.amvera.io
+wss://panzershrek-server-burdin009.amvera.io
 ```
 
-use it in the client as:
+## 2. Open The Game
 
 ```text
-wss://your-server.amvera.io
-```
-
-## 2. Deploy The Client
-
-The easiest first test is:
-
-- server on Amvera;
-- client on Vercel/Netlify using `wss://your-server.amvera.io`.
-
-If you want the client on Amvera too, create a second Amvera project and use the
-template:
-
-```text
-docs/amvera.client.yaml.example
-```
-
-For that second project, the root `amvera.yaml` must contain the client template
-instead of the server template.
-
-Set client build-time environment variables before building:
-
-```bash
-VITE_PVP_SERVER_URL=wss://your-server.amvera.io
-VITE_PROFILE_SERVER_URL=wss://your-server.amvera.io
-```
-
-Then set the server variable to the real client origin:
-
-```bash
-WS_ALLOWED_ORIGINS=https://your-client-domain
+https://panzershrek-server-burdin009.amvera.io
 ```
 
 ## 3. Smoke Test
@@ -100,3 +73,5 @@ WS_ALLOWED_ORIGINS=https://your-client-domain
   storage there.
 - `containerPort` is `8787`, matching the server default.
 - Do not set `HOST` unless Amvera support specifically tells you to.
+- `docs/amvera.client.yaml.example` is only for a separate static-client app.
+  The default `amvera.yaml` now deploys the complete game in one app.

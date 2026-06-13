@@ -37,6 +37,7 @@ import type {
 } from "../game/types";
 import { pvpClient } from "../network/pvpClient";
 import type { PvpClientMessage } from "../network/pvpClient";
+import { getDefaultWebSocketUrl } from "../network/webSocketUrl";
 
 type SelectedAttacker = {
   type: "unit" | "headquarters";
@@ -168,7 +169,7 @@ type BattleStore = {
 };
 
 const PVP_SERVER_URL =
-  import.meta.env.VITE_PVP_SERVER_URL ?? "ws://localhost:8787";
+  import.meta.env.VITE_PVP_SERVER_URL ?? getDefaultWebSocketUrl();
 const CAMPAIGN_PROGRESS_KEY = "tank-card-game:campaign-progress";
 
 const emptyFirstTurnRoll: FirstTurnRollState = {

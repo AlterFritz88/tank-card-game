@@ -6,6 +6,7 @@ import type {
   HeadquartersId,
   PlayerId,
 } from "../game/types";
+import { getDefaultWebSocketUrl } from "./webSocketUrl";
 
 type ProfileClientMessage =
   | { type: "GET_PROFILE"; requestId: string; playerId: string }
@@ -173,7 +174,7 @@ type ProfileImportMeta = ImportMeta & {
 const PROFILE_SERVER_URL =
   (import.meta as ProfileImportMeta).env.VITE_PROFILE_SERVER_URL ??
   (import.meta as ProfileImportMeta).env.VITE_PVP_SERVER_URL ??
-  "ws://localhost:8787";
+  getDefaultWebSocketUrl();
 const PROFILE_REQUEST_TIMEOUT_MS = 5_000;
 
 function createRequestId(): string {
