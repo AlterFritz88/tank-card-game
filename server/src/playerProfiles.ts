@@ -46,7 +46,160 @@ const CUSTOM_DECK_CARD_LIMIT = 40;
 const MAX_SAVED_DECKS = 80;
 
 function sanitizePlayerId(playerId: string): string {
-  return playerId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
+  return playerId.replace(/[^a-zA-Z0-9_:-]/g, "").slice(0, 120);
+}
+
+function mergeUnique<T>(left: T[], right: T[]): T[] {
+  return Array.from(new Set([...left, ...right]));
+}
+
+function mergeNumberMaps<T extends string>(
+  left: Partial<Record<T, number>>,
+  right: Partial<Record<T, number>>,
+  mode: "max" | "sum"
+): Partial<Record<T, number>> {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]) as Set<T>;
+  const merged: Partial<Record<T, number>> = {};
+
+  keys.forEach((key) => {
+    const leftValue = left[key] ?? 0;
+    const rightValue = right[key] ?? 0;
+    merged[key] = mode === "sum"
+      ? leftValue + rightValue
+      : Math.max(leftValue, rightValue);
+  });
+
+  return merged;
+}
+
+function mergeNumberRecords(
+  left: Record<string, number>,
+  right: Record<string, number>,
+  mode: "max" | "sum"
+): Record<string, number> {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  const merged: Record<string, number> = {};
+
+  keys.forEach((key) => {
+    const leftValue = left[key] ?? 0;
+    const rightValue = right[key] ?? 0;
+    merged[key] =
+      mode === "sum" ? leftValue + rightValue : Math.max(leftValue, rightValue);
+  });
+
+  return merged;
+}
+
+function mergeBattleStats(
+  left: PlayerProgress["battleStats"],
+  right: PlayerProgress["battleStats"]
+): PlayerProgress["battleStats"] {
+  return {
+    wins: left.wins + right.wins,
+    losses: left.losses + right.losses,
+  };
+}
+
+function mergeHeadquartersBattleStats(
+  left: PlayerProgress["headquartersBattleStats"],
+  right: PlayerProgress["headquartersBattleStats"]
+): PlayerProgress["headquartersBattleStats"] {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]) as Set<
+    HeadquartersId
+  >;
+  const merged: PlayerProgress["headquartersBattleStats"] = {};
+
+  keys.forEach((key) => {
+    merged[key] = mergeBattleStats(
+      left[key] ?? { wins: 0, losses: 0 },
+      right[key] ?? { wins: 0, losses: 0 }
+    );
+  });
+
+  return merged;
+}
+
+function mergeSavedDecks(
+  left: PlayerSavedDeck[],
+  right: PlayerSavedDeck[]
+): PlayerSavedDeck[] {
+  const deckById = new Map<string, PlayerSavedDeck>();
+
+  [...right, ...left]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .forEach((deck) => {
+      if (!deckById.has(deck.id)) {
+        deckById.set(deck.id, deck);
+      }
+    });
+
+  return Array.from(deckById.values())
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, MAX_SAVED_DECKS);
+}
+
+function mergeProgressForAccount(
+  accountProfile: PlayerProgress,
+  guestProfile: PlayerProgress
+): PlayerProgress {
+  return mergeWithDefaultProgress({
+    ...accountProfile,
+    tutorialCompleted:
+      accountProfile.tutorialCompleted || guestProfile.tutorialCompleted,
+    nickname: accountProfile.nickname || guestProfile.nickname,
+    favoriteHeadquartersId:
+      accountProfile.favoriteHeadquartersId ?? guestProfile.favoriteHeadquartersId,
+    battleStats: mergeBattleStats(
+      accountProfile.battleStats,
+      guestProfile.battleStats
+    ),
+    ironTracks: Math.max(accountProfile.ironTracks, guestProfile.ironTracks),
+    goldTracks: Math.max(accountProfile.goldTracks, guestProfile.goldTracks),
+    freeXp: Math.max(accountProfile.freeXp, guestProfile.freeXp),
+    headquartersXp: mergeNumberMaps(
+      accountProfile.headquartersXp,
+      guestProfile.headquartersXp,
+      "max"
+    ),
+    headquartersMatchCounts: mergeNumberMaps(
+      accountProfile.headquartersMatchCounts,
+      guestProfile.headquartersMatchCounts,
+      "sum"
+    ),
+    headquartersBattleStats: mergeHeadquartersBattleStats(
+      accountProfile.headquartersBattleStats,
+      guestProfile.headquartersBattleStats
+    ),
+    researchedHeadquartersIds: mergeUnique(
+      accountProfile.researchedHeadquartersIds,
+      guestProfile.researchedHeadquartersIds
+    ),
+    researchedCardIds: mergeUnique(
+      accountProfile.researchedCardIds,
+      guestProfile.researchedCardIds
+    ),
+    unlockedHeadquartersIds: mergeUnique(
+      accountProfile.unlockedHeadquartersIds,
+      guestProfile.unlockedHeadquartersIds
+    ),
+    unlockedCardIds: mergeUnique(
+      accountProfile.unlockedCardIds,
+      guestProfile.unlockedCardIds
+    ),
+    ownedCardCopies: mergeNumberRecords(
+      accountProfile.ownedCardCopies,
+      guestProfile.ownedCardCopies,
+      "max"
+    ),
+    savedDecks: mergeSavedDecks(
+      accountProfile.savedDecks,
+      guestProfile.savedDecks
+    ),
+    claimedBattleRewardIds: mergeUnique(
+      accountProfile.claimedBattleRewardIds,
+      guestProfile.claimedBattleRewardIds
+    ).slice(0, 500),
+  });
 }
 
 function readDb(): ProfileDb {
@@ -118,6 +271,10 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
       ...fallback.battleStats,
       ...profile.battleStats,
     },
+    tutorialCompleted:
+      typeof profile.tutorialCompleted === "boolean"
+        ? profile.tutorialCompleted
+        : fallback.tutorialCompleted,
     headquartersXp: {
       ...fallback.headquartersXp,
       ...profile.headquartersXp,
@@ -621,6 +778,22 @@ export class PlayerProfileManager {
     return this.persistProfile(safePlayerId, savedProfile);
   }
 
+  mergeGuestProgress(userPlayerId: string, guestPlayerId: string): PlayerProgress {
+    const safeUserPlayerId = sanitizePlayerId(userPlayerId);
+    const safeGuestPlayerId = sanitizePlayerId(guestPlayerId);
+    if (!safeUserPlayerId) throw new Error("Некорректный user playerId");
+    if (!safeGuestPlayerId || safeGuestPlayerId === safeUserPlayerId) {
+      return this.getProfile(safeUserPlayerId);
+    }
+
+    const accountProfile = this.getProfile(safeUserPlayerId);
+    const guestProfile = this.getProfile(safeGuestPlayerId);
+    return this.persistProfile(
+      safeUserPlayerId,
+      mergeProgressForAccount(accountProfile, guestProfile)
+    );
+  }
+
   claimBattleReward(
     playerId: string,
     input: ClaimBattleRewardInput
@@ -681,6 +854,45 @@ export class PlayerProfileManager {
       ...applyReward(profile, reward, localPlayerWon),
       claimedBattleRewardIds: [
         claimId,
+        ...profile.claimedBattleRewardIds,
+      ].slice(0, 500),
+    };
+
+    return {
+      profile: this.persistProfile(playerId, nextProfile),
+      reward,
+    };
+  }
+
+  claimTutorialReward(
+    playerId: string,
+    reward: BattleReward,
+    localPlayerWon: boolean
+  ): { profile: PlayerProgress; reward: BattleReward } {
+    const profile = this.getProfile(playerId);
+    const emptyReward: BattleReward = {
+      ...reward,
+      rawHeadquartersXp: 0,
+      headquartersXp: 0,
+      freeXp: 0,
+      rawIronTracks: 0,
+      repairCost: 0,
+      ironTracks: 0,
+      goldTracks: 0,
+    };
+
+    if (profile.tutorialCompleted) {
+      return {
+        profile,
+        reward: emptyReward,
+      };
+    }
+
+    const nextProfile = {
+      ...applyReward(profile, reward, localPlayerWon),
+      tutorialCompleted: true,
+      claimedBattleRewardIds: [
+        "tutorial:first-completion",
         ...profile.claimedBattleRewardIds,
       ].slice(0, 500),
     };

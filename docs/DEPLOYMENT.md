@@ -58,6 +58,7 @@ Environment:
 ```bash
 PORT=8787
 PLAYER_PROFILE_DB_PATH=./data/player-profiles.json
+PLAYER_ACCOUNT_DB_PATH=./data/player-accounts.json
 PVP_RECONNECT_GRACE_MS=15000
 PVP_MATCH_WEIGHT_TOLERANCE=12
 WS_MAX_MESSAGE_BYTES=262144
@@ -82,9 +83,16 @@ The profile server stores player progress in a JSON file:
 server/data/player-profiles.json
 ```
 
-For production, make sure `PLAYER_PROFILE_DB_PATH` points to persistent storage.
-If the host uses ephemeral disks, player progress and custom decks will be lost
-after redeploys or restarts.
+The auth server stores account records and password hashes in a separate JSON
+file:
+
+```text
+server/data/player-accounts.json
+```
+
+For production, make sure `PLAYER_PROFILE_DB_PATH` and `PLAYER_ACCOUNT_DB_PATH`
+point to persistent storage. If the host uses ephemeral disks, player progress,
+custom decks, and accounts will be lost after redeploys or restarts.
 
 ## Deployment Order
 

@@ -1,7 +1,7 @@
 import { cards, getCardOrNull, normalizeCardId } from "./cards";
 import { HEADQUARTERS } from "./headquarters";
 import { loadPlayerProgress, savePlayerProgress, type PlayerProgress } from "./playerProgress";
-import { getPersistentPlayerId } from "./playerIdentity";
+import { getCurrentUserId } from "./playerIdentity";
 import type { HeadquartersId, Nation, TankCard, TankClass } from "./types";
 
 export const DECK_UNIT_LIMIT = 40;
@@ -266,7 +266,7 @@ export function saveDecks(decks: SavedDeck[]) {
 
 export async function syncSavedDecksFromServer(): Promise<SavedDeck[]> {
   const profileClient = await getProfileClient();
-  const playerId = getPersistentPlayerId();
+  const playerId = getCurrentUserId();
   const legacyDecks = loadLegacySavedDecks();
   let profile = await profileClient.getProfile(playerId);
   const failedMigrationDecks: SavedDeck[] = [];
@@ -296,7 +296,7 @@ export async function syncSavedDecksFromServer(): Promise<SavedDeck[]> {
 export async function saveCustomDeckToServer(deck: SavedDeck): Promise<SavedDeck> {
   const profileClient = await getProfileClient();
   const profile = await profileClient.saveCustomDeck(
-    getPersistentPlayerId(),
+    getCurrentUserId(),
     deck
   );
 
@@ -309,7 +309,7 @@ export async function saveCustomDeckToServer(deck: SavedDeck): Promise<SavedDeck
 export async function deleteCustomDeckFromServer(deckId: string): Promise<void> {
   const profileClient = await getProfileClient();
   const profile = await profileClient.deleteCustomDeck(
-    getPersistentPlayerId(),
+    getCurrentUserId(),
     deckId
   );
 

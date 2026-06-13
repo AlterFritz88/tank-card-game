@@ -7,7 +7,13 @@ import { getCardOrNull, normalizeCardId } from "./cards";
 import type { BattleReward } from "./economy";
 import { getDeckCardIds } from "./initialState";
 import { RESEARCH_TREES, type ResearchNode } from "./researchTrees";
-import { getPersistentPlayerId } from "./playerIdentity";
+import {
+  clearLegacyPlayerIdMigration,
+  getCurrentUserId,
+  getLegacyPlayerIdForMigration,
+  setCurrentUserId,
+  switchToGuestUser,
+} from "./playerIdentity";
 import type {
   ClientBattleState,
   HeadquartersId,
@@ -34,6 +40,7 @@ export type PlayerSavedDeck = {
 export type PlayerProfile = {
   nickname: string;
   accountType: PlayerAccountType;
+  tutorialCompleted: boolean;
   favoriteHeadquartersId: HeadquartersId | null;
   battleStats: PlayerBattleStats;
   ironTracks: number;
@@ -63,6 +70,11 @@ const CUSTOM_DECK_COPY_LIMIT = 4;
 
 async function getProfileClient() {
   return (await import("../network/profileClient")).profileClient;
+}
+
+export function normalizePlayerNickname(value: string, fallback = "Командир") {
+  const normalized = value.trim().slice(0, 32);
+  return normalized || fallback;
 }
 
 function hashText(value: string): string {
@@ -146,7 +158,20 @@ export function savePlayerProgress(progress: PlayerProgress) {
 export async function syncPlayerProgressFromServer(): Promise<PlayerProgress> {
   try {
     const profileClient = await getProfileClient();
-    const profile = await profileClient.getProfile(getPersistentPlayerId());
+    const playerId = getCurrentUserId();
+    const legacyPlayerId = getLegacyPlayerIdForMigration();
+
+    if (legacyPlayerId && legacyPlayerId !== playerId) {
+      const migratedProfile = await profileClient.saveProfile(
+        playerId,
+        loadPlayerProgress()
+      );
+      clearLegacyPlayerIdMigration();
+      savePlayerProgress(migratedProfile);
+      return migratedProfile;
+    }
+
+    const profile = await profileClient.getProfile(playerId);
     savePlayerProgress(profile);
     return profile;
   } catch {
@@ -163,7 +188,7 @@ export async function claimBattleRewardFromServer(input: {
   try {
     const profileClient = await getProfileClient();
     const result = await profileClient.claimBattleReward(
-      getPersistentPlayerId(),
+      getCurrentUserId(),
       createBattleRewardClaimId(input),
       input
     );
@@ -181,7 +206,7 @@ export async function claimPvpBattleRewardFromServer(input: {
   try {
     const profileClient = await getProfileClient();
     const result = await profileClient.claimPvpBattleReward(
-      getPersistentPlayerId(),
+      getCurrentUserId(),
       input.roomId,
       input.localPlayerId
     );
@@ -192,11 +217,44 @@ export async function claimPvpBattleRewardFromServer(input: {
   }
 }
 
+export async function claimTutorialRewardFromServer(input: {
+  reward: BattleReward;
+  localPlayerWon?: boolean;
+}): Promise<{ profile: PlayerProgress; reward?: BattleReward } | null> {
+  try {
+    const profileClient = await getProfileClient();
+    const result = await profileClient.claimTutorialReward(
+      getCurrentUserId(),
+      input.reward,
+      input.localPlayerWon ?? true
+    );
+    savePlayerProgress(result.profile);
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+function createEmptyTutorialReward(reward: BattleReward): BattleReward {
+  return {
+    ...reward,
+    rawHeadquartersXp: 0,
+    headquartersXp: 0,
+    freeXp: 0,
+    rawIronTracks: 0,
+    repairCost: 0,
+    ironTracks: 0,
+    goldTracks: 0,
+  };
+}
+
 export function applyTutorialBattleRewardToProgress(
   reward: BattleReward,
   localPlayerWon?: boolean
 ): PlayerProgress {
   const progress = loadPlayerProgress();
+  if (progress.tutorialCompleted) return progress;
+
   const currentHeadquartersXp =
     progress.headquartersXp[reward.headquartersId] ?? 0;
   const currentHeadquartersMatches =
@@ -209,6 +267,7 @@ export function applyTutorialBattleRewardToProgress(
   };
   const nextProgress: PlayerProgress = {
     ...progress,
+    tutorialCompleted: true,
     ironTracks: progress.ironTracks + reward.ironTracks,
     goldTracks: progress.goldTracks + reward.goldTracks,
     freeXp: progress.freeXp + reward.freeXp,
@@ -246,6 +305,16 @@ export function applyTutorialBattleRewardToProgress(
   return nextProgress;
 }
 
+export function getLocalTutorialReward(reward: BattleReward): BattleReward {
+  return loadPlayerProgress().tutorialCompleted
+    ? createEmptyTutorialReward(reward)
+    : reward;
+}
+
+export function hasCompletedTutorial(progress = loadPlayerProgress()): boolean {
+  return progress.tutorialCompleted;
+}
+
 export function createInitialPlayerProgress(): PlayerProgress {
   const trainingHeadquartersIds = getTrainingHeadquartersIds();
   const starterCardCopies = getStarterOwnedCardCopies(trainingHeadquartersIds);
@@ -257,6 +326,7 @@ export function createInitialPlayerProgress(): PlayerProgress {
       readLegacyString(PLAYER_ACCOUNT_TYPE_STORAGE_KEY) === "premium"
         ? "premium"
         : "base",
+    tutorialCompleted: false,
     favoriteHeadquartersId: getValidHeadquartersId(
       readLegacyString(FAVORITE_HEADQUARTERS_STORAGE_KEY)
     ),
@@ -346,6 +416,10 @@ function normalizePlayerProgress(
         ? progress.nickname.trim()
         : fallback.nickname,
     accountType: progress.accountType === "premium" ? "premium" : "base",
+    tutorialCompleted:
+      typeof progress.tutorialCompleted === "boolean"
+        ? progress.tutorialCompleted
+        : fallback.tutorialCompleted,
     favoriteHeadquartersId:
       getValidHeadquartersId(progress.favoriteHeadquartersId) ??
       fallback.favoriteHeadquartersId,
@@ -418,13 +492,87 @@ export async function setFavoriteHeadquartersIdOnServer(
   try {
     const profileClient = await getProfileClient();
     const profile = await profileClient.saveProfile(
-      getPersistentPlayerId(),
+      getCurrentUserId(),
       nextProgress
     );
     savePlayerProgress(profile);
     return profile;
   } catch {
     return null;
+  }
+}
+
+export async function setPlayerNicknameOnServer(
+  nickname: string
+): Promise<PlayerProgress | null> {
+  const progress = loadPlayerProgress();
+  const nextProgress = {
+    ...progress,
+    nickname: normalizePlayerNickname(nickname, progress.nickname),
+  };
+
+  savePlayerProgress(nextProgress);
+  window.localStorage.setItem(PLAYER_NICKNAME_STORAGE_KEY, nextProgress.nickname);
+
+  try {
+    const profileClient = await getProfileClient();
+    const profile = await profileClient.saveProfile(
+      getCurrentUserId(),
+      nextProgress
+    );
+    savePlayerProgress(profile);
+    return profile;
+  } catch {
+    return null;
+  }
+}
+
+export async function registerPlayerAccount(input: {
+  username: string;
+  password: string;
+  mergeGuestProgress?: boolean;
+}): Promise<PlayerProgress> {
+  const profileClient = await getProfileClient();
+  const authResult = await profileClient.registerAccount({
+    ...input,
+    guestPlayerId: getCurrentUserId(),
+    mergeGuestProgress: input.mergeGuestProgress ?? true,
+  });
+
+  setCurrentUserId(authResult.userId);
+  savePlayerProgress(authResult.profile);
+  return authResult.profile;
+}
+
+export async function loginPlayerAccount(input: {
+  username: string;
+  password: string;
+  mergeGuestProgress?: boolean;
+}): Promise<PlayerProgress> {
+  const profileClient = await getProfileClient();
+  const authResult = await profileClient.loginAccount({
+    ...input,
+    guestPlayerId: getCurrentUserId(),
+    mergeGuestProgress: input.mergeGuestProgress ?? false,
+  });
+
+  setCurrentUserId(authResult.userId);
+  savePlayerProgress(authResult.profile);
+  return authResult.profile;
+}
+
+export async function logoutPlayerAccount(): Promise<PlayerProgress> {
+  const guestUserId = switchToGuestUser();
+
+  try {
+    const profileClient = await getProfileClient();
+    const profile = await profileClient.getProfile(guestUserId);
+    savePlayerProgress(profile);
+    return profile;
+  } catch {
+    const fallbackProfile = createInitialPlayerProgress();
+    savePlayerProgress(fallbackProfile);
+    return fallbackProfile;
   }
 }
 
@@ -543,7 +691,7 @@ export async function researchCardOnServer(
   try {
     const profileClient = await getProfileClient();
     const profile = await profileClient.researchCard(
-      getPersistentPlayerId(),
+      getCurrentUserId(),
       cardId,
       headquartersId
     );
@@ -562,7 +710,7 @@ export async function researchHeadquartersOnServer(
   try {
     const profileClient = await getProfileClient();
     const profile = await profileClient.researchHeadquarters(
-      getPersistentPlayerId(),
+      getCurrentUserId(),
       targetHeadquartersId,
       sourceHeadquartersId
     );
@@ -581,7 +729,7 @@ export async function purchaseCardCopyOnServer(
   try {
     const profileClient = await getProfileClient();
     const profile = await profileClient.purchaseCardCopy(
-      getPersistentPlayerId(),
+      getCurrentUserId(),
       cardId
     );
     savePlayerProgress(profile);
@@ -598,7 +746,7 @@ export async function purchaseHeadquartersOnServer(
   try {
     const profileClient = await getProfileClient();
     const profile = await profileClient.purchaseHeadquarters(
-      getPersistentPlayerId(),
+      getCurrentUserId(),
       headquartersId
     );
     savePlayerProgress(profile);

@@ -6,6 +6,7 @@ import {
   useState,
   Suspense,
   type CSSProperties,
+  type FormEvent,
   type MouseEvent,
   type PointerEvent,
   type ReactNode,
@@ -48,8 +49,13 @@ import { getHeadquartersImageAsset } from "../game/headquartersImages";
 import { getDeckCardIds } from "../game/initialState";
 import {
   getFavoriteHeadquartersId,
+  loginPlayerAccount,
   loadPlayerProgress,
+  logoutPlayerAccount,
+  normalizePlayerNickname,
+  registerPlayerAccount,
   setFavoriteHeadquartersIdOnServer,
+  setPlayerNicknameOnServer,
   syncPlayerProgressFromServer,
   type PlayerProgress,
 } from "../game/playerProgress";
@@ -63,6 +69,12 @@ import {
   retryProfileConnection,
   useProfileConnection,
 } from "../network/useProfileConnection";
+import {
+  getCurrentUserId,
+  getCurrentUserLogin,
+  isGuestUserId,
+  isRegisteredUserId,
+} from "../game/playerIdentity";
 
 const DeckBuilder = lazy(() =>
   import("./DeckBuilder").then((module) => ({ default: module.DeckBuilder }))
@@ -77,6 +89,7 @@ const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
 const MENU_CARD_SCALE = 1.08;
 const MENU_CARD_WIDTH = Math.round(HAND_CARD_BASE_WIDTH * MENU_CARD_SCALE);
 const MENU_CARD_HEIGHT = Math.round(HAND_CARD_BASE_HEIGHT * MENU_CARD_SCALE);
+const GUEST_SESSION_READY_KEY = "panzershrek.guestSessionReady";
 
 const NATION_LABELS: Record<Nation, string> = {
   france: "Франция",
@@ -115,11 +128,16 @@ function getPlayerAccountData() {
   const progress = loadPlayerProgress();
   const headquarters = HEADQUARTERS[getFavoriteHeadquartersId(progress)];
   const premium = progress.accountType === "premium";
+  const userId = getCurrentUserId();
+  const userLogin = getCurrentUserLogin();
 
   return {
     avatar: getHeadquartersAvatarAsset(headquarters.id),
     flag: getNationFlagAsset(headquarters.nation),
     nickname: progress.nickname,
+    identityLabel: isGuestUserId(userId)
+      ? "Гость"
+      : `Аккаунт${userLogin ? `: ${userLogin}` : ""}`,
     accountLabel: premium ? "Премиум аккаунт" : "Базовый аккаунт",
   };
 }
@@ -158,6 +176,7 @@ function PlayerAccountPanel({ onOpenProfile }: { onOpenProfile?: () => void }) {
 
       <div style={styles.playerAccountText}>
         <strong style={styles.playerAccountName}>{account.nickname}</strong>
+        <span style={styles.playerAccountType}>{account.identityLabel}</span>
         <span style={styles.playerAccountType}>{account.accountLabel}</span>
       </div>
     </button>
@@ -245,6 +264,206 @@ function MenuChunkLoadingScreen() {
   );
 }
 
+function GuestEntryScreen({
+  initialNickname,
+  profileMessage,
+  profileUnavailable,
+  onRetryProfile,
+  onEnter,
+  onLogin,
+  onRegister,
+}: {
+  initialNickname: string;
+  profileMessage: string | null;
+  profileUnavailable: boolean;
+  onRetryProfile: () => void;
+  onEnter: (nickname: string) => Promise<void>;
+  onLogin: (username: string, password: string) => Promise<void>;
+  onRegister: (username: string, password: string) => Promise<void>;
+}) {
+  const [authMode, setAuthMode] = useState<"guest" | "login" | "register">(
+    "guest"
+  );
+  const [nickname, setNickname] = useState(initialNickname);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const normalizedNickname = normalizePlayerNickname(nickname);
+
+  async function submitGuest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving) return;
+
+    setSaving(true);
+    setAuthError(null);
+    try {
+      await onEnter(normalizedNickname);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Не удалось войти");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitAuth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving) return;
+
+    setSaving(true);
+    setAuthError(null);
+    try {
+      if (authMode === "login") {
+        await onLogin(username, password);
+      } else {
+        await onRegister(username, password);
+      }
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Не удалось войти");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const authModeTitle =
+    authMode === "login" ? "Вход в аккаунт" : "Регистрация";
+
+  return (
+    <main style={styles.page}>
+      <div style={styles.backgroundShade} />
+      <section style={styles.guestEntryPanel}>
+        <header style={styles.guestEntryHeader}>
+          <h1 style={styles.guestEntryTitle}>PANZERSHREK</h1>
+          <p style={styles.guestEntrySubtitle}>Вход в штабной профиль</p>
+        </header>
+
+        {authMode === "guest" ? (
+        <form style={styles.guestEntryForm} onSubmit={submitGuest}>
+          <label style={styles.guestEntryLabel} htmlFor="guest-nickname">
+            Ник командира
+          </label>
+          <input
+            id="guest-nickname"
+            value={nickname}
+            maxLength={32}
+            onChange={(event) => setNickname(event.target.value)}
+            style={styles.guestEntryInput}
+            autoComplete="nickname"
+          />
+
+          <button
+            type="submit"
+            style={styles.guestPrimaryButton}
+            disabled={saving}
+          >
+            {saving ? "Сохранение..." : "Играть как гость"}
+          </button>
+
+          <div style={styles.guestSecondaryActions}>
+            <button
+              type="button"
+              style={styles.guestSecondaryButton}
+              onClick={() => {
+                setAuthMode("login");
+                setAuthError(null);
+              }}
+            >
+              Войти
+            </button>
+            <button
+              type="button"
+              style={styles.guestSecondaryButton}
+              onClick={() => {
+                setAuthMode("register");
+                setAuthError(null);
+              }}
+            >
+              Регистрация
+            </button>
+          </div>
+        </form>
+        ) : (
+          <form style={styles.guestEntryForm} onSubmit={submitAuth}>
+            <div style={styles.guestAuthHeader}>
+              <span style={styles.guestAuthTitle}>{authModeTitle}</span>
+              <button
+                type="button"
+                style={styles.guestAuthBackButton}
+                onClick={() => {
+                  setAuthMode("guest");
+                  setAuthError(null);
+                }}
+              >
+                Гость
+              </button>
+            </div>
+
+            <label style={styles.guestEntryLabel} htmlFor="account-username">
+              Логин
+            </label>
+            <input
+              id="account-username"
+              value={username}
+              maxLength={32}
+              onChange={(event) => setUsername(event.target.value)}
+              style={styles.guestEntryInput}
+              autoComplete="username"
+            />
+
+            <label style={styles.guestEntryLabel} htmlFor="account-password">
+              Пароль
+            </label>
+            <input
+              id="account-password"
+              value={password}
+              minLength={6}
+              maxLength={72}
+              type="password"
+              onChange={(event) => setPassword(event.target.value)}
+              style={styles.guestEntryInput}
+              autoComplete={
+                authMode === "login" ? "current-password" : "new-password"
+              }
+            />
+
+            <button
+              type="submit"
+              style={styles.guestPrimaryButton}
+              disabled={saving}
+            >
+              {saving
+                ? "Связь..."
+                : authMode === "login"
+                  ? "Войти"
+                  : "Создать аккаунт"}
+            </button>
+          </form>
+        )}
+
+        <p style={styles.guestEntryNote}>
+          Гостевой прогресс привязан к этому устройству. Позже его можно будет
+          перенести в полноценный аккаунт.
+        </p>
+
+        {authError ? <p style={styles.guestEntryError}>{authError}</p> : null}
+
+        {profileUnavailable ? (
+          <div style={styles.guestServerNotice}>
+            <span>{profileMessage ?? "Сервер профиля недоступен"}</span>
+            <button
+              type="button"
+              style={styles.profileServerRetryButton}
+              onClick={onRetryProfile}
+            >
+              Повторить
+            </button>
+          </div>
+        ) : null}
+      </section>
+    </main>
+  );
+}
+
 function getTotalMatchCount(progress: PlayerProgress) {
   return Object.values(progress.headquartersMatchCounts).reduce(
     (total, count) => total + (count ?? 0),
@@ -252,23 +471,30 @@ function getTotalMatchCount(progress: PlayerProgress) {
   );
 }
 
-function PlayerProfileMenu({ onBack }: { onBack: () => void }) {
+function PlayerProfileMenu({
+  onBack,
+  onProfileChanged,
+}: {
+  onBack: () => void;
+  onProfileChanged?: () => void;
+}) {
   const [progress, setProgress] = useState(() => loadPlayerProgress());
   const profileConnection = useProfileConnection();
   const profileServerUnavailable = isProfileServerUnavailable(profileConnection);
   const profileServerReady = profileConnection.status === "online";
+  const currentUserId = getCurrentUserId();
+  const currentUserLogin = getCurrentUserLogin();
+  const registeredUser = isRegisteredUserId(currentUserId);
   const favoriteHeadquartersId = getFavoriteHeadquartersId(progress);
   const favoriteHeadquarters = HEADQUARTERS[favoriteHeadquartersId];
   const favoriteFlag = getNationFlagAsset(favoriteHeadquarters.nation);
   const favoriteAvatar = getHeadquartersAvatarAsset(favoriteHeadquarters.id);
   const headquartersRows = Array.from(
-    new Set([
-      ...progress.unlockedHeadquartersIds,
-      ...Object.keys(progress.headquartersMatchCounts),
-    ])
+    new Set(Object.keys(progress.headquartersMatchCounts))
   )
     .filter((headquartersId): headquartersId is HeadquartersId =>
-      Boolean(HEADQUARTERS[headquartersId as HeadquartersId])
+      Boolean(HEADQUARTERS[headquartersId as HeadquartersId]) &&
+      (progress.headquartersMatchCounts[headquartersId as HeadquartersId] ?? 0) > 0
     )
     .map((headquartersId) => ({
       headquarters: HEADQUARTERS[headquartersId],
@@ -307,6 +533,19 @@ function PlayerProfileMenu({ onBack }: { onBack: () => void }) {
         setProgress(nextProgress);
       }
     });
+  }
+
+  async function logoutAccount() {
+    if (!registeredUser) return;
+
+    const confirmed = window.confirm(
+      "Выйти из аккаунта и перейти в гостевой профиль?"
+    );
+    if (!confirmed) return;
+
+    const nextProgress = await logoutPlayerAccount();
+    setProgress(nextProgress);
+    onProfileChanged?.();
   }
 
   return (
@@ -356,6 +595,20 @@ function PlayerProfileMenu({ onBack }: { onBack: () => void }) {
                 ? "Премиум аккаунт"
                 : "Базовый аккаунт"}
             </span>
+            <span style={styles.profileAccount}>
+              {registeredUser
+                ? `Аккаунт${currentUserLogin ? `: ${currentUserLogin}` : ""}`
+                : "Гостевой профиль"}
+            </span>
+            {registeredUser ? (
+              <button
+                type="button"
+                style={styles.profileLogoutButton}
+                onClick={() => void logoutAccount()}
+              >
+                Выйти из аккаунта
+              </button>
+            ) : null}
             <strong
               style={{
                 ...styles.profileFavorite,
@@ -915,6 +1168,9 @@ export function PvpLobby() {
   const missionsCarouselRef = useRef<HTMLDivElement>(null);
   const [, setProfileRevision] = useState(0);
   const playerProgress = loadPlayerProgress();
+  const [guestSessionReady, setGuestSessionReady] = useState(() =>
+    window.localStorage.getItem(GUEST_SESSION_READY_KEY) === "true"
+  );
   const profileConnection = useProfileConnection();
   const profileServerUnavailable = isProfileServerUnavailable(profileConnection);
   const profileServerReady = profileConnection.status === "online";
@@ -951,6 +1207,35 @@ export function PvpLobby() {
     } catch {
       window.alert("Сервер профиля недоступен");
     }
+  }
+
+  async function enterGuestSession(nickname: string) {
+    await setPlayerNicknameOnServer(nickname);
+    window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
+    setGuestSessionReady(true);
+    setProfileRevision((revision) => revision + 1);
+  }
+
+  async function loginAccount(username: string, password: string) {
+    await loginPlayerAccount({
+      username,
+      password,
+      mergeGuestProgress: false,
+    });
+    window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
+    setGuestSessionReady(true);
+    setProfileRevision((revision) => revision + 1);
+  }
+
+  async function registerAccount(username: string, password: string) {
+    await registerPlayerAccount({
+      username,
+      password,
+      mergeGuestProgress: true,
+    });
+    window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
+    setGuestSessionReady(true);
+    setProfileRevision((revision) => revision + 1);
   }
 
   function renderProfileServerBanner() {
@@ -1280,6 +1565,20 @@ export function PvpLobby() {
     }));
   });
 
+  if (!guestSessionReady && menuView === "main" && mode !== "pvp") {
+    return (
+      <GuestEntryScreen
+        initialNickname={playerProgress.nickname}
+        profileMessage={profileConnection.message}
+        profileUnavailable={profileServerUnavailable}
+        onRetryProfile={() => void retryProfileSync()}
+        onEnter={enterGuestSession}
+        onLogin={loginAccount}
+        onRegister={registerAccount}
+      />
+    );
+  }
+
   if (menuView === "headquarters" && pvpBusy) {
     return (
       <PvpMatchmakingScreen
@@ -1471,7 +1770,12 @@ export function PvpLobby() {
   }
 
   if (menuView === "profile") {
-    return <PlayerProfileMenu onBack={closeProfileMenu} />;
+    return (
+      <PlayerProfileMenu
+        onBack={closeProfileMenu}
+        onProfileChanged={() => setProfileRevision((revision) => revision + 1)}
+      />
+    );
   }
 
   if (menuView === "deckBuilder") {
@@ -1570,6 +1874,11 @@ export function PvpLobby() {
 
             <motion.button
               type="button"
+              className={
+                !playerProgress.tutorialCompleted
+                  ? "main-menu-tutorial-pulse"
+                  : undefined
+              }
               style={styles.campaignEntryOption}
               onClick={startTutorial}
               aria-label="Начать обучение"
@@ -2164,6 +2473,189 @@ const styles: Record<string, CSSProperties> = {
     textShadow: "0 3px 12px rgba(0,0,0,0.82)",
   },
 
+  guestEntryPanel: {
+    position: "relative",
+    zIndex: 6,
+    width: "min(560px, calc(100vw - 42px))",
+    display: "grid",
+    gap: 20,
+    padding: "34px 36px 30px",
+    color: "#f4e5bf",
+    background:
+      "linear-gradient(180deg, rgba(18,18,14,0.76), rgba(9,10,8,0.84))",
+    boxShadow:
+      "0 26px 70px rgba(0,0,0,0.62), inset 0 0 0 1px rgba(216,174,92,0.18)",
+  },
+
+  guestEntryHeader: {
+    display: "grid",
+    gap: 4,
+    textAlign: "center",
+  },
+
+  guestEntryTitle: {
+    margin: 0,
+    fontFamily: "var(--font-display)",
+    fontSize: "clamp(40px, 6vw, 76px)",
+    lineHeight: 0.9,
+    fontWeight: 800,
+    letterSpacing: "0.08em",
+    color: "var(--brass-400)",
+    textTransform: "uppercase",
+    textShadow: "0 8px 26px rgba(0,0,0,0.74)",
+  },
+
+  guestEntrySubtitle: {
+    margin: 0,
+    color: "rgba(245,230,192,0.78)",
+    fontSize: 14,
+    fontWeight: 800,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+
+  guestEntryForm: {
+    display: "grid",
+    gap: 12,
+  },
+
+  guestEntryLabel: {
+    color: "rgba(245,230,192,0.82)",
+    fontSize: 12,
+    fontWeight: 900,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+
+  guestEntryInput: {
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "13px 14px",
+    border: "1px solid rgba(216,174,92,0.32)",
+    borderRadius: 0,
+    outline: "none",
+    color: "#fff8df",
+    background: "rgba(5,7,5,0.66)",
+    fontSize: 19,
+    fontWeight: 800,
+    letterSpacing: 0.2,
+    boxShadow: "inset 0 0 18px rgba(0,0,0,0.42)",
+  },
+
+  guestPrimaryButton: {
+    cursor: "pointer",
+    minHeight: 48,
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "#7b5a24",
+    backgroundImage: `linear-gradient(180deg, rgba(234, 190, 94, 0.48), rgba(84, 58, 20, 0.82)), url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    color: "#fff0c2",
+    fontFamily: "var(--font-display)",
+    fontSize: 18,
+    fontWeight: 800,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.86)",
+  },
+
+  guestSecondaryActions: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+  },
+
+  guestDisabledButton: {
+    minHeight: 38,
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "#4b4d4e",
+    backgroundImage: `linear-gradient(180deg, rgba(156, 159, 154, 0.34), rgba(45, 48, 49, 0.70)), url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    color: "rgba(236,232,218,0.58)",
+    fontSize: 12,
+    fontWeight: 1000,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+
+  guestSecondaryButton: {
+    cursor: "pointer",
+    minHeight: 38,
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "#4b4d4e",
+    backgroundImage: `linear-gradient(180deg, rgba(156, 159, 154, 0.40), rgba(45, 48, 49, 0.76)), url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    color: "rgba(236,232,218,0.84)",
+    fontSize: 12,
+    fontWeight: 1000,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.86)",
+  },
+
+  guestAuthHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+
+  guestAuthTitle: {
+    color: "var(--brass-400)",
+    fontFamily: "var(--font-display)",
+    fontSize: 18,
+    fontWeight: 800,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+
+  guestAuthBackButton: {
+    cursor: "pointer",
+    minWidth: 98,
+    minHeight: 34,
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "#4b4d4e",
+    backgroundImage: `linear-gradient(180deg, rgba(156, 159, 154, 0.34), rgba(45, 48, 49, 0.70)), url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    color: "rgba(236,232,218,0.82)",
+    fontSize: 12,
+    fontWeight: 1000,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+
+  guestEntryNote: {
+    margin: 0,
+    color: "rgba(244,229,191,0.68)",
+    fontSize: 13,
+    lineHeight: 1.45,
+    textAlign: "center",
+  },
+
+  guestEntryError: {
+    margin: 0,
+    padding: "10px 12px",
+    color: "#ffd0c8",
+    background: "rgba(90, 16, 10, 0.58)",
+    boxShadow: "inset 0 0 0 1px rgba(255, 127, 105, 0.24)",
+    fontSize: 13,
+    fontWeight: 800,
+    textAlign: "center",
+  },
+
+  guestServerNotice: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    color: "#ffd7c9",
+    fontSize: 12,
+    fontWeight: 900,
+  },
+
   matchmakingScreen: {
     position: "relative",
     zIndex: 4,
@@ -2466,6 +2958,23 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 13,
     fontWeight: 900,
     textTransform: "uppercase",
+  },
+
+  profileLogoutButton: {
+    cursor: "pointer",
+    width: 178,
+    minHeight: 32,
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "#4b4d4e",
+    backgroundImage: `linear-gradient(180deg, rgba(156, 159, 154, 0.34), rgba(45, 48, 49, 0.74)), url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    color: "rgba(244,240,226,0.88)",
+    fontSize: 11,
+    fontWeight: 1000,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.86)",
   },
 
   profileFavorite: {

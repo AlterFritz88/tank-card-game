@@ -67,6 +67,13 @@ export type PvpClientMessage =
       localPlayerId?: PlayerId;
     }
   | {
+      type: "CLAIM_TUTORIAL_REWARD";
+      requestId: string;
+      playerId: string;
+      reward: BattleReward;
+      localPlayerWon: boolean;
+    }
+  | {
       type: "RESEARCH_CARD";
       requestId: string;
       playerId: string;
@@ -103,6 +110,22 @@ export type PvpClientMessage =
       requestId: string;
       playerId: string;
       deckId: string;
+    }
+  | {
+      type: "REGISTER_ACCOUNT";
+      requestId: string;
+      username: string;
+      password: string;
+      guestPlayerId?: string;
+      mergeGuestProgress?: boolean;
+    }
+  | {
+      type: "LOGIN_ACCOUNT";
+      requestId: string;
+      username: string;
+      password: string;
+      guestPlayerId?: string;
+      mergeGuestProgress?: boolean;
     };
 
 export type MatchEndReason =
@@ -176,5 +199,17 @@ export type PvpServerMessage =
       requestId: string;
       message: string;
       profile?: PlayerProgress;
+    }
+  | {
+      type: "AUTH_RESULT";
+      requestId: string;
+      userId: string;
+      username: string;
+      profile: PlayerProgress;
+    }
+  | {
+      type: "AUTH_ERROR";
+      requestId: string;
+      message: string;
     }
   | { type: "ERROR"; message: string };

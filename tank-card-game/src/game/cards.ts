@@ -1929,7 +1929,7 @@ export const cards: TankCard[] = [
   },
   {
     id: "t14_assault",
-    name: "T14 Assault Tank",
+    name: "T14 Tank",
     nation: "usa",
     class: "heavy",
     rarity: "rare",
@@ -2231,7 +2231,7 @@ export const cards: TankCard[] = [
   },
   {
     id: "sherman_early",
-    name: "M4A1 Sherman (ранний)",
+    name: "M4A1 Sherman",
     nation: "usa",
     class: "medium",
     rarity: "uncommon",

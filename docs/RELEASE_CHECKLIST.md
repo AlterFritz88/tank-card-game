@@ -8,12 +8,15 @@ Use this checklist before every release candidate.
 - [ ] `cd server && npm run build` passes.
 - [ ] Production env uses `wss://` URLs for `VITE_PVP_SERVER_URL`.
 - [ ] Production env uses `wss://` URLs for `VITE_PROFILE_SERVER_URL`.
-- [ ] Server has persistent `PLAYER_PROFILE_DB_PATH` storage.
+- [ ] Server has persistent `PLAYER_PROFILE_DB_PATH` and `PLAYER_ACCOUNT_DB_PATH` storage.
 - [ ] Server WebSocket limits are configured or intentionally left at defaults.
 
 ## Fresh Player
 
 - [ ] Open the game with empty browser storage.
+- [ ] Guest entry screen appears before the main menu.
+- [ ] Guest nickname can be edited and saved.
+- [ ] Guest mode enters the main menu without full registration.
 - [ ] Main menu renders without errors.
 - [ ] Default favorite headquarters/avatar appears.
 - [ ] PVE headquarters/deck selection opens.

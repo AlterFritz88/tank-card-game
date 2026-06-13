@@ -73,6 +73,24 @@ body {
   animation: tutorial-pulse 1.5s ease-in-out infinite;
 }
 
+@keyframes main-menu-tutorial-pulse {
+  0%,
+  100% {
+    filter: brightness(1) saturate(1);
+    box-shadow: 0 0 0 rgba(247, 215, 116, 0);
+  }
+  50% {
+    filter: brightness(1.28) saturate(1.18);
+    box-shadow:
+      0 0 0 2px rgba(247, 215, 116, 0.34),
+      0 0 30px rgba(247, 215, 116, 0.58);
+  }
+}
+
+.main-menu-tutorial-pulse {
+  animation: main-menu-tutorial-pulse 2.2s ease-in-out infinite;
+}
+
 .menu-image-button {
   transition:
     transform 160ms ease,

@@ -25,6 +25,7 @@ import type {
 } from "../../tank-card-game/src/game/types";
 import { createBattleViewForPlayer } from "./battleView";
 import type { MatchEndReason, PvpClientMessage, PvpServerMessage } from "./protocol";
+import { PlayerAccountManager } from "./playerAccounts";
 import { PlayerProfileManager } from "./playerProfiles";
 
 type RoomPlayer = {
@@ -279,6 +280,7 @@ export class RoomManager {
   private waitingRoomId: string | null = null;
   private movementIntentSequence = 0;
   private attackIntentSequence = 0;
+  private accounts = new PlayerAccountManager();
   private profiles = new PlayerProfileManager();
   private completedPvpMatches = new Map<string, CompletedPvpMatch>();
 
@@ -365,6 +367,9 @@ export class RoomManager {
       case "CLAIM_PVP_BATTLE_REWARD":
         this.claimPvpBattleReward(socket, message);
         break;
+      case "CLAIM_TUTORIAL_REWARD":
+        this.claimTutorialReward(socket, message);
+        break;
       case "RESEARCH_CARD":
         this.researchCard(socket, message);
         break;
@@ -382,6 +387,12 @@ export class RoomManager {
         break;
       case "DELETE_CUSTOM_DECK":
         this.deleteCustomDeck(socket, message);
+        break;
+      case "REGISTER_ACCOUNT":
+        this.registerAccount(socket, message);
+        break;
+      case "LOGIN_ACCOUNT":
+        this.loginAccount(socket, message);
         break;
       default:
         safeSend(socket, { type: "ERROR", message: "Неизвестное сообщение" });
@@ -552,6 +563,28 @@ export class RoomManager {
     }
   }
 
+  private claimTutorialReward(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "CLAIM_TUTORIAL_REWARD" }>
+  ) {
+    try {
+      const { profile, reward } = this.profiles.claimTutorialReward(
+        message.playerId,
+        message.reward,
+        message.localPlayerWon
+      );
+
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile,
+        reward,
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
   private researchCard(
     socket: WebSocket,
     message: Extract<PvpClientMessage, { type: "RESEARCH_CARD" }>
@@ -653,6 +686,52 @@ export class RoomManager {
     }
   }
 
+  private registerAccount(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "REGISTER_ACCOUNT" }>
+  ) {
+    try {
+      const account = this.accounts.register(message.username, message.password);
+      const profile =
+        message.mergeGuestProgress && message.guestPlayerId
+          ? this.profiles.mergeGuestProgress(account.userId, message.guestPlayerId)
+          : this.profiles.getProfile(account.userId);
+
+      safeSend(socket, {
+        type: "AUTH_RESULT",
+        requestId: message.requestId,
+        userId: account.userId,
+        username: account.username,
+        profile,
+      });
+    } catch (error) {
+      this.sendAuthError(socket, message.requestId, error);
+    }
+  }
+
+  private loginAccount(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "LOGIN_ACCOUNT" }>
+  ) {
+    try {
+      const account = this.accounts.login(message.username, message.password);
+      const profile =
+        message.mergeGuestProgress && message.guestPlayerId
+          ? this.profiles.mergeGuestProgress(account.userId, message.guestPlayerId)
+          : this.profiles.getProfile(account.userId);
+
+      safeSend(socket, {
+        type: "AUTH_RESULT",
+        requestId: message.requestId,
+        userId: account.userId,
+        username: account.username,
+        profile,
+      });
+    } catch (error) {
+      this.sendAuthError(socket, message.requestId, error);
+    }
+  }
+
   private sendProfileError(
     socket: WebSocket,
     requestId: string,
@@ -662,6 +741,18 @@ export class RoomManager {
       type: "PROFILE_ERROR",
       requestId,
       message: error instanceof Error ? error.message : "Profile request failed",
+    });
+  }
+
+  private sendAuthError(
+    socket: WebSocket,
+    requestId: string,
+    error: unknown
+  ) {
+    safeSend(socket, {
+      type: "AUTH_ERROR",
+      requestId,
+      message: error instanceof Error ? error.message : "Auth request failed",
     });
   }
 

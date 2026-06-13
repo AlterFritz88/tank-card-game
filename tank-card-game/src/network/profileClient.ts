@@ -33,6 +33,13 @@ type ProfileClientMessage =
       localPlayerId?: PlayerId;
     }
   | {
+      type: "CLAIM_TUTORIAL_REWARD";
+      requestId: string;
+      playerId: string;
+      reward: BattleReward;
+      localPlayerWon: boolean;
+    }
+  | {
       type: "RESEARCH_CARD";
       requestId: string;
       playerId: string;
@@ -69,6 +76,22 @@ type ProfileClientMessage =
       requestId: string;
       playerId: string;
       deckId: string;
+    }
+  | {
+      type: "REGISTER_ACCOUNT";
+      requestId: string;
+      username: string;
+      password: string;
+      guestPlayerId?: string;
+      mergeGuestProgress?: boolean;
+    }
+  | {
+      type: "LOGIN_ACCOUNT";
+      requestId: string;
+      username: string;
+      password: string;
+      guestPlayerId?: string;
+      mergeGuestProgress?: boolean;
     };
 
 type ProfileServerMessage =
@@ -83,10 +106,32 @@ type ProfileServerMessage =
       requestId: string;
       message: string;
       profile?: PlayerProgress;
+    }
+  | {
+      type: "AUTH_RESULT";
+      requestId: string;
+      userId: string;
+      username: string;
+      profile: PlayerProgress;
+    }
+  | {
+      type: "AUTH_ERROR";
+      requestId: string;
+      message: string;
     };
 
+export type AuthResult = Extract<ProfileServerMessage, { type: "AUTH_RESULT" }>;
+type ProfileSuccessMessage = Extract<
+  ProfileServerMessage,
+  { type: "PROFILE_UPDATED" } | { type: "AUTH_RESULT" }
+>;
+type ProfileUpdatedMessage = Extract<
+  ProfileServerMessage,
+  { type: "PROFILE_UPDATED" }
+>;
+
 type PendingRequest = {
-  resolve: (message: Extract<ProfileServerMessage, { type: "PROFILE_UPDATED" }>) => void;
+  resolve: (message: ProfileSuccessMessage) => void;
   reject: (error: Error) => void;
 };
 
@@ -161,7 +206,7 @@ class ProfileClient {
   }
 
   async getProfile(playerId: string): Promise<PlayerProgress> {
-    const response = await this.request({
+    const response = await this.requestProfileUpdate({
       type: "GET_PROFILE",
       requestId: createRequestId(),
       playerId,
@@ -174,7 +219,7 @@ class ProfileClient {
     playerId: string,
     profile: PlayerProgress
   ): Promise<PlayerProgress> {
-    const response = await this.request({
+    const response = await this.requestProfileUpdate({
       type: "SAVE_PROFILE",
       requestId: createRequestId(),
       playerId,
@@ -194,7 +239,7 @@ class ProfileClient {
       matchEndReason?: MatchEndReason | null;
     }
   ): Promise<{ profile: PlayerProgress; reward?: BattleReward }> {
-    const response = await this.request({
+    const response = await this.requestProfileUpdate({
       type: "CLAIM_BATTLE_REWARD",
       requestId: createRequestId(),
       playerId,
@@ -213,7 +258,7 @@ class ProfileClient {
     roomId: string,
     localPlayerId?: PlayerId
   ): Promise<{ profile: PlayerProgress; reward?: BattleReward }> {
-    const response = await this.request({
+    const response = await this.requestProfileUpdate({
       type: "CLAIM_PVP_BATTLE_REWARD",
       requestId: createRequestId(),
       playerId,
@@ -227,12 +272,31 @@ class ProfileClient {
     };
   }
 
+  async claimTutorialReward(
+    playerId: string,
+    reward: BattleReward,
+    localPlayerWon: boolean
+  ): Promise<{ profile: PlayerProgress; reward?: BattleReward }> {
+    const response = await this.requestProfileUpdate({
+      type: "CLAIM_TUTORIAL_REWARD",
+      requestId: createRequestId(),
+      playerId,
+      reward,
+      localPlayerWon,
+    });
+
+    return {
+      profile: response.profile,
+      reward: response.reward,
+    };
+  }
+
   async researchCard(
     playerId: string,
     cardId: string,
     sourceHeadquartersId: HeadquartersId
   ): Promise<PlayerProgress> {
-    const response = await this.request({
+    const response = await this.requestProfileUpdate({
       type: "RESEARCH_CARD",
       requestId: createRequestId(),
       playerId,
@@ -248,7 +312,7 @@ class ProfileClient {
     headquartersId: HeadquartersId,
     sourceHeadquartersId: HeadquartersId
   ): Promise<PlayerProgress> {
-    const response = await this.request({
+    const response = await this.requestProfileUpdate({
       type: "RESEARCH_HEADQUARTERS",
       requestId: createRequestId(),
       playerId,
@@ -263,7 +327,7 @@ class ProfileClient {
     playerId: string,
     cardId: string
   ): Promise<PlayerProgress> {
-    const response = await this.request({
+    const response = await this.requestProfileUpdate({
       type: "PURCHASE_CARD_COPY",
       requestId: createRequestId(),
       playerId,
@@ -277,7 +341,7 @@ class ProfileClient {
     playerId: string,
     headquartersId: HeadquartersId
   ): Promise<PlayerProgress> {
-    const response = await this.request({
+    const response = await this.requestProfileUpdate({
       type: "PURCHASE_HEADQUARTERS",
       requestId: createRequestId(),
       playerId,
@@ -291,7 +355,7 @@ class ProfileClient {
     playerId: string,
     deck: PlayerSavedDeck
   ): Promise<PlayerProgress> {
-    const response = await this.request({
+    const response = await this.requestProfileUpdate({
       type: "SAVE_CUSTOM_DECK",
       requestId: createRequestId(),
       playerId,
@@ -305,7 +369,7 @@ class ProfileClient {
     playerId: string,
     deckId: string
   ): Promise<PlayerProgress> {
-    const response = await this.request({
+    const response = await this.requestProfileUpdate({
       type: "DELETE_CUSTOM_DECK",
       requestId: createRequestId(),
       playerId,
@@ -315,9 +379,58 @@ class ProfileClient {
     return response.profile;
   }
 
+  private async requestProfileUpdate(
+    message: ProfileClientMessage
+  ): Promise<ProfileUpdatedMessage> {
+    const response = await this.request(message);
+    if (response.type !== "PROFILE_UPDATED") {
+      throw new Error("Profile server returned an unexpected response");
+    }
+
+    return response;
+  }
+
+  async registerAccount(input: {
+    username: string;
+    password: string;
+    guestPlayerId?: string;
+    mergeGuestProgress?: boolean;
+  }): Promise<AuthResult> {
+    const response = await this.request({
+      type: "REGISTER_ACCOUNT",
+      requestId: createRequestId(),
+      ...input,
+    });
+
+    if (response.type !== "AUTH_RESULT") {
+      throw new Error("Auth server returned an unexpected response");
+    }
+
+    return response;
+  }
+
+  async loginAccount(input: {
+    username: string;
+    password: string;
+    guestPlayerId?: string;
+    mergeGuestProgress?: boolean;
+  }): Promise<AuthResult> {
+    const response = await this.request({
+      type: "LOGIN_ACCOUNT",
+      requestId: createRequestId(),
+      ...input,
+    });
+
+    if (response.type !== "AUTH_RESULT") {
+      throw new Error("Auth server returned an unexpected response");
+    }
+
+    return response;
+  }
+
   private async request(
     message: ProfileClientMessage
-  ): Promise<Extract<ProfileServerMessage, { type: "PROFILE_UPDATED" }>> {
+  ): Promise<ProfileSuccessMessage> {
     await this.ensureConnected();
 
     return new Promise((resolve, reject) => {
@@ -404,7 +517,7 @@ class ProfileClient {
 
     this.pending.delete(message.requestId);
 
-    if (message.type === "PROFILE_ERROR") {
+    if (message.type === "PROFILE_ERROR" || message.type === "AUTH_ERROR") {
       this.setConnection("online", null);
       pendingRequest.reject(new Error(message.message));
       return;

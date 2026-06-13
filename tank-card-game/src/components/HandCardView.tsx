@@ -292,8 +292,8 @@ export function HandCardView({
           style={styles.tankArt}
           draggable={false}
         />
-        <div style={styles.artTopScrim} />
         <div style={styles.artVignette} />
+        <div style={styles.artTopShade} />
       </div>
 
       {nation ? (
@@ -560,9 +560,7 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: "hidden",
     pointerEvents: "none",
 
-    // Webkit and standard properties must stay in sync: a vertical offset
-    // here lifts the mask window above the frame and exposes a light strip
-    // of the art along the card's top edge.
+    // Webkit and standard properties must stay in sync.
     WebkitMaskRepeat: "no-repeat",
     WebkitMaskSize: "95% 98%",
     WebkitMaskPosition: "center -2px",
@@ -583,28 +581,28 @@ const styles: Record<string, React.CSSProperties> = {
     display: "block",
   },
 
-  // Darkens the very top of the art window. Most unit photos have a bright
-  // sky along their upper edge, which otherwise reads as a light band right
-  // under the window's top border. The strip lives inside the masked layer,
-  // so the mask clips it precisely to the window's edge.
-  artTopScrim: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: "12%",
-    height: "9%",
-    background: "linear-gradient(180deg, rgba(0,0,0,0.6), transparent)",
-    pointerEvents: "none",
-  },
-
   artVignette: {
     position: "absolute",
     left: "9.8%",
-    top: "15.95%",
+    top: "55.95%",
     width: "81%",
-    height: "52.1%",
+    height: "72.1%",
     background:
       "radial-gradient(circle at 50% 45%, transparent 50%, rgba(0,0,0,0.38) 100%), linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0.24))",
+    pointerEvents: "none",
+  },
+
+  // The vignette is inset and leaves the photo's top edge undimmed, which reads
+  // as a bright strip against the dark frame above. This full-width gradient
+  // darkens that top edge; it lives inside the masked layer, so the window mask
+  // clips it to the rounded art window.
+  artTopShade: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: "14%",
+    height: "7%",
+    background: "linear-gradient(180deg, rgba(0,0,0,0.7), rgba(0,0,0,0))",
     pointerEvents: "none",
   },
 

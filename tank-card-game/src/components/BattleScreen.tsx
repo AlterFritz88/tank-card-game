@@ -51,6 +51,8 @@ import {
   applyTutorialBattleRewardToProgress,
   claimBattleRewardFromServer,
   claimPvpBattleRewardFromServer,
+  claimTutorialRewardFromServer,
+  getLocalTutorialReward,
 } from "../game/playerProgress";
 import {
   TUTORIAL_EPILOGUE_TEXT,
@@ -823,8 +825,23 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       (battle.status === "bot_won" && humanPlayerId === "bot");
 
     if (tutorialActive) {
+      setRewardClaimStatus("pending");
+      setRewardClaimError(null);
+
+      const serverResult = await claimTutorialRewardFromServer({
+        reward: TUTORIAL_REWARD,
+        localPlayerWon,
+      });
+
+      if (serverResult?.reward) {
+        setBattleReward(serverResult.reward);
+        setRewardClaimStatus("claimed");
+        return;
+      }
+
+      const localReward = getLocalTutorialReward(TUTORIAL_REWARD);
       applyTutorialBattleRewardToProgress(TUTORIAL_REWARD, localPlayerWon);
-      setBattleReward(TUTORIAL_REWARD);
+      setBattleReward(localReward);
       setRewardClaimStatus("claimed");
       setRewardClaimError(null);
       return;
