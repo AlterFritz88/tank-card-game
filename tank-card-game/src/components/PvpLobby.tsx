@@ -18,7 +18,6 @@ import topBackgroundImage from "../assets/backgrounds/top_background.png";
 import matchmakingBreakImage from "../assets/backgrounds/matchmaking/break.png";
 import matchmakingCielImage from "../assets/backgrounds/matchmaking/ciel.png";
 import matchmakingMapImage from "../assets/backgrounds/matchmaking/map.png";
-import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
 import buttonImage from "../assets/button.png";
 import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
 import experienceIcon from "../assets/icons/expa.png";
@@ -64,6 +63,7 @@ import type { HeadquartersId, Nation, TankCard } from "../game/types";
 import type { PvpConnectionState } from "../game/modes";
 import { useBattleStore } from "../store/battleStore";
 import { HandCardView } from "./HandCardView";
+import { usePngFallback } from "./LoadingScreen";
 import {
   isProfileServerUnavailable,
   retryProfileConnection,
@@ -1736,12 +1736,9 @@ export function PvpLobby() {
                 );
                 const completed = completedCampaignMissionIds.includes(mission.id);
                 const selected = mission.id === selectedMission?.id;
-                const missionBackground = getBattleBackgroundAsset(
-                  mission.backgroundId
-                );
                 const missionIllustration =
                   getMissionIllustrationAsset(mission.illustrationId) ??
-                  missionBackground.image;
+                  "/menu-background.webp";
 
                 return (
                   <motion.button
@@ -1876,9 +1873,12 @@ export function PvpLobby() {
             >
               <div style={styles.campaignEntryCard}>
                 <img
-                  src="/ui/menu/campaign-card.png"
+                  src="/ui/menu/campaign-card.webp"
                   alt=""
                   draggable={false}
+                  onError={(event) =>
+                    usePngFallback(event, "/ui/menu/campaign-card.png")
+                  }
                   style={styles.campaignEntryImage}
                 />
                 <span style={styles.campaignEntryTitleOverlay}>Компании</span>
@@ -1896,9 +1896,10 @@ export function PvpLobby() {
             >
               <div style={styles.campaignEntryCard}>
                 <img
-                  src="/ui/menu/PVP.png"
+                  src="/ui/menu/PVP.webp"
                   alt=""
                   draggable={false}
+                  onError={(event) => usePngFallback(event, "/ui/menu/PVP.png")}
                   style={styles.campaignEntryImage}
                 />
                 <span style={styles.campaignEntryTitleOverlay}>Быстрый бой</span>
@@ -1916,9 +1917,10 @@ export function PvpLobby() {
             >
               <div style={styles.campaignEntryCard}>
                 <img
-                  src="/ui/menu/PVE.png"
+                  src="/ui/menu/PVE.webp"
                   alt=""
                   draggable={false}
+                  onError={(event) => usePngFallback(event, "/ui/menu/PVE.png")}
                   style={styles.campaignEntryImage}
                 />
                 <span style={styles.campaignEntryTitleOverlay}>Бой против ИИ</span>
@@ -1941,9 +1943,12 @@ export function PvpLobby() {
             >
               <div style={styles.campaignEntryCard}>
                 <img
-                  src="/ui/menu/education.png"
+                  src="/ui/menu/education.webp"
                   alt=""
                   draggable={false}
+                  onError={(event) =>
+                    usePngFallback(event, "/ui/menu/education.png")
+                  }
                   style={styles.campaignEntryImage}
                 />
                 <span style={styles.campaignEntryTitleOverlay}>Обучение</span>
@@ -2308,7 +2313,7 @@ const styles: Record<string, CSSProperties> = {
     color: "#f4e5bf",
     fontFamily: "var(--font-body)",
     backgroundImage:
-      "radial-gradient(circle at 50% 10%, rgba(179, 137, 59, 0.20), transparent 34%), linear-gradient(135deg, rgba(5, 7, 5, 0.50), rgba(17, 16, 11, 0.48)), url('/menu-background.png')",
+      "radial-gradient(circle at 50% 10%, rgba(179, 137, 59, 0.20), transparent 34%), linear-gradient(135deg, rgba(5, 7, 5, 0.50), rgba(17, 16, 11, 0.48)), url('/menu-background.webp'), url('/menu-background.png')",
     backgroundSize: "cover",
     backgroundPosition: "center",
     backgroundRepeat: "no-repeat",

@@ -403,7 +403,7 @@ export const cards: TankCard[] = [
   },
   {
     id: "panzer_iv",
-    name: "Panzer IV",
+    name: "Panzer IV G",
     nation: "germany",
     class: "medium",
     rarity: "common",
@@ -2075,7 +2075,7 @@ export const cards: TankCard[] = [
   },
   {
     id: "willys_mb",
-    name: "Willys MB",
+    name: "Bantam BRC 40",
     nation: "usa",
     class: "light",
     rarity: "uncommon",
@@ -2092,7 +2092,7 @@ export const cards: TankCard[] = [
     supportEffects: {
       drawEveryTurns: 2,
     },
-    abilityText: "Связной джип: добор карты каждый второй ход.",
+    abilityText: "Связная разведмашина: добор карты каждый второй ход.",
   },
 
   // === Пополнение: штабные машины и переходные модели (1940–1942) ===
@@ -2181,16 +2181,21 @@ export const cards: TankCard[] = [
     class: "light",
     rarity: "rare",
     cost: 3,
-    attack: 1,
+    attack: 0,
     armor: 1,
-    hp: 6,
-    range: 1,
-    movement: 1,
+    hp: 5,
+    range: 0,
+    movement: 0,
     fuelGeneration: 0,
-    initiative: 2,
+    initiative: 1,
+    deploymentZone: "support",
+    supportRole: "transport",
+    supportEffects: {
+      fuelPerTurn: 1,
+      hqDamageRedirect: 1,
+    },
     abilityText:
-      "Бронированный эскорт: раз в ход принимает удар по союзному лёгкому танку на себя.",
-    combatAbilities: { lightScreen: true },
+      "Бронированный автотранспорт: +1 топлива в ход и перехватывает 1 урон по штабу.",
   },
   {
     id: "krupp_l3h163",

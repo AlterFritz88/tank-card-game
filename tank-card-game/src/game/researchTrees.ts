@@ -183,7 +183,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
           }),
           unitNode({
             id: "de-tank-pz4",
-            title: "Panzer IV",
+            title: "Panzer IV G",
             cardId: "panzer_iv",
             experienceCost: 540,
             purchaseCost: 4300,
@@ -972,7 +972,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
         nodes: [
           unitNode({
             id: "usa-rear-willys",
-            title: "Willys MB",
+            title: "Bantam BRC 40",
             cardId: "willys_mb",
             experienceCost: 130,
             purchaseCost: 900,

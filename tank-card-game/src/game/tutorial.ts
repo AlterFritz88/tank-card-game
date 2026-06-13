@@ -78,6 +78,16 @@ export const MEDIUM_SPAWN_CELL: Position = { row: 1, col: 1 };
 export const BT_SPAWN_CELL: Position = { row: 2, col: 1 };
 /** Крайняя левая клетка спавна — сюда обучение просит выставить СУ-5-2. */
 export const SPG_SPAWN_CELL: Position = { row: 1, col: 0 };
+/**
+ * Первый ход БТ-7: со спавна {2,1} он проходит ровно две клетки вправо до {2,3}.
+ * Только эта клетка подсвечивается, и только сюда обучение разрешает ход.
+ */
+export const BT_FIRST_MOVE_CELL: Position = { row: 2, col: 3 };
+/**
+ * Второй ход БТ-7: с {2,3} он доходит до колонки вражеского штаба (col 4),
+ * откуда бьёт по артиллерии поддержки.
+ */
+export const BT_FRONT_LINE_CELL: Position = { row: 2, col: 4 };
 /** Лёгкий танк бота, которого игрок добивает выстрелом штаба. */
 export const TUTORIAL_BOT_LIGHT_TANK_ID = "pzkpfw_i_ausf_b";
 
@@ -126,6 +136,73 @@ function isValidPlayerUnitMove(
   return getAvailableMoveCells(battle, "player", action.unitId).some(
     (cell) =>
       cell.row === action.position.row && cell.col === action.position.col
+  );
+}
+
+/**
+ * A scripted BT-7 advance: a legal move of the БТ-7 straight along its row,
+ * strictly forward (toward the enemy) and no further than `target`. This is
+ * what the tutorial allows — every other destination is blocked — and it also
+ * permits the intermediate cell of a two-cell move so the full advance lands.
+ */
+function isBtAdvanceTowardCell(
+  action: BattleAction,
+  battle: BattleState,
+  target: Position
+): boolean {
+  if (action.type !== "MOVE_UNIT") return false;
+
+  const unit = getUnit(battle, action.unitId);
+  if (!unit || unit.ownerId !== "player" || unit.cardId !== "bt_7") return false;
+  if (!isValidPlayerUnitMove(action, battle)) return false;
+
+  return (
+    action.position.row === target.row &&
+    action.position.col > unit.position.col &&
+    action.position.col <= target.col
+  );
+}
+
+/**
+ * The single cell the tutorial highlights (and the only one it lets the player
+ * move to) for the БТ-7's scripted advance in the current step: the furthest
+ * cell along the БТ's row, up to the step's target column, that is reachable
+ * right now. Null when no BT advance is active or the БТ can't move.
+ */
+export function getTutorialMoveTargetCell(
+  stepIndex: number,
+  battle: BattleState
+): Position | null {
+  const step = getTutorialStep(stepIndex);
+  if (!step || step.kind !== "task") return null;
+
+  let target: Position | null = null;
+  if (step.id === "move-bt") target = BT_FIRST_MOVE_CELL;
+  else if (step.id === "kill-artillery") target = BT_FRONT_LINE_CELL;
+  if (!target) return null;
+
+  const unit = battle.units.find(
+    (item) =>
+      item.ownerId === "player" &&
+      item.cardId === "bt_7" &&
+      isBattlefieldUnit(item)
+  );
+  if (!unit) return null;
+
+  const reachableForward = getAvailableMoveCells(
+    battle,
+    "player",
+    unit.instanceId
+  ).filter(
+    (cell) =>
+      cell.row === target.row &&
+      cell.col > unit.position.col &&
+      cell.col <= target.col
+  );
+  if (reachableForward.length === 0) return null;
+
+  return reachableForward.reduce((best, cell) =>
+    cell.col > best.col ? cell : best
   );
 }
 
@@ -306,11 +383,18 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "move-bt",
     kind: "task",
-    text: "Благодаря «Блицу» БТ-7 готов действовать. Продвинь его вперёд, к противнику.",
+    text: "Благодаря «Блицу» БТ-7 готов действовать. Продвинь его на две клетки вперёд, к противнику (подсвечено).",
+    // Завершаем шаг только когда БТ доходит до конечной клетки. Промежуточную
+    // клетку двухклеточного хода пропускаем через allows, иначе шаг сменился бы
+    // после первой клетки и второй ход движка был бы заблокирован.
     completes: (action, battle) =>
-      isValidPlayerUnitMove(action, battle) &&
       action.type === "MOVE_UNIT" &&
-      getUnit(battle, action.unitId)?.cardId === "bt_7",
+      getUnit(battle, action.unitId)?.cardId === "bt_7" &&
+      action.position.row === BT_FIRST_MOVE_CELL.row &&
+      action.position.col === BT_FIRST_MOVE_CELL.col &&
+      isValidPlayerUnitMove(action, battle),
+    allows: (action, battle) =>
+      isBtAdvanceTowardCell(action, battle, BT_FIRST_MOVE_CELL),
   },
   {
     id: "play-spg",
@@ -346,10 +430,11 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: "kill-artillery",
     kind: "task",
     text:
-      "Доведи БТ-7 до линии вражеского штаба (крайняя колонка) и атакуй артиллерию поддержки. " +
+      "Доведи БТ-7 до линии вражеского штаба (крайняя колонка, подсвечена) и атакуй артиллерию поддержки. " +
       "Если хода не хватает — заверши ход и продолжай в следующем.",
     completes: isAttackOnSupport,
-    allows: isPlayerUnitMove,
+    allows: (action, battle) =>
+      isBtAdvanceTowardCell(action, battle, BT_FRONT_LINE_CELL),
   },
   {
     id: "hq-finish-light",
@@ -412,11 +497,6 @@ export type TutorialHighlights = {
   handCardIds?: string[];
   /** Board cells to highlight (spawn targets). */
   cells?: Position[];
-  /**
-   * Highlight the live "can move here" cells of the player's unit with this
-   * card id (computed by the battle screen from the current state).
-   */
-  moveCellsForCardId?: string;
   /** Player units to highlight, by card id. */
   unitCardIds?: string[];
   /** Highlight enemy support-line units. */
@@ -451,7 +531,7 @@ export function getTutorialHighlights(
     case "play-bt":
       return { handCardIds: ["bt_7"], cells: [BT_SPAWN_CELL] };
     case "move-bt":
-      return { unitCardIds: ["bt_7"], moveCellsForCardId: "bt_7" };
+      return { unitCardIds: ["bt_7"] };
     case "play-spg":
       return { handCardIds: ["su_5_2"], cells: [SPG_SPAWN_CELL] };
     case "kill-artillery":

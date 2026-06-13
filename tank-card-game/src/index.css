@@ -112,3 +112,15 @@ body {
   opacity: 1 !important;
   transform: translate(-50%, 0) !important;
 }
+
+@keyframes boot-loading-sweep {
+  0% {
+    transform: translateX(-110%);
+  }
+  50% {
+    transform: translateX(78%);
+  }
+  100% {
+    transform: translateX(240%);
+  }
+}

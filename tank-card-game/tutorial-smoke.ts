@@ -175,6 +175,37 @@ playerAct("Розыгрыш БТ-7 на (2,1)", {
 const btUnit = findUnit("player", "bt_7")!;
 check("БТ-7 готов к действию (блиц)", !btUnit.alreadyMoved && !btUnit.alreadyAttacked);
 
+// Ограничение: БТ нельзя увести с маршрута (вбок/назад/по диагонали).
+expectBlocked("Ход БТ-7 в сторону (2,0) запрещён", {
+  type: "MOVE_UNIT",
+  playerId: "player",
+  unitId: btUnit.instanceId,
+  position: { row: 2, col: 0 },
+});
+expectBlocked("Ход БТ-7 по диагонали (1,2) запрещён", {
+  type: "MOVE_UNIT",
+  playerId: "player",
+  unitId: btUnit.instanceId,
+  position: { row: 1, col: 2 },
+});
+
+// Баг с двухклеточным ходом: промежуточная клетка (2,2) разрешена, но шаг НЕ
+// должен продвигаться раньше времени — иначе вторая клетка хода блокируется.
+const intermediateMove: BattleAction = {
+  type: "MOVE_UNIT",
+  playerId: "player",
+  unitId: btUnit.instanceId,
+  position: { row: 2, col: 2 },
+};
+check(
+  "Промежуточная клетка (2,2) разрешена",
+  isTutorialActionAllowed(stepIndex, intermediateMove, state)
+);
+check(
+  "Промежуточная клетка (2,2) не завершает шаг",
+  getNextTutorialStepIndex(stepIndex, intermediateMove, state) === stepIndex
+);
+
 playerAct("Движение БТ-7 вперёд", {
   type: "MOVE_UNIT",
   playerId: "player",

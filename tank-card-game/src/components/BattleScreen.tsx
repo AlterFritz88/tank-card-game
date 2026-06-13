@@ -60,6 +60,7 @@ import {
   TUTORIAL_REWARD,
   getTutorialBotAction,
   getTutorialHighlights,
+  getTutorialMoveTargetCell,
   getTutorialStep,
 } from "../game/tutorial";
 import { TutorialOverlay } from "./TutorialOverlay";
@@ -429,23 +430,17 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const opponentPlayerId: PlayerId =
     humanPlayerId === "player" ? "bot" : "player";
 
-  // Live move cells for the unit the active tutorial step wants the player to
-  // move (e.g. BT-7), so the destinations are shown explicitly on the board.
-  const tutorialMoveCells: Position[] = (() => {
-    const cardId = tutorialHighlights?.moveCellsForCardId;
-    if (!cardId) return [];
-
-    const unit = battle.units.find(
-      (item) => item.ownerId === humanPlayerId && item.cardId === cardId
-    );
-    if (!unit) return [];
-
-    return getAvailableMoveCells(
-      battle as BattleState,
-      humanPlayerId,
-      unit.instanceId
-    );
-  })();
+  // The single scripted destination cell for the BT-7's advance in the active
+  // tutorial step — the only cell highlighted and the only one the player may
+  // move it to. Null/empty for every other step.
+  const tutorialMoveCell: Position | null =
+    tutorialActive && battle.status === "active"
+      ? getTutorialMoveTargetCell(tutorialStepIndex, battle as BattleState)
+      : null;
+  const tutorialMoveCells: Position[] = tutorialMoveCell ? [tutorialMoveCell] : [];
+  // While the tutorial scripts a BT advance, only the highlighted target cell
+  // may show a move indicator — every other legal cell is hidden and blocked.
+  const tutorialRestrictsMove = tutorialMoveCells.length > 0;
   const botAiEnabled = mode === "ai" || mode === "campaign";
   const isHumanTurn =
     battle.status === "active" && battle.activePlayer === humanPlayerId;
@@ -2339,6 +2334,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     if (selectedAttacker && selectedAttacker.type === "unit") {
       if (!isMoveCell(position)) return;
+      // During a scripted BT advance only the highlighted target cell is a
+      // legal destination; ignore clicks on any other (dimmed) move cell.
+      if (tutorialRestrictsMove && !isTutorialCellHighlighted(position)) return;
 
       const moveAction: BattleAction = {
           type: "MOVE_UNIT",
@@ -3679,7 +3677,10 @@ function renderEnemyDeckWithTimer() {
                     );
                   }
 
-                  const moveCell = isMoveCell(position);
+                  const moveCell =
+                    isMoveCell(position) &&
+                    (!tutorialRestrictsMove ||
+                      isTutorialCellHighlighted(position));
                   const canPlaceBattlefieldCard =
                     placingBattlefieldCard && ownSpawn;
 
