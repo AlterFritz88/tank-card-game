@@ -187,7 +187,6 @@ const styles: Record<string, CSSProperties> = {
     flex: "0 0 auto",
     objectFit: "cover",
     objectPosition: "center top",
-    border: "1px solid rgba(213, 178, 102, 0.4)",
   },
 
   taskText: {

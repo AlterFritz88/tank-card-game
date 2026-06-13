@@ -412,6 +412,11 @@ export type TutorialHighlights = {
   handCardIds?: string[];
   /** Board cells to highlight (spawn targets). */
   cells?: Position[];
+  /**
+   * Highlight the live "can move here" cells of the player's unit with this
+   * card id (computed by the battle screen from the current state).
+   */
+  moveCellsForCardId?: string;
   /** Player units to highlight, by card id. */
   unitCardIds?: string[];
   /** Highlight enemy support-line units. */
@@ -446,7 +451,7 @@ export function getTutorialHighlights(
     case "play-bt":
       return { handCardIds: ["bt_7"], cells: [BT_SPAWN_CELL] };
     case "move-bt":
-      return { unitCardIds: ["bt_7"] };
+      return { unitCardIds: ["bt_7"], moveCellsForCardId: "bt_7" };
     case "play-spg":
       return { handCardIds: ["su_5_2"], cells: [SPG_SPAWN_CELL] };
     case "kill-artillery":

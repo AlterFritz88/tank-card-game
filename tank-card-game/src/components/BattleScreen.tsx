@@ -48,6 +48,7 @@ import {
 } from "../game/audio";
 import type { BattleReward } from "../game/economy";
 import {
+  applyBattleRewardToProgress,
   applyTutorialBattleRewardToProgress,
   claimBattleRewardFromServer,
   claimPvpBattleRewardFromServer,
@@ -368,7 +369,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     return Boolean(
       tutorialHighlights?.cells?.some(
         (cell) => cell.row === position.row && cell.col === position.col
-      )
+      ) ||
+        tutorialMoveCells.some(
+          (cell) => cell.row === position.row && cell.col === position.col
+        )
     );
   }
 
@@ -424,6 +428,24 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const humanPlayerId: PlayerId = mode === "pvp" ? localPlayerId : "player";
   const opponentPlayerId: PlayerId =
     humanPlayerId === "player" ? "bot" : "player";
+
+  // Live move cells for the unit the active tutorial step wants the player to
+  // move (e.g. BT-7), so the destinations are shown explicitly on the board.
+  const tutorialMoveCells: Position[] = (() => {
+    const cardId = tutorialHighlights?.moveCellsForCardId;
+    if (!cardId) return [];
+
+    const unit = battle.units.find(
+      (item) => item.ownerId === humanPlayerId && item.cardId === cardId
+    );
+    if (!unit) return [];
+
+    return getAvailableMoveCells(
+      battle as BattleState,
+      humanPlayerId,
+      unit.instanceId
+    );
+  })();
   const botAiEnabled = mode === "ai" || mode === "campaign";
   const isHumanTurn =
     battle.status === "active" && battle.activePlayer === humanPlayerId;
@@ -623,6 +645,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const [rewardClaimStatus, setRewardClaimStatus] =
     useState<RewardClaimStatus>("idle");
   const [rewardClaimError, setRewardClaimError] = useState<string | null>(null);
+  const [rewardSyncPending, setRewardSyncPending] = useState(false);
   const debugPausedRef = useRef(false);
   const rewardedBattleKeyRef = useRef<string | null>(null);
 
@@ -836,14 +859,19 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       if (serverResult?.reward) {
         setBattleReward(serverResult.reward);
         setRewardClaimStatus("claimed");
+        setRewardSyncPending(false);
         return;
       }
 
       const localReward = getLocalTutorialReward(TUTORIAL_REWARD);
-      applyTutorialBattleRewardToProgress(TUTORIAL_REWARD, localPlayerWon);
+      const localProgress = applyTutorialBattleRewardToProgress(
+        TUTORIAL_REWARD,
+        localPlayerWon
+      );
       setBattleReward(localReward);
       setRewardClaimStatus("claimed");
       setRewardClaimError(null);
+      setRewardSyncPending(localProgress.pendingRewardClaims.length > 0);
       return;
     }
 
@@ -865,6 +893,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       if (serverResult?.reward) {
         setBattleReward(serverResult.reward);
         setRewardClaimStatus("claimed");
+        setRewardSyncPending(false);
         return;
       }
 
@@ -883,6 +912,22 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     if (serverResult?.reward) {
       setBattleReward(serverResult.reward);
       setRewardClaimStatus("claimed");
+      setRewardSyncPending(false);
+      return;
+    }
+
+    const localResult = applyBattleRewardToProgress({
+      battle,
+      mode,
+      localPlayerId: humanPlayerId,
+      matchEndReason: null,
+    });
+
+    if (localResult) {
+      setBattleReward(localResult.reward);
+      setRewardClaimStatus("claimed");
+      setRewardClaimError(null);
+      setRewardSyncPending(localResult.progress.pendingRewardClaims.length > 0);
       return;
     }
 
@@ -899,6 +944,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         setBattleReward(null);
         setRewardClaimStatus("idle");
         setRewardClaimError(null);
+        setRewardSyncPending(false);
       });
 
       return () => {
@@ -4001,6 +4047,7 @@ function renderEnemyDeckWithTimer() {
             reward={battleReward}
             rewardStatus={rewardClaimStatus}
             rewardError={rewardClaimError}
+            rewardSyncPending={rewardSyncPending}
             onRetryReward={() => void claimCurrentBattleReward()}
           />
         )}

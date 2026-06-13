@@ -228,65 +228,157 @@ function getPositiveInteger(value: unknown): number {
     : 0;
 }
 
+function getKnownCardId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+
+  const cardId = normalizeCardId(value);
+  if (!cardId) return null;
+
+  try {
+    getCard(cardId);
+    return cardId;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHeadquartersIdList(values: unknown): HeadquartersId[] {
+  if (!Array.isArray(values)) return [];
+
+  return Array.from(
+    new Set(
+      values.filter((headquartersId): headquartersId is HeadquartersId =>
+        typeof headquartersId === "string" &&
+        Boolean(HEADQUARTERS[headquartersId as HeadquartersId])
+      )
+    )
+  );
+}
+
+function normalizeCardIdList(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+
+  return Array.from(
+    new Set(values.flatMap((value) => {
+      const cardId = getKnownCardId(value);
+      return cardId ? [cardId] : [];
+    }))
+  );
+}
+
+function normalizeHeadquartersNumberMap(
+  value: unknown
+): Partial<Record<HeadquartersId, number>> {
+  if (!value || typeof value !== "object") return {};
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([headquartersId]) => headquartersId in HEADQUARTERS)
+      .map(([headquartersId, amount]) => [
+        headquartersId,
+        getPositiveInteger(amount),
+      ])
+  ) as Partial<Record<HeadquartersId, number>>;
+}
+
+function normalizeOwnedCardCopies(
+  value: unknown,
+  researchedCardIds: string[]
+): Record<string, number> {
+  if (!value || typeof value !== "object") return {};
+
+  const researched = new Set(researchedCardIds);
+  const copies: Record<string, number> = {};
+
+  for (const [rawCardId, rawCount] of Object.entries(value)) {
+    const cardId = getKnownCardId(rawCardId);
+    if (!cardId || !researched.has(cardId)) continue;
+
+    const count = Math.min(CARD_COPY_LIMIT, getPositiveInteger(rawCount));
+    if (count > 0) {
+      copies[cardId] = count;
+    }
+  }
+
+  return copies;
+}
+
+function normalizeClaimedRewardIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((rewardId): rewardId is string => typeof rewardId === "string")
+    .map((rewardId) => rewardId.replace(/[^a-zA-Z0-9:_-]/g, "").slice(0, 180))
+    .filter(Boolean)
+    .slice(0, 500);
+}
+
 function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProgress {
   const fallback = createInitialPlayerProgress();
   if (!profile) return fallback;
-  const researchedHeadquartersIds = Array.from(
-    new Set([
-      ...fallback.researchedHeadquartersIds,
-      ...(profile.researchedHeadquartersIds ?? []),
-    ])
-  ).filter((headquartersId): headquartersId is HeadquartersId =>
-    Boolean(HEADQUARTERS[headquartersId as HeadquartersId])
-  );
-  const unlockedHeadquartersIds = Array.from(
-    new Set([
-      ...fallback.unlockedHeadquartersIds,
-      ...(profile.unlockedHeadquartersIds ?? []),
-    ])
-  ).filter((headquartersId): headquartersId is HeadquartersId =>
-    Boolean(HEADQUARTERS[headquartersId as HeadquartersId])
+  const researchedHeadquartersIds = mergeUnique(
+    fallback.researchedHeadquartersIds,
+    normalizeHeadquartersIdList(profile.researchedHeadquartersIds)
   );
   const researchedCardIds = Array.from(
     new Set([
       ...fallback.researchedCardIds,
-      ...(profile.researchedCardIds ?? []),
+      ...normalizeCardIdList(profile.researchedCardIds),
     ])
   );
-  const unlockedCardIds = Array.from(
-    new Set([
-      ...fallback.unlockedCardIds,
-      ...(profile.unlockedCardIds ?? []),
-    ])
+  const unlockedHeadquartersIds = mergeUnique(
+    fallback.unlockedHeadquartersIds,
+    normalizeHeadquartersIdList(profile.unlockedHeadquartersIds)
+  ).filter((headquartersId) =>
+    researchedHeadquartersIds.includes(headquartersId)
   );
-  const ownedCardCopies = {
-    ...fallback.ownedCardCopies,
-    ...profile.ownedCardCopies,
-  };
+  const unlockedCardIds = mergeUnique(
+    fallback.unlockedCardIds,
+    normalizeCardIdList(profile.unlockedCardIds)
+  ).filter((cardId) => researchedCardIds.includes(cardId));
+  const ownedCardCopies = normalizeOwnedCardCopies(
+    {
+      ...fallback.ownedCardCopies,
+      ...profile.ownedCardCopies,
+    },
+    researchedCardIds
+  );
+  const favoriteHeadquartersId = getUnlockedFavoriteHeadquartersId(
+    profile.favoriteHeadquartersId,
+    {
+      ...fallback,
+      unlockedHeadquartersIds,
+    }
+  );
 
   return {
     ...fallback,
     ...profile,
-    battleStats: {
-      ...fallback.battleStats,
-      ...profile.battleStats,
-    },
+    nickname: sanitizeNickname(profile.nickname, fallback.nickname),
+    accountType: profile.accountType === "premium" ? "premium" : "base",
     tutorialCompleted:
       typeof profile.tutorialCompleted === "boolean"
         ? profile.tutorialCompleted
         : fallback.tutorialCompleted,
-    headquartersXp: {
-      ...fallback.headquartersXp,
-      ...profile.headquartersXp,
-    },
-    headquartersMatchCounts: {
-      ...fallback.headquartersMatchCounts,
-      ...profile.headquartersMatchCounts,
-    },
-    headquartersBattleStats: {
-      ...fallback.headquartersBattleStats,
-      ...profile.headquartersBattleStats,
-    },
+    favoriteHeadquartersId,
+    battleStats: mergeBattleStats(
+      fallback.battleStats,
+      {
+        wins: getPositiveInteger(profile.battleStats?.wins),
+        losses: getPositiveInteger(profile.battleStats?.losses),
+      }
+    ),
+    ironTracks: getPositiveInteger(profile.ironTracks),
+    goldTracks: getPositiveInteger(profile.goldTracks),
+    freeXp: getPositiveInteger(profile.freeXp),
+    headquartersXp: normalizeHeadquartersNumberMap(profile.headquartersXp),
+    headquartersMatchCounts: normalizeHeadquartersNumberMap(
+      profile.headquartersMatchCounts
+    ),
+    headquartersBattleStats: mergeHeadquartersBattleStats(
+      {},
+      profile.headquartersBattleStats ?? {}
+    ),
     researchedHeadquartersIds,
     researchedCardIds,
     unlockedHeadquartersIds,
@@ -298,11 +390,10 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
           unlockedHeadquartersIds,
         })
       : fallback.savedDecks,
-    claimedBattleRewardIds: Array.isArray(profile.claimedBattleRewardIds)
-      ? profile.claimedBattleRewardIds.filter(
-          (rewardId): rewardId is string => typeof rewardId === "string"
-        )
-      : fallback.claimedBattleRewardIds,
+    claimedBattleRewardIds: normalizeClaimedRewardIds(
+      profile.claimedBattleRewardIds
+    ),
+    pendingRewardClaims: [],
   };
 }
 
@@ -776,6 +867,36 @@ export class PlayerProfileManager {
     };
 
     return this.persistProfile(safePlayerId, savedProfile);
+  }
+
+  updateNickname(playerId: string, nickname: string): PlayerProgress {
+    const safePlayerId = sanitizePlayerId(playerId);
+    if (!safePlayerId) throw new Error("Некорректный playerId");
+
+    const currentProfile = this.getProfile(safePlayerId);
+
+    return this.persistProfile(safePlayerId, {
+      ...currentProfile,
+      nickname: sanitizeNickname(nickname, currentProfile.nickname),
+    });
+  }
+
+  updateFavoriteHeadquarters(
+    playerId: string,
+    headquartersId: HeadquartersId | null
+  ): PlayerProgress {
+    const safePlayerId = sanitizePlayerId(playerId);
+    if (!safePlayerId) throw new Error("Некорректный playerId");
+
+    const currentProfile = this.getProfile(safePlayerId);
+
+    return this.persistProfile(safePlayerId, {
+      ...currentProfile,
+      favoriteHeadquartersId: getUnlockedFavoriteHeadquartersId(
+        headquartersId,
+        currentProfile
+      ),
+    });
   }
 
   mergeGuestProgress(userPlayerId: string, guestPlayerId: string): PlayerProgress {

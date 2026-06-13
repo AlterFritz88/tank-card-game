@@ -16,6 +16,18 @@ type ProfileClientMessage =
       profile: PlayerProgress;
     }
   | {
+      type: "UPDATE_NICKNAME";
+      requestId: string;
+      playerId: string;
+      nickname: string;
+    }
+  | {
+      type: "UPDATE_FAVORITE_HEADQUARTERS";
+      requestId: string;
+      playerId: string;
+      headquartersId: HeadquartersId | null;
+    }
+  | {
       type: "CLAIM_BATTLE_REWARD";
       requestId: string;
       playerId: string;
@@ -224,6 +236,34 @@ class ProfileClient {
       requestId: createRequestId(),
       playerId,
       profile,
+    });
+
+    return response.profile;
+  }
+
+  async updateNickname(
+    playerId: string,
+    nickname: string
+  ): Promise<PlayerProgress> {
+    const response = await this.requestProfileUpdate({
+      type: "UPDATE_NICKNAME",
+      requestId: createRequestId(),
+      playerId,
+      nickname,
+    });
+
+    return response.profile;
+  }
+
+  async updateFavoriteHeadquarters(
+    playerId: string,
+    headquartersId: HeadquartersId | null
+  ): Promise<PlayerProgress> {
+    const response = await this.requestProfileUpdate({
+      type: "UPDATE_FAVORITE_HEADQUARTERS",
+      requestId: createRequestId(),
+      playerId,
+      headquartersId,
     });
 
     return response.profile;

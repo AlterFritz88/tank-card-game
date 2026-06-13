@@ -135,6 +135,7 @@ function getPlayerAccountData() {
     avatar: getHeadquartersAvatarAsset(headquarters.id),
     flag: getNationFlagAsset(headquarters.nation),
     nickname: progress.nickname,
+    pendingSyncCount: progress.pendingRewardClaims.length,
     identityLabel: isGuestUserId(userId)
       ? "Гость"
       : `Аккаунт${userLogin ? `: ${userLogin}` : ""}`,
@@ -179,6 +180,11 @@ function PlayerAccountPanel({ onOpenProfile }: { onOpenProfile?: () => void }) {
         <span style={styles.playerAccountType}>{account.identityLabel}</span>
         <span style={styles.playerAccountType}>{account.accountLabel}</span>
       </div>
+      {account.pendingSyncCount > 0 ? (
+        <span style={styles.playerAccountSyncBadge}>
+          синхр. {account.pendingSyncCount}
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -479,6 +485,9 @@ function PlayerProfileMenu({
   onProfileChanged?: () => void;
 }) {
   const [progress, setProgress] = useState(() => loadPlayerProgress());
+  const [syncStatus, setSyncStatus] = useState<
+    "idle" | "syncing" | "synced" | "failed"
+  >("idle");
   const profileConnection = useProfileConnection();
   const profileServerUnavailable = isProfileServerUnavailable(profileConnection);
   const profileServerReady = profileConnection.status === "online";
@@ -489,6 +498,7 @@ function PlayerProfileMenu({
   const favoriteHeadquarters = HEADQUARTERS[favoriteHeadquartersId];
   const favoriteFlag = getNationFlagAsset(favoriteHeadquarters.nation);
   const favoriteAvatar = getHeadquartersAvatarAsset(favoriteHeadquarters.id);
+  const pendingSyncCount = progress.pendingRewardClaims.length;
   const headquartersRows = Array.from(
     new Set(Object.keys(progress.headquartersMatchCounts))
   )
@@ -509,11 +519,17 @@ function PlayerProfileMenu({
     .sort((left, right) => right.matches - left.matches);
 
   async function retryProfileSync() {
+    setSyncStatus("syncing");
     try {
       await retryProfileConnection();
       const serverProgress = await syncPlayerProgressFromServer();
       setProgress(serverProgress);
+      setSyncStatus(
+        serverProgress.pendingRewardClaims.length > 0 ? "failed" : "synced"
+      );
+      onProfileChanged?.();
     } catch {
+      setSyncStatus("failed");
       window.alert("Сервер профиля недоступен");
     }
   }
@@ -647,6 +663,43 @@ function PlayerProfileMenu({
             <strong>{formatResourceValue(progress.goldTracks)}</strong>
           </div>
         </div>
+
+        {pendingSyncCount > 0 ||
+        syncStatus === "synced" ||
+        syncStatus === "failed" ? (
+          <section
+            style={{
+              ...styles.profileSyncPanel,
+              ...(syncStatus === "failed" ? styles.profileSyncPanelFailed : {}),
+              ...(syncStatus === "synced" ? styles.profileSyncPanelSynced : {}),
+            }}
+          >
+            <div style={styles.profileSyncText}>
+              <strong>
+                {pendingSyncCount > 0
+                  ? `Ожидает синхронизации: ${pendingSyncCount}`
+                  : syncStatus === "synced"
+                    ? "Прогресс синхронизирован"
+                    : "Синхронизация не удалась"}
+              </strong>
+              <span>
+                {pendingSyncCount > 0
+                  ? "Локальные награды будут отправлены на сервер профиля."
+                  : syncStatus === "synced"
+                    ? "Все локальные начисления переданы на сервер."
+                    : "Проверьте подключение к серверу профиля и повторите попытку."}
+              </span>
+            </div>
+            <button
+              type="button"
+              style={styles.profileSyncButton}
+              onClick={() => void retryProfileSync()}
+              disabled={syncStatus === "syncing"}
+            >
+              {syncStatus === "syncing" ? "Синхронизация..." : "Синхронизировать"}
+            </button>
+          </section>
+        ) : null}
 
         <section style={styles.profileHeadquartersPanel}>
           <h2 style={styles.profileSectionTitle}>Штабы</h2>
@@ -2375,6 +2428,24 @@ const styles: Record<string, CSSProperties> = {
     textTransform: "uppercase",
   },
 
+  playerAccountSyncBadge: {
+    position: "absolute",
+    right: 14,
+    bottom: 8,
+    zIndex: 3,
+    padding: "4px 8px",
+    background:
+      "linear-gradient(180deg, rgba(37, 74, 104, 0.92), rgba(12, 24, 35, 0.96))",
+    color: "#cde9ff",
+    fontSize: 10,
+    fontWeight: 1000,
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+    boxShadow:
+      "0 8px 16px rgba(0,0,0,0.38), inset 0 0 0 1px rgba(156, 214, 255, 0.26)",
+    textShadow: "0 2px 4px rgba(0,0,0,0.8)",
+  },
+
   playerResourcesPanel: {
     position: "absolute",
     left: "50%",
@@ -2997,6 +3068,60 @@ const styles: Record<string, CSSProperties> = {
     padding: "10px 13px",
     background: "rgba(9, 12, 10, 0.72)",
     boxShadow: "inset 0 0 0 1px rgba(226, 184, 92, 0.16)",
+  },
+
+  profileSyncPanel: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    alignItems: "center",
+    gap: 14,
+    padding: "10px 14px",
+    background:
+      "linear-gradient(180deg, rgba(24, 48, 72, 0.74), rgba(8, 14, 22, 0.78))",
+    color: "#d7ecff",
+    boxShadow:
+      "inset 0 0 0 1px rgba(133, 198, 255, 0.2), 0 10px 24px rgba(0,0,0,0.22)",
+  },
+
+  profileSyncPanelFailed: {
+    background:
+      "linear-gradient(180deg, rgba(82, 34, 28, 0.76), rgba(22, 10, 8, 0.82))",
+    color: "#ffd6cc",
+    boxShadow:
+      "inset 0 0 0 1px rgba(236, 117, 92, 0.24), 0 10px 24px rgba(0,0,0,0.22)",
+  },
+
+  profileSyncPanelSynced: {
+    background:
+      "linear-gradient(180deg, rgba(35, 72, 38, 0.72), rgba(10, 23, 12, 0.82))",
+    color: "#d4ffd0",
+    boxShadow:
+      "inset 0 0 0 1px rgba(130, 232, 120, 0.2), 0 10px 24px rgba(0,0,0,0.22)",
+  },
+
+  profileSyncText: {
+    minWidth: 0,
+    display: "grid",
+    gap: 3,
+    fontSize: 12,
+    fontWeight: 800,
+    lineHeight: 1.25,
+    textShadow: "0 2px 4px rgba(0,0,0,0.72)",
+  },
+
+  profileSyncButton: {
+    minWidth: 164,
+    height: 34,
+    padding: "0 14px",
+    border: "1px solid rgba(255, 226, 163, 0.34)",
+    background:
+      "linear-gradient(180deg, rgba(97, 78, 42, 0.92), rgba(37, 31, 18, 0.96))",
+    color: "#fff0bd",
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 1000,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
 
   profileHeadquartersPanel: {

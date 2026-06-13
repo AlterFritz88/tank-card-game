@@ -361,6 +361,12 @@ export class RoomManager {
       case "SAVE_PROFILE":
         this.saveProfile(socket, message.requestId, message.playerId, message.profile);
         break;
+      case "UPDATE_NICKNAME":
+        this.updateNickname(socket, message);
+        break;
+      case "UPDATE_FAVORITE_HEADQUARTERS":
+        this.updateFavoriteHeadquarters(socket, message);
+        break;
       case "CLAIM_BATTLE_REWARD":
         this.claimBattleReward(socket, message);
         break;
@@ -476,6 +482,39 @@ export class RoomManager {
       });
     } catch (error) {
       this.sendProfileError(socket, requestId, error);
+    }
+  }
+
+  private updateNickname(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "UPDATE_NICKNAME" }>
+  ) {
+    try {
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile: this.profiles.updateNickname(message.playerId, message.nickname),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
+  private updateFavoriteHeadquarters(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "UPDATE_FAVORITE_HEADQUARTERS" }>
+  ) {
+    try {
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile: this.profiles.updateFavoriteHeadquarters(
+          message.playerId,
+          message.headquartersId
+        ),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
     }
   }
 

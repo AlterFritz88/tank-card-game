@@ -8,6 +8,7 @@ Use this checklist before every release candidate.
 - [ ] `cd server && npm run build` passes.
 - [ ] Production env uses `wss://` URLs for `VITE_PVP_SERVER_URL`.
 - [ ] Production env uses `wss://` URLs for `VITE_PROFILE_SERVER_URL`.
+- [ ] Server `WS_ALLOWED_ORIGINS` contains the deployed frontend origin.
 - [ ] Server has persistent `PLAYER_PROFILE_DB_PATH` and `PLAYER_ACCOUNT_DB_PATH` storage.
 - [ ] Server WebSocket limits are configured or intentionally left at defaults.
 

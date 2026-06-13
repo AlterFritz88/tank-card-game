@@ -57,6 +57,7 @@ Environment:
 
 ```bash
 PORT=8787
+WS_ALLOWED_ORIGINS=https://your-frontend.example.com
 PLAYER_PROFILE_DB_PATH=./data/player-profiles.json
 PLAYER_ACCOUNT_DB_PATH=./data/player-accounts.json
 PVP_RECONNECT_GRACE_MS=15000
@@ -74,6 +75,17 @@ HOST=0.0.0.0
 ```
 
 On most managed hosts, leave `HOST` unset and let the platform bind the process.
+
+`WS_ALLOWED_ORIGINS` is a comma-separated list of browser origins allowed to
+open the WebSocket connection. Use the deployed frontend origin, for example
+`https://panzershrek.example.com`. You can add local origins while testing:
+
+```bash
+WS_ALLOWED_ORIGINS=https://panzershrek.example.com,http://localhost:5173
+```
+
+If `WS_ALLOWED_ORIGINS` is omitted, the server accepts every origin. That is
+convenient for local development, but should not be used for a public build.
 
 ## Persistent Profile Data
 
@@ -98,9 +110,10 @@ custom decks, and accounts will be lost after redeploys or restarts.
 
 1. Deploy the WebSocket server.
 2. Confirm the server is reachable with a `wss://` URL.
-3. Set `VITE_PVP_SERVER_URL` and `VITE_PROFILE_SERVER_URL` on the frontend host.
-4. Build and deploy the frontend.
-5. Run the release checklist.
+3. Add the frontend host to `WS_ALLOWED_ORIGINS` on the server.
+4. Set `VITE_PVP_SERVER_URL` and `VITE_PROFILE_SERVER_URL` on the frontend host.
+5. Build and deploy the frontend.
+6. Run the release checklist.
 
 ## Known Production Warnings
 

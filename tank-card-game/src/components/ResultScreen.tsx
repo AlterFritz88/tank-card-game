@@ -22,6 +22,7 @@ type ResultScreenProps = {
   reward?: BattleReward | null;
   rewardStatus?: "pending" | "claimed" | "failed" | "idle";
   rewardError?: string | null;
+  rewardSyncPending?: boolean;
   onRetryReward?: () => void;
 };
 
@@ -79,6 +80,7 @@ export function ResultScreen({
   reward = null,
   rewardStatus = "idle",
   rewardError = null,
+  rewardSyncPending = false,
   onRetryReward,
 }: ResultScreenProps) {
   const [activeTab, setActiveTab] = useState<ResultTab>("summary");
@@ -182,6 +184,11 @@ export function ResultScreen({
             {rewardStatus === "failed" ? (
               <RewardClaimNotice tone="failed">
                 {rewardError ?? "Награда не начислена: сервер профиля недоступен"}
+              </RewardClaimNotice>
+            ) : null}
+            {rewardSyncPending ? (
+              <RewardClaimNotice tone="queued">
+                Награда сохранена локально. Будет синхронизирована при подключении к серверу.
               </RewardClaimNotice>
             ) : null}
 
@@ -304,13 +311,14 @@ function RewardClaimNotice({
   tone,
 }: {
   children: ReactNode;
-  tone: "pending" | "failed";
+  tone: "pending" | "failed" | "queued";
 }) {
   return (
     <div
       style={{
         ...styles.rewardClaimNotice,
         ...(tone === "failed" ? styles.rewardClaimNoticeFailed : {}),
+        ...(tone === "queued" ? styles.rewardClaimNoticeQueued : {}),
       }}
     >
       {children}
@@ -739,6 +747,13 @@ const styles: Record<string, CSSProperties> = {
     background:
       "linear-gradient(180deg, rgba(83, 31, 24, 0.78), rgba(18, 10, 8, 0.78))",
     color: "#ffd1c6",
+  },
+
+  rewardClaimNoticeQueued: {
+    border: "1px solid rgba(110, 166, 220, 0.34)",
+    background:
+      "linear-gradient(180deg, rgba(25, 48, 72, 0.72), rgba(10, 16, 24, 0.74))",
+    color: "#cde9ff",
   },
 
   section: {

@@ -584,11 +584,11 @@ const styles: Record<string, React.CSSProperties> = {
   artVignette: {
     position: "absolute",
     left: "9.8%",
-    top: "55.95%",
+    top: "10.95%",
     width: "81%",
-    height: "72.1%",
+    height: "82.1%",
     background:
-      "radial-gradient(circle at 50% 45%, transparent 50%, rgba(0,0,0,0.38) 100%), linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0.24))",
+      "radial-gradient(circle at 50% 45%, transparent 20%, rgba(0,0,0,0.38) 100%), linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0.24))",
     pointerEvents: "none",
   },
 

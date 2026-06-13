@@ -50,6 +50,18 @@ export type PvpClientMessage =
       profile: PlayerProgress;
     }
   | {
+      type: "UPDATE_NICKNAME";
+      requestId: string;
+      playerId: string;
+      nickname: string;
+    }
+  | {
+      type: "UPDATE_FAVORITE_HEADQUARTERS";
+      requestId: string;
+      playerId: string;
+      headquartersId: HeadquartersId | null;
+    }
+  | {
       type: "CLAIM_BATTLE_REWARD";
       requestId: string;
       playerId: string;

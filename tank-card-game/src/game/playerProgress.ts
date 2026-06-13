@@ -4,7 +4,7 @@ import {
   getTrainingHeadquartersIds,
 } from "./headquarters";
 import { getCardOrNull, normalizeCardId } from "./cards";
-import type { BattleReward } from "./economy";
+import { calculateBattleReward, type BattleReward } from "./economy";
 import { getDeckCardIds } from "./initialState";
 import { RESEARCH_TREES, type ResearchNode } from "./researchTrees";
 import {
@@ -37,6 +37,21 @@ export type PlayerSavedDeck = {
   updatedAt: number;
 };
 
+export type PendingPlayerRewardClaim =
+  | {
+      type: "battle";
+      claimId: string;
+      battle: ClientBattleState;
+      mode: GameMode;
+      localPlayerId: PlayerId;
+      matchEndReason?: MatchEndReason | null;
+    }
+  | {
+      type: "tutorial";
+      reward: BattleReward;
+      localPlayerWon: boolean;
+    };
+
 export type PlayerProfile = {
   nickname: string;
   accountType: PlayerAccountType;
@@ -56,6 +71,7 @@ export type PlayerProfile = {
   ownedCardCopies: Record<string, number>;
   savedDecks: PlayerSavedDeck[];
   claimedBattleRewardIds: string[];
+  pendingRewardClaims: PendingPlayerRewardClaim[];
 };
 
 export type PlayerProgress = PlayerProfile;
@@ -136,6 +152,19 @@ function createBattleRewardClaimId(input: {
   return `battle:${hashText(payload)}`;
 }
 
+function createEmptyBattleReward(reward: BattleReward): BattleReward {
+  return {
+    ...reward,
+    rawHeadquartersXp: 0,
+    headquartersXp: 0,
+    freeXp: 0,
+    rawIronTracks: 0,
+    repairCost: 0,
+    ironTracks: 0,
+    goldTracks: 0,
+  };
+}
+
 export function loadPlayerProgress(): PlayerProgress {
   const fallbackProgress = createInitialPlayerProgress();
 
@@ -155,28 +184,86 @@ export function savePlayerProgress(progress: PlayerProgress) {
   window.localStorage.setItem(PLAYER_PROGRESS_KEY, JSON.stringify(progress));
 }
 
+function saveServerPlayerProgress(
+  profile: PlayerProgress,
+  pendingRewardClaims = loadPlayerProgress().pendingRewardClaims
+): PlayerProgress {
+  const nextProfile = normalizePlayerProgress({
+    ...profile,
+    pendingRewardClaims,
+  });
+  savePlayerProgress(nextProfile);
+
+  return nextProfile;
+}
+
 export async function syncPlayerProgressFromServer(): Promise<PlayerProgress> {
   try {
     const profileClient = await getProfileClient();
     const playerId = getCurrentUserId();
     const legacyPlayerId = getLegacyPlayerIdForMigration();
+    const localProgress = loadPlayerProgress();
 
     if (legacyPlayerId && legacyPlayerId !== playerId) {
       const migratedProfile = await profileClient.saveProfile(
         playerId,
-        loadPlayerProgress()
+        localProgress
       );
       clearLegacyPlayerIdMigration();
-      savePlayerProgress(migratedProfile);
-      return migratedProfile;
+      return saveServerPlayerProgress(
+        migratedProfile,
+        localProgress.pendingRewardClaims
+      );
+    }
+
+    if (localProgress.pendingRewardClaims.length > 0) {
+      return await flushPendingRewardClaims(profileClient, playerId, localProgress);
     }
 
     const profile = await profileClient.getProfile(playerId);
-    savePlayerProgress(profile);
-    return profile;
+    return saveServerPlayerProgress(profile, []);
   } catch {
     return loadPlayerProgress();
   }
+}
+
+async function flushPendingRewardClaims(
+  profileClient: Awaited<ReturnType<typeof getProfileClient>>,
+  playerId: string,
+  progress: PlayerProgress
+): Promise<PlayerProgress> {
+  let latestProfile: PlayerProgress = progress;
+  const remainingClaims: PendingPlayerRewardClaim[] = [];
+
+  for (const claim of progress.pendingRewardClaims) {
+    try {
+      const response =
+        claim.type === "battle"
+          ? await profileClient.claimBattleReward(playerId, claim.claimId, {
+              battle: claim.battle,
+              mode: claim.mode,
+              localPlayerId: claim.localPlayerId,
+              matchEndReason: claim.matchEndReason ?? null,
+            })
+          : await profileClient.claimTutorialReward(
+              playerId,
+              claim.reward,
+              claim.localPlayerWon
+            );
+
+      latestProfile = response.profile;
+    } catch {
+      remainingClaims.push(claim);
+    }
+  }
+
+  const nextProfile = normalizePlayerProgress({
+    ...latestProfile,
+    pendingRewardClaims: remainingClaims,
+  });
+  savePlayerProgress(nextProfile);
+
+  return nextProfile;
 }
 
 export async function claimBattleRewardFromServer(input: {
@@ -187,13 +274,20 @@ export async function claimBattleRewardFromServer(input: {
 }): Promise<{ profile: PlayerProgress; reward?: BattleReward } | null> {
   try {
     const profileClient = await getProfileClient();
+    const claimId = createBattleRewardClaimId(input);
     const result = await profileClient.claimBattleReward(
       getCurrentUserId(),
-      createBattleRewardClaimId(input),
+      claimId,
       input
     );
-    savePlayerProgress(result.profile);
-    return result;
+    const pendingRewardClaims = loadPlayerProgress().pendingRewardClaims.filter(
+      (claim) => claim.type !== "battle" || claim.claimId !== claimId
+    );
+
+    return {
+      ...result,
+      profile: saveServerPlayerProgress(result.profile, pendingRewardClaims),
+    };
   } catch {
     return null;
   }
@@ -210,8 +304,11 @@ export async function claimPvpBattleRewardFromServer(input: {
       input.roomId,
       input.localPlayerId
     );
-    savePlayerProgress(result.profile);
-    return result;
+
+    return {
+      ...result,
+      profile: saveServerPlayerProgress(result.profile),
+    };
   } catch {
     return null;
   }
@@ -228,33 +325,35 @@ export async function claimTutorialRewardFromServer(input: {
       input.reward,
       input.localPlayerWon ?? true
     );
-    savePlayerProgress(result.profile);
-    return result;
+    const pendingRewardClaims = loadPlayerProgress().pendingRewardClaims.filter(
+      (claim) => claim.type !== "tutorial"
+    );
+
+    return {
+      ...result,
+      profile: saveServerPlayerProgress(result.profile, pendingRewardClaims),
+    };
   } catch {
     return null;
   }
 }
 
 function createEmptyTutorialReward(reward: BattleReward): BattleReward {
-  return {
-    ...reward,
-    rawHeadquartersXp: 0,
-    headquartersXp: 0,
-    freeXp: 0,
-    rawIronTracks: 0,
-    repairCost: 0,
-    ironTracks: 0,
-    goldTracks: 0,
-  };
+  return createEmptyBattleReward(reward);
 }
 
-export function applyTutorialBattleRewardToProgress(
-  reward: BattleReward,
-  localPlayerWon?: boolean
-): PlayerProgress {
-  const progress = loadPlayerProgress();
-  if (progress.tutorialCompleted) return progress;
+function getBattleWinner(battle: ClientBattleState, localPlayerId: PlayerId) {
+  return (
+    (battle.status === "player_won" && localPlayerId === "player") ||
+    (battle.status === "bot_won" && localPlayerId === "bot")
+  );
+}
 
+function applyRewardToProgress(
+  progress: PlayerProgress,
+  reward: BattleReward,
+  localPlayerWon: boolean
+): PlayerProgress {
   const currentHeadquartersXp =
     progress.headquartersXp[reward.headquartersId] ?? 0;
   const currentHeadquartersMatches =
@@ -265,9 +364,9 @@ export function applyTutorialBattleRewardToProgress(
     wins: 0,
     losses: 0,
   };
-  const nextProgress: PlayerProgress = {
+
+  return {
     ...progress,
-    tutorialCompleted: true,
     ironTracks: progress.ironTracks + reward.ironTracks,
     goldTracks: progress.goldTracks + reward.goldTracks,
     freeXp: progress.freeXp + reward.freeXp,
@@ -280,24 +379,110 @@ export function applyTutorialBattleRewardToProgress(
       ...progress.headquartersMatchCounts,
       [reward.headquartersId]: currentHeadquartersMatches + 1,
     },
-    headquartersBattleStats:
-      localPlayerWon === undefined
-        ? progress.headquartersBattleStats
-        : {
-            ...progress.headquartersBattleStats,
-            [reward.headquartersId]: {
-              wins: currentHeadquartersStats.wins + (localPlayerWon ? 1 : 0),
-              losses:
-                currentHeadquartersStats.losses + (localPlayerWon ? 0 : 1),
-            },
+    headquartersBattleStats: {
+      ...progress.headquartersBattleStats,
+      [reward.headquartersId]: {
+        wins: currentHeadquartersStats.wins + (localPlayerWon ? 1 : 0),
+        losses: currentHeadquartersStats.losses + (localPlayerWon ? 0 : 1),
+      },
+    },
+    battleStats: {
+      wins: progress.battleStats.wins + (localPlayerWon ? 1 : 0),
+      losses: progress.battleStats.losses + (localPlayerWon ? 0 : 1),
+    },
+  };
+}
+
+export function applyBattleRewardToProgress(input: {
+  battle: ClientBattleState;
+  mode: GameMode;
+  localPlayerId: PlayerId;
+  matchEndReason?: MatchEndReason | null;
+  queueForServer?: boolean;
+}): { progress: PlayerProgress; reward: BattleReward } | null {
+  const { battle, mode, localPlayerId, matchEndReason = null } = input;
+  if (battle.status !== "player_won" && battle.status !== "bot_won") return null;
+
+  const progress = loadPlayerProgress();
+  const claimId = createBattleRewardClaimId({
+    battle,
+    mode,
+    localPlayerId,
+    matchEndReason,
+  });
+  const rewardHeadquartersId =
+    battle.headquarters[localPlayerId].headquartersId ??
+    battle[localPlayerId].headquartersId;
+  const reward = calculateBattleReward({
+    battle,
+    mode,
+    localPlayerId,
+    matchEndReason,
+    headquartersFullyResearched: isHeadquartersFullyResearched(
+      progress,
+      rewardHeadquartersId
+    ),
+  });
+
+  if (progress.claimedBattleRewardIds.includes(claimId)) {
+    return {
+      progress,
+      reward: createEmptyBattleReward(reward),
+    };
+  }
+
+  const localPlayerWon = getBattleWinner(battle, localPlayerId);
+  const pendingRewardClaims =
+    input.queueForServer === false
+      ? progress.pendingRewardClaims
+      : [
+          {
+            type: "battle" as const,
+            claimId,
+            battle,
+            mode,
+            localPlayerId,
+            matchEndReason,
           },
-    battleStats:
-      localPlayerWon === undefined
-        ? progress.battleStats
-        : {
-            wins: progress.battleStats.wins + (localPlayerWon ? 1 : 0),
-            losses: progress.battleStats.losses + (localPlayerWon ? 0 : 1),
-          },
+          ...progress.pendingRewardClaims.filter(
+            (claim) => claim.type !== "battle" || claim.claimId !== claimId
+          ),
+        ];
+  const nextProgress: PlayerProgress = {
+    ...applyRewardToProgress(progress, reward, localPlayerWon),
+    claimedBattleRewardIds: [
+      claimId,
+      ...progress.claimedBattleRewardIds,
+    ].slice(0, 500),
+    pendingRewardClaims,
+  };
+
+  savePlayerProgress(nextProgress);
+
+  return {
+    progress: nextProgress,
+    reward,
+  };
+}
+
+export function applyTutorialBattleRewardToProgress(
+  reward: BattleReward,
+  localPlayerWon?: boolean
+): PlayerProgress {
+  const progress = loadPlayerProgress();
+  if (progress.tutorialCompleted) return progress;
+
+  const nextProgress: PlayerProgress = {
+    ...applyRewardToProgress(progress, reward, localPlayerWon ?? true),
+    tutorialCompleted: true,
+    pendingRewardClaims: [
+      {
+        type: "tutorial",
+        reward,
+        localPlayerWon: localPlayerWon ?? true,
+      },
+      ...progress.pendingRewardClaims.filter((claim) => claim.type !== "tutorial"),
+    ],
   };
 
   savePlayerProgress(nextProgress);
@@ -353,6 +538,7 @@ export function createInitialPlayerProgress(): PlayerProgress {
     ownedCardCopies: starterCardCopies,
     savedDecks: [],
     claimedBattleRewardIds: [],
+    pendingRewardClaims: [],
   };
 }
 
@@ -457,7 +643,56 @@ function normalizePlayerProgress(
           (rewardId): rewardId is string => typeof rewardId === "string"
         )
       : fallback.claimedBattleRewardIds,
+    pendingRewardClaims: Array.isArray(progress.pendingRewardClaims)
+      ? normalizePendingRewardClaims(progress.pendingRewardClaims)
+      : fallback.pendingRewardClaims,
   };
+}
+
+function normalizePendingRewardClaims(
+  claims: unknown[]
+): PendingPlayerRewardClaim[] {
+  return claims.flatMap((claim): PendingPlayerRewardClaim[] => {
+    if (!claim || typeof claim !== "object") return [];
+
+    const candidate = claim as Partial<PendingPlayerRewardClaim>;
+    if (candidate.type === "battle") {
+      if (
+        typeof candidate.claimId !== "string" ||
+        !candidate.battle ||
+        typeof candidate.battle !== "object" ||
+        (candidate.mode !== "ai" &&
+          candidate.mode !== "campaign" &&
+          candidate.mode !== "pvp") ||
+        (candidate.localPlayerId !== "player" && candidate.localPlayerId !== "bot")
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          type: "battle",
+          claimId: candidate.claimId,
+          battle: candidate.battle as ClientBattleState,
+          mode: candidate.mode,
+          localPlayerId: candidate.localPlayerId,
+          matchEndReason: candidate.matchEndReason ?? null,
+        },
+      ];
+    }
+
+    if (candidate.type === "tutorial" && candidate.reward) {
+      return [
+        {
+          type: "tutorial",
+          reward: candidate.reward,
+          localPlayerWon: candidate.localPlayerWon ?? true,
+        },
+      ];
+    }
+
+    return [];
+  });
 }
 
 export function getFavoriteHeadquartersId(
@@ -491,12 +726,11 @@ export async function setFavoriteHeadquartersIdOnServer(
 
   try {
     const profileClient = await getProfileClient();
-    const profile = await profileClient.saveProfile(
+    const profile = await profileClient.updateFavoriteHeadquarters(
       getCurrentUserId(),
-      nextProgress
+      nextProgress.favoriteHeadquartersId
     );
-    savePlayerProgress(profile);
-    return profile;
+    return saveServerPlayerProgress(profile);
   } catch {
     return null;
   }
@@ -516,12 +750,11 @@ export async function setPlayerNicknameOnServer(
 
   try {
     const profileClient = await getProfileClient();
-    const profile = await profileClient.saveProfile(
+    const profile = await profileClient.updateNickname(
       getCurrentUserId(),
-      nextProgress
+      nextProgress.nickname
     );
-    savePlayerProgress(profile);
-    return profile;
+    return saveServerPlayerProgress(profile);
   } catch {
     return null;
   }
@@ -540,8 +773,12 @@ export async function registerPlayerAccount(input: {
   });
 
   setCurrentUserId(authResult.userId);
-  savePlayerProgress(authResult.profile);
-  return authResult.profile;
+  return saveServerPlayerProgress(
+    authResult.profile,
+    input.mergeGuestProgress ?? true
+      ? loadPlayerProgress().pendingRewardClaims
+      : []
+  );
 }
 
 export async function loginPlayerAccount(input: {
@@ -557,8 +794,12 @@ export async function loginPlayerAccount(input: {
   });
 
   setCurrentUserId(authResult.userId);
-  savePlayerProgress(authResult.profile);
-  return authResult.profile;
+  return saveServerPlayerProgress(
+    authResult.profile,
+    input.mergeGuestProgress ?? false
+      ? loadPlayerProgress().pendingRewardClaims
+      : []
+  );
 }
 
 export async function logoutPlayerAccount(): Promise<PlayerProgress> {
@@ -567,8 +808,7 @@ export async function logoutPlayerAccount(): Promise<PlayerProgress> {
   try {
     const profileClient = await getProfileClient();
     const profile = await profileClient.getProfile(guestUserId);
-    savePlayerProgress(profile);
-    return profile;
+    return saveServerPlayerProgress(profile, []);
   } catch {
     const fallbackProfile = createInitialPlayerProgress();
     savePlayerProgress(fallbackProfile);
@@ -695,8 +935,7 @@ export async function researchCardOnServer(
       cardId,
       headquartersId
     );
-    savePlayerProgress(profile);
-    return profile;
+    return saveServerPlayerProgress(profile);
   } catch {
     return null;
   }
@@ -714,8 +953,7 @@ export async function researchHeadquartersOnServer(
       targetHeadquartersId,
       sourceHeadquartersId
     );
-    savePlayerProgress(profile);
-    return profile;
+    return saveServerPlayerProgress(profile);
   } catch {
     return null;
   }
@@ -732,8 +970,7 @@ export async function purchaseCardCopyOnServer(
       getCurrentUserId(),
       cardId
     );
-    savePlayerProgress(profile);
-    return profile;
+    return saveServerPlayerProgress(profile);
   } catch {
     return null;
   }
@@ -749,8 +986,7 @@ export async function purchaseHeadquartersOnServer(
       getCurrentUserId(),
       headquartersId
     );
-    savePlayerProgress(profile);
-    return profile;
+    return saveServerPlayerProgress(profile);
   } catch {
     return null;
   }

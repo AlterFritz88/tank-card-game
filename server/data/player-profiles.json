@@ -595,19 +595,23 @@
     "tutorialCompleted": true,
     "favoriteHeadquartersId": null,
     "battleStats": {
-      "wins": 2,
+      "wins": 6,
       "losses": 0
     },
-    "ironTracks": 642,
+    "ironTracks": 837,
     "goldTracks": 5,
-    "freeXp": 45,
+    "freeXp": 69,
     "headquartersXp": {
       "german_artillery_division": 65,
-      "training_unit": 120
+      "training_unit": 271,
+      "german_rear_corps": 67,
+      "trainingslager": 88
     },
     "headquartersMatchCounts": {
       "german_artillery_division": 1,
-      "training_unit": 1
+      "training_unit": 3,
+      "german_rear_corps": 1,
+      "trainingslager": 1
     },
     "headquartersBattleStats": {
       "german_artillery_division": {
@@ -615,6 +619,14 @@
         "losses": 0
       },
       "training_unit": {
+        "wins": 3,
+        "losses": 0
+      },
+      "german_rear_corps": {
+        "wins": 1,
+        "losses": 0
+      },
+      "trainingslager": {
         "wins": 1,
         "losses": 0
       }
@@ -733,9 +745,14 @@
     },
     "savedDecks": [],
     "claimedBattleRewardIds": [
+      "battle:1nfzt9y",
+      "battle:16jsia3",
+      "battle:rrbeqk",
+      "battle:qq3duz",
       "tutorial:first-completion",
       "battle:vvxdgr"
-    ]
+    ],
+    "pendingRewardClaims": []
   },
   "guest:b4ef967b-1f82-44bb-a716-d67ba51ddc7c": {
     "nickname": "Командир",
