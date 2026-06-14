@@ -7,6 +7,7 @@ import {
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { StageBackground } from "./GameStage";
 import buttonImage from "../assets/button.webp";
@@ -1273,59 +1274,62 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
         ) : null}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {previewNode && (previewCard || previewNode.headquartersId) ? (
-          <motion.div
-            style={styles.cardPreviewOverlay}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.16 }}
-            onMouseDown={closeNodePreview}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              closeNodePreview();
-            }}
-          >
+      {createPortal(
+        <AnimatePresence>
+          {previewNode && (previewCard || previewNode.headquartersId) ? (
             <motion.div
-              style={styles.cardPreviewPanel}
-              initial={{ opacity: 0, scale: 0.84, y: 18 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 12 }}
-              transition={{ type: "spring", stiffness: 260, damping: 24 }}
-              onMouseDown={(event) => event.stopPropagation()}
-              onContextMenu={(event) => event.preventDefault()}
+              style={styles.cardPreviewOverlay}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.16 }}
+              onMouseDown={closeNodePreview}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                closeNodePreview();
+              }}
             >
-              <button
-                type="button"
-                style={styles.cardPreviewClose}
-                onClick={closeNodePreview}
-                aria-label="Закрыть просмотр карты"
+              <motion.div
+                style={styles.cardPreviewPanel}
+                initial={{ opacity: 0, scale: 0.84, y: 18 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 12 }}
+                transition={{ type: "spring", stiffness: 260, damping: 24 }}
+                onMouseDown={(event) => event.stopPropagation()}
+                onContextMenu={(event) => event.preventDefault()}
               >
-                ×
-              </button>
+                <button
+                  type="button"
+                  style={styles.cardPreviewClose}
+                  onClick={closeNodePreview}
+                  aria-label="Закрыть просмотр карты"
+                >
+                  ×
+                </button>
 
-              {previewCard ? (
-                <HandCardView card={previewCard} displayMode="preview" />
-              ) : previewHeadquarters ? (
-                <HandCardView
-                  headquartersId={previewHeadquarters.id}
-                  headquarters={{
-                    hp: previewHeadquarters.hp,
-                    attack: previewHeadquarters.attack,
-                    fuelGeneration: previewHeadquarters.fuelGeneration,
-                  }}
-                  displayMode="preview"
-                />
-              ) : null}
+                {previewCard ? (
+                  <HandCardView card={previewCard} displayMode="preview" />
+                ) : previewHeadquarters ? (
+                  <HandCardView
+                    headquartersId={previewHeadquarters.id}
+                    headquarters={{
+                      hp: previewHeadquarters.hp,
+                      attack: previewHeadquarters.attack,
+                      fuelGeneration: previewHeadquarters.fuelGeneration,
+                    }}
+                    displayMode="preview"
+                  />
+                ) : null}
 
-              <div style={styles.cardPreviewHint}>
-                ПКМ по фону или Esc — закрыть
-              </div>
+                <div style={styles.cardPreviewHint}>
+                  ПКМ по фону или Esc — закрыть
+                </div>
+              </motion.div>
             </motion.div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+          ) : null}
+        </AnimatePresence>,
+        document.body
+      )}
     </main>
   );
 }

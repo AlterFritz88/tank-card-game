@@ -1,5 +1,6 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal, flushSync } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { getCard } from "../game/cards";
 import { getNextBotAction } from "../game/bot";
@@ -165,6 +166,27 @@ type MovementArrowEffect = {
   from: CellCenter;
   to: CellCenter;
   phase: "extending" | "following";
+};
+
+type MovementUnitEffect = {
+  id: number;
+  unitId: string;
+  cardId: string;
+  owner: PlayerId;
+  currentHp: number;
+  alreadyMoved: boolean;
+  alreadyAttacked: boolean;
+  from: CellCenter;
+  to: CellCenter;
+  width: number;
+  height: number;
+};
+
+type MovementPath = {
+  from: CellCenter;
+  to: CellCenter;
+  width: number;
+  height: number;
 };
 
 type DestroyedCardEffect = {
@@ -600,12 +622,17 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const [spawnCardEffects, setSpawnCardEffects] = useState<SpawnCardEffect[]>([]);
   const [movementArrowEffect, setMovementArrowEffect] =
     useState<MovementArrowEffect | null>(null);
+  const [movementUnitEffect, setMovementUnitEffect] =
+    useState<MovementUnitEffect | null>(null);
   const [destroyedCardEffects, setDestroyedCardEffects] = useState<
     DestroyedCardEffect[]
   >([]);
   const [hiddenDestroyedObjectIds, setHiddenDestroyedObjectIds] = useState<
     Set<string>
   >(new Set());
+  const [hiddenMovingUnitIds, setHiddenMovingUnitIds] = useState<Set<string>>(
+    new Set()
+  );
   const [hiddenSpawningCardIds, setHiddenSpawningCardIds] = useState<Set<string>>(
     new Set()
   );
@@ -712,8 +739,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       unitId: string,
       position: Position,
       durationMs?: number
-    ) => Promise<void>
-  >(() => Promise.resolve());
+    ) => Promise<MovementPath | null>
+  >(() => Promise.resolve(null));
   const playAndDispatchLocalMovementRef = useRef<
     (
       state: BattleState,
@@ -2034,11 +2061,45 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       : [action.position];
 
     for (const position of positions) {
-      await playMoveIntentAnimation(action.playerId, action.unitId, position);
+      const currentBattle =
+        (useBattleStore.getState().battle as BattleState | null) ?? state;
+      const movingUnit =
+        currentBattle.units.find((item) => item.instanceId === action.unitId) ??
+        unit;
+      const movementPath = await playMoveIntentAnimation(
+        action.playerId,
+        action.unitId,
+        position
+      );
       const stepAction: BattleAction = {
         ...action,
         position,
       };
+
+      if (movementPath && movingUnit) {
+        movementArrowEffectIdRef.current += 1;
+        const effectId = movementArrowEffectIdRef.current;
+
+        flushSync(() => {
+          setHiddenMovingUnitIds((current) => {
+            const next = new Set(current);
+            next.add(action.unitId);
+            return next;
+          });
+          setMovementUnitEffect({
+            id: effectId,
+            unitId: action.unitId,
+            cardId: movingUnit.cardId,
+            owner: movingUnit.ownerId,
+            currentHp: movingUnit.currentHp,
+            alreadyMoved: movingUnit.alreadyMoved,
+            alreadyAttacked: movingUnit.alreadyAttacked,
+            ...movementPath,
+          });
+        });
+
+        await waitForNextFrame();
+      }
 
       if (options.preserveLaterSelection) {
         dispatchQueuedBattleAction(stepAction);
@@ -2047,6 +2108,17 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       }
       await waitForNextFrame();
       await delay(MOVE_ARROW_FOLLOW_MS);
+
+      if (movementPath) {
+        setMovementUnitEffect((current) =>
+          current?.unitId === action.unitId ? null : current
+        );
+        setHiddenMovingUnitIds((current) => {
+          const next = new Set(current);
+          next.delete(action.unitId);
+          return next;
+        });
+      }
     }
   }
 
@@ -2055,7 +2127,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     unitId: string,
     position: Position,
     durationMs = MOVE_ARROW_LEAD_MS
-  ): Promise<void> {
+  ): Promise<MovementPath | null> {
     while (movementAnimationRunningRef.current) {
       await delay(20);
     }
@@ -2072,18 +2144,20 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
       if (!boardElement || !unitElement || !targetCellElement) {
         await delay(durationMs);
-        return;
+        return null;
       }
 
       playCardDistributionSound();
 
       movementArrowEffectIdRef.current += 1;
+      const from = getElementCenterRelativeToBoard(boardElement, unitElement);
+      const to = getElementCenterRelativeToBoard(boardElement, targetCellElement);
 
       const effect: MovementArrowEffect = {
         id: movementArrowEffectIdRef.current,
         owner,
-        from: getElementCenterRelativeToBoard(boardElement, unitElement),
-        to: getElementCenterRelativeToBoard(boardElement, targetCellElement),
+        from,
+        to,
         phase: "extending",
       };
 
@@ -2123,16 +2197,76 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           current?.id === effect.id ? null : current
         );
       }, MOVE_ARROW_FOLLOW_MS);
+
+      return {
+        from,
+        to,
+        width: unitElement.offsetWidth,
+        height: unitElement.offsetHeight,
+      };
     } finally {
       movementAnimationRunningRef.current = false;
     }
+  }
+
+  async function playRemoteMoveIntentAnimation(
+    owner: PlayerId,
+    unitId: string,
+    position: Position,
+    durationMs: number
+  ) {
+    const currentBattle = useBattleStore.getState().battle as BattleState | null;
+    const movingUnit = currentBattle?.units.find(
+      (item) => item.instanceId === unitId
+    );
+    const movementPath = await playMoveIntentAnimation(
+      owner,
+      unitId,
+      position,
+      durationMs
+    );
+
+    if (!movementPath || !movingUnit) return;
+
+    movementArrowEffectIdRef.current += 1;
+    const effectId = movementArrowEffectIdRef.current;
+
+    flushSync(() => {
+      setHiddenMovingUnitIds((current) => {
+        const next = new Set(current);
+        next.add(unitId);
+        return next;
+      });
+      setMovementUnitEffect({
+        id: effectId,
+        unitId,
+        cardId: movingUnit.cardId,
+        owner: movingUnit.ownerId,
+        currentHp: movingUnit.currentHp,
+        alreadyMoved: movingUnit.alreadyMoved,
+        alreadyAttacked: movingUnit.alreadyAttacked,
+        ...movementPath,
+      });
+    });
+
+    await waitForNextFrame();
+    await delay(MOVE_ARROW_FOLLOW_MS);
+
+    setMovementUnitEffect((current) =>
+      current?.unitId === unitId ? null : current
+    );
+    setHiddenMovingUnitIds((current) => {
+      const next = new Set(current);
+      next.delete(unitId);
+      return next;
+    });
   }
 
   useEffect(() => {
     if (mode !== "pvp") return;
     if (!pvpMovementIntent) return;
 
-    void playMoveIntentAnimationRef.current(
+    void playRemoteMoveIntentAnimation(
       pvpMovementIntent.playerId,
       pvpMovementIntent.unitId,
       pvpMovementIntent.position,
@@ -3244,6 +3378,45 @@ function renderEnemyDeckWithTimer() {
               </AnimatePresence>
 
               <AnimatePresence>
+                {movementUnitEffect && (
+                  <motion.div
+                    key={movementUnitEffect.id}
+                    style={{
+                      ...styles.movingUnitEffect,
+                      width: movementUnitEffect.width,
+                      height: movementUnitEffect.height,
+                    }}
+                    initial={{
+                      x: movementUnitEffect.from.x - movementUnitEffect.width / 2,
+                      y: movementUnitEffect.from.y - movementUnitEffect.height / 2,
+                      opacity: 1,
+                    }}
+                    animate={{
+                      x: movementUnitEffect.to.x - movementUnitEffect.width / 2,
+                      y: movementUnitEffect.to.y - movementUnitEffect.height / 2,
+                      opacity: 1,
+                    }}
+                    exit={{ opacity: 0 }}
+                    transition={{
+                      duration: MOVE_ARROW_FOLLOW_MS / 1000,
+                      ease: "easeInOut",
+                    }}
+                  >
+                    <div style={styles.movingUnitCard}>
+                      <TankCardView
+                        card={getCard(movementUnitEffect.cardId)}
+                        variant="board"
+                        ownerId={getVisualOwnerId(movementUnitEffect.owner)}
+                        currentHp={movementUnitEffect.currentHp}
+                        alreadyMoved={movementUnitEffect.alreadyMoved}
+                        alreadyAttacked={movementUnitEffect.alreadyAttacked}
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <AnimatePresence>
                 {projectileEffect && (
                   <motion.img
                     key={projectileEffect.id}
@@ -3377,13 +3550,14 @@ function renderEnemyDeckWithTimer() {
                     const isSelected =
                       selectedAttacker?.type === "unit" &&
                       selectedAttacker.id === unit.instanceId;
+                    const isMovingUnitHidden = hiddenMovingUnitIds.has(
+                      unit.instanceId
+                    );
 
                     return (
                       <motion.button
                         type="button"
                         ref={setObjectRef(objectRefs, unit.instanceId)}
-                        layout
-                        layoutId={unit.instanceId}
                         key={unit.instanceId}
                         className={
                           tutorialHighlights && isTutorialUnitHighlighted(unit)
@@ -3498,11 +3672,11 @@ function renderEnemyDeckWithTimer() {
                           animate={{
                             opacity: hiddenDestroyedObjectIds.has(
                               unit.instanceId
-                            )
+                            ) || isMovingUnitHidden
                               ? 0
                               : 1,
                           }}
-                          transition={{ duration: 0.18 }}
+                          transition={{ duration: isMovingUnitHidden ? 0 : 0.18 }}
                         >
                           <TankCardView
                             card={card}
@@ -4010,69 +4184,72 @@ function renderEnemyDeckWithTimer() {
 
       </main>
 
-      <AnimatePresence>
-        {cardPreview && (
-          <motion.div
-            style={styles.cardPreviewOverlay}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.16 }}
-            onMouseDown={closeCardPreview}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              closeCardPreview();
-            }}
-          >
+      {createPortal(
+        <AnimatePresence>
+          {cardPreview && (
             <motion.div
-              style={styles.cardPreviewPanel}
-              initial={{ opacity: 0, scale: 0.84, y: 18 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 12 }}
-              transition={{
-                type: "spring",
-                stiffness: 260,
-                damping: 24,
+              style={styles.cardPreviewOverlay}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.16 }}
+              onMouseDown={closeCardPreview}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                closeCardPreview();
               }}
-              onMouseDown={(event) => event.stopPropagation()}
-              onContextMenu={(event) => event.preventDefault()}
             >
-              <button
-                type="button"
-                style={styles.cardPreviewClose}
-                onClick={closeCardPreview}
-                aria-label="Закрыть просмотр карты"
+              <motion.div
+                style={styles.cardPreviewPanel}
+                initial={{ opacity: 0, scale: 0.84, y: 18 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 12 }}
+                transition={{
+                  type: "spring",
+                  stiffness: 260,
+                  damping: 24,
+                }}
+                onMouseDown={(event) => event.stopPropagation()}
+                onContextMenu={(event) => event.preventDefault()}
               >
-                ×
-              </button>
+                <button
+                  type="button"
+                  style={styles.cardPreviewClose}
+                  onClick={closeCardPreview}
+                  aria-label="Закрыть просмотр карты"
+                >
+                  ×
+                </button>
 
-              {cardPreview.type === "unit" ? (
-                <HandCardView
-                  card={getCard(cardPreview.cardId)}
-                  ownerId={getVisualOwnerId(cardPreview.ownerId)}
-                  currentHp={cardPreview.currentHp}
-                  displayMode="preview"
-                />
-              ) : (
-                <HandCardView
-                  ownerId={getVisualOwnerId(cardPreview.ownerId)}
-                  headquartersId={cardPreview.headquartersId}
-                  headquarters={{
-                    hp: cardPreview.hp,
-                    attack: cardPreview.attack,
-                    fuelGeneration: cardPreview.fuelGeneration,
-                  }}
-                  displayMode="preview"
-                />
-              )}
+                {cardPreview.type === "unit" ? (
+                  <HandCardView
+                    card={getCard(cardPreview.cardId)}
+                    ownerId={getVisualOwnerId(cardPreview.ownerId)}
+                    currentHp={cardPreview.currentHp}
+                    displayMode="preview"
+                  />
+                ) : (
+                  <HandCardView
+                    ownerId={getVisualOwnerId(cardPreview.ownerId)}
+                    headquartersId={cardPreview.headquartersId}
+                    headquarters={{
+                      hp: cardPreview.hp,
+                      attack: cardPreview.attack,
+                      fuelGeneration: cardPreview.fuelGeneration,
+                    }}
+                    displayMode="preview"
+                  />
+                )}
 
-              <div style={styles.cardPreviewHint}>
-                ПКМ по фону или Esc — закрыть
-              </div>
+                <div style={styles.cardPreviewHint}>
+                  ПКМ по фону или Esc — закрыть
+                </div>
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {tutorialActive && battle.status === "active" && tutorialStep ? (
         <TutorialOverlay
@@ -4442,7 +4619,7 @@ actionSideColumn: {
  board: {
   position: "relative",
   display: "grid",
-  gridTemplateColumns: "repeat(5, minmax(120px, 1fr))",
+  gridTemplateColumns: "repeat(5, minmax(120.5px, 1fr))",
   gap: 4,
   alignItems: "stretch",
 },
@@ -4473,6 +4650,21 @@ actionSideColumn: {
   tacticalArrowEnemy: {
     filter:
       "brightness(0) saturate(100%) invert(42%) sepia(60%) saturate(980%) hue-rotate(326deg) brightness(94%) contrast(82%) drop-shadow(1px 0 0 rgba(48, 17, 17, 0.58)) drop-shadow(-1px 0 0 rgba(48, 17, 17, 0.58)) drop-shadow(0 1px 0 rgba(48, 17, 17, 0.58)) drop-shadow(0 -1px 0 rgba(48, 17, 17, 0.58))",
+  },
+
+  movingUnitEffect: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    zIndex: 9,
+    padding: 3,
+    boxSizing: "border-box",
+    pointerEvents: "none",
+  },
+
+  movingUnitCard: {
+    width: "100%",
+    height: "100%",
   },
 
   cell: {
@@ -4655,7 +4847,7 @@ actionSideColumn: {
   background: "transparent",
   border: "none",
   boxShadow: "none",
-  transform: "translateY(-235px)",
+  transform: "translateY(-233px)",
   overflow: "visible",
 },
 
@@ -4728,7 +4920,7 @@ actionSideColumn: {
   border: "1px solid rgba(255,255,255,0.08)",
 },
   playerDeckBottom: {
-    marginTop: 2,
+    marginTop: 3,
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
@@ -4743,6 +4935,7 @@ actionSideColumn: {
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
+    transform: "translateZ(0)",
   },
   headquartersAvatar: {
     position: "relative",
@@ -4845,6 +5038,7 @@ actionSideColumn: {
     background: "transparent",
     border: "none",
     boxShadow: "none",
+    transform: "translateY(1px)",
   },
 
   deckLabel: {

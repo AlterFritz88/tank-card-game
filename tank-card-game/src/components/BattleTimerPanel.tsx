@@ -41,36 +41,33 @@ export function BattleTimerPanel({
       </div>
 
       <div style={styles.timerMainRow}>
-        <motion.img
-          src={hourglassWw2Image}
-          alt=""
-          style={{
-            width: 50,
-            height: 50,
-            marginRight: 12,
-            marginTop: 0,
-            objectFit: "contain",
-            filter: isLowTime
-              ? "sepia(0.3) saturate(2) hue-rotate(-15deg) brightness(0.9)"
-              : "none",
-            opacity: 0.92,
-          }}
-          animate={
-            active
-              ? { rotate: [0, 180, 180, 360, 360] }
-              : { rotate: 0 }
-          }
-          transition={
-            active
-              ? {
-                  duration: isLowTime ? 2.45 : 3.2,
-                  repeat: Infinity,
-                  ease: ["easeInOut", "linear", "easeInOut", "linear"],
-                  times: [0, 0.18, 0.5, 0.68, 1],
-                }
-              : undefined
-          }
-        />
+        <span style={styles.hourglassFrame}>
+          <motion.img
+            src={hourglassWw2Image}
+            alt=""
+            style={{
+              ...styles.hourglassImage,
+              filter: isLowTime
+                ? "sepia(0.3) saturate(2) hue-rotate(-15deg) brightness(0.9)"
+                : "none",
+            }}
+            animate={
+              active
+                ? { rotate: [0, 180, 180, 360, 360] }
+                : { rotate: 0 }
+            }
+            transition={
+              active
+                ? {
+                    duration: isLowTime ? 2.45 : 3.2,
+                    repeat: Infinity,
+                    ease: ["easeInOut", "linear", "easeInOut", "linear"],
+                    times: [0, 0.18, 0.5, 0.68, 1],
+                  }
+                : undefined
+            }
+          />
+        </span>
 
         <motion.strong
           style={{
@@ -105,6 +102,8 @@ const styles: Record<string, React.CSSProperties> = {
     background: "transparent",
     border: "none",
     boxShadow: "none",
+    contain: "layout paint style",
+    isolation: "isolate",
   },
 
   playerReminderSlot: {
@@ -128,5 +127,30 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 4,
     fontSize: 12,
     lineHeight: 1,
+    minHeight: 50,
+    contain: "layout paint style",
+  },
+
+  hourglassFrame: {
+    flex: "0 0 62px",
+    width: 62,
+    height: 50,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    overflow: "visible",
+    contain: "layout paint style",
+    isolation: "isolate",
+  },
+
+  hourglassImage: {
+    width: 50,
+    height: 50,
+    objectFit: "contain",
+    opacity: 0.92,
+    transformOrigin: "50% 50%",
+    transformBox: "fill-box",
+    willChange: "transform",
+    backfaceVisibility: "hidden",
   },
 };

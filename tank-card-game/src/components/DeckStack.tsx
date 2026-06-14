@@ -51,6 +51,9 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    isolation: "isolate",
+    transform: "translateZ(0)",
+    backfaceVisibility: "hidden",
   },
 
   deckStackCard: {
@@ -64,6 +67,8 @@ const styles: Record<string, React.CSSProperties> = {
     border: "none",
     boxShadow: "0 14px 34px rgba(0,0,0,0.52)",
     pointerEvents: "none",
+    transform: "translateZ(0)",
+    backfaceVisibility: "hidden",
   },
 
   deckCountBadge: {
@@ -81,6 +86,7 @@ const styles: Record<string, React.CSSProperties> = {
     textShadow:
       "0 2px 0 rgba(0,0,0,0.95), 0 0 7px rgba(0,0,0,0.95), 0 0 12px rgba(246,210,122,0.45)",
     pointerEvents: "none",
+    transform: "translateZ(0)",
   },
 
   deckCountBadgeRight: {
@@ -96,5 +102,6 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     justifyContent: "center",
     pointerEvents: "none",
+    transform: "translateZ(0)",
   },
 };

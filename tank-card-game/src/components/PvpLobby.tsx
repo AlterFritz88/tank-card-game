@@ -13,6 +13,7 @@ import {
   type RefObject,
   type WheelEvent as ReactWheelEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import topBackgroundImage from "../assets/backgrounds/top_background.webp";
 import matchmakingBreakImage from "../assets/backgrounds/matchmaking/break.webp";
@@ -124,9 +125,24 @@ type CarouselDragState = {
   startScrollLeft: number;
 };
 
+function getMostPlayedHeadquartersId(progress: PlayerProgress): HeadquartersId {
+  const mostPlayedHeadquarters = Object.entries(progress.headquartersMatchCounts)
+    .filter((entry): entry is [HeadquartersId, number] => {
+      const [headquartersId, matchCount] = entry;
+      return headquartersId in HEADQUARTERS && matchCount > 0;
+    })
+    .sort(([, leftMatches], [, rightMatches]) => rightMatches - leftMatches)[0];
+
+  return mostPlayedHeadquarters?.[0] ?? getFavoriteHeadquartersId(progress);
+}
+
+function getPlayerDisplayNickname(progress: PlayerProgress, userLogin?: string | null) {
+  return userLogin?.trim() || progress.nickname;
+}
+
 function getPlayerAccountData() {
   const progress = loadPlayerProgress();
-  const headquarters = HEADQUARTERS[getFavoriteHeadquartersId(progress)];
+  const headquarters = HEADQUARTERS[getMostPlayedHeadquartersId(progress)];
   const premium = progress.accountType === "premium";
   const userId = getCurrentUserId();
   const userLogin = getCurrentUserLogin();
@@ -134,7 +150,7 @@ function getPlayerAccountData() {
   return {
     avatar: getHeadquartersAvatarAsset(headquarters.id),
     flag: getNationFlagAsset(headquarters.nation),
-    nickname: progress.nickname,
+    nickname: getPlayerDisplayNickname(progress, userLogin),
     pendingSyncCount: progress.pendingRewardClaims.length,
     identityLabel: isGuestUserId(userId)
       ? "Гость"
@@ -493,6 +509,7 @@ function PlayerProfileMenu({
   const profileServerReady = profileConnection.status === "online";
   const currentUserId = getCurrentUserId();
   const currentUserLogin = getCurrentUserLogin();
+  const displayNickname = getPlayerDisplayNickname(progress, currentUserLogin);
   const registeredUser = isRegisteredUserId(currentUserId);
   const favoriteHeadquartersId = getFavoriteHeadquartersId(progress);
   const favoriteHeadquarters = HEADQUARTERS[favoriteHeadquartersId];
@@ -605,7 +622,7 @@ function PlayerProfileMenu({
           </div>
           <div style={styles.profileIdentity}>
             <span style={styles.profileKicker}>Профиль игрока</span>
-            <h1 style={styles.profileName}>{progress.nickname}</h1>
+            <h1 style={styles.profileName}>{displayNickname}</h1>
             <span style={styles.profileAccount}>
               {progress.accountType === "premium"
                 ? "Премиум аккаунт"
@@ -1690,7 +1707,7 @@ export function PvpLobby() {
           >
             <div style={styles.campaignCarouselTrack}>
               {CAMPAIGNS.map((campaign, index) => {
-                const artUrl = `/ui/menu/campaign-${index + 1}-panzer-div.png`;
+                const artUrl = `/ui/menu/campaign-${index + 1}-panzer-div.webp`;
 
                 return (
                   <motion.button
@@ -2156,160 +2173,163 @@ export function PvpLobby() {
         {pvpError ? <div style={styles.error}>{pvpError}</div> : null}
       </section>
 
-      <AnimatePresence>
-        {previewHeadquarters ? (
-          <motion.div
-            style={{
-              ...styles.cardPreviewOverlay,
-              ...(previewDeckIsCustom ? styles.deckPreviewOverlay : {}),
-            }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.16 }}
-            onMouseDown={closeHeadquartersPreview}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              closeHeadquartersPreview();
-            }}
-          >
+      {createPortal(
+        <AnimatePresence>
+          {previewHeadquarters ? (
             <motion.div
               style={{
-                ...styles.cardPreviewPanel,
-                ...(previewDeckIsCustom ? styles.deckPreviewPanel : {}),
+                ...styles.cardPreviewOverlay,
+                ...(previewDeckIsCustom ? styles.deckPreviewOverlay : {}),
               }}
-              initial={{ opacity: 0, scale: 0.84, y: 18 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 12 }}
-              transition={{
-                type: "spring",
-                stiffness: 260,
-                damping: 24,
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.16 }}
+              onMouseDown={closeHeadquartersPreview}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                closeHeadquartersPreview();
               }}
-              onMouseDown={(event) => event.stopPropagation()}
-              onContextMenu={(event) => event.preventDefault()}
             >
-              <button
-                type="button"
-                style={styles.cardPreviewClose}
-                onClick={closeHeadquartersPreview}
-                aria-label="Закрыть просмотр карты"
-              >
-                ×
-              </button>
-
-              {previewDeckIsCustom ? (
-                <aside style={styles.deckPreviewActions}>
-                  <button
-                    type="button"
-                    style={styles.deckPreviewActionButton}
-                    onClick={deletePreviewDeck}
-                  >
-                    Удалить колоду
-                  </button>
-                  <button
-                    type="button"
-                    style={styles.deckPreviewActionButton}
-                    onClick={editPreviewDeck}
-                  >
-                    Редактировать колоду
-                  </button>
-                </aside>
-              ) : null}
-
-              <section style={styles.deckPreviewHeadquarters}>
-                <HandCardView
-                  ownerId="player"
-                  headquartersId={previewHeadquarters.id as HeadquartersId}
-                  headquarters={{
-                    hp: previewHeadquarters.hp,
-                    attack: previewHeadquarters.attack,
-                    fuelGeneration: previewHeadquarters.fuelGeneration,
-                  }}
-                  displayMode="preview"
-                />
-                {previewDeck ? (
-                  <div style={styles.deckPreviewTitleBlock}>
-                    <strong>{previewDeck.deck.name}</strong>
-                    <span>{previewDeck.deck.countLabel}</span>
-                  </div>
-                ) : null}
-              </section>
-
-              {previewDeckIsCustom ? (
-                <section style={styles.deckPreviewListPanel}>
-                  <div
-                    ref={deckPreviewListRef}
-                    className="menu-carousel-scroll"
-                    style={styles.deckPreviewUnitList}
-                    onPointerDown={startDeckPreviewScroll}
-                    onPointerMove={moveDeckPreviewScroll}
-                    onPointerUp={stopDeckPreviewScroll}
-                    onPointerCancel={stopDeckPreviewScroll}
-                  >
-                    {previewDeckCards.map(({ card, count }) => (
-                      <button
-                        key={card.id}
-                        type="button"
-                        style={styles.deckPreviewUnitRow}
-                        onContextMenu={(event) =>
-                          openPreviewUnitCard(event, card)
-                        }
-                      >
-                        <img
-                          src={getTankImage(card.id)}
-                          alt=""
-                          style={styles.deckPreviewUnitImage}
-                          draggable={false}
-                        />
-                        <span style={styles.deckPreviewUnitName}>
-                          {card.name}
-                        </span>
-                        <strong style={styles.deckPreviewUnitCount}>
-                          x{count}
-                        </strong>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              <div style={styles.cardPreviewHint}>
-                ПКМ по фону или Esc — закрыть
-              </div>
-            </motion.div>
-
-            {previewUnitCard ? (
               <motion.div
-                style={styles.unitCardPreviewPanel}
+                style={{
+                  ...styles.cardPreviewPanel,
+                  ...(previewDeckIsCustom ? styles.deckPreviewPanel : {}),
+                }}
                 initial={{ opacity: 0, scale: 0.84, y: 18 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.9, y: 12 }}
-                transition={{ type: "spring", stiffness: 260, damping: 24 }}
-                onMouseDown={(event) => event.stopPropagation()}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  setPreviewUnitCard(null);
+                transition={{
+                  type: "spring",
+                  stiffness: 260,
+                  damping: 24,
                 }}
+                onMouseDown={(event) => event.stopPropagation()}
+                onContextMenu={(event) => event.preventDefault()}
               >
                 <button
                   type="button"
                   style={styles.cardPreviewClose}
-                  onClick={() => setPreviewUnitCard(null)}
-                  aria-label="Закрыть просмотр юнита"
+                  onClick={closeHeadquartersPreview}
+                  aria-label="Закрыть просмотр карты"
                 >
                   ×
                 </button>
-                <HandCardView
-                  card={previewUnitCard}
-                  ownerId="player"
-                  displayMode="preview"
-                />
+
+                {previewDeckIsCustom ? (
+                  <aside style={styles.deckPreviewActions}>
+                    <button
+                      type="button"
+                      style={styles.deckPreviewActionButton}
+                      onClick={deletePreviewDeck}
+                    >
+                      Удалить колоду
+                    </button>
+                    <button
+                      type="button"
+                      style={styles.deckPreviewActionButton}
+                      onClick={editPreviewDeck}
+                    >
+                      Редактировать колоду
+                    </button>
+                  </aside>
+                ) : null}
+
+                <section style={styles.deckPreviewHeadquarters}>
+                  <HandCardView
+                    ownerId="player"
+                    headquartersId={previewHeadquarters.id as HeadquartersId}
+                    headquarters={{
+                      hp: previewHeadquarters.hp,
+                      attack: previewHeadquarters.attack,
+                      fuelGeneration: previewHeadquarters.fuelGeneration,
+                    }}
+                    displayMode="preview"
+                  />
+                  {previewDeck ? (
+                    <div style={styles.deckPreviewTitleBlock}>
+                      <strong>{previewDeck.deck.name}</strong>
+                      <span>{previewDeck.deck.countLabel}</span>
+                    </div>
+                  ) : null}
+                </section>
+
+                {previewDeckIsCustom ? (
+                  <section style={styles.deckPreviewListPanel}>
+                    <div
+                      ref={deckPreviewListRef}
+                      className="menu-carousel-scroll"
+                      style={styles.deckPreviewUnitList}
+                      onPointerDown={startDeckPreviewScroll}
+                      onPointerMove={moveDeckPreviewScroll}
+                      onPointerUp={stopDeckPreviewScroll}
+                      onPointerCancel={stopDeckPreviewScroll}
+                    >
+                      {previewDeckCards.map(({ card, count }) => (
+                        <button
+                          key={card.id}
+                          type="button"
+                          style={styles.deckPreviewUnitRow}
+                          onContextMenu={(event) =>
+                            openPreviewUnitCard(event, card)
+                          }
+                        >
+                          <img
+                            src={getTankImage(card.id)}
+                            alt=""
+                            style={styles.deckPreviewUnitImage}
+                            draggable={false}
+                          />
+                          <span style={styles.deckPreviewUnitName}>
+                            {card.name}
+                          </span>
+                          <strong style={styles.deckPreviewUnitCount}>
+                            x{count}
+                          </strong>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
+                <div style={styles.cardPreviewHint}>
+                  ПКМ по фону или Esc — закрыть
+                </div>
               </motion.div>
-            ) : null}
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+
+              {previewUnitCard ? (
+                <motion.div
+                  style={styles.unitCardPreviewPanel}
+                  initial={{ opacity: 0, scale: 0.84, y: 18 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: 12 }}
+                  transition={{ type: "spring", stiffness: 260, damping: 24 }}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setPreviewUnitCard(null);
+                  }}
+                >
+                  <button
+                    type="button"
+                    style={styles.cardPreviewClose}
+                    onClick={() => setPreviewUnitCard(null)}
+                    aria-label="Закрыть просмотр юнита"
+                  >
+                    ×
+                  </button>
+                  <HandCardView
+                    card={previewUnitCard}
+                    ownerId="player"
+                    displayMode="preview"
+                  />
+                </motion.div>
+              ) : null}
+            </motion.div>
+          ) : null}
+        </AnimatePresence>,
+        document.body
+      )}
     </main>
   );
 }

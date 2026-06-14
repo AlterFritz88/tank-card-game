@@ -10,6 +10,7 @@ import {
   type RefObject,
   type WheelEvent as ReactWheelEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { StageBackground } from "./GameStage";
 import buttonImage from "../assets/button.webp";
@@ -852,67 +853,70 @@ export function DeckBuilder({
         </section>
       </section>
 
-      <AnimatePresence>
-        {preview ? (
-          <motion.div
-            style={styles.previewOverlay}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.16 }}
-            onMouseDown={closeCardPreview}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              closeCardPreview();
-            }}
-          >
+      {createPortal(
+        <AnimatePresence>
+          {preview ? (
             <motion.div
-              style={styles.previewDialog}
-              initial={{ opacity: 0, scale: 0.84, y: 18 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 12 }}
-              transition={{
-                type: "spring",
-                stiffness: 260,
-                damping: 24,
+              style={styles.previewOverlay}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.16 }}
+              onMouseDown={closeCardPreview}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                closeCardPreview();
               }}
-              onMouseDown={(event) => event.stopPropagation()}
-              onContextMenu={(event) => event.preventDefault()}
             >
-              <button
-                type="button"
-                style={styles.previewCloseButton}
-                onClick={closeCardPreview}
-                aria-label="Закрыть просмотр карты"
+              <motion.div
+                style={styles.previewDialog}
+                initial={{ opacity: 0, scale: 0.84, y: 18 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 12 }}
+                transition={{
+                  type: "spring",
+                  stiffness: 260,
+                  damping: 24,
+                }}
+                onMouseDown={(event) => event.stopPropagation()}
+                onContextMenu={(event) => event.preventDefault()}
               >
-                ×
-              </button>
+                <button
+                  type="button"
+                  style={styles.previewCloseButton}
+                  onClick={closeCardPreview}
+                  aria-label="Закрыть просмотр карты"
+                >
+                  ×
+                </button>
 
-              {preview.type === "card" ? (
-                <HandCardView
-                  card={preview.card}
-                  ownerId="player"
-                  displayMode="preview"
-                />
-              ) : (
-                <HandCardView
-                  ownerId="player"
-                  artOwnerId="player"
-                  headquartersId={preview.headquarters.id}
-                  headquarters={{
-                    hp: preview.headquarters.hp,
-                    attack: preview.headquarters.attack,
-                    fuelGeneration: preview.headquarters.fuelGeneration,
-                  }}
-                  displayMode="preview"
-                />
-              )}
+                {preview.type === "card" ? (
+                  <HandCardView
+                    card={preview.card}
+                    ownerId="player"
+                    displayMode="preview"
+                  />
+                ) : (
+                  <HandCardView
+                    ownerId="player"
+                    artOwnerId="player"
+                    headquartersId={preview.headquarters.id}
+                    headquarters={{
+                      hp: preview.headquarters.hp,
+                      attack: preview.headquarters.attack,
+                      fuelGeneration: preview.headquarters.fuelGeneration,
+                    }}
+                    displayMode="preview"
+                  />
+                )}
 
-              <div style={styles.previewHint}>ПКМ по фону или Esc — закрыть</div>
+                <div style={styles.previewHint}>ПКМ по фону или Esc — закрыть</div>
+              </motion.div>
             </motion.div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+          ) : null}
+        </AnimatePresence>,
+        document.body
+      )}
     </main>
   );
 }
