@@ -47,6 +47,9 @@ type SelectedAttacker = {
 const AI_CUSTOM_OPPONENT_DECK_CARD_COUNT = 40;
 const PVP_MATCH_FOUND_PREVIEW_MS = 5_000;
 const PVP_CONNECT_TIMEOUT_MS = 6_000;
+const FIRST_TURN_ROLL_DURATION_MS = 2_800;
+const FIRST_TURN_ROLL_RESULT_DELAY_MS = 350;
+const FIRST_TURN_ROLL_FINISH_DELAY_MS = 650;
 
 export type FirstTurnRollState = {
   visible: boolean;
@@ -434,8 +437,12 @@ function applyFirstTurnRollMessage(
   pvpClient.rememberRoom(message.roomId);
 
   const now = Date.now();
-  const revealDelay = Math.max(0, message.revealAt - now);
-  const hideDelay = revealDelay + 900;
+  const serverRevealDelay = Math.max(0, message.revealAt - now);
+  const revealDelay =
+    serverRevealDelay > 0
+      ? serverRevealDelay
+      : FIRST_TURN_ROLL_DURATION_MS + FIRST_TURN_ROLL_RESULT_DELAY_MS;
+  const hideDelay = revealDelay + FIRST_TURN_ROLL_FINISH_DELAY_MS + 250;
 
   useBattleStore.setState((state) => ({
     battle: message.battle,
@@ -480,6 +487,12 @@ function applyFirstTurnRollMessage(
 
   firstTurnRollHideTimer = window.setTimeout(() => {
     useBattleStore.getState().hideFirstTurnRoll();
+
+    if (pendingGameStartedMessage) {
+      const gameStartedMessage = pendingGameStartedMessage;
+      pendingGameStartedMessage = null;
+      applyGameStartedMessage(gameStartedMessage);
+    }
   }, hideDelay);
 }
 
@@ -523,13 +536,14 @@ function flushPendingPvpStart() {
   pendingGameStartedMessage = null;
   pendingFirstTurnRollMessage = null;
 
-  if (gameStartedMessage) {
-    applyGameStartedMessage(gameStartedMessage);
+  if (firstTurnRollMessage) {
+    pendingGameStartedMessage = gameStartedMessage;
+    applyFirstTurnRollMessage(firstTurnRollMessage);
     return;
   }
 
-  if (firstTurnRollMessage) {
-    applyFirstTurnRollMessage(firstTurnRollMessage);
+  if (gameStartedMessage) {
+    applyGameStartedMessage(gameStartedMessage);
   }
 }
 

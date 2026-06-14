@@ -180,6 +180,7 @@ type MovementUnitEffect = {
   to: CellCenter;
   width: number;
   height: number;
+  phase: "waiting" | "moving";
 };
 
 type MovementPath = {
@@ -2094,6 +2095,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
             currentHp: movingUnit.currentHp,
             alreadyMoved: movingUnit.alreadyMoved,
             alreadyAttacked: movingUnit.alreadyAttacked,
+            phase: "moving",
             ...movementPath,
           });
         });
@@ -2215,51 +2217,120 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     position: Position,
     durationMs: number
   ) {
-    const currentBattle = useBattleStore.getState().battle as BattleState | null;
-    const movingUnit = currentBattle?.units.find(
-      (item) => item.instanceId === unitId
-    );
-    const movementPath = await playMoveIntentAnimation(
-      owner,
-      unitId,
-      position,
-      durationMs
-    );
+    while (movementAnimationRunningRef.current) {
+      await delay(20);
+    }
 
-    if (!movementPath || !movingUnit) return;
+    movementAnimationRunningRef.current = true;
+    let effectId: number | null = null;
 
-    movementArrowEffectIdRef.current += 1;
-    const effectId = movementArrowEffectIdRef.current;
+    try {
+      await waitForNextFrame();
+      await delay(30);
 
-    flushSync(() => {
+      const currentBattle = useBattleStore.getState().battle as BattleState | null;
+      const movingUnit = currentBattle?.units.find(
+        (item) => item.instanceId === unitId
+      );
+      const boardElement = boardRef.current;
+      const unitElement = objectRefs.current.get(unitId);
+      const targetCellElement = cellRefs.current.get(positionKey(position));
+
+      if (!boardElement || !unitElement || !targetCellElement || !movingUnit) {
+        await delay(durationMs + MOVE_ARROW_FOLLOW_MS);
+        return;
+      }
+
+      playCardDistributionSound();
+
+      movementArrowEffectIdRef.current += 1;
+      effectId = movementArrowEffectIdRef.current;
+
+      const from = getElementCenterRelativeToBoard(boardElement, unitElement);
+      const to = getElementCenterRelativeToBoard(boardElement, targetCellElement);
+      const arrowTo = { ...to };
+      const dx = arrowTo.x - from.x;
+      const dy = arrowTo.y - from.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const unitX = dx / distance;
+      const unitY = dy / distance;
+      const isDiagonalMove = Math.abs(dx) > 1 && Math.abs(dy) > 1;
+      const targetEdgeOffset = isDiagonalMove
+        ? 0
+        : ((Math.abs(unitX) * targetCellElement.offsetWidth +
+            Math.abs(unitY) * targetCellElement.offsetHeight) /
+            2) *
+          0.85;
+
+      arrowTo.x += unitX * targetEdgeOffset;
+      arrowTo.y += unitY * targetEdgeOffset;
+
+      flushSync(() => {
+        setHiddenMovingUnitIds((current) => {
+          const next = new Set(current);
+          next.add(unitId);
+          return next;
+        });
+        setMovementUnitEffect({
+          id: effectId ?? movementArrowEffectIdRef.current,
+          unitId,
+          cardId: movingUnit.cardId,
+          owner: movingUnit.ownerId,
+          currentHp: movingUnit.currentHp,
+          alreadyMoved: movingUnit.alreadyMoved,
+          alreadyAttacked: movingUnit.alreadyAttacked,
+          from,
+          to,
+          width: unitElement.offsetWidth,
+          height: unitElement.offsetHeight,
+          phase: "waiting",
+        });
+        setMovementArrowEffect({
+          id: effectId ?? movementArrowEffectIdRef.current,
+          owner,
+          from,
+          to: arrowTo,
+          phase: "extending",
+        });
+      });
+
+      await delay(durationMs);
+
+      setMovementArrowEffect((current) =>
+        current?.id === effectId
+          ? {
+              ...current,
+              phase: "following",
+            }
+          : current
+      );
+      setMovementUnitEffect((current) =>
+        current?.unitId === unitId
+          ? {
+              ...current,
+              phase: "moving",
+            }
+          : current
+      );
+
+      window.setTimeout(() => {
+        setMovementArrowEffect((current) =>
+          current?.id === effectId ? null : current
+        );
+      }, MOVE_ARROW_FOLLOW_MS);
+
+      await delay(MOVE_ARROW_FOLLOW_MS);
+    } finally {
+      setMovementUnitEffect((current) =>
+        current?.unitId === unitId ? null : current
+      );
       setHiddenMovingUnitIds((current) => {
         const next = new Set(current);
-        next.add(unitId);
+        next.delete(unitId);
         return next;
       });
-      setMovementUnitEffect({
-        id: effectId,
-        unitId,
-        cardId: movingUnit.cardId,
-        owner: movingUnit.ownerId,
-        currentHp: movingUnit.currentHp,
-        alreadyMoved: movingUnit.alreadyMoved,
-        alreadyAttacked: movingUnit.alreadyAttacked,
-        ...movementPath,
-      });
-    });
-
-    await waitForNextFrame();
-    await delay(MOVE_ARROW_FOLLOW_MS);
-
-    setMovementUnitEffect((current) =>
-      current?.unitId === unitId ? null : current
-    );
-    setHiddenMovingUnitIds((current) => {
-      const next = new Set(current);
-      next.delete(unitId);
-      return next;
-    });
+      movementAnimationRunningRef.current = false;
+    }
   }
 
   useEffect(() => {
@@ -3155,7 +3226,7 @@ function renderEnemyDeckWithTimer() {
             <motion.div
               key={`bot-hand-${cardInstance.instanceId}`}
               ref={setHandCardRef(opponentPlayerId, cardInstance.instanceId)}
-              layout="position"
+              layout={mode === "pvp" ? false : "position"}
               layoutDependency={battle[opponentPlayerId].hand.length}
               style={{
                 ...styles.cardBack,
@@ -3379,40 +3450,54 @@ function renderEnemyDeckWithTimer() {
 
               <AnimatePresence>
                 {movementUnitEffect && (
-                  <motion.div
-                    key={movementUnitEffect.id}
-                    style={{
-                      ...styles.movingUnitEffect,
-                      width: movementUnitEffect.width,
-                      height: movementUnitEffect.height,
-                    }}
-                    initial={{
-                      x: movementUnitEffect.from.x - movementUnitEffect.width / 2,
-                      y: movementUnitEffect.from.y - movementUnitEffect.height / 2,
-                      opacity: 1,
-                    }}
-                    animate={{
-                      x: movementUnitEffect.to.x - movementUnitEffect.width / 2,
-                      y: movementUnitEffect.to.y - movementUnitEffect.height / 2,
-                      opacity: 1,
-                    }}
-                    exit={{ opacity: 0 }}
-                    transition={{
-                      duration: MOVE_ARROW_FOLLOW_MS / 1000,
-                      ease: "easeInOut",
-                    }}
-                  >
-                    <div style={styles.movingUnitCard}>
-                      <TankCardView
-                        card={getCard(movementUnitEffect.cardId)}
-                        variant="board"
-                        ownerId={getVisualOwnerId(movementUnitEffect.owner)}
-                        currentHp={movementUnitEffect.currentHp}
-                        alreadyMoved={movementUnitEffect.alreadyMoved}
-                        alreadyAttacked={movementUnitEffect.alreadyAttacked}
-                      />
-                    </div>
-                  </motion.div>
+                  (() => {
+                    const fromX =
+                      movementUnitEffect.from.x - movementUnitEffect.width / 2;
+                    const fromY =
+                      movementUnitEffect.from.y - movementUnitEffect.height / 2;
+                    const toX =
+                      movementUnitEffect.to.x - movementUnitEffect.width / 2;
+                    const toY =
+                      movementUnitEffect.to.y - movementUnitEffect.height / 2;
+                    const waiting = movementUnitEffect.phase === "waiting";
+
+                    return (
+                      <motion.div
+                        key={movementUnitEffect.id}
+                        style={{
+                          ...styles.movingUnitEffect,
+                          width: movementUnitEffect.width,
+                          height: movementUnitEffect.height,
+                        }}
+                        initial={{
+                          x: fromX,
+                          y: fromY,
+                          opacity: 1,
+                        }}
+                        animate={{
+                          x: waiting ? fromX : toX,
+                          y: waiting ? fromY : toY,
+                          opacity: 1,
+                        }}
+                        exit={{ opacity: 0 }}
+                        transition={{
+                          duration: waiting ? 0 : MOVE_ARROW_FOLLOW_MS / 1000,
+                          ease: "easeInOut",
+                        }}
+                      >
+                        <div style={styles.movingUnitCard}>
+                          <TankCardView
+                            card={getCard(movementUnitEffect.cardId)}
+                            variant="board"
+                            ownerId={getVisualOwnerId(movementUnitEffect.owner)}
+                            currentHp={movementUnitEffect.currentHp}
+                            alreadyMoved={movementUnitEffect.alreadyMoved}
+                            alreadyAttacked={movementUnitEffect.alreadyAttacked}
+                          />
+                        </div>
+                      </motion.div>
+                    );
+                  })()
                 )}
               </AnimatePresence>
 
@@ -4019,7 +4104,7 @@ function renderEnemyDeckWithTimer() {
   </div>
 
   <div style={styles.actionSideColumn}>
-            {!tutorialActive ? (
+            {!tutorialActive && mode !== "pvp" ? (
               <button
                 type="button"
                 style={{
@@ -4042,7 +4127,7 @@ function renderEnemyDeckWithTimer() {
               </button>
             ) : null}
 
-            {!tutorialActive ? (
+            {!tutorialActive && mode !== "pvp" ? (
               <button style={styles.secondaryButton} onClick={reset}>
                 Новый бой
               </button>
@@ -4094,7 +4179,7 @@ function renderEnemyDeckWithTimer() {
                   <motion.button
                     key={cardInstance.instanceId}
                     ref={setHandCardRef(humanPlayerId, cardInstance.instanceId)}
-                    layout="position"
+                    layout={mode === "pvp" ? false : "position"}
                     layoutDependency={localHand.length}
                     className={
                       tutorialCardHighlighted
