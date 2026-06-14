@@ -1,6 +1,6 @@
 import type React from "react";
 import { motion } from "framer-motion";
-import hourglassWw2Image from "../assets/icons/hourglass-ww2-clean.png";
+import hourglassWw2Image from "../assets/icons/hourglass-ww2-clean.webp";
 
 type BattleTimerPanelProps = {
   active: boolean;

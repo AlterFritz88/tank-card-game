@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import cartridgeImage from "../assets/effects/rifle-cartridge.png";
+import cartridgeImage from "../assets/effects/rifle-cartridge.webp";
 import type { PlayerId } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
 

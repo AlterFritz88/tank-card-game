@@ -1,5 +1,5 @@
 import type React from "react";
-import cardBackImage from "../assets/cards/card-back.png";
+import cardBackImage from "../assets/cards/card-back.webp";
 
 type DeckStackProps = {
   cardCount: number;

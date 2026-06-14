@@ -1,9 +1,9 @@
 import { useEffect, useState, type ReactNode, type CSSProperties } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import buttonImage from "../assets/button.png";
-import experienceIcon from "../assets/icons/expa.png";
-import goldTracksIcon from "../assets/icons/gold_tracks_transparent.png";
-import silverTracksIcon from "../assets/icons/silver-tracks.png";
+import buttonImage from "../assets/button.webp";
+import experienceIcon from "../assets/icons/expa.webp";
+import goldTracksIcon from "../assets/icons/gold_tracks_transparent.webp";
+import silverTracksIcon from "../assets/icons/silver-tracks.webp";
 import statsBackgroundImage from "../game/results_screen/back_for_stats.png";
 import defeatBannerImage from "../game/results_screen/defeat.png";
 import ratingBannerImage from "../game/results_screen/rating.png";
@@ -568,8 +568,8 @@ const styles: Record<string, CSSProperties> = {
 
   resultWindow: {
     position: "relative",
-    width: "min(875px, calc(100vw - 36px))",
-    height: "min(665px, calc(100vh - 32px))",
+    width: "min(875px, calc(100cqw - 36px))",
+    height: "min(665px, calc(100cqh - 32px))",
     overflow: "hidden",
     borderRadius: 10,
     border: "2px solid #2a2d30",

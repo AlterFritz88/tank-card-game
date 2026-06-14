@@ -12,10 +12,10 @@ import {
   type CardStatBadge,
   type CardViewMode,
 } from "../game/cardUiConfig";
-import attackBadgeImage from "../assets/icons/badge-attack.png";
-import healthBadgeImage from "../assets/icons/badge-health.png";
-import fuelCanisterIcon from "../assets/icons/fuel-canister-icon.png";
-import fuelGenerationCanisterIcon from "../assets/icons/fuel-generation-canister.png";
+import attackBadgeImage from "../assets/icons/badge-attack.webp";
+import healthBadgeImage from "../assets/icons/badge-health.webp";
+import fuelCanisterIcon from "../assets/icons/fuel-canister-icon.webp";
+import fuelGenerationCanisterIcon from "../assets/icons/fuel-generation-canister.webp";
 
 type StatBadgeProps = {
   type: CardStatBadge;

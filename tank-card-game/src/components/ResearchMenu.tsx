@@ -8,11 +8,12 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import buttonImage from "../assets/button.png";
-import cardBackImage from "../assets/cards/card-back.png";
-import experienceIcon from "../assets/icons/expa.png";
-import goldTracksIcon from "../assets/icons/gold_tracks_transparent.png";
-import silverTracksIcon from "../assets/icons/silver-tracks.png";
+import { StageBackground } from "./GameStage";
+import buttonImage from "../assets/button.webp";
+import cardBackImage from "../assets/cards/card-back.webp";
+import experienceIcon from "../assets/icons/expa.webp";
+import goldTracksIcon from "../assets/icons/gold_tracks_transparent.webp";
+import silverTracksIcon from "../assets/icons/silver-tracks.webp";
 import { getNationFlagAsset } from "../assets/nationFlagAssets";
 import { getCardOrNull } from "../game/cards";
 import { getHeadquartersDefinition } from "../game/headquarters";
@@ -1044,6 +1045,10 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
 
   return (
     <main style={styles.page}>
+      <StageBackground
+        color="#070a08"
+        image="linear-gradient(90deg, rgba(4, 6, 5, 0.98), rgba(12, 16, 13, 0.9) 44%, rgba(5, 7, 6, 0.96)), url('/menu-background.png')"
+      />
       <div style={styles.backgroundShade} />
 
       <header style={styles.topBar}>
@@ -1328,14 +1333,13 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
 const styles: Record<string, CSSProperties> = {
   page: {
     position: "relative",
-    minHeight: "100vh",
-    height: "100vh",
+    minHeight: "100cqh",
+    height: "100cqh",
     overflow: "hidden",
     color: "#f2e4c2",
-    backgroundImage:
-      "linear-gradient(90deg, rgba(4, 6, 5, 0.98), rgba(12, 16, 13, 0.9) 44%, rgba(5, 7, 6, 0.96)), url('/menu-background.png')",
-    backgroundSize: "cover",
-    backgroundPosition: "center",
+    // Background is painted full-viewport by <StageBackground/> so it fills the
+    // letterbox margins; keep this box transparent to show it through.
+    background: "transparent",
     fontFamily: "var(--font-body)",
   },
 
@@ -1437,7 +1441,7 @@ const styles: Record<string, CSSProperties> = {
   nationProgressTrack: {
     position: "relative",
     width: 220,
-    maxWidth: "32vw",
+    maxWidth: "32cqw",
     height: 6,
     borderRadius: 999,
     overflow: "hidden",
@@ -1926,7 +1930,7 @@ const styles: Record<string, CSSProperties> = {
     left: "50%",
     top: 126,
     zIndex: 9500,
-    maxWidth: "min(520px, calc(100vw - 32px))",
+    maxWidth: "min(520px, calc(100cqw - 32px))",
     padding: "12px 18px",
     color: "#ffe4ad",
     fontSize: 15,
@@ -1956,7 +1960,7 @@ const styles: Record<string, CSSProperties> = {
   researchCelebrationCardWrap: {
     position: "relative",
     width: 390,
-    maxWidth: "min(390px, 78vw)",
+    maxWidth: "min(390px, 78cqw)",
     display: "grid",
     placeItems: "center",
     transformStyle: "preserve-3d",
@@ -2009,8 +2013,8 @@ const styles: Record<string, CSSProperties> = {
   cardPreviewPanel: {
     position: "relative",
     width: 390,
-    maxWidth: "82vw",
-    maxHeight: "92vh",
+    maxWidth: "82cqw",
+    maxHeight: "92cqh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",

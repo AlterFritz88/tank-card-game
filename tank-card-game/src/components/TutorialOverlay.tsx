@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import eduAvatarImage from "../assets/headquarters/avatars/edu_avatar.png";
-import buttonImage from "../assets/button.png";
+import eduAvatarImage from "../assets/headquarters/avatars/edu_avatar.webp";
+import buttonImage from "../assets/button.webp";
 
 type TutorialOverlayProps = {
   /** Dialogue blocks the battle and shows the «Далее» button. */
@@ -96,7 +96,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "flex-end",
     gap: 18,
-    width: "min(760px, calc(100vw - 48px))",
+    width: "min(760px, calc(100cqw - 48px))",
     pointerEvents: "auto",
   },
 
@@ -170,7 +170,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "center",
     gap: 12,
-    maxWidth: "min(640px, calc(100vw - 200px))",
+    maxWidth: "min(640px, calc(100cqw - 200px))",
     padding: "8px 16px 8px 8px",
     border: "1px solid rgba(213, 178, 102, 0.45)",
     background:

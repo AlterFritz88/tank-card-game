@@ -14,15 +14,15 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import topBackgroundImage from "../assets/backgrounds/top_background.png";
-import matchmakingBreakImage from "../assets/backgrounds/matchmaking/break.png";
-import matchmakingCielImage from "../assets/backgrounds/matchmaking/ciel.png";
-import matchmakingMapImage from "../assets/backgrounds/matchmaking/map.png";
-import buttonImage from "../assets/button.png";
+import topBackgroundImage from "../assets/backgrounds/top_background.webp";
+import matchmakingBreakImage from "../assets/backgrounds/matchmaking/break.webp";
+import matchmakingCielImage from "../assets/backgrounds/matchmaking/ciel.webp";
+import matchmakingMapImage from "../assets/backgrounds/matchmaking/map.webp";
+import buttonImage from "../assets/button.webp";
 import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
-import experienceIcon from "../assets/icons/expa.png";
-import goldTracksIcon from "../assets/icons/gold_tracks_transparent.png";
-import silverTracksIcon from "../assets/icons/silver-tracks.png";
+import experienceIcon from "../assets/icons/expa.webp";
+import goldTracksIcon from "../assets/icons/gold_tracks_transparent.webp";
+import silverTracksIcon from "../assets/icons/silver-tracks.webp";
 import { getMissionIllustrationAsset } from "../assets/missionIllustrationAssets";
 import { getNationFlagAsset } from "../assets/nationFlagAssets";
 import { createRadarScanSoundPlayer, playMusic } from "../game/audio";
@@ -2304,30 +2304,25 @@ const styles: Record<string, CSSProperties> = {
 
   page: {
     position: "relative",
-    height: "100vh",
-    maxHeight: "100vh",
+    height: "100cqh",
+    maxHeight: "100cqh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     padding: "14px 0",
     color: "#f4e5bf",
     fontFamily: "var(--font-body)",
-    backgroundImage:
-      "radial-gradient(circle at 50% 10%, rgba(179, 137, 59, 0.20), transparent 34%), linear-gradient(135deg, rgba(5, 7, 5, 0.50), rgba(17, 16, 11, 0.48)), url('/menu-background.webp'), url('/menu-background.png')",
-    backgroundSize: "cover",
-    backgroundPosition: "center",
-    backgroundRepeat: "no-repeat",
+    // Background is painted full-viewport by GameStage's backdrop host (the
+    // default menu art), so it bleeds into the letterbox margins instead of
+    // being clipped to this box. Keep the box transparent so it shows through.
+    background: "transparent",
     overflow: "hidden",
     overscrollBehavior: "none",
     boxSizing: "border-box",
   },
 
   backgroundShade: {
-    position: "absolute",
-    inset: 0,
-    pointerEvents: "none",
-    background:
-      "radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.10) 42%, rgba(0,0,0,0.52) 100%)",
+    display: "none",
   },
 
   playerAccountPanel: {
@@ -2552,7 +2547,7 @@ const styles: Record<string, CSSProperties> = {
   guestEntryPanel: {
     position: "relative",
     zIndex: 6,
-    width: "min(560px, calc(100vw - 42px))",
+    width: "min(560px, calc(100cqw - 42px))",
     display: "grid",
     gap: 20,
     padding: "34px 36px 30px",
@@ -2572,7 +2567,7 @@ const styles: Record<string, CSSProperties> = {
   guestEntryTitle: {
     margin: 0,
     fontFamily: "var(--font-display)",
-    fontSize: "clamp(40px, 6vw, 76px)",
+    fontSize: "clamp(40px, 6cqw, 76px)",
     lineHeight: 0.9,
     fontWeight: 800,
     letterSpacing: "0.08em",
@@ -2735,10 +2730,10 @@ const styles: Record<string, CSSProperties> = {
   matchmakingScreen: {
     position: "relative",
     zIndex: 4,
-    minHeight: "100vh",
+    minHeight: "100cqh",
     display: "grid",
     gridTemplateRows: "108px minmax(0, 1fr) 116px",
-    padding: "0 5vw 22px",
+    padding: "0 5cqw 22px",
     boxSizing: "border-box",
   },
 
@@ -2751,7 +2746,7 @@ const styles: Record<string, CSSProperties> = {
   matchmakingTitle: {
     margin: 0,
     color: "#f4db9a",
-    fontSize: "clamp(22px, 3vw, 42px)",
+    fontSize: "clamp(22px, 3cqw, 42px)",
     lineHeight: 1,
     fontWeight: 1000,
     letterSpacing: 2.6,
@@ -2765,7 +2760,7 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 0,
     display: "grid",
     alignItems: "center",
-    gap: "clamp(22px, 3.6vw, 62px)",
+    gap: "clamp(22px, 3.6cqw, 62px)",
   },
 
   matchmakingArenaSearching: {
@@ -2779,7 +2774,7 @@ const styles: Record<string, CSSProperties> = {
 
   matchmakingSide: {
     position: "relative",
-    height: "min(32vh, 500px)",
+    height: "min(32cqh, 500px)",
     minHeight: 310,
     display: "grid",
     alignItems: "end",
@@ -2857,7 +2852,7 @@ const styles: Record<string, CSSProperties> = {
 
   matchmakingMapPanel: {
     position: "relative",
-    height: "min(54vh, 510px)",
+    height: "min(54cqh, 510px)",
     minHeight: 330,
     display: "grid",
     placeItems: "center",
@@ -2876,8 +2871,8 @@ const styles: Record<string, CSSProperties> = {
   matchmakingReticle: {
     position: "absolute",
     zIndex: 2,
-    width: "clamp(64px, 8vw, 116px)",
-    height: "clamp(64px, 8vw, 116px)",
+    width: "clamp(64px, 8cqw, 116px)",
+    height: "clamp(64px, 8cqw, 116px)",
     objectFit: "contain",
     transform: "translate(-50%, -50%)",
     filter:
@@ -2886,8 +2881,8 @@ const styles: Record<string, CSSProperties> = {
   },
 
   matchmakingBreak: {
-    width: "min(25vw, 360px)",
-    maxHeight: "62vh",
+    width: "min(25cqw, 360px)",
+    maxHeight: "62cqh",
     objectFit: "contain",
     justifySelf: "center",
     filter:
@@ -2901,7 +2896,7 @@ const styles: Record<string, CSSProperties> = {
     right: "8%",
     zIndex: 3,
     color: "#f7ddb0",
-    fontSize: "clamp(15px, 1.5vw, 22px)",
+    fontSize: "clamp(15px, 1.5cqw, 22px)",
     fontWeight: 1000,
     letterSpacing: 1.2,
     textAlign: "center",
@@ -2936,7 +2931,7 @@ const styles: Record<string, CSSProperties> = {
   },
 
   profileLayer: {
-    width: "min(980px, calc(100vw - 64px))",
+    width: "min(980px, calc(100cqw - 64px))",
     display: "grid",
     gridTemplateRows: "auto auto minmax(0, 1fr)",
     gap: 12,
@@ -3285,7 +3280,7 @@ const styles: Record<string, CSSProperties> = {
   title: {
     margin: 0,
     color: "#ffe9a8",
-    fontSize: "clamp(34px, 5vh, 48px)",
+    fontSize: "clamp(34px, 5cqh, 48px)",
     lineHeight: 1.08,
     letterSpacing: 1.8,
     textTransform: "uppercase",
@@ -3294,7 +3289,7 @@ const styles: Record<string, CSSProperties> = {
   },
 
   headquartersTitle: {
-    fontSize: "clamp(28px, 4vh, 42px)",
+    fontSize: "clamp(28px, 4cqh, 42px)",
     lineHeight: 1.04,
   },
 
@@ -3647,7 +3642,7 @@ const styles: Record<string, CSSProperties> = {
   },
 
   actionsGrid: {
-    width: "min(720px, calc(100vw - 48px))",
+    width: "min(720px, calc(100cqw - 48px))",
     display: "grid",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     gap: 12,
@@ -3675,8 +3670,8 @@ const styles: Record<string, CSSProperties> = {
   },
 
   matchmakingAvatarPanel: {
-    width: "min(720px, calc(100vw - 48px))",
-    height: "min(30vh, 230px)",
+    width: "min(720px, calc(100cqw - 48px))",
+    height: "min(30cqh, 230px)",
     margin: "4px auto 0",
     display: "flex",
     alignItems: "flex-end",
@@ -3687,7 +3682,7 @@ const styles: Record<string, CSSProperties> = {
 
   matchmakingAvatar: {
     display: "block",
-    maxWidth: "min(260px, 48vw)",
+    maxWidth: "min(260px, 48cqw)",
     maxHeight: "100%",
     objectFit: "contain",
     objectPosition: "center bottom",
@@ -3701,7 +3696,7 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 22,
     cursor: "pointer",
     display: "block",
-    width: "min(360px, calc(100vw - 72px))",
+    width: "min(360px, calc(100cqw - 72px))",
     margin: "7px auto 0",
     padding: "11px 22px 13px",
     borderRadius: 0,
@@ -3882,7 +3877,7 @@ const styles: Record<string, CSSProperties> = {
   },
 
   campaignPanel: {
-    width: "min(980px, calc(100vw - 48px))",
+    width: "min(980px, calc(100cqw - 48px))",
     margin: "8px auto 12px",
     padding: 18,
     borderRadius: 16,
@@ -4003,7 +3998,7 @@ const styles: Record<string, CSSProperties> = {
   },
 
   menuActionsRow: {
-    width: "min(260px, calc(100vw - 48px))",
+    width: "min(260px, calc(100cqw - 48px))",
     display: "grid",
     gridTemplateColumns: "minmax(0, 1fr)",
     gap: 12,
@@ -4011,7 +4006,7 @@ const styles: Record<string, CSSProperties> = {
   },
 
   singleMenuAction: {
-    width: "min(260px, calc(100vw - 48px))",
+    width: "min(260px, calc(100cqw - 48px))",
     margin: "0 auto 4px",
   },
 
@@ -4086,8 +4081,8 @@ const styles: Record<string, CSSProperties> = {
   cardPreviewPanel: {
     position: "relative",
     width: 390,
-    maxWidth: "82vw",
-    maxHeight: "92vh",
+    maxWidth: "82cqw",
+    maxHeight: "92cqh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -4095,9 +4090,9 @@ const styles: Record<string, CSSProperties> = {
   },
 
   deckPreviewPanel: {
-    width: "min(1060px, calc(100vw - 72px))",
-    maxWidth: "calc(100vw - 72px)",
-    height: "min(610px, calc(100vh - 28px))",
+    width: "min(1060px, calc(100cqw - 72px))",
+    maxWidth: "calc(100cqw - 72px)",
+    height: "min(610px, calc(100cqh - 28px))",
     display: "grid",
     gridTemplateColumns: "170px 390px minmax(280px, 1fr)",
     gap: 20,
@@ -4231,8 +4226,8 @@ const styles: Record<string, CSSProperties> = {
     position: "absolute",
     zIndex: 2,
     width: 390,
-    maxWidth: "82vw",
-    maxHeight: "92vh",
+    maxWidth: "82cqw",
+    maxHeight: "92cqh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",

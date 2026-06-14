@@ -11,7 +11,8 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import buttonImage from "../assets/button.png";
+import { StageBackground } from "./GameStage";
+import buttonImage from "../assets/button.webp";
 import {
   HEADQUARTERS,
   getDeckBuildingHeadquarters,
@@ -508,6 +509,10 @@ export function DeckBuilder({
 
   return (
     <main style={styles.page}>
+      <StageBackground
+        color="#0a0d0a"
+        image="radial-gradient(circle at 50% 6%, rgba(210, 168, 70, 0.16), transparent 35%), linear-gradient(90deg, rgba(3,5,5,0.96), rgba(15,18,14,0.88) 48%, rgba(3,5,5,0.98)), url('/menu-background.png')"
+      />
       <div style={styles.backgroundShade} />
 
       <header style={styles.header}>
@@ -915,14 +920,13 @@ export function DeckBuilder({
 const styles: Record<string, CSSProperties> = {
   page: {
     position: "relative",
-    minHeight: "100vh",
-    height: "100vh",
+    minHeight: "100cqh",
+    height: "100cqh",
     overflow: "hidden",
     color: "#f2e4c2",
-    backgroundImage:
-      "radial-gradient(circle at 50% 6%, rgba(210, 168, 70, 0.16), transparent 35%), linear-gradient(90deg, rgba(3,5,5,0.96), rgba(15,18,14,0.88) 48%, rgba(3,5,5,0.98)), url('/menu-background.png')",
-    backgroundSize: "cover",
-    backgroundPosition: "center",
+    // Background is painted full-viewport by <StageBackground/> so it fills the
+    // letterbox margins; keep this box transparent to show it through.
+    background: "transparent",
     fontFamily: "var(--font-body)",
   },
 
@@ -1102,13 +1106,13 @@ const styles: Record<string, CSSProperties> = {
   workspace: {
     position: "relative",
     zIndex: 2,
-    height: "calc(100vh - 82px)",
+    height: "calc(100cqh - 82px)",
     width: "100%",
     minWidth: 0,
     display: "grid",
     gridTemplateRows: "1fr 1fr",
     gap: 0,
-    padding: "10px 5.5vw 24px",
+    padding: "10px 5.5cqw 24px",
     boxSizing: "border-box",
   },
 
@@ -1194,8 +1198,8 @@ const styles: Record<string, CSSProperties> = {
     left: "50%",
     top: "50%",
     zIndex: 5,
-    width: "min(820px, 78vw)",
-    height: "min(310px, 38vh)",
+    width: "min(820px, 78cqw)",
+    height: "min(310px, 38cqh)",
     transform: "translate(-50%, -50%)",
     borderRadius: 999,
     background:
@@ -1329,8 +1333,8 @@ const styles: Record<string, CSSProperties> = {
   previewDialog: {
     position: "relative",
     width: 390,
-    maxWidth: "82vw",
-    maxHeight: "92vh",
+    maxWidth: "82cqw",
+    maxHeight: "92cqh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",

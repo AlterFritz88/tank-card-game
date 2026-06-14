@@ -107,12 +107,9 @@ const styles = {
     justifyContent: "center",
     overflow: "hidden",
     color: "#f4e5bf",
-    backgroundColor: "#050706",
-    backgroundImage:
-      "linear-gradient(135deg, rgba(5, 7, 5, 0.34), rgba(17, 16, 11, 0.42)), url('/menu-background.webp'), url('/menu-background.png')",
-    backgroundSize: "cover, cover, cover",
-    backgroundPosition: "center center",
-    backgroundRepeat: "no-repeat",
+    // Menu art is painted full-viewport by GameStage's backdrop host; keep this
+    // box transparent so it shows through (and fills the letterbox margins).
+    background: "transparent",
     fontFamily: "var(--font-body)",
   },
   vignette: {
@@ -126,22 +123,22 @@ const styles = {
     position: "relative",
     zIndex: 1,
     display: "flex",
-    width: "min(560px, 76vw)",
+    width: "min(560px, 76cqw)",
     alignItems: "center",
     flexDirection: "column" as const,
     gap: 22,
     textAlign: "center" as const,
   },
   logo: {
-    width: "min(520px, 72vw)",
-    maxHeight: "42vh",
+    width: "min(520px, 72cqw)",
+    maxHeight: "42cqh",
     objectFit: "contain" as const,
     filter:
       "drop-shadow(0 8px 16px rgba(0,0,0,0.72)) drop-shadow(0 0 22px rgba(213,171,83,0.18))",
   },
   progressTrack: {
     position: "relative",
-    width: "min(360px, 62vw)",
+    width: "min(360px, 62cqw)",
     height: 8,
     overflow: "hidden",
     border: "1px solid rgba(219, 184, 98, 0.38)",

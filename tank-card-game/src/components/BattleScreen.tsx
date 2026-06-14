@@ -36,6 +36,7 @@ import { ResultScreen } from "./ResultScreen";
 import { FuelPanel } from "./FuelPanel";
 import { BattleTimerPanel } from "./BattleTimerPanel";
 import { DeckStack } from "./DeckStack";
+import { screenDeltaToStage, screenPointToStage, StageBackground } from "./GameStage";
 import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
 import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
 import { getHeadquartersImageAsset } from "../game/headquartersImages";
@@ -65,14 +66,14 @@ import {
 } from "../game/tutorial";
 import { TutorialOverlay } from "./TutorialOverlay";
 import apShellImage from "../assets/ap-shell.png";
-import buttonImage from "../assets/button.png";
-import explosionFlashImage from "../assets/effects/explosion-flash.png";
-import explosionFireballImage from "../assets/effects/explosion-fireball.png";
-import explosionSmokeImage from "../assets/effects/explosion-smoke.png";
+import buttonImage from "../assets/button.webp";
+import explosionFlashImage from "../assets/effects/explosion-flash.webp";
+import explosionFireballImage from "../assets/effects/explosion-fireball.webp";
+import explosionSmokeImage from "../assets/effects/explosion-smoke.webp";
 import movementArrowImage from "../assets/effects/arrow.png";
-import burntCardImage from "../assets/effects/burnt-card.png";
-import cardBackImage from "../assets/cards/card-back.png";
-import cartridgeImage from "../assets/effects/rifle-cartridge.png";
+import burntCardImage from "../assets/effects/burnt-card.webp";
+import cardBackImage from "../assets/cards/card-back.webp";
+import cartridgeImage from "../assets/effects/rifle-cartridge.webp";
 
 function samePosition(a: Position, b: Position): boolean {
   return a.row === b.row && a.col === b.col;
@@ -211,6 +212,11 @@ function setObjectRef(
   };
 }
 
+// Returns the element's center in the board's own (unscaled) layout coordinate
+// space, relative to the board's top-left corner. getBoundingClientRect reports
+// screen pixels affected by the GameStage transform, so the screen-space delta
+// between the two centers is mapped back through the inverse stage transform.
+// Board layout size (offsetWidth/Height) is transform-independent.
 function getElementCenterRelativeToBoard(
   boardElement: HTMLDivElement,
   element: HTMLElement
@@ -218,19 +224,26 @@ function getElementCenterRelativeToBoard(
   const boardRect = boardElement.getBoundingClientRect();
   const elementRect = element.getBoundingClientRect();
 
+  const screenDx =
+    elementRect.left + elementRect.width / 2 -
+    (boardRect.left + boardRect.width / 2);
+  const screenDy =
+    elementRect.top + elementRect.height / 2 -
+    (boardRect.top + boardRect.height / 2);
+  const localDelta = screenDeltaToStage(screenDx, screenDy);
+
   return {
-    x: elementRect.left - boardRect.left + elementRect.width / 2,
-    y: elementRect.top - boardRect.top + elementRect.height / 2,
+    x: boardElement.offsetWidth / 2 + localDelta.x,
+    y: boardElement.offsetHeight / 2 + localDelta.y,
   };
 }
 
+// Returns the element's center in the stage's local coordinate space, which is
+// what fixed/absolute overlays inside the transformed stage are positioned in.
 function getElementCenterInViewport(element: HTMLElement): CellCenter {
   const rect = element.getBoundingClientRect();
 
-  return {
-    x: rect.left + rect.width / 2,
-    y: rect.top + rect.height / 2,
-  };
+  return screenPointToStage(rect.left + rect.width / 2, rect.top + rect.height / 2);
 }
 
 function delay(ms: number): Promise<void> {
@@ -1533,7 +1546,6 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       return;
     }
 
-    const targetRect = targetElement.getBoundingClientRect();
     const from = getElementCenterInViewport(targetElement);
     const to = getElementCenterInViewport(deckElement);
 
@@ -1544,8 +1556,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       targetId,
       from,
       to,
-      width: targetRect.width,
-      height: targetRect.height,
+      width: targetElement.offsetWidth,
+      height: targetElement.offsetHeight,
       rotation: owner === humanPlayerId ? -14 : 14,
     };
 
@@ -2036,7 +2048,6 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         phase: "extending",
       };
 
-      const targetCellRect = targetCellElement.getBoundingClientRect();
       const dx = effect.to.x - effect.from.x;
       const dy = effect.to.y - effect.from.y;
       const distance = Math.max(1, Math.hypot(dx, dy));
@@ -2045,8 +2056,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       const isDiagonalMove = Math.abs(dx) > 1 && Math.abs(dy) > 1;
       const targetEdgeOffset = isDiagonalMove
         ? 0
-        : ((Math.abs(unitX) * targetCellRect.width +
-            Math.abs(unitY) * targetCellRect.height) /
+        : ((Math.abs(unitX) * targetCellElement.offsetWidth +
+            Math.abs(unitY) * targetCellElement.offsetHeight) /
             2) *
           0.85;
 
@@ -2775,16 +2786,13 @@ function renderEnemyDeckWithTimer() {
         : exitBattleToMenu;
 
   return (
-    <div
-      style={{
-        ...styles.page,
-        backgroundColor: battleBackground.color,
-        backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.2)), url(${battleBackground.image})`,
-        backgroundSize: `cover, ${battleBackground.size}`,
-        backgroundPosition: `center center, ${battleBackground.position}`,
-        backgroundRepeat: "no-repeat, no-repeat",
-      }}
-    >
+    <div style={styles.page}>
+      {/* Painted full-viewport behind the stage so the battlefield art fills the
+          letterbox margins instead of leaving black bars. */}
+      <StageBackground
+        color={battleBackground.color}
+        image={`linear-gradient(180deg, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0.52) 100%), url(${battleBackground.image})`}
+      />
       <div style={styles.vignette} />
 
       <AnimatePresence>
@@ -4058,7 +4066,7 @@ function renderEnemyDeckWithTimer() {
 
 const styles: Record<string, React.CSSProperties> = {
   page: {
-    minHeight: "100vh",
+    minHeight: "100cqh",
     position: "relative",
     overflow: "hidden",
     backgroundSize: "cover",
@@ -4070,12 +4078,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   vignette: {
-    position: "absolute",
-    inset: 0,
-    pointerEvents: "none",
-    background:
-      "radial-gradient(circle at center, rgba(255,255,255,0.02), rgba(0,0,0,0.58) 82%), linear-gradient(90deg, rgba(0,0,0,0.48), transparent 20%, transparent 80%, rgba(0,0,0,0.48))",
-    zIndex: 0,
+    display: "none",
   },
 
   debugPauseBadge: {
@@ -4227,7 +4230,7 @@ enemyHandClip: {
   height: 96,
   overflow: "hidden",
   position: "relative",
-  width: "min(560px, calc(100vw - 260px))",
+  width: "min(560px, calc(100cqw - 260px))",
   minWidth: 260,
   background: "transparent",
   border: "none",
@@ -4662,7 +4665,7 @@ actionSideColumn: {
 },
 
   playerHandViewport: {
-    width: "min(980px, calc(100vw - 430px))",
+    width: "min(980px, calc(100cqw - 430px))",
     minWidth: 560,
     maxWidth: 980,
     margin: "0 auto",
@@ -5169,8 +5172,8 @@ destroyedCardEffect: {
   cardPreviewPanel: {
     position: "relative",
     width: 390,
-    maxWidth: "82vw",
-    maxHeight: "92vh",
+    maxWidth: "82cqw",
+    maxHeight: "92cqh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
