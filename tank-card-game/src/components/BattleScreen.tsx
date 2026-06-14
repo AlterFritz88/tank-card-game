@@ -3172,32 +3172,6 @@ function renderEnemyDeckWithTimer() {
             <motion.div ref={boardRef} layout style={styles.board}>
               {renderStartRollOverlay()}
 
-              <div style={styles.boardCellBackdropGrid} aria-hidden="true">
-                {visualRows.map((row) =>
-                  visualCols.map((col) => {
-                    const position: Position = { row, col };
-                    const playerSpawn = isPlayerSpawn(position);
-                    const botSpawn = isBotSpawn(position);
-                    const ownSpawn =
-                      humanPlayerId === "player" ? playerSpawn : botSpawn;
-                    const enemySpawn =
-                      humanPlayerId === "player" ? botSpawn : playerSpawn;
-
-                    return (
-                      <div
-                        key={`backdrop-${row}-${col}`}
-                        style={{
-                          ...styles.cell,
-                          ...styles.boardCellBackdrop,
-                          ...(ownSpawn ? styles.spawnCell : {}),
-                          ...(enemySpawn ? styles.botSpawnCell : {}),
-                        }}
-                      />
-                    );
-                  })
-                )}
-              </div>
-
               <AnimatePresence>
                 {movementArrowEffect &&
                   (() => {
@@ -4473,27 +4447,6 @@ actionSideColumn: {
   alignItems: "stretch",
 },
 
-  boardCellBackdropGrid: {
-    position: "absolute",
-    inset: 0,
-    zIndex: 0,
-    display: "grid",
-    gridTemplateColumns: "repeat(5, minmax(120px, 1fr))",
-    gridTemplateRows: "repeat(3, minmax(0, 1fr))",
-    gap: 4,
-    alignItems: "stretch",
-    pointerEvents: "none",
-  },
-
-  boardCellBackdrop: {
-    cursor: "default",
-    pointerEvents: "none",
-    background:
-      "linear-gradient(135deg, rgba(31, 45, 47, 0.62), rgba(10, 15, 16, 0.5))",
-    boxShadow:
-      "inset 0 0 0 1px rgba(255,255,255,0.038), inset 0 0 20px rgba(0,0,0,0.22)",
-  },
-
   tacticalArrowWrap: {
     position: "absolute",
     zIndex: 4,
@@ -4558,13 +4511,9 @@ actionSideColumn: {
   },
 
   occupiedCell: {
-    background: "transparent",
-    boxShadow: "none",
   },
 
   emptyCell: {
-    background: "transparent",
-    boxShadow: "none",
   },
 
   occupiedSpawnCellTint: {
