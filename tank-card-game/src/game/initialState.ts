@@ -16,7 +16,7 @@ import type {
   PlayerTimerState,
 } from "./types";
 
-export const STEP_TIME_MS = 15 * 1000;
+export const STEP_TIME_MS = 60 * 1000;
 const TRAINING_DECK_CARD_LIMIT = 20;
 const DEFAULT_DECK_CARD_LIMIT = 40;
 const STOCK_DECK_COPY_LIMIT = 4;

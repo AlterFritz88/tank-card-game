@@ -45,6 +45,7 @@ import {
   playCardDistributionSound,
   playDestroyedSound,
   playMusic,
+  playRotatingCartridgeSound,
   playTurnStartSound,
 } from "../game/audio";
 import type { BattleReward } from "../game/economy";
@@ -180,6 +181,8 @@ type QueuedBattleCommand = {
   id: number;
   run: () => Promise<void>;
 };
+
+const CARD_PREVIEW_LONG_PRESS_MS = 420;
 
 type CardPreview =
   | {
@@ -648,6 +651,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   );
 
   const [cardPreview, setCardPreview] = useState<CardPreview | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
   const [debugPaused, setDebugPaused] = useState(false);
   const [battleReward, setBattleReward] = useState<BattleReward | null>(null);
   const [rewardClaimStatus, setRewardClaimStatus] =
@@ -778,6 +783,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     };
   }
 
+  function clearLongPressTimer() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
   function openCardPreview(
     event: React.MouseEvent,
     preview: CardPreview
@@ -790,6 +802,31 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
   function closeCardPreview() {
     setCardPreview(null);
+  }
+
+  // На телефоне нет правой кнопки мыши, поэтому увеличенный просмотр карточки
+  // открывается долгим нажатием (touch). Долгое нажатие подавляет обычный клик,
+  // чтобы карта не выбиралась/не атаковала при открытии превью.
+  function longPressPreviewHandlers(preview: CardPreview) {
+    return {
+      onTouchStart: () => {
+        longPressTriggeredRef.current = false;
+        clearLongPressTimer();
+        longPressTimerRef.current = window.setTimeout(() => {
+          longPressTriggeredRef.current = true;
+          setCardPreview(preview);
+        }, CARD_PREVIEW_LONG_PRESS_MS);
+      },
+      onTouchMove: clearLongPressTimer,
+      onTouchEnd: (event: React.TouchEvent) => {
+        clearLongPressTimer();
+        if (longPressTriggeredRef.current) {
+          event.preventDefault();
+          longPressTriggeredRef.current = false;
+        }
+      },
+      onTouchCancel: clearLongPressTimer,
+    };
   }
 
   function preventPersistentBattleFocus(
@@ -997,6 +1034,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [cardPreview]);
+
+  useEffect(() => clearLongPressTimer, []);
 
 
   useEffect(() => {
@@ -2648,6 +2687,14 @@ function renderEnemyDeckWithTimer() {
                   currentHp: unit.currentHp,
                 });
               }}
+              {...(unit
+                ? longPressPreviewHandlers({
+                    type: "unit",
+                    cardId: unit.cardId,
+                    ownerId: unit.ownerId,
+                    currentHp: unit.currentHp,
+                  })
+                : {})}
               onClick={() => {
                 if (unit && canBeTarget) {
                   void handleAttackTarget("unit", unit.instanceId);
@@ -2761,6 +2808,13 @@ function renderEnemyDeckWithTimer() {
   const visibleStartRollState = pvpStartRollState ?? startRollState;
   const visibleStartRollWinnerIsLocal =
     visibleStartRollState.winner === humanPlayerId;
+
+  useEffect(() => {
+    if (!visibleStartRollState.visible) return;
+
+    return playRotatingCartridgeSound(START_ROLL_DURATION_MS);
+  }, [visibleStartRollState.visible, visibleStartRollState.finalRotation]);
+
   const localHand = getVisibleHand(humanPlayerId);
   const selectedHandCard = selectedCardInstanceId
     ? battle[humanPlayerId].hand.find(
@@ -2968,6 +3022,7 @@ function renderEnemyDeckWithTimer() {
               key={`bot-hand-${cardInstance.instanceId}`}
               ref={setHandCardRef(opponentPlayerId, cardInstance.instanceId)}
               layout="position"
+              layoutDependency={battle[opponentPlayerId].hand.length}
               style={{
                 ...styles.cardBack,
                 ...styles.enemyHandCard,
@@ -3425,6 +3480,12 @@ function renderEnemyDeckWithTimer() {
                             currentHp: unit.currentHp,
                           })
                         }
+                        {...longPressPreviewHandlers({
+                          type: "unit",
+                          cardId: unit.cardId,
+                          ownerId: unit.ownerId,
+                          currentHp: unit.currentHp,
+                        })}
                         onClick={() => {
                           if (debugPaused) return;
                           if (battle.status !== "active") return;
@@ -3604,6 +3665,17 @@ function renderEnemyDeckWithTimer() {
                             fuelGeneration: hq.fuelGeneration,
                           })
                         }
+                        {...longPressPreviewHandlers({
+                          type: "headquarters",
+                          ownerId: owner,
+                          headquartersId: getHeadquartersIdForOwner(owner),
+                          hp: hq.hp,
+                          attack: getHeadquartersAttackValue(
+                            battle as BattleState,
+                            owner
+                          ),
+                          fuelGeneration: hq.fuelGeneration,
+                        })}
                         onClick={() => {
                           if (debugPaused) return;
                           if (battle.status !== "active") return;
@@ -3875,6 +3947,7 @@ function renderEnemyDeckWithTimer() {
                     key={cardInstance.instanceId}
                     ref={setHandCardRef(humanPlayerId, cardInstance.instanceId)}
                     layout="position"
+                    layoutDependency={localHand.length}
                     className={
                       tutorialCardHighlighted
                         ? "tutorial-highlight-pulse"
@@ -3928,6 +4001,11 @@ function renderEnemyDeckWithTimer() {
                         ownerId: humanPlayerId,
                       })
                     }
+                    {...longPressPreviewHandlers({
+                      type: "unit",
+                      cardId: card.id,
+                      ownerId: humanPlayerId,
+                    })}
                     onClick={() => {
                       if (debugPaused) return;
                       if (battle.status !== "active") return;

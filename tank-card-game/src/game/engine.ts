@@ -14,7 +14,7 @@ import type {
   TankCard,
 } from "./types";
 
-const STEP_TIME_MS = 15 * 1000;
+const STEP_TIME_MS = 60 * 1000;
 const STARTING_HAND_SIZE = 5;
 const SECOND_PLAYER_EXTRA_STARTING_CARDS = 1;
 
@@ -1773,7 +1773,7 @@ function handleIdleTimeout(state: BattleState, playerId: PlayerId) {
       state,
       `${
         playerId === "player" ? "Игрок" : "Бот"
-      } не сделал действие за 15 секунд. Ход пропущен.`
+      } не сделал действие за минуту. Ход пропущен.`
     );
   }
 

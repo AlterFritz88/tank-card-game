@@ -1,6 +1,7 @@
 import battleMusicUrl from "../assets/sounds/battle.mp3?url";
 import mainMusicUrl from "../assets/sounds/main.mp3?url";
 import paperBurningUrl from "../assets/sounds/paper_burning_2.mp3?url";
+import rotatingCartridgeUrl from "../assets/sounds/rotating_catrige.mp3?url";
 import steelImpactUrl from "../assets/sounds/steel_imp_3.mp3?url";
 import cannonShot1Url from "../assets/sounds/cannon_shot/cannon_shot_1.mp3?url";
 import cannonShot2Url from "../assets/sounds/cannon_shot/cannon_shot_2.mp3?url";
@@ -18,6 +19,7 @@ type OneShotSound = "cannonShot" | "cardDistribution" | "turnStart" | "destroyed
 const MUSIC_FADE_MS = 900;
 const MUSIC_VOLUME = 0.34;
 const RADAR_SCAN_VOLUME = 0.38;
+const ROTATING_CARTRIDGE_VOLUME = 0.46;
 const EFFECT_VOLUME: Record<OneShotSound, number> = {
   cannonShot: 0.58,
   cardDistribution: 0.46,
@@ -180,6 +182,31 @@ export function playTurnStartSound() {
 
 export function playDestroyedSound() {
   playRandomSound("destroyed");
+}
+
+export function playRotatingCartridgeSound(durationMs: number) {
+  const audio = new Audio(rotatingCartridgeUrl);
+  let stopTimer: number | null = null;
+
+  audio.preload = "auto";
+  audio.volume = ROTATING_CARTRIDGE_VOLUME;
+  audio.currentTime = 0;
+
+  void audio.play().catch(() => undefined);
+
+  const stop = () => {
+    if (stopTimer !== null) {
+      window.clearTimeout(stopTimer);
+      stopTimer = null;
+    }
+
+    audio.pause();
+    audio.currentTime = 0;
+  };
+
+  stopTimer = window.setTimeout(stop, durationMs);
+
+  return stop;
 }
 
 export function createRadarScanSoundPlayer() {

@@ -1233,6 +1233,28 @@ export function PvpLobby() {
   }, []);
 
   useEffect(() => {
+    if (menuView !== "main" || !guestSessionReady) return;
+
+    let cancelled = false;
+    const preloadTimer = window.setTimeout(() => {
+      if (cancelled) return;
+
+      void import("../assets/assetPreloader").then(
+        ({ startMainMenuAssetPreload }) => {
+          if (!cancelled) {
+            startMainMenuAssetPreload();
+          }
+        }
+      );
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(preloadTimer);
+    };
+  }, [guestSessionReady, menuView]);
+
+  useEffect(() => {
     let cancelled = false;
 
     void Promise.allSettled([
