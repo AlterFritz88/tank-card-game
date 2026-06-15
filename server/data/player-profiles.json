@@ -596,13 +596,13 @@
     "favoriteHeadquartersId": null,
     "battleStats": {
       "wins": 12,
-      "losses": 3
+      "losses": 4
     },
-    "ironTracks": 152,
+    "ironTracks": 162,
     "goldTracks": 5,
-    "freeXp": 102,
+    "freeXp": 103,
     "headquartersXp": {
-      "german_artillery_division": 65,
+      "german_artillery_division": 80,
       "training_unit": 575,
       "german_rear_corps": 67,
       "trainingslager": 0,
@@ -611,7 +611,7 @@
       "training_camp": 13
     },
     "headquartersMatchCounts": {
-      "german_artillery_division": 1,
+      "german_artillery_division": 2,
       "training_unit": 7,
       "german_rear_corps": 1,
       "trainingslager": 3,
@@ -622,7 +622,7 @@
     "headquartersBattleStats": {
       "german_artillery_division": {
         "wins": 1,
-        "losses": 0
+        "losses": 1
       },
       "training_unit": {
         "wins": 5,
@@ -806,6 +806,7 @@
     },
     "savedDecks": [],
     "claimedBattleRewardIds": [
+      "battle:qgm7ib",
       "battle:1wenon8",
       "pvp:LS9YR:player",
       "pvp:LS9YR:bot",

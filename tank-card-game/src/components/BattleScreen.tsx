@@ -1,6 +1,6 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { getCard } from "../game/cards";
 import { getNextBotAction } from "../game/bot";
@@ -3411,7 +3411,7 @@ function renderEnemyDeckWithTimer() {
             {renderSupportLine(humanPlayerId)}
             {renderSupportLine(opponentPlayerId)}
 
-            <motion.div ref={boardRef} layout style={styles.board}>
+            <motion.div ref={boardRef} style={styles.board}>
               {renderStartRollOverlay()}
 
               <AnimatePresence>
@@ -3637,7 +3637,9 @@ function renderEnemyDeckWithTimer() {
                 )}
               </AnimatePresence>
 
-              {visualRows.map((row) => visualCols.map((col) => {
+              {visualRows.flatMap((row) => visualCols.map((col) => (
+                <div key={`${row}-${col}`} style={{ display: "contents" }}>
+                  {(() => {
                   const position: Position = { row, col };
 
                   const unit = battle.units.find((item) =>
@@ -4131,8 +4133,9 @@ function renderEnemyDeckWithTimer() {
     )}
   </motion.button>
 );
-                })
-              )}
+                  })()}
+                </div>
+              )))}
             </motion.div>
           </section>
 
@@ -4306,7 +4309,7 @@ function renderEnemyDeckWithTimer() {
 
       </main>
 
-      {(
+      {createPortal(
         <AnimatePresence>
           {cardPreview && (
             <motion.div
@@ -4369,7 +4372,8 @@ function renderEnemyDeckWithTimer() {
               </motion.div>
             </motion.div>
           )}
-        </AnimatePresence>
+        </AnimatePresence>,
+        document.body
       )}
 
       {tutorialActive && battle.status === "active" && tutorialStep ? (
@@ -5539,13 +5543,17 @@ destroyedCardEffect: {
     position: "fixed",
     inset: 0,
     zIndex: 9000,
+    // Portaled to <body> so it spans the entire window — including the
+    // letterbox margins around the scaled GameStage — instead of only the
+    // central design box. Acts as its own size container so the panel's
+    // cqw/cqh sizing keeps working outside the stage.
+    containerType: "size",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
-    background:
-      "radial-gradient(circle at center, rgba(0,0,0,0.58), rgba(0,0,0,0.86) 74%)",
-    backdropFilter: "blur(6px)",
+    background: "rgba(0,0,0,0.5)",
+    backdropFilter: "blur(4px)",
   },
 
   cardPreviewPanel: {

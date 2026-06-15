@@ -9,6 +9,7 @@ import defeatBannerImage from "../game/results_screen/defeat.png";
 import ratingBannerImage from "../game/results_screen/rating.png";
 import victoryBannerImage from "../game/results_screen/victory.png";
 import type { BattleReward } from "../game/economy";
+import { loadPlayerProgress } from "../game/playerProgress";
 import { getHeadquartersDefinition } from "../game/headquarters";
 import type { MatchEndReason } from "../game/modes";
 import type { BattleKillStats, ClientBattleState, PlayerId } from "../game/types";
@@ -84,6 +85,10 @@ export function ResultScreen({
   onRetryReward,
 }: ResultScreenProps) {
   const [activeTab, setActiveTab] = useState<ResultTab>("summary");
+
+  // The reward table shows both tiers side by side; bold the column the player
+  // actually earns based on their account type (premium vs base).
+  const isPremium = loadPlayerProgress().accountType === "premium";
 
   const winningPlayer: PlayerId | null =
     battle.status === "player_won"
@@ -197,6 +202,7 @@ export function ResultScreen({
                 <ResultSection title="Опыт" icon={experienceIcon}>
                   <ResultTable
                     icon={experienceIcon}
+                    isPremium={isPremium}
                     rows={[
                       {
                         label: "Боевой опыт штаба",
@@ -228,6 +234,7 @@ export function ResultScreen({
                 <ResultSection title="Железные траки" icon={silverTracksIcon}>
                   <ResultTable
                     icon={silverTracksIcon}
+                    isPremium={isPremium}
                     rows={[
                       {
                         label: "Базовая награда за бой",
@@ -349,6 +356,7 @@ function ResultSection({
 function ResultTable({
   rows,
   icon,
+  isPremium,
 }: {
   rows: {
     label: string;
@@ -357,16 +365,27 @@ function ResultTable({
     muted?: boolean;
   }[];
   icon: string;
+  isPremium: boolean;
 }) {
   return (
     <div style={styles.table}>
       <div style={{ ...styles.row, ...styles.headerRow }}>
         <div />
-        <div style={styles.centerCell}>
+        <div
+          style={{
+            ...styles.centerCell,
+            ...(isPremium ? {} : styles.activeColumnHeader),
+          }}
+        >
           <img src={icon} alt="" style={styles.tableIcon} />
           Без премиума
         </div>
-        <div style={styles.premiumCell}>
+        <div
+          style={{
+            ...styles.premiumCell,
+            ...(isPremium ? styles.activeColumnHeader : {}),
+          }}
+        >
           <img src={icon} alt="" style={styles.tableIcon} />
           С премиумом
         </div>
@@ -375,10 +394,22 @@ function ResultTable({
       {rows.map((row) => (
         <div key={row.label} style={styles.row}>
           <div style={styles.labelCell}>{row.label}</div>
-          <div style={{ ...styles.centerCell, ...(row.muted ? styles.minusCell : {}) }}>
+          <div
+            style={{
+              ...styles.centerCell,
+              ...(row.muted ? styles.minusCell : {}),
+              ...(!row.muted && !isPremium ? styles.activeAmountCell : {}),
+            }}
+          >
             <CurrencyAmount icon={icon} value={row.value} />
           </div>
-          <div style={{ ...styles.premiumCell, ...(row.muted ? styles.minusCell : {}) }}>
+          <div
+            style={{
+              ...styles.premiumCell,
+              ...(row.muted ? styles.minusCell : {}),
+              ...(!row.muted && isPremium ? styles.activeAmountCell : {}),
+            }}
+          >
             <CurrencyAmount icon={icon} value={row.premiumValue} />
           </div>
         </div>
@@ -807,12 +838,24 @@ const styles: Record<string, CSSProperties> = {
 
   premiumCell: {
     color: "#d7c5a5",
-    fontWeight: 800,
+    fontWeight: 400,
     textAlign: "center",
   },
 
   minusCell: {
     color: "#aa9990",
+  },
+
+  // Column the player actually earns (matches their account type) — emphasised
+  // so the relevant reward amount reads as bold.
+  activeAmountCell: {
+    color: "#f4dca6",
+    fontWeight: 900,
+  },
+
+  activeColumnHeader: {
+    color: "#f0d18a",
+    fontWeight: 900,
   },
 
   tableIcon: {
