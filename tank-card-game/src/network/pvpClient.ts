@@ -12,7 +12,13 @@ export type PvpClientMessage =
   | { type: "MATCHMAKING_STARTED" }
   | { type: "ROOM_CREATED"; roomId: string; playerId: PlayerId }
   | { type: "ROOM_JOINED"; roomId: string; playerId: PlayerId }
-  | { type: "RECONNECTED"; roomId: string; playerId: PlayerId; battle: BattleStateView }
+  | {
+      type: "RECONNECTED";
+      roomId: string;
+      playerId: PlayerId;
+      battle: BattleStateView;
+      opponentNickname?: string | null;
+    }
   | { type: "RECONNECT_FAILED"; message: string }
   | { type: "WAITING_FOR_OPPONENT"; roomId: string }
   | {
@@ -22,8 +28,15 @@ export type PvpClientMessage =
       startsAt: number;
       revealAt: number;
       battle: BattleStateView;
+      opponentNickname?: string | null;
     }
-  | { type: "GAME_STARTED"; roomId: string; battle: BattleStateView; playerId: PlayerId }
+  | {
+      type: "GAME_STARTED";
+      roomId: string;
+      battle: BattleStateView;
+      playerId: PlayerId;
+      opponentNickname?: string | null;
+    }
   | { type: "GAME_STATE"; roomId: string; battle: BattleStateView }
   | {
       type: "TURN_TIMER";

@@ -94,6 +94,7 @@ type BattleStore = {
   pvpStatus: PvpConnectionState;
   pvpError: string | null;
   pvpOpponentHeadquartersId: HeadquartersId | null;
+  pvpOpponentNickname: string | null;
   pvpMatchPreviewLabel: string | null;
   pvpSearchStartedAt: number | null;
   pvpSearchDeadlineAt: number | null;
@@ -459,6 +460,7 @@ function applyFirstTurnRollMessage(
       message.battle,
       state.localPlayerId
     ),
+    pvpOpponentNickname: message.opponentNickname ?? null,
     pvpMatchPreviewLabel: null,
     pvpSearchStartedAt: null,
     pvpSearchDeadlineAt: null,
@@ -517,6 +519,7 @@ function applyGameStartedMessage(
       message.battle,
       message.playerId
     ),
+    pvpOpponentNickname: message.opponentNickname ?? null,
     pvpMatchPreviewLabel: null,
     pvpSearchStartedAt: null,
     pvpSearchDeadlineAt: null,
@@ -567,6 +570,7 @@ function getCleanMenuState() {
     pvpStatus: "idle" as PvpConnectionState,
     pvpError: null,
     pvpOpponentHeadquartersId: null,
+    pvpOpponentNickname: null,
     pvpMatchPreviewLabel: null,
     pvpSearchStartedAt: null,
     pvpSearchDeadlineAt: null,
@@ -677,6 +681,7 @@ function setupPvpSubscriptions() {
             message.battle,
             state.localPlayerId
           ),
+          pvpOpponentNickname: message.opponentNickname ?? null,
           pvpMatchPreviewLabel: null,
           matchEndReason: null,
           pvpMovementIntent: null,
@@ -700,6 +705,7 @@ function setupPvpSubscriptions() {
               message.battle,
               message.playerId
             ),
+            pvpOpponentNickname: message.opponentNickname ?? null,
             pvpMatchPreviewLabel: null,
           });
           schedulePendingPvpStart();
@@ -725,6 +731,7 @@ function setupPvpSubscriptions() {
           pvpRoomId: message.roomId,
           pvpStatus: message.battle.status === "active" ? "inBattle" : "finished",
           pvpError: null,
+          pvpOpponentNickname: message.opponentNickname ?? null,
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
@@ -907,6 +914,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   pvpStatus: "idle",
   pvpError: null,
   pvpOpponentHeadquartersId: null,
+  pvpOpponentNickname: null,
   pvpMatchPreviewLabel: null,
   pvpSearchStartedAt: null,
   pvpSearchDeadlineAt: null,

@@ -1565,6 +1565,7 @@ export class RoomManager {
       roomId: room.id,
       playerId,
       battle: createBattleViewForPlayer(room.battle, playerId),
+      opponentNickname: this.getOpponentNickname(room, playerId),
     });
 
     this.sendTurnTimer(room, playerId);
@@ -1642,6 +1643,13 @@ export class RoomManager {
 
   private getOpponent(playerId: PlayerId): PlayerId {
     return playerId === "player" ? "bot" : "player";
+  }
+
+  private getOpponentNickname(room: Room, playerId: PlayerId): string | null {
+    const opponent = room.players[this.getOpponent(playerId)];
+    if (!opponent?.profilePlayerId) return null;
+
+    return this.profiles.getProfile(opponent.profilePlayerId).nickname ?? null;
   }
 
   private isWaitingForOpponent(room: Room): boolean {
@@ -2070,6 +2078,7 @@ export class RoomManager {
       startsAt,
       revealAt,
       battle: createBattleViewForPlayer(room.battle, playerId),
+      opponentNickname: this.getOpponentNickname(room, playerId),
     });
   }
 
@@ -2082,6 +2091,7 @@ export class RoomManager {
       roomId: room.id,
       battle: createBattleViewForPlayer(room.battle, playerId),
       playerId,
+      opponentNickname: this.getOpponentNickname(room, playerId),
     });
   }
 

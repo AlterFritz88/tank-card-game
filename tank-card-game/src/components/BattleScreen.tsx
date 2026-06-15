@@ -1,6 +1,6 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { flushSync } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { getCard } from "../game/cards";
 import { getNextBotAction } from "../game/bot";
@@ -57,7 +57,9 @@ import {
   claimPvpBattleRewardFromServer,
   claimTutorialRewardFromServer,
   getLocalTutorialReward,
+  loadPlayerProgress,
 } from "../game/playerProgress";
+import { getHeadquartersDefinition } from "../game/headquarters";
 import {
   TUTORIAL_EPILOGUE_TEXT,
   TUTORIAL_REWARD,
@@ -374,6 +376,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     mode,
     localPlayerId,
     pvpRoomId,
+    pvpOpponentNickname,
     pvpTimer,
     pvpMovementIntent,
     pvpAttackIntent,
@@ -468,6 +471,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const humanPlayerId: PlayerId = mode === "pvp" ? localPlayerId : "player";
   const opponentPlayerId: PlayerId =
     humanPlayerId === "player" ? "bot" : "player";
+
+  // Имя локального игрока берем из профиля один раз — оно не меняется во время боя.
+  const [localPlayerNickname] = useState(() => loadPlayerProgress().nickname);
 
   // The single scripted destination cell for the BT-7's advance in the active
   // tutorial step — the only cell highlighted and the only one the player may
@@ -600,6 +606,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const [thinkingCardIndex, setThinkingCardIndex] = useState<number | null>(
     null
   );
+  const [botThinkingAboutCard, setBotThinkingAboutCard] = useState(false);
   const previousHandIdsRef = useRef<Record<PlayerId, Set<string>>>({
     player: new Set(battle.player.hand.map((card) => card.instanceId)),
     bot: new Set(battle.bot.hand.map((card) => card.instanceId)),
@@ -1207,6 +1214,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     !debugPaused &&
     battle.status === "active" &&
     battle.activePlayer === "bot" &&
+    botThinkingAboutCard &&
     battle.bot.hand.length > 0;
   const visibleThinkingCardIndex = canAnimateEnemyThinking
     ? thinkingCardIndex
@@ -1381,7 +1389,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
         if (!action) break;
 
+        const isCardPlay =
+          action.type === "PLAY_CARD" || action.type === "PLAY_SUPPORT_CARD";
+        setBotThinkingAboutCard(isCardPlay);
+
         await delay(getRandomBotThinkingDelay());
+
+        setBotThinkingAboutCard(false);
 
         if (cancelled || debugPausedRef.current) break;
 
@@ -1454,6 +1468,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       }
 
       botTurnRunningRef.current = false;
+      setBotThinkingAboutCard(false);
     }
 
     void runAnimatedBotTurn();
@@ -1461,6 +1476,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     return () => {
       cancelled = true;
       botTurnRunningRef.current = false;
+      setBotThinkingAboutCard(false);
     };
   }, [botAiEnabled, battle.activePlayer, battle.status, debugPaused]);
 
@@ -2817,15 +2833,31 @@ function renderEnemyDeckWithTimer() {
       ? getFreeSupportSlots(battle as BattleState, owner)
       : [];
 
+    const isFriendly = owner === humanPlayerId;
+    // Под своим тылом пишем ник игрока (зеленым), над тылом противника — его ник
+    // (красным) в PVP, либо название штаба в PVE.
+    const enemyHeadquartersTitle = getHeadquartersDefinition(
+      getHeadquartersIdForOwner(owner)
+    ).title;
+    const commanderName = isFriendly
+      ? localPlayerNickname
+      : mode === "pvp"
+        ? pvpOpponentNickname ?? enemyHeadquartersTitle
+        : enemyHeadquartersTitle;
+
     return (
       <div
         style={{
           ...styles.supportLine,
-          ...(owner === humanPlayerId
-            ? styles.supportLineFriendly
-            : styles.supportLineEnemy),
+          ...(isFriendly ? styles.supportLineFriendly : styles.supportLineEnemy),
         }}
       >
+        {!isFriendly && commanderName ? (
+          <span style={{ ...styles.commanderName, ...styles.enemyCommanderName }}>
+            {commanderName}
+          </span>
+        ) : null}
+
         <span style={styles.supportLineLabel}>ТЫЛ</span>
 
         {SUPPORT_SLOTS.map((supportSlot) => {
@@ -2994,6 +3026,12 @@ function renderEnemyDeckWithTimer() {
             </motion.button>
           );
         })}
+
+        {isFriendly && commanderName ? (
+          <span style={{ ...styles.commanderName, ...styles.playerCommanderName }}>
+            {commanderName}
+          </span>
+        ) : null}
       </div>
     );
   }
@@ -3226,8 +3264,7 @@ function renderEnemyDeckWithTimer() {
             <motion.div
               key={`bot-hand-${cardInstance.instanceId}`}
               ref={setHandCardRef(opponentPlayerId, cardInstance.instanceId)}
-              layout={mode === "pvp" ? false : "position"}
-              layoutDependency={battle[opponentPlayerId].hand.length}
+              layout={false}
               style={{
                 ...styles.cardBack,
                 ...styles.enemyHandCard,
@@ -3236,7 +3273,7 @@ function renderEnemyDeckWithTimer() {
                 opacity: isHidden ? 0 : 1,
                 zIndex: index + 1,
                 filter: isPulledCard ? "brightness(1.08)" : "none",
-                boxShadow: isPulledCard ? "none" : styles.cardBack.boxShadow,
+                boxShadow: "none",
               }}
               initial={{
                 opacity: 0,
@@ -4001,7 +4038,6 @@ function renderEnemyDeckWithTimer() {
   <motion.button
     type="button"
     ref={setCellRef(position)}
-    layout
     key={`${row}-${col}`}
     className={
       tutorialHighlights && isTutorialCellHighlighted(position)
@@ -4011,6 +4047,8 @@ function renderEnemyDeckWithTimer() {
     style={{
       ...styles.cell,
       ...styles.emptyCell,
+      ...(ownSpawn ? styles.spawnCell : {}),
+      ...(enemySpawn ? styles.botSpawnCell : {}),
       ...(moveCell ? styles.moveCell : {}),
       ...(canPlaceBattlefieldCard ? styles.spawnCellAvailable : {}),
       ...(tutorialHighlights
@@ -4179,8 +4217,7 @@ function renderEnemyDeckWithTimer() {
                   <motion.button
                     key={cardInstance.instanceId}
                     ref={setHandCardRef(humanPlayerId, cardInstance.instanceId)}
-                    layout={mode === "pvp" ? false : "position"}
-                    layoutDependency={localHand.length}
+                    layout={false}
                     className={
                       tutorialCardHighlighted
                         ? "tutorial-highlight-pulse"
@@ -4269,7 +4306,7 @@ function renderEnemyDeckWithTimer() {
 
       </main>
 
-      {createPortal(
+      {(
         <AnimatePresence>
           {cardPreview && (
             <motion.div
@@ -4332,8 +4369,7 @@ function renderEnemyDeckWithTimer() {
               </motion.div>
             </motion.div>
           )}
-        </AnimatePresence>,
-        document.body
+        </AnimatePresence>
       )}
 
       {tutorialActive && battle.status === "active" && tutorialStep ? (
@@ -4662,6 +4698,38 @@ actionSideColumn: {
     lineHeight: 1,
     textShadow: "0 1px 3px rgba(0,0,0,0.9)",
     pointerEvents: "none",
+  },
+
+  // Имя командира выводится за пределами потока тыловой колонки, чтобы не
+  // сдвигать ячейки тыла относительно рядов игрового поля.
+  commanderName: {
+    position: "absolute",
+    left: "50%",
+    transform: "translateX(-50%)",
+    fontFamily: "var(--font-display)",
+    fontSize: 13,
+    fontWeight: 800,
+    letterSpacing: 0.5,
+    lineHeight: 1.1,
+    textAlign: "center",
+    whiteSpace: "nowrap",
+    pointerEvents: "none",
+  },
+
+  playerCommanderName: {
+    top: "100%",
+    marginTop: 8,
+    color: "#7dff8a",
+    textShadow:
+      "0 2px 4px rgba(0,0,0,0.92), 0 0 12px rgba(125,255,138,0.45)",
+  },
+
+  enemyCommanderName: {
+    bottom: "100%",
+    marginBottom: 8,
+    color: "#ff6b6b",
+    textShadow:
+      "0 2px 4px rgba(0,0,0,0.92), 0 0 12px rgba(255,107,107,0.45)",
   },
 
   supportCell: {
@@ -5101,7 +5169,12 @@ actionSideColumn: {
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "flex-end",
-    gap: 10,
+    // Меньший зазор подвигает колоду правее, не сдвигая аватар (он уже у края
+    // сцены). Вместе со сдвигом всего ряда это уводит колоду из-под тыловой
+    // ячейки противника, которая выступает за правый край поля. Значения в
+    // координатах сцены 1280×720 — масштабируются вместе со всей сценой.
+    gap: 4,
+    transform: "translateX(54px)",
 },
   enemyControlStack: {
     display: "flex",
