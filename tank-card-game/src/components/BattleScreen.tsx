@@ -37,7 +37,12 @@ import { ResultScreen } from "./ResultScreen";
 import { FuelPanel } from "./FuelPanel";
 import { BattleTimerPanel } from "./BattleTimerPanel";
 import { DeckStack } from "./DeckStack";
-import { screenDeltaToStage, screenPointToStage, StageBackground } from "./GameStage";
+import {
+  screenDeltaToStage,
+  screenPointToStage,
+  StageBackground,
+  useStageRotation,
+} from "./GameStage";
 import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
 import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
 import { getHeadquartersImageAsset } from "../game/headquartersImages";
@@ -693,6 +698,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   );
 
   const [cardPreview, setCardPreview] = useState<CardPreview | null>(null);
+  // The preview overlay is portaled to <body>, outside the rotated GameStage, so
+  // rotate its panel to match the stage orientation (90° on portrait phones).
+  const stageRotation = useStageRotation();
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   const [debugPaused, setDebugPaused] = useState(false);
@@ -4381,10 +4389,18 @@ function renderEnemyDeckWithTimer() {
               }}
             >
               <motion.div
-                style={styles.cardPreviewPanel}
-                initial={{ opacity: 0, scale: 0.84, y: 18 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9, y: 12 }}
+                style={{
+                  ...styles.cardPreviewPanel,
+                  // Rotated 90° on portrait phones: the panel's width box maps to
+                  // the viewport height (and vice versa), so swap the cq units it
+                  // is clamped against to keep the card fully on screen.
+                  ...(stageRotation === 90
+                    ? { maxWidth: "82cqh", maxHeight: "92cqw" }
+                    : null),
+                }}
+                initial={{ opacity: 0, scale: 0.84, y: 18, rotate: stageRotation }}
+                animate={{ opacity: 1, scale: 1, y: 0, rotate: stageRotation }}
+                exit={{ opacity: 0, scale: 0.9, y: 12, rotate: stageRotation }}
                 transition={{
                   type: "spring",
                   stiffness: 260,

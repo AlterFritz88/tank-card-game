@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -25,6 +26,37 @@ const DESIGN_HEIGHT = 720;
 // battle projectiles, explosions and card animations.
 let stageScale = 1;
 let stageRotationDeg = 0;
+
+// Lightweight subscription store so overlays portaled to <body> (outside the
+// scaled/rotated design box) can mirror the stage rotation — otherwise they
+// appear sideways on phones held in portrait, where the stage is rotated 90°.
+const rotationListeners = new Set<() => void>();
+
+function setStageRotation(deg: number) {
+  if (deg === stageRotationDeg) return;
+  stageRotationDeg = deg;
+  for (const listener of rotationListeners) listener();
+}
+
+function subscribeRotation(onChange: () => void) {
+  rotationListeners.add(onChange);
+  return () => {
+    rotationListeners.delete(onChange);
+  };
+}
+
+/**
+ * React hook returning the current stage rotation in degrees (0 in landscape,
+ * 90 in portrait). Overlays rendered outside the stage (portaled to <body>) use
+ * this to rotate their content to match the game's orientation.
+ */
+export function useStageRotation(): number {
+  return useSyncExternalStore(
+    subscribeRotation,
+    () => stageRotationDeg,
+    () => stageRotationDeg
+  );
+}
 
 /**
  * Convert a screen-space delta (e.g. the vector between two
@@ -154,12 +186,12 @@ export function GameStage({ children }: { children: ReactNode }) {
         // Rotate the landscape design 90° so it fills a portrait screen.
         const scale = Math.min(vw / DESIGN_HEIGHT, vh / DESIGN_WIDTH);
         stageScale = scale;
-        stageRotationDeg = 90;
+        setStageRotation(90);
         setTransform(`translate(-50%, -50%) rotate(90deg) scale(${scale})`);
       } else {
         const scale = Math.min(vw / DESIGN_WIDTH, vh / DESIGN_HEIGHT);
         stageScale = scale;
-        stageRotationDeg = 0;
+        setStageRotation(0);
         setTransform(`translate(-50%, -50%) scale(${scale})`);
       }
     }

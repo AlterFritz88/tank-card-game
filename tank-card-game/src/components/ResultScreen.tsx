@@ -14,6 +14,7 @@ import { loadPlayerProgress } from "../game/playerProgress";
 import { getHeadquartersDefinition } from "../game/headquarters";
 import type { MatchEndReason } from "../game/modes";
 import type { BattleKillStats, ClientBattleState, PlayerId } from "../game/types";
+import { useStageRotation } from "./GameStage";
 
 type ResultScreenProps = {
   battle: ClientBattleState;
@@ -87,6 +88,11 @@ export function ResultScreen({
 }: ResultScreenProps) {
   const [activeTab, setActiveTab] = useState<ResultTab>("summary");
 
+  // Portaled to <body>, outside the rotated GameStage, so rotate the window to
+  // match the stage orientation (90° on portrait phones) — otherwise it shows
+  // up sideways relative to the game.
+  const stageRotation = useStageRotation();
+
   // The reward table shows both tiers side by side; bold the column the player
   // actually earns based on their account type (premium vs base).
   const isPremium = loadPlayerProgress().accountType === "premium";
@@ -123,7 +129,21 @@ export function ResultScreen({
 
   return createPortal(
     <div style={styles.overlay}>
-      <main style={styles.resultWindow}>
+      <main
+        style={{
+          ...styles.resultWindow,
+          transform: `rotate(${stageRotation}deg)`,
+          // When rotated 90° the window's width box maps to the viewport's
+          // height (and vice versa), so swap the container-query units it is
+          // sized against to keep it fitting the screen.
+          ...(stageRotation === 90
+            ? {
+                width: "min(875px, calc(100cqh - 36px))",
+                height: "min(665px, calc(100cqw - 32px))",
+              }
+            : null),
+        }}
+      >
         <section
           style={{
             ...styles.hero,
