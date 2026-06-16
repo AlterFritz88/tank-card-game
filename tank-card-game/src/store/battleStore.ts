@@ -37,7 +37,9 @@ import type {
 } from "../game/types";
 import { pvpClient } from "../network/pvpClient";
 import type { PvpClientMessage } from "../network/pvpClient";
+import { profileClient } from "../network/profileClient";
 import { getDefaultWebSocketUrl } from "../network/webSocketUrl";
+import { getCurrentUserId } from "../game/playerIdentity";
 
 type SelectedAttacker = {
   type: "unit" | "headquarters";
@@ -93,6 +95,7 @@ type BattleStore = {
   pvpRoomId: string | null;
   pvpStatus: PvpConnectionState;
   pvpError: string | null;
+  sessionError: string | null;
   pvpOpponentHeadquartersId: HeadquartersId | null;
   pvpOpponentNickname: string | null;
   pvpMatchPreviewLabel: string | null;
@@ -165,6 +168,7 @@ type BattleStore = {
   leavePvpMatch: () => void;
   cancelMatchmaking: () => void;
   setPvpError: (message: string | null) => void;
+  clearSessionError: () => void;
   hideFirstTurnRoll: () => void;
   setSelectedHeadquartersId: (headquartersId: HeadquartersId) => void;
 
@@ -569,6 +573,7 @@ function getCleanMenuState() {
     pvpRoomId: null,
     pvpStatus: "idle" as PvpConnectionState,
     pvpError: null,
+    sessionError: null,
     pvpOpponentHeadquartersId: null,
     pvpOpponentNickname: null,
     pvpMatchPreviewLabel: null,
@@ -586,6 +591,31 @@ function getCleanMenuState() {
     currentCampaignMissionId: null,
     firstTurnRoll: emptyFirstTurnRoll,
   };
+}
+
+// Single-session lock helpers. A battle (PVE or PVP) may only start if the
+// account isn't already playing elsewhere. The lock lives on the profile
+// server connection and auto-releases when that socket closes; we also release
+// explicitly when returning to the menu so other devices are freed promptly.
+async function acquireGameSession(kind: GameMode): Promise<boolean> {
+  const result = await profileClient.acquireSession(getCurrentUserId(), kind);
+
+  if (result.status === "denied") {
+    useBattleStore.setState({
+      sessionError:
+        result.message ??
+        "Игра уже запущена в другом окне или на другом устройстве.",
+    });
+    return false;
+  }
+
+  // "granted" or "unavailable" (offline — lock can't be enforced) → allow play.
+  useBattleStore.setState({ sessionError: null });
+  return true;
+}
+
+function releaseGameSession() {
+  profileClient.releaseSession(getCurrentUserId());
 }
 
 function setupPvpSubscriptions() {
@@ -775,6 +805,7 @@ function setupPvpSubscriptions() {
         break;
 
       case "MATCHMAKING_CANCELLED":
+        releaseGameSession();
         clearFirstTurnRollTimers();
         clearReconnectTimer();
         clearPendingPvpStart();
@@ -913,6 +944,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   pvpRoomId: null,
   pvpStatus: "idle",
   pvpError: null,
+  sessionError: null,
   pvpOpponentHeadquartersId: null,
   pvpOpponentNickname: null,
   pvpMatchPreviewLabel: null,
@@ -1092,6 +1124,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   exitBattleToMenu: () => {
+    releaseGameSession();
     clearFirstTurnRollTimers();
     clearReconnectTimer();
     clearPendingPvpStart();
@@ -1110,7 +1143,9 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({ selectedHeadquartersId: headquartersId });
   },
 
-  startAiBattle: (deckCardIds) => {
+  startAiBattle: async (deckCardIds) => {
+    if (!(await acquireGameSession("ai"))) return;
+
     clearFirstTurnRollTimers();
     clearReconnectTimer();
     clearPendingPvpStart();
@@ -1234,7 +1269,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     }, PVP_MATCH_FOUND_PREVIEW_MS);
   },
 
-  startCampaignMission: (missionId) => {
+  startCampaignMission: async (missionId) => {
     const campaignMission = getCampaignMission(missionId);
     if (!campaignMission) return;
 
@@ -1249,6 +1284,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
 
     const battle = createCampaignBattle(missionId);
     if (!battle) return;
+
+    if (!(await acquireGameSession("campaign"))) return;
 
     clearFirstTurnRollTimers();
     clearReconnectTimer();
@@ -1277,7 +1314,9 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     pvpClient.disconnect();
   },
 
-  findPvpMatch: (deckCardIds) => {
+  findPvpMatch: async (deckCardIds) => {
+    if (!(await acquireGameSession("pvp"))) return;
+
     clearFirstTurnRollTimers();
     clearReconnectTimer();
     clearPendingPvpStart();
@@ -1318,7 +1357,9 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     get().findPvpMatch(state.pvpFallbackDeckCardIds ?? undefined);
   },
 
-  createPvpRoom: (deckCardIds) => {
+  createPvpRoom: async (deckCardIds) => {
+    if (!(await acquireGameSession("pvp"))) return;
+
     clearFirstTurnRollTimers();
     clearReconnectTimer();
     clearPendingPvpStart();
@@ -1352,13 +1393,15 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     );
   },
 
-  joinPvpRoom: (roomId, deckCardIds) => {
+  joinPvpRoom: async (roomId, deckCardIds) => {
     const normalizedRoomId = roomId.trim().toUpperCase();
 
     if (!normalizedRoomId) {
       set({ pvpError: "Введите код комнаты" });
       return;
     }
+
+    if (!(await acquireGameSession("pvp"))) return;
 
     clearFirstTurnRollTimers();
     clearReconnectTimer();
@@ -1535,6 +1578,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       return;
     }
 
+    releaseGameSession();
     clearFirstTurnRollTimers();
     clearReconnectTimer();
     clearPendingPvpStart();
@@ -1546,6 +1590,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   cancelMatchmaking: () => {
     if (get().mode !== "pvp") return;
 
+    releaseGameSession();
     pvpClient.cancelMatchmaking();
     clearFirstTurnRollTimers();
     clearReconnectTimer();
@@ -1559,6 +1604,10 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpError: message,
       pvpStatus: message ? "error" : get().pvpStatus,
     });
+  },
+
+  clearSessionError: () => {
+    set({ sessionError: null });
   },
 
   dispatch: (action) => {
@@ -1617,6 +1666,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     const { battle, currentCampaignMissionId, mode, tutorialActive } = get();
 
     if (tutorialActive) {
+      releaseGameSession();
       set(getCleanMenuState());
       return;
     }
@@ -1646,6 +1696,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         saveCompletedCampaignMissionIds(completedCampaignMissionIds);
       }
 
+      releaseGameSession();
       set({
         battle: null,
         mode: "campaign",

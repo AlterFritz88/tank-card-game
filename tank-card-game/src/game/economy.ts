@@ -94,7 +94,11 @@ export function calculateBattleReward({
       : rewardMode === "campaign"
         ? 0.34
         : 0.3;
-  const reasonMultiplier = getReasonMultiplier(matchEndReason, localWon);
+  const reasonMultiplier = getReasonMultiplier(
+    matchEndReason,
+    localWon,
+    destructionProgress
+  );
   const activityMultiplier = 0.45 + destructionProgress * 0.55;
   const rawHeadquartersXp = Math.round(
     modeReward.headquartersXp *
@@ -152,26 +156,32 @@ function getHeadquartersIdForReward(
   return battle.headquarters[playerId].headquartersId ?? battle[playerId].headquartersId;
 }
 
+// Early-exit endings (a player surrendered, left, or lost connection) cut the
+// match short, so neither side fought it to its natural conclusion. Instead of
+// a flat penalty, scale the reward by how far the battle had actually
+// progressed (`destructionProgress` — HQ damage dealt plus units destroyed),
+// so the payout is proportional to what each side accomplished: an opponent who
+// surrenders with 1 HP left on their headquarters yields an almost-full reward,
+// while an instant ragequit yields little. Applied symmetrically so both the
+// winner and the surrendering loser are paid fairly for their own contribution.
 function getReasonMultiplier(
   reason: MatchEndReason | null,
-  localWon: boolean
+  localWon: boolean,
+  destructionProgress: number
 ): number {
   if (!reason) return 1;
 
-  if (!localWon) {
-    return reason === "surrender" || reason === "leave" ? 0.8 : 0.9;
-  }
+  const isEarlyExit =
+    reason === "surrender" ||
+    reason === "leave" ||
+    reason === "disconnect" ||
+    reason === "opponent_left";
+  if (!isEarlyExit) return 1;
 
-  switch (reason) {
-    case "surrender":
-      return 0.78;
-    case "disconnect":
-    case "leave":
-    case "opponent_left":
-      return 0.72;
-    default:
-      return 1;
-  }
+  // Winners keep more of their reward as they near the kill; the side that
+  // bailed keeps a slightly higher floor for the effort it did put in.
+  const floor = localWon ? 0.55 : 0.65;
+  return floor + (1 - floor) * clamp01(destructionProgress);
 }
 
 function getDestructionProgress(

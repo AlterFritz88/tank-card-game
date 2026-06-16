@@ -105,6 +105,18 @@ type ProfileClientMessage =
       password: string;
       guestPlayerId?: string;
       mergeGuestProgress?: boolean;
+    }
+  | {
+      type: "ACQUIRE_SESSION";
+      requestId: string;
+      accountId: string;
+      instanceId: string;
+      kind: GameMode;
+    }
+  | {
+      type: "RELEASE_SESSION";
+      accountId: string;
+      instanceId: string;
     };
 
 type ProfileServerMessage =
@@ -131,12 +143,40 @@ type ProfileServerMessage =
       type: "AUTH_ERROR";
       requestId: string;
       message: string;
-    };
+    }
+  | { type: "SESSION_GRANTED"; requestId: string }
+  | { type: "SESSION_DENIED"; requestId: string; message: string };
 
 export type AuthResult = Extract<ProfileServerMessage, { type: "AUTH_RESULT" }>;
 type ProfileSuccessMessage = Extract<
   ProfileServerMessage,
-  { type: "PROFILE_UPDATED" } | { type: "AUTH_RESULT" }
+  | { type: "PROFILE_UPDATED" }
+  | { type: "AUTH_RESULT" }
+  | { type: "SESSION_GRANTED" }
+>;
+
+/**
+ * Thrown when the server refuses a session because the account already has an
+ * active game session elsewhere. Distinct from connectivity errors so callers
+ * can block the second session while still allowing offline play.
+ */
+export class SessionDeniedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SessionDeniedError";
+  }
+}
+
+export type SessionAcquireResult =
+  | { status: "granted" }
+  | { status: "denied"; message: string }
+  | { status: "unavailable" };
+
+// Every request/response message carries a requestId; RELEASE_SESSION is the
+// only fire-and-forget message and is sent directly, never through request().
+type ProfileRequestMessage = Exclude<
+  ProfileClientMessage,
+  { type: "RELEASE_SESSION" }
 >;
 type ProfileUpdatedMessage = Extract<
   ProfileServerMessage,
@@ -176,6 +216,7 @@ const PROFILE_SERVER_URL =
   (import.meta as ProfileImportMeta).env.VITE_PVP_SERVER_URL ??
   getDefaultWebSocketUrl();
 const PROFILE_REQUEST_TIMEOUT_MS = 5_000;
+const SESSION_INSTANCE_STORAGE_KEY = "tank-card-game:session-instance-id";
 
 function createRequestId(): string {
   if (globalThis.crypto?.randomUUID) {
@@ -183,6 +224,22 @@ function createRequestId(): string {
   }
 
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+// Stable per-tab identifier for the single-session lock. Kept in sessionStorage
+// so a page reload reuses the same id (and re-acquires its own lock), while a
+// separate tab gets a distinct id and is therefore treated as a rival session.
+function getSessionInstanceId(): string {
+  try {
+    const existing = window.sessionStorage.getItem(SESSION_INSTANCE_STORAGE_KEY);
+    if (existing) return existing;
+
+    const next = createRequestId();
+    window.sessionStorage.setItem(SESSION_INSTANCE_STORAGE_KEY, next);
+    return next;
+  } catch {
+    return createRequestId();
+  }
 }
 
 class ProfileClient {
@@ -420,8 +477,53 @@ class ProfileClient {
     return response.profile;
   }
 
+  /**
+   * Try to claim the single active game session for this account before a
+   * battle starts. Returns "denied" when another tab/device already holds it,
+   * "unavailable" when the profile server can't be reached (offline play is
+   * allowed rather than blocked), and "granted" otherwise.
+   */
+  async acquireSession(
+    accountId: string,
+    kind: GameMode
+  ): Promise<SessionAcquireResult> {
+    try {
+      const response = await this.request({
+        type: "ACQUIRE_SESSION",
+        requestId: createRequestId(),
+        accountId,
+        instanceId: getSessionInstanceId(),
+        kind,
+      });
+
+      return response.type === "SESSION_GRANTED"
+        ? { status: "granted" }
+        : { status: "unavailable" };
+    } catch (error) {
+      if (error instanceof SessionDeniedError) {
+        return { status: "denied", message: error.message };
+      }
+
+      // Server unreachable or timed out — we cannot enforce the lock, so allow
+      // play instead of hard-blocking the game when offline.
+      return { status: "unavailable" };
+    }
+  }
+
+  releaseSession(accountId: string): void {
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+
+    this.socket.send(
+      JSON.stringify({
+        type: "RELEASE_SESSION",
+        accountId,
+        instanceId: getSessionInstanceId(),
+      })
+    );
+  }
+
   private async requestProfileUpdate(
-    message: ProfileClientMessage
+    message: ProfileRequestMessage
   ): Promise<ProfileUpdatedMessage> {
     const response = await this.request(message);
     if (response.type !== "PROFILE_UPDATED") {
@@ -470,7 +572,7 @@ class ProfileClient {
   }
 
   private async request(
-    message: ProfileClientMessage
+    message: ProfileRequestMessage
   ): Promise<ProfileSuccessMessage> {
     await this.ensureConnected();
 
@@ -557,6 +659,12 @@ class ProfileClient {
     if (!pendingRequest) return;
 
     this.pending.delete(message.requestId);
+
+    if (message.type === "SESSION_DENIED") {
+      this.setConnection("online", null);
+      pendingRequest.reject(new SessionDeniedError(message.message));
+      return;
+    }
 
     if (message.type === "PROFILE_ERROR" || message.type === "AUTH_ERROR") {
       this.setConnection("online", null);

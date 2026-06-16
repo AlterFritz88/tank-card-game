@@ -283,6 +283,14 @@ export class RoomManager {
   private accounts = new PlayerAccountManager();
   private profiles = new PlayerProfileManager();
   private completedPvpMatches = new Map<string, CompletedPvpMatch>();
+  // One active game session per account. Keyed by accountId; the owning socket
+  // auto-releases the lock when it closes (see handleClose). `instanceId`
+  // identifies the browser tab so the same tab can re-acquire after a reload.
+  private activeGameSessions = new Map<
+    string,
+    { socket: WebSocket; instanceId: string; kind: string; since: number }
+  >();
+  private socketToSessionAccount = new WeakMap<WebSocket, string>();
 
   handleMessage(socket: WebSocket, rawData: WebSocket.RawData) {
     if (getRawDataByteLength(rawData) > MAX_INCOMING_MESSAGE_BYTES) {
@@ -394,6 +402,12 @@ export class RoomManager {
       case "DELETE_CUSTOM_DECK":
         this.deleteCustomDeck(socket, message);
         break;
+      case "ACQUIRE_SESSION":
+        this.acquireGameSession(socket, message);
+        break;
+      case "RELEASE_SESSION":
+        this.releaseGameSession(socket, message);
+        break;
       case "REGISTER_ACCOUNT":
         this.registerAccount(socket, message);
         break;
@@ -432,6 +446,8 @@ export class RoomManager {
   }
 
   handleClose(socket: WebSocket) {
+    this.releaseSessionForSocket(socket);
+
     const roomId = this.socketToRoom.get(socket);
     const playerId = this.socketToPlayer.get(socket);
     if (!roomId || !playerId) return;
@@ -454,6 +470,96 @@ export class RoomManager {
     }
 
     this.deleteRoomIfEmpty(room);
+  }
+
+  private acquireGameSession(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "ACQUIRE_SESSION" }>
+  ) {
+    const accountId = message.accountId?.trim();
+    const instanceId = message.instanceId?.trim();
+
+    if (!accountId || !instanceId) {
+      safeSend(socket, {
+        type: "SESSION_DENIED",
+        requestId: message.requestId,
+        message: "Некорректная игровая сессия",
+      });
+      return;
+    }
+
+    // If this socket previously held a session for a different account (account
+    // switch within the same tab), drop that stale lock first.
+    const priorAccount = this.socketToSessionAccount.get(socket);
+    if (priorAccount && priorAccount !== accountId) {
+      const prior = this.activeGameSessions.get(priorAccount);
+      if (prior && prior.socket === socket) {
+        this.activeGameSessions.delete(priorAccount);
+      }
+    }
+
+    const existing = this.activeGameSessions.get(accountId);
+    const existingIsAlive =
+      existing !== undefined &&
+      existing.socket.readyState === existing.socket.OPEN;
+    const existingIsOtherTab =
+      existing !== undefined &&
+      existing.socket !== socket &&
+      existing.instanceId !== instanceId;
+
+    if (existing && existingIsAlive && existingIsOtherTab) {
+      safeSend(socket, {
+        type: "SESSION_DENIED",
+        requestId: message.requestId,
+        message:
+          "Игра уже запущена в другом окне или на другом устройстве. Завершите её, чтобы начать новый бой.",
+      });
+      return;
+    }
+
+    // Grant: brand new, same tab re-acquiring (e.g. after reload), or taking
+    // over a session whose socket has already died.
+    if (existing && existing.socket !== socket) {
+      this.socketToSessionAccount.delete(existing.socket);
+    }
+
+    this.activeGameSessions.set(accountId, {
+      socket,
+      instanceId,
+      kind: message.kind,
+      since: Date.now(),
+    });
+    this.socketToSessionAccount.set(socket, accountId);
+
+    safeSend(socket, { type: "SESSION_GRANTED", requestId: message.requestId });
+  }
+
+  private releaseGameSession(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "RELEASE_SESSION" }>
+  ) {
+    const accountId = message.accountId?.trim();
+    if (!accountId) return;
+
+    const existing = this.activeGameSessions.get(accountId);
+    if (
+      existing &&
+      (existing.socket === socket || existing.instanceId === message.instanceId)
+    ) {
+      this.activeGameSessions.delete(accountId);
+      this.socketToSessionAccount.delete(existing.socket);
+    }
+  }
+
+  private releaseSessionForSocket(socket: WebSocket) {
+    const accountId = this.socketToSessionAccount.get(socket);
+    if (!accountId) return;
+
+    const existing = this.activeGameSessions.get(accountId);
+    if (existing && existing.socket === socket) {
+      this.activeGameSessions.delete(accountId);
+    }
+    this.socketToSessionAccount.delete(socket);
   }
 
   private sendProfile(socket: WebSocket, requestId: string, playerId: string) {

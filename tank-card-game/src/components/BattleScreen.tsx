@@ -644,6 +644,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const [hiddenSpawningCardIds, setHiddenSpawningCardIds] = useState<Set<string>>(
     new Set()
   );
+  // Units that have just landed from a spawn animation. Their board cell mounts
+  // statically (no scale/opacity pop-in) so the destination cell never blinks
+  // out before the unit image appears — the flying card overlay hands off
+  // seamlessly to a solid unit.
+  const [staticSpawnUnitIds, setStaticSpawnUnitIds] = useState<Set<string>>(
+    new Set()
+  );
   const [spawningCardInstanceId, setSpawningCardInstanceId] = useState<
     string | null
   >(null);
@@ -1036,6 +1043,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     if (battle.status !== "player_won" && battle.status !== "bot_won") return;
 
+    // NOTE: matchEndReason is deliberately NOT part of this key. On an early
+    // exit (surrender/leave/disconnect) the server sends the finished battle
+    // state first and the MATCH_ENDED reason in a separate message, so
+    // matchEndReason flips null -> "surrender" one render later. Including it
+    // here caused a second claim for the same battle; the server dedupes by
+    // claimId and returns an all-zeroed reward on that second claim, which
+    // overwrote the credited reward in the UI ("rewards not credited"). The
+    // actual reward amount is computed server-side from its stored end reason,
+    // so the client claim doesn't need the reason at all.
     const rewardKey = [
       mode,
       humanPlayerId,
@@ -1044,7 +1060,6 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       battle.headquarters.player.hp,
       battle.headquarters.bot.hp,
       JSON.stringify(battle.stats),
-      matchEndReason ?? "normal",
     ].join(":");
 
     if (rewardedBattleKeyRef.current === rewardKey) return;
@@ -2025,21 +2040,47 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     return new Promise((resolve) => {
       window.setTimeout(() => {
-        setSpawnCardEffects((current) =>
-          current.filter((item) => item.id !== effect.id)
-        );
+        // The flying card has reached the destination cell. Mark the unit so its
+        // board cell mounts statically (no pop-in), and keep the overlay visible
+        // for now so it overlaps the freshly placed unit instead of leaving the
+        // cell empty for a frame.
+        flushSync(() => {
+          setStaticSpawnUnitIds((current) => {
+            const next = new Set(current);
+            next.add(cardInstanceId);
+            return next;
+          });
 
-        setHiddenSpawningCardIds((current) => {
-          const next = new Set(current);
-          next.delete(cardInstanceId);
-          return next;
+          setHiddenSpawningCardIds((current) => {
+            const next = new Set(current);
+            next.delete(cardInstanceId);
+            return next;
+          });
+
+          setSpawningCardInstanceId((current) =>
+            current === cardInstanceId ? null : current
+          );
         });
 
-        setSpawningCardInstanceId((current) =>
-          current === cardInstanceId ? null : current
-        );
-
+        // Let the caller dispatch the spawn (the unit mounts solid under the
+        // still-visible overlay), then on the next frames drop the overlay and
+        // clear the static flag — a seamless hand-off with no blink.
         resolve();
+
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => {
+            setSpawnCardEffects((current) =>
+              current.filter((item) => item.id !== effect.id)
+            );
+
+            setStaticSpawnUnitIds((current) => {
+              if (!current.has(cardInstanceId)) return current;
+              const next = new Set(current);
+              next.delete(cardInstanceId);
+              return next;
+            });
+          });
+        });
       }, SPAWN_CARD_ANIMATION_MS);
     });
   }
@@ -2876,6 +2917,9 @@ function renderEnemyDeckWithTimer() {
             unit && hitReactionEffect?.targetId === unit.instanceId
               ? hitReactionEffect
               : null;
+          const isStaticSpawn = unit
+            ? staticSpawnUnitIds.has(unit.instanceId)
+            : false;
 
           return (
             <motion.button
@@ -2975,7 +3019,7 @@ function renderEnemyDeckWithTimer() {
                       ...styles.boardCardContent,
                       ...styles.supportCardContent,
                     }}
-                    initial={{ opacity: 0, scale: 0.82 }}
+                    initial={isStaticSpawn ? false : { opacity: 0, scale: 0.82 }}
                     animate={{
                       opacity: hiddenDestroyedObjectIds.has(unit.instanceId)
                         ? 0
@@ -3677,6 +3721,11 @@ function renderEnemyDeckWithTimer() {
                     const isMovingUnitHidden = hiddenMovingUnitIds.has(
                       unit.instanceId
                     );
+                    const isStaticSpawn = staticSpawnUnitIds.has(
+                      unit.instanceId
+                    );
+                    const mountsStatically =
+                      isMovingUnitHidden || isStaticSpawn;
 
                     return (
                       <motion.button
@@ -3705,7 +3754,11 @@ function renderEnemyDeckWithTimer() {
                               : styles.tutorialDimmedBoard
                             : {}),
                         }}
-                        initial={{ scale: 0.88, opacity: 0 }}
+                        initial={
+                          mountsStatically
+                            ? { scale: 1, opacity: 1 }
+                            : { scale: 0.88, opacity: 0 }
+                        }
                         animate={{
                           scale: 1,
                           opacity: 1,
@@ -3720,13 +3773,15 @@ function renderEnemyDeckWithTimer() {
                         }}
                         exit={{ scale: 0.75, opacity: 0 }}
                         transition={
-                          hitReaction
-                            ? { duration: 0.34, ease: "easeOut" }
-                            : {
-                                type: "spring",
-                                stiffness: 320,
-                                damping: 26,
-                              }
+                          mountsStatically
+                            ? { duration: 0 }
+                            : hitReaction
+                              ? { duration: 0.34, ease: "easeOut" }
+                              : {
+                                  type: "spring",
+                                  stiffness: 320,
+                                  damping: 26,
+                                }
                         }
                         whileHover={{ scale: 1.03 }}
                         whileTap={{ scale: 0.97 }}
@@ -3793,6 +3848,7 @@ function renderEnemyDeckWithTimer() {
 
                         <motion.div
                           style={styles.boardCardContent}
+                          initial={mountsStatically ? false : undefined}
                           animate={{
                             opacity: hiddenDestroyedObjectIds.has(
                               unit.instanceId

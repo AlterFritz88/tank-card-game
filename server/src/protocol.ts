@@ -138,6 +138,21 @@ export type PvpClientMessage =
       password: string;
       guestPlayerId?: string;
       mergeGuestProgress?: boolean;
+    }
+  | {
+      // Single-session lock: a client must hold an active game session for its
+      // account before starting any battle (PVE or PVP). Anchored to the
+      // sending socket so it auto-releases on disconnect.
+      type: "ACQUIRE_SESSION";
+      requestId: string;
+      accountId: string;
+      instanceId: string;
+      kind: GameMode;
+    }
+  | {
+      type: "RELEASE_SESSION";
+      accountId: string;
+      instanceId: string;
     };
 
 export type MatchEndReason =
@@ -237,4 +252,6 @@ export type PvpServerMessage =
       requestId: string;
       message: string;
     }
+  | { type: "SESSION_GRANTED"; requestId: string }
+  | { type: "SESSION_DENIED"; requestId: string; message: string }
   | { type: "ERROR"; message: string };

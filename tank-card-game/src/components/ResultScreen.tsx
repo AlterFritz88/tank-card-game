@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import buttonImage from "../assets/button.webp";
 import experienceIcon from "../assets/icons/expa.webp";
@@ -120,7 +121,7 @@ export function ResultScreen({
   const ratingDelta = getRatingDelta(localPlayerWon, matchEndReason);
   const ratingText = ratingDelta > 0 ? `+${ratingDelta}` : `${ratingDelta}`;
 
-  return (
+  return createPortal(
     <div style={styles.overlay}>
       <main style={styles.resultWindow}>
         <section
@@ -286,7 +287,8 @@ export function ResultScreen({
           </button>
         </footer>
       </main>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -588,6 +590,11 @@ const styles: Record<string, CSSProperties> = {
     position: "fixed",
     inset: 0,
     zIndex: 3000,
+    // Portaled to <body> so the dark backdrop spans the entire window —
+    // including the letterbox margins around the scaled GameStage — instead of
+    // only the central design box. Acts as its own size container so the result
+    // window's cqw/cqh sizing keeps working outside the stage.
+    containerType: "size",
     display: "grid",
     placeItems: "center",
     overflow: "hidden",
