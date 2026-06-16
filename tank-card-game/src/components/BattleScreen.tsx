@@ -96,12 +96,25 @@ function isBotSpawn(position: Position): boolean {
   return BOT_SPAWN_CELLS.some((cell) => samePosition(cell, position));
 }
 
-const HAND_LAYOUT_TRANSITION = {
-  layout: {
+// Design-space width of a player hand card (matches styles.card).
+const HAND_CARD_WIDTH = 175;
+// Design-space width of an enemy (face-down) hand card (matches styles.cardBack).
+const ENEMY_HAND_CARD_WIDTH = 104;
+
+// Cards reflow by animating a child-local `x` transform (see the player hand
+// render for why framer's `layout` is avoided). The horizontal slide uses a
+// snappier spring; opacity/lift/scale use the softer default.
+const HAND_CARD_TRANSITION = {
+  x: {
     type: "spring",
     stiffness: 420,
     damping: 34,
     mass: 0.75,
+  },
+  default: {
+    type: "spring",
+    stiffness: 280,
+    damping: 24,
   },
 } as const;
 
@@ -3308,20 +3321,23 @@ function renderEnemyDeckWithTimer() {
             hiddenDrawnCardIds.has(cardInstance.instanceId) ||
             isNewlyDrawnCard(opponentPlayerId, cardInstance.instanceId) ||
             hiddenSpawningCardIds.has(cardInstance.instanceId);
-          const handCenter = (battle[opponentPlayerId].hand.length - 1) / 2;
+          const handCount = battle[opponentPlayerId].hand.length;
+          const handCenter = (handCount - 1) / 2;
           const rotation = (index - handCenter) * 2.4;
           const isPulledCard = visibleOpponentPulledCardIndex === index;
+          // Same animated-`x` slot positioning as the player hand (see there for
+          // why framer `layout` is avoided under the scaled stage).
+          const slotX =
+            (index - handCenter) * (ENEMY_HAND_CARD_WIDTH - 48);
 
           return (
             <motion.div
               key={`bot-hand-${cardInstance.instanceId}`}
               ref={setHandCardRef(opponentPlayerId, cardInstance.instanceId)}
-              layout={false}
               style={{
                 ...styles.cardBack,
-                ...styles.enemyHandCard,
+                ...styles.enemyHandCardSlot,
                 backgroundImage: `url(${cardBackImage})`,
-                marginLeft: index === 0 ? 0 : -48,
                 opacity: isHidden ? 0 : 1,
                 zIndex: index + 1,
                 filter: isPulledCard ? "brightness(1.08)" : "none",
@@ -3330,11 +3346,13 @@ function renderEnemyDeckWithTimer() {
               initial={{
                 opacity: 0,
                 y: -10,
+                x: slotX,
                 rotate: rotation,
                 scale: 1,
               }}
               animate={{
                 opacity: isHidden ? 0 : 1,
+                x: slotX,
                 y: isPulledCard ? 31 : 0,
                 rotate: isPulledCard ? rotation * 0.55 : rotation,
                 scale: isPulledCard ? 1.045 : 1,
@@ -3346,10 +3364,10 @@ function renderEnemyDeckWithTimer() {
                 scale: 1,
               }}
               transition={{
-                ...HAND_LAYOUT_TRANSITION,
-                type: "spring",
-                stiffness: 280,
-                damping: 24,
+                ...HAND_CARD_TRANSITION,
+                // Hide instantly when the card flies out (spawn/draw) so no ghost
+                // lingers behind the flying clone; fade back in on reveal.
+                opacity: { duration: isHidden ? 0 : 0.18 },
               }}
             />
           );
@@ -4280,11 +4298,23 @@ function renderEnemyDeckWithTimer() {
                   tutorialHighlights && !tutorialCardHighlighted
                 );
 
+                // Cards are positioned by an animated `x` transform instead of
+                // flow margins + framer `layout`. The whole UI lives inside a
+                // scaled/rotated GameStage, and framer's layout projection
+                // miscalculates under a transformed ancestor (positions snap
+                // instead of tweening). A child-local `x` transform is immune to
+                // that — framer interpolates the value directly. The slot math
+                // mirrors the previous margin layout so resting positions match.
+                const handCount = localHand.length;
+                const slotStep =
+                  HAND_CARD_WIDTH +
+                  getPlayerHandCardMarginLeft(1, handCount);
+                const slotX = (index - (handCount - 1) / 2) * slotStep;
+
                 return (
                   <motion.button
                     key={cardInstance.instanceId}
                     ref={setHandCardRef(humanPlayerId, cardInstance.instanceId)}
-                    layout={false}
                     className={
                       tutorialCardHighlighted
                         ? "tutorial-highlight-pulse"
@@ -4292,10 +4322,7 @@ function renderEnemyDeckWithTimer() {
                     }
                     style={{
                       ...styles.card,
-                      marginLeft: getPlayerHandCardMarginLeft(
-                        index,
-                        localHand.length
-                      ),
+                      ...styles.handCardSlot,
                       zIndex: selected ? 120 : index + 1,
                       pointerEvents:
                         isHiddenDrawnCard ||
@@ -4308,18 +4335,23 @@ function renderEnemyDeckWithTimer() {
                         : {}),
                       ...(tutorialCardBlocked ? styles.tutorialDimmedBoard : {}),
                     }}
-                    initial={{ opacity: 0, y: 16 }}
+                    initial={{ opacity: 0, y: 16, x: slotX }}
                     animate={{
                       opacity:
                         isHiddenDrawnCard || isHiddenSpawningCard ? 0 : 1,
                       y: 0,
+                      x: slotX,
                     }}
                     exit={{ opacity: 0, y: -16 }}
                     transition={{
-                      ...HAND_LAYOUT_TRANSITION,
-                      type: "spring",
-                      stiffness: 280,
-                      damping: 24,
+                      ...HAND_CARD_TRANSITION,
+                      // Hide instantly when the card leaves for the battlefield
+                      // (or the draw fly-in) so the flying clone takes over with
+                      // no ghost lingering in the hand; fade back in on reveal.
+                      opacity: {
+                        duration:
+                          isHiddenDrawnCard || isHiddenSpawningCard ? 0 : 0.18,
+                      },
                     }}
                     whileHover={{ y: -88, scale: 1.06 }}
                     whileTap={{ scale: 0.97 }}
@@ -4672,7 +4704,13 @@ enemyHandCardMask: {
   paddingRight: 58,
 },
 
-enemyHandCard: {
+// Absolute slot centered on the (transformed) enemy hand mask; the animated
+// per-card `x` transform fans the row out. See styles.handCardSlot.
+enemyHandCardSlot: {
+  position: "absolute",
+  left: "50%",
+  top: 0,
+  marginLeft: -(104 / 2),
   flex: "0 0 auto",
 },
 
@@ -5137,6 +5175,17 @@ actionSideColumn: {
   alignItems: "flex-start",
   overflow: "visible",
 },
+
+  // Absolute slot centered on the hand container; the per-card `x` transform
+  // (animated) places it within the fanned row. Replaces flow margins so the
+  // reflow can be tweened without framer's (scale-broken) layout projection.
+  handCardSlot: {
+    position: "absolute",
+    left: "50%",
+    top: 0,
+    marginLeft: -(175 / 2),
+    flex: "0 0 auto",
+  },
 
   deckPile: {
   display: "flex",
