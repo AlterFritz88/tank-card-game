@@ -42,6 +42,7 @@ import {
   screenPointToStage,
   StageBackground,
   useStageRotation,
+  useStageScale,
 } from "./GameStage";
 import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
 import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
@@ -711,9 +712,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   );
 
   const [cardPreview, setCardPreview] = useState<CardPreview | null>(null);
-  // The preview overlay is portaled to <body>, outside the rotated GameStage, so
-  // rotate its panel to match the stage orientation (90° on portrait phones).
+  // The preview overlay is portaled to <body>, outside the scaled/rotated
+  // GameStage, so it applies the stage transform (rotate + uniform scale) to its
+  // content. This keeps the enlarged card pixel-identical to the desktop layout
+  // — fixed design px, then scaled/rotated to fit exactly like the rest of the
+  // game — instead of resizing itself against the raw viewport (which distorted
+  // it on phones).
   const stageRotation = useStageRotation();
+  const stageScale = useStageScale();
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   const [debugPaused, setDebugPaused] = useState(false);
@@ -4420,60 +4426,63 @@ function renderEnemyDeckWithTimer() {
                 closeCardPreview();
               }}
             >
-              <motion.div
+              {/* Static wrapper carrying the exact stage transform (uniform
+                  scale + rotation) so the fixed-size panel below renders
+                  identically to desktop, just fit to the device like the game. */}
+              <div
                 style={{
-                  ...styles.cardPreviewPanel,
-                  // Rotated 90° on portrait phones: the panel's width box maps to
-                  // the viewport height (and vice versa), so swap the cq units it
-                  // is clamped against to keep the card fully on screen.
-                  ...(stageRotation === 90
-                    ? { maxWidth: "82cqh", maxHeight: "92cqw" }
-                    : null),
+                  transform: `rotate(${stageRotation}deg) scale(${stageScale})`,
+                  transformOrigin: "center center",
+                  display: "flex",
                 }}
-                initial={{ opacity: 0, scale: 0.84, y: 18, rotate: stageRotation }}
-                animate={{ opacity: 1, scale: 1, y: 0, rotate: stageRotation }}
-                exit={{ opacity: 0, scale: 0.9, y: 12, rotate: stageRotation }}
-                transition={{
-                  type: "spring",
-                  stiffness: 260,
-                  damping: 24,
-                }}
-                onMouseDown={(event) => event.stopPropagation()}
-                onContextMenu={(event) => event.preventDefault()}
               >
-                <button
-                  type="button"
-                  style={styles.cardPreviewClose}
-                  onClick={closeCardPreview}
-                  aria-label="Закрыть просмотр карты"
+                <motion.div
+                  style={styles.cardPreviewPanel}
+                  initial={{ opacity: 0, scale: 0.84, y: 18 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: 12 }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 260,
+                    damping: 24,
+                  }}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onContextMenu={(event) => event.preventDefault()}
                 >
-                  ×
-                </button>
+                  <button
+                    type="button"
+                    style={styles.cardPreviewClose}
+                    onClick={closeCardPreview}
+                    aria-label="Закрыть просмотр карты"
+                  >
+                    ×
+                  </button>
 
-                {cardPreview.type === "unit" ? (
-                  <HandCardView
-                    card={getCard(cardPreview.cardId)}
-                    ownerId={getVisualOwnerId(cardPreview.ownerId)}
-                    currentHp={cardPreview.currentHp}
-                    displayMode="preview"
-                  />
-                ) : (
-                  <HandCardView
-                    ownerId={getVisualOwnerId(cardPreview.ownerId)}
-                    headquartersId={cardPreview.headquartersId}
-                    headquarters={{
-                      hp: cardPreview.hp,
-                      attack: cardPreview.attack,
-                      fuelGeneration: cardPreview.fuelGeneration,
-                    }}
-                    displayMode="preview"
-                  />
-                )}
+                  {cardPreview.type === "unit" ? (
+                    <HandCardView
+                      card={getCard(cardPreview.cardId)}
+                      ownerId={getVisualOwnerId(cardPreview.ownerId)}
+                      currentHp={cardPreview.currentHp}
+                      displayMode="preview"
+                    />
+                  ) : (
+                    <HandCardView
+                      ownerId={getVisualOwnerId(cardPreview.ownerId)}
+                      headquartersId={cardPreview.headquartersId}
+                      headquarters={{
+                        hp: cardPreview.hp,
+                        attack: cardPreview.attack,
+                        fuelGeneration: cardPreview.fuelGeneration,
+                      }}
+                      displayMode="preview"
+                    />
+                  )}
 
-                <div style={styles.cardPreviewHint}>
-                  ПКМ по фону или Esc — закрыть
-                </div>
-              </motion.div>
+                  <div style={styles.cardPreviewHint}>
+                    ПКМ по фону или Esc — закрыть
+                  </div>
+                </motion.div>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>,
@@ -5679,9 +5688,10 @@ destroyedCardEffect: {
 
   cardPreviewPanel: {
     position: "relative",
+    // Fixed design width (matches desktop). The portal-to-body overlay applies
+    // the stage's uniform scale + rotation via a wrapper, so this never needs
+    // viewport-relative clamping — it fits exactly like the rest of the game.
     width: 390,
-    maxWidth: "82cqw",
-    maxHeight: "92cqh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",

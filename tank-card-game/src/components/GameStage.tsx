@@ -28,20 +28,23 @@ let stageScale = 1;
 let stageRotationDeg = 0;
 
 // Lightweight subscription store so overlays portaled to <body> (outside the
-// scaled/rotated design box) can mirror the stage rotation — otherwise they
-// appear sideways on phones held in portrait, where the stage is rotated 90°.
-const rotationListeners = new Set<() => void>();
+// scaled/rotated design box) can mirror the stage transform — otherwise they
+// size/orient themselves against the raw viewport and end up distorted or
+// sideways relative to the game (e.g. on phones, where the stage is scaled down
+// and rotated 90° in portrait).
+const transformListeners = new Set<() => void>();
 
-function setStageRotation(deg: number) {
-  if (deg === stageRotationDeg) return;
+function setStageTransform(scale: number, deg: number) {
+  if (scale === stageScale && deg === stageRotationDeg) return;
+  stageScale = scale;
   stageRotationDeg = deg;
-  for (const listener of rotationListeners) listener();
+  for (const listener of transformListeners) listener();
 }
 
-function subscribeRotation(onChange: () => void) {
-  rotationListeners.add(onChange);
+function subscribeTransform(onChange: () => void) {
+  transformListeners.add(onChange);
   return () => {
-    rotationListeners.delete(onChange);
+    transformListeners.delete(onChange);
   };
 }
 
@@ -52,9 +55,24 @@ function subscribeRotation(onChange: () => void) {
  */
 export function useStageRotation(): number {
   return useSyncExternalStore(
-    subscribeRotation,
+    subscribeTransform,
     () => stageRotationDeg,
     () => stageRotationDeg
+  );
+}
+
+/**
+ * React hook returning the current uniform stage scale factor. Overlays
+ * portaled to <body> apply this (together with {@link useStageRotation}) so
+ * they render at the same fixed design px the desktop uses and are then scaled
+ * to fit exactly like the rest of the game — instead of resizing themselves
+ * against the raw viewport with cqw/cqh, which distorts them on small screens.
+ */
+export function useStageScale(): number {
+  return useSyncExternalStore(
+    subscribeTransform,
+    () => stageScale,
+    () => stageScale
   );
 }
 
@@ -185,13 +203,11 @@ export function GameStage({ children }: { children: ReactNode }) {
       if (portrait) {
         // Rotate the landscape design 90° so it fills a portrait screen.
         const scale = Math.min(vw / DESIGN_HEIGHT, vh / DESIGN_WIDTH);
-        stageScale = scale;
-        setStageRotation(90);
+        setStageTransform(scale, 90);
         setTransform(`translate(-50%, -50%) rotate(90deg) scale(${scale})`);
       } else {
         const scale = Math.min(vw / DESIGN_WIDTH, vh / DESIGN_HEIGHT);
-        stageScale = scale;
-        setStageRotation(0);
+        setStageTransform(scale, 0);
         setTransform(`translate(-50%, -50%) scale(${scale})`);
       }
     }

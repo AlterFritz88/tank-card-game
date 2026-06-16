@@ -14,7 +14,7 @@ import { loadPlayerProgress } from "../game/playerProgress";
 import { getHeadquartersDefinition } from "../game/headquarters";
 import type { MatchEndReason } from "../game/modes";
 import type { BattleKillStats, ClientBattleState, PlayerId } from "../game/types";
-import { useStageRotation } from "./GameStage";
+import { useStageRotation, useStageScale } from "./GameStage";
 
 type ResultScreenProps = {
   battle: ClientBattleState;
@@ -88,10 +88,13 @@ export function ResultScreen({
 }: ResultScreenProps) {
   const [activeTab, setActiveTab] = useState<ResultTab>("summary");
 
-  // Portaled to <body>, outside the rotated GameStage, so rotate the window to
-  // match the stage orientation (90° on portrait phones) — otherwise it shows
-  // up sideways relative to the game.
+  // Portaled to <body>, outside the scaled/rotated GameStage, so apply the
+  // stage transform (uniform scale + rotation) to the window. It then renders at
+  // the same fixed design size as the desktop and is scaled/rotated to fit
+  // exactly like the rest of the game, instead of resizing against the raw
+  // viewport (which distorted it and put it sideways on phones).
   const stageRotation = useStageRotation();
+  const stageScale = useStageScale();
 
   // The reward table shows both tiers side by side; bold the column the player
   // actually earns based on their account type (premium vs base).
@@ -132,16 +135,8 @@ export function ResultScreen({
       <main
         style={{
           ...styles.resultWindow,
-          transform: `rotate(${stageRotation}deg)`,
-          // When rotated 90° the window's width box maps to the viewport's
-          // height (and vice versa), so swap the container-query units it is
-          // sized against to keep it fitting the screen.
-          ...(stageRotation === 90
-            ? {
-                width: "min(875px, calc(100cqh - 36px))",
-                height: "min(665px, calc(100cqw - 32px))",
-              }
-            : null),
+          transform: `rotate(${stageRotation}deg) scale(${stageScale})`,
+          transformOrigin: "center center",
         }}
       >
         <section
@@ -626,8 +621,10 @@ const styles: Record<string, CSSProperties> = {
 
   resultWindow: {
     position: "relative",
-    width: "min(875px, calc(100cqw - 36px))",
-    height: "min(665px, calc(100cqh - 32px))",
+    // Fixed design size (matches desktop); the stage's uniform scale is applied
+    // via transform so it fits any device exactly like the rest of the game.
+    width: 875,
+    height: 665,
     overflow: "hidden",
     borderRadius: 10,
     border: "2px solid #2a2d30",
