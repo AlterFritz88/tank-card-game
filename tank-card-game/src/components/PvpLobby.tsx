@@ -64,6 +64,7 @@ import type { HeadquartersId, Nation, TankCard } from "../game/types";
 import type { PvpConnectionState } from "../game/modes";
 import { useBattleStore } from "../store/battleStore";
 import { HandCardView } from "./HandCardView";
+import { useStageOverlayTransform } from "./GameStage";
 import { usePngFallback } from "./LoadingScreen";
 import {
   isProfileServerUnavailable,
@@ -1220,6 +1221,9 @@ export function PvpLobby() {
     useState<HeadquartersId | null>(null);
   const [previewDeck, setPreviewDeck] = useState<DeckPreviewState | null>(null);
   const [previewUnitCard, setPreviewUnitCard] = useState<TankCard | null>(null);
+  // Applies the stage scale + rotation so the body-portaled HQ/deck/unit preview
+  // renders like desktop and fits/rotates exactly like the rest of the game.
+  const stageOverlayTransform = useStageOverlayTransform();
   const [editingDeck, setEditingDeck] = useState<SavedDeck | null>(null);
   const deckPreviewListRef = useRef<HTMLDivElement>(null);
   const deckPreviewDragRef = useRef<{
@@ -2191,6 +2195,15 @@ export function PvpLobby() {
                 closeHeadquartersPreview();
               }}
             >
+              <div
+                style={{
+                  ...stageOverlayTransform,
+                  position: "relative",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
               <motion.div
                 style={{
                   ...styles.cardPreviewPanel,
@@ -2325,6 +2338,7 @@ export function PvpLobby() {
                   />
                 </motion.div>
               ) : null}
+              </div>
             </motion.div>
           ) : null}
         </AnimatePresence>,
@@ -4115,16 +4129,15 @@ const styles: Record<string, CSSProperties> = {
   },
 
   deckPreviewOverlay: {
-    alignItems: "flex-start",
+    alignItems: "center",
     paddingTop: 10,
     paddingBottom: 10,
   },
 
   cardPreviewPanel: {
     position: "relative",
+    // Fixed design width; the parent wrapper carries the stage scale/rotation.
     width: 390,
-    maxWidth: "82cqw",
-    maxHeight: "92cqh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -4132,9 +4145,9 @@ const styles: Record<string, CSSProperties> = {
   },
 
   deckPreviewPanel: {
-    width: "min(1060px, calc(100cqw - 72px))",
-    maxWidth: "calc(100cqw - 72px)",
-    height: "min(610px, calc(100cqh - 28px))",
+    // Fixed design size; the parent wrapper carries the stage scale/rotation.
+    width: 1060,
+    height: 610,
     display: "grid",
     gridTemplateColumns: "170px 390px minmax(280px, 1fr)",
     gap: 20,
@@ -4267,9 +4280,8 @@ const styles: Record<string, CSSProperties> = {
   unitCardPreviewPanel: {
     position: "absolute",
     zIndex: 2,
+    // Fixed design width; the parent wrapper carries the stage scale/rotation.
     width: 390,
-    maxWidth: "82cqw",
-    maxHeight: "92cqh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",

@@ -9,7 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { StageBackground } from "./GameStage";
+import { StageBackground, useStageOverlayTransform } from "./GameStage";
 import buttonImage from "../assets/button.webp";
 import cardBackImage from "../assets/cards/card-back.webp";
 import experienceIcon from "../assets/icons/expa.webp";
@@ -714,6 +714,9 @@ function ResearchCelebrationOverlay({
 export function ResearchMenu({ onBack }: { onBack: () => void }) {
   const [selectedNation, setSelectedNation] = useState<ResearchNation>("germany");
   const [previewNode, setPreviewNode] = useState<ResearchNode | null>(null);
+  // Applies the stage scale + rotation so the body-portaled preview renders like
+  // desktop and fits/rotates exactly like the rest of the game.
+  const stageOverlayTransform = useStageOverlayTransform();
   const [progress, setProgress] = useState(() => loadPlayerProgress());
   const [feedback, setFeedback] = useState<ResearchFeedback | null>(null);
   const [celebration, setCelebration] = useState<ResearchCelebration | null>(null);
@@ -1289,6 +1292,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
                 closeNodePreview();
               }}
             >
+              <div style={{ ...stageOverlayTransform, display: "flex" }}>
               <motion.div
                 style={styles.cardPreviewPanel}
                 initial={{ opacity: 0, scale: 0.84, y: 18 }}
@@ -1325,6 +1329,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
                   ПКМ по фону или Esc — закрыть
                 </div>
               </motion.div>
+              </div>
             </motion.div>
           ) : null}
         </AnimatePresence>,
@@ -2016,9 +2021,8 @@ const styles: Record<string, CSSProperties> = {
 
   cardPreviewPanel: {
     position: "relative",
+    // Fixed design width; the parent wrapper carries the stage scale/rotation.
     width: 390,
-    maxWidth: "82cqw",
-    maxHeight: "92cqh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",

@@ -77,6 +77,23 @@ export function useStageScale(): number {
 }
 
 /**
+ * Ready-made `transform` style reproducing the stage's uniform scale + rotation,
+ * for the dialog/panel of an overlay that is portaled to <body> (escaping the
+ * stage). Wrap the fixed-design-px panel in a `<div style={useStageOverlayTransform()}>`
+ * so it renders identically to desktop and fits any device exactly like the rest
+ * of the game. The full-screen dark backdrop stays untransformed. See the RMB
+ * card preview / ResultScreen for reference usage.
+ */
+export function useStageOverlayTransform(): CSSProperties {
+  const rotation = useStageRotation();
+  const scale = useStageScale();
+  return {
+    transform: `rotate(${rotation}deg) scale(${scale})`,
+    transformOrigin: "center center",
+  };
+}
+
+/**
  * Convert a screen-space delta (e.g. the vector between two
  * getBoundingClientRect centers) into the stage's local coordinate space,
  * inverting the stage's rotation and scale. Translation cancels out for deltas.
