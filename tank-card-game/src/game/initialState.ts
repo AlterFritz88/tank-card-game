@@ -67,28 +67,29 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "gaz_55_ambulance",
   ],
 
-  // Trainingslager (Германия) — сильная атака штаба (2). leIG 18 усиливает
-  // огонь штаба, а ранние Panzer I–II, ПТ-САУ и StuG показывают весь арсенал.
+  // Trainingslager (Германия) — стартовый набор: базовые юниты, которыми
+  // владеет каждый игрок с самого начала (всё остальное открывается в дереве
+  // развития). Сильная атака штаба (2), leIG 18 усиливает огонь штаба.
   trainingslager_default: [
+    "leichttraktor",
+    "leichttraktor",
+    "grosstraktor",
     "pzkpfw_i_ausf_a",
     "pzkpfw_i_ausf_a",
     "pzkpfw_i_ausf_b",
     "pzkpfw_i_ausf_b",
     "pzkpfw_ii_ausf_c",
     "pzkpfw_ii_ausf_c",
-    "pzkpfw_ii_ausf_f",
-    "pzkpfw_ii_ausf_f",
-    "pzkpfw_ii_ausf_d",
+    "pzkpfw_iii_ausf_a",
+    "pzkpfw_iii_ausf_a",
     "panzer_35t",
     "panzer_35t",
-    "panzerjaeger_i",
-    "marder_iii",
-    "stug_iii",
-    "wespe",
-    "pzkpfw_iv_ausf_a",
+    "stug_iii_b",
+    "stug_iii_b",
     "leig_18",
     "leig_18",
     "mercedes_g3a",
+    "adler_type_10_n",
     "adler_type_10_n",
   ],
 

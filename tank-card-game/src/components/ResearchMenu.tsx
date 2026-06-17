@@ -33,6 +33,7 @@ import {
   loadPlayerProgress,
   purchaseCardCopyOnServer,
   purchaseHeadquartersOnServer,
+  purchasePremiumCardOnServer,
   researchCardOnServer,
   researchHeadquartersOnServer,
   syncPlayerProgressFromServer,
@@ -97,7 +98,11 @@ function isAcquiredStage(stage: ResearchNodeStage): boolean {
 }
 
 function getBranchProgress(nodes: ResearchNodeView[]): ResearchBranchProgress {
-  const realNodes = nodes.filter((node) => node.stage !== "planned");
+  // Premium (gold-purchase) nodes are collectibles outside the research path,
+  // so they don't count toward branch progression.
+  const realNodes = nodes.filter(
+    (node) => node.stage !== "planned" && node.goldCost === undefined
+  );
   const acquired = realNodes.filter((node) => node.stage === "owned").length;
   const total = realNodes.length;
 
@@ -197,6 +202,30 @@ function createNodeView({
       ...node,
       stage: "planned",
       statusLabel: "Скоро",
+    };
+  }
+
+  // Premium nodes are bought directly with gold tracks, bypassing research and
+  // prerequisites. They remain purchasable up to the copy limit.
+  if (node.goldCost !== undefined) {
+    const ownedCopies = node.cardId
+      ? progress.ownedCardCopies[node.cardId] ?? 0
+      : 0;
+    const maxed = ownedCopies >= CARD_COPY_LIMIT;
+
+    return {
+      ...node,
+      stage: ownedCopies > 0 ? "owned" : "researchable",
+      statusLabel: maxed
+        ? `Куплено x${ownedCopies}`
+        : ownedCopies > 0
+          ? `Премиум x${ownedCopies}`
+          : "Премиум",
+      actionKind: "purchase",
+      ownedCopies,
+      costIcon: maxed ? undefined : goldTracksIcon,
+      costValue: maxed ? undefined : node.goldCost,
+      costInsufficient: !maxed && progress.goldTracks < node.goldCost,
     };
   }
 
@@ -942,6 +971,40 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
 
     if (node.stage === "planned") {
       showFeedback("Эта ветка пока недоступна");
+      return;
+    }
+
+    // Premium cards are purchased directly with gold tracks; handled before the
+    // experience/iron-track research flow below.
+    if (node.goldCost !== undefined && node.cardId) {
+      const ownedCopies = progress.ownedCardCopies[node.cardId] ?? 0;
+
+      if (ownedCopies >= CARD_COPY_LIMIT) {
+        showFeedback("Куплены все доступные копии");
+        return;
+      }
+
+      if (progress.goldTracks < node.goldCost) {
+        showFeedback(
+          `Не хватает золотых траков: ${formatNumber(
+            node.goldCost - progress.goldTracks
+          )}`
+        );
+        return;
+      }
+
+      const premiumProgress = await purchasePremiumCardOnServer(
+        node.cardId,
+        node.goldCost
+      );
+
+      if (premiumProgress) {
+        setProgress(premiumProgress);
+        showCelebration("Куплено", node);
+      } else {
+        showFeedback("Операция не была подтверждена сервером");
+      }
+
       return;
     }
 

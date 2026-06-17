@@ -79,6 +79,18 @@ type ProfileClientMessage =
       headquartersId: HeadquartersId;
     }
   | {
+      type: "PURCHASE_PREMIUM_CARD";
+      requestId: string;
+      playerId: string;
+      cardId: string;
+    }
+  | {
+      type: "CLAIM_CAMPAIGN_REWARD";
+      requestId: string;
+      playerId: string;
+      rewardId: string;
+    }
+  | {
       type: "SAVE_CUSTOM_DECK";
       requestId: string;
       playerId: string;
@@ -444,6 +456,34 @@ class ProfileClient {
       requestId: createRequestId(),
       playerId,
       headquartersId,
+    });
+
+    return response.profile;
+  }
+
+  async purchasePremiumCard(
+    playerId: string,
+    cardId: string
+  ): Promise<PlayerProgress> {
+    const response = await this.requestProfileUpdate({
+      type: "PURCHASE_PREMIUM_CARD",
+      requestId: createRequestId(),
+      playerId,
+      cardId,
+    });
+
+    return response.profile;
+  }
+
+  async claimCampaignReward(
+    playerId: string,
+    rewardId: string
+  ): Promise<PlayerProgress> {
+    const response = await this.requestProfileUpdate({
+      type: "CLAIM_CAMPAIGN_REWARD",
+      requestId: createRequestId(),
+      playerId,
+      rewardId,
     });
 
     return response.profile;

@@ -827,13 +827,22 @@ export function isHeadquartersFullyResearched(
   return scope.every((node) => isResearchNodeCompleted(node, progress));
 }
 
+/**
+ * Whether a node counts toward research progression. Planned (coming soon) and
+ * premium (gold-purchase) nodes are excluded so a headquarters can be "fully
+ * researched" without buying premium cards.
+ */
+function isProgressionNode(node: ResearchNode): boolean {
+  return node.status !== "planned" && node.goldCost === undefined;
+}
+
 function getResearchScopeForHeadquarters(
   headquartersId: HeadquartersId
 ): ResearchNode[] {
   for (const tree of Object.values(RESEARCH_TREES)) {
     if (tree.starterHeadquarters.headquartersId === headquartersId) {
       return tree.branches.flatMap((branch) =>
-        branch.nodes.filter((node) => node.status !== "planned")
+        branch.nodes.filter(isProgressionNode)
       );
     }
 
@@ -849,11 +858,11 @@ function getResearchScopeForHeadquarters(
       if (!branch.nodes.some((node) => node.requires && node.requires.length > 0)) {
         return branch.nodes
           .slice(headquartersNodeIndex + 1)
-          .filter((node) => node.status !== "planned");
+          .filter(isProgressionNode);
       }
 
       return branch.nodes.filter((node) => {
-        if (node.status === "planned") return false;
+        if (!isProgressionNode(node)) return false;
         if (node.id === headquartersNode.id) return false;
 
         return dependsOnNode(node, headquartersNode.id, nodeById);
@@ -985,6 +994,42 @@ export async function purchaseHeadquartersOnServer(
     const profile = await profileClient.purchaseHeadquarters(
       getCurrentUserId(),
       headquartersId
+    );
+    return saveServerPlayerProgress(profile);
+  } catch {
+    return null;
+  }
+}
+
+export async function purchasePremiumCardOnServer(
+  cardId: string,
+  _goldCost: number
+): Promise<PlayerProgress | null> {
+  try {
+    const profileClient = await getProfileClient();
+    const profile = await profileClient.purchasePremiumCard(
+      getCurrentUserId(),
+      cardId
+    );
+    return saveServerPlayerProgress(profile);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Grants the cards tied to completing a campaign reward (e.g. the Funk Panzer I
+ * copies for finishing the Polish campaign). The server is idempotent, so this
+ * can be re-requested whenever the completion condition holds.
+ */
+export async function claimCampaignRewardFromServer(
+  rewardId: string
+): Promise<PlayerProgress | null> {
+  try {
+    const profileClient = await getProfileClient();
+    const profile = await profileClient.claimCampaignReward(
+      getCurrentUserId(),
+      rewardId
     );
     return saveServerPlayerProgress(profile);
   } catch {

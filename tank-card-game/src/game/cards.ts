@@ -437,7 +437,7 @@ export const cards: TankCard[] = [
   },
   {
     id: "stug_iii",
-    name: "StuG III",
+    name: "StuG III G",
     nation: "germany",
     class: "td",
     rarity: "uncommon",
@@ -451,6 +451,23 @@ export const cards: TankCard[] = [
     initiative: 2,
     abilityText:
       "ПТ-САУ. Генерирует 1 топливо. Опасна на соседних клетках.",
+  },
+  {
+    id: "stug_iii_b",
+    name: "StuG III B",
+    nation: "germany",
+    class: "td",
+    rarity: "uncommon",
+    cost: 3,
+    attack: 3,
+    armor: 2,
+    hp: 4,
+    range: 1,
+    movement: 1,
+    fuelGeneration: 1,
+    initiative: 2,
+    abilityText:
+      "ПТ-САУ. Раннее штурмовое орудие. Опасна на соседних клетках.",
   },
   {
     id: "m4_sherman",
@@ -1016,6 +1033,23 @@ export const cards: TankCard[] = [
   // === 1. Panzer-Division — ранние немецкие машины (Польша 1939) ===
 
   // Лёгкие танки
+  {
+    id: "leichttraktor",
+    name: "Leichttraktor",
+    nation: "germany",
+    class: "light",
+    rarity: "common",
+    cost: 1,
+    attack: 1,
+    armor: 0,
+    hp: 2,
+    range: 1,
+    movement: 2,
+    fuelGeneration: 0,
+    initiative: 4,
+    abilityText: "Ранний учебный лёгкий танк. При выходе на поле добирает карту.",
+    onPlayEffects: { draw: 1 },
+  },
   {
     id: "pzkpfw_i_ausf_a",
     name: "Panzer I A",

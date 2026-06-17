@@ -22,6 +22,13 @@ export type ResearchNode = {
   purchaseCost?: number;
   status: ResearchNodeStatus;
   /**
+   * Premium card node: purchasable directly with gold tracks for this price,
+   * bypassing experience research and prerequisites. When set, the node is
+   * always available to buy (up to the copy limit) and is excluded from
+   * progression/“fully researched” calculations.
+   */
+  goldCost?: number;
+  /**
    * Prerequisite node ids forming a directed acyclic graph. A node becomes
    * researchable only once every prerequisite is acquired. When omitted the
    * branch falls back to linear "previous node" gating (used by the linear
@@ -120,6 +127,32 @@ const unitNode = ({
   status: requires && requires.length > 0 ? "locked" : "researchable",
 });
 
+const premiumNode = ({
+  id,
+  title,
+  cardId,
+  goldCost,
+  tier,
+  slot,
+}: {
+  id: string;
+  title: string;
+  cardId: string;
+  goldCost: number;
+  tier: number;
+  slot: number;
+}): ResearchNode => ({
+  id,
+  type: "unit",
+  title,
+  cardId,
+  goldCost,
+  tier,
+  slot,
+  // Premium nodes are always purchasable (no research, no prerequisites).
+  status: "researchable",
+});
+
 export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
   germany: {
     nation: "germany",
@@ -136,79 +169,90 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
         title: "Танковые штабы",
         shortTitle: "Танковые",
         description:
-          "Линейно изучи два уровня танков, затем исследуй и купи штаб — он открывает Pz III / Pz IV и Tiger I.",
+          "Линия Panzer III → Panzer IV ведёт к 1-й танковой дивизии; за ней — Nb.Fz., Panzer IV G и Tiger I.",
         nodes: [
-          // Линейный путь к штабу: два уровня юнитов от тренировочного лагеря.
+          // Уровень 2: два средних танка Panzer III.
           unitNode({
-            id: "de-tank-pz3a",
-            title: "Panzer III A",
-            cardId: "pzkpfw_iii_ausf_a",
-            experienceCost: 300,
-            purchaseCost: 2100,
+            id: "de-tank-pz3d",
+            title: "Panzer III D",
+            cardId: "pzkpfw_iii_ausf_d",
+            experienceCost: 220,
+            purchaseCost: 1600,
             tier: 0,
             slot: 0,
           }),
           unitNode({
+            id: "de-tank-pz3e",
+            title: "Panzer III E",
+            cardId: "pzkpfw_iii_ausf_e",
+            experienceCost: 260,
+            purchaseCost: 1900,
+            tier: 0,
+            slot: 1,
+          }),
+          // Уровень 3: две машины Panzer IV, каждая продолжает свою линию.
+          unitNode({
             id: "de-tank-pz4a",
             title: "Panzer IV A",
             cardId: "pzkpfw_iv_ausf_a",
-            experienceCost: 360,
-            purchaseCost: 2600,
-            requires: ["de-tank-pz3a"],
+            experienceCost: 340,
+            purchaseCost: 2500,
+            requires: ["de-tank-pz3d"],
             tier: 1,
             slot: 0,
           }),
-          // Штаб 4-го уровня. Его нужно исследовать И купить, чтобы открыть
-          // последующие юниты ветки.
+          unitNode({
+            id: "de-tank-pz4b",
+            title: "Panzer IV B",
+            cardId: "pzkpfw_iv_ausf_b",
+            experienceCost: 380,
+            purchaseCost: 2800,
+            requires: ["de-tank-pz3e"],
+            tier: 1,
+            slot: 1,
+          }),
+          // Уровень 4: штаб. Его нужно исследовать И купить — он сводит обе
+          // линии и открывает тяжёлую технику.
           headquartersNode({
             id: "de-tank-hq-first-panzer",
             headquartersId: "first_panzer_division",
             experienceCost: 900,
             purchaseCost: 6800,
             status: "locked",
-            requires: ["de-tank-pz4a"],
+            requires: ["de-tank-pz4a", "de-tank-pz4b"],
             tier: 2,
             slot: 0,
           }),
-          // После покупки штаба ветка раскрывается двумя линиями.
+          // Уровень 5: тяжёлый прототип.
           unitNode({
-            id: "de-tank-pz3d",
-            title: "Panzer III D",
-            cardId: "pzkpfw_iii_ausf_d",
-            experienceCost: 520,
-            purchaseCost: 4100,
+            id: "de-tank-nb",
+            title: "Nb.Fz.",
+            cardId: "neubaufahrzeug",
+            experienceCost: 560,
+            purchaseCost: 4500,
             requires: ["de-tank-hq-first-panzer"],
             tier: 3,
             slot: 0,
           }),
+          // Уровень 6: серийный средний танк.
           unitNode({
-            id: "de-tank-pz4",
+            id: "de-tank-pz4g",
             title: "Panzer IV G",
             cardId: "panzer_iv",
-            experienceCost: 540,
-            purchaseCost: 4300,
-            requires: ["de-tank-hq-first-panzer"],
-            tier: 3,
-            slot: 1,
-          }),
-          unitNode({
-            id: "de-tank-pz3e",
-            title: "Panzer III E",
-            cardId: "pzkpfw_iii_ausf_e",
             experienceCost: 640,
             purchaseCost: 5200,
-            requires: ["de-tank-pz3d"],
+            requires: ["de-tank-nb"],
             tier: 4,
             slot: 0,
           }),
-          // Вершина ветки (показатель 8.88): требует обе линии.
+          // Уровень 7: вершина ветки.
           unitNode({
             id: "de-tank-tiger",
             title: "Tiger I",
             cardId: "tiger_i",
             experienceCost: 820,
             purchaseCost: 7000,
-            requires: ["de-tank-pz3e", "de-tank-pz4"],
+            requires: ["de-tank-pz4g"],
             tier: 5,
             slot: 0,
           }),
@@ -219,78 +263,58 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
         title: "Мотопехотные штабы",
         shortTitle: "Мотопехота",
         description:
-          "Купи штаб после двух уровней техники — он открывает StuG III и быстрый Panzer 38(t).",
+          "Лёгкие Panzer II и быстрый Panzer 38(t) ведут к штабу; за ним — штурмовое орудие StuG III G.",
         nodes: [
+          // Уровень 2: два лёгких танка Panzer II.
           unitNode({
-            id: "de-motor-marder",
-            title: "Marder III",
-            cardId: "marder_iii",
-            experienceCost: 150,
-            purchaseCost: 1100,
+            id: "de-motor-pz2f",
+            title: "Panzer II F",
+            cardId: "pzkpfw_ii_ausf_f",
+            experienceCost: 200,
+            purchaseCost: 1400,
             tier: 0,
             slot: 0,
           }),
-          // Параллельное исследование: штабная машина и линейный танк.
           unitNode({
-            id: "de-motor-horch",
-            title: "Horch 830R",
-            cardId: "horch_830r",
-            experienceCost: 260,
-            purchaseCost: 1900,
-            requires: ["de-motor-marder"],
+            id: "de-motor-pz2d",
+            title: "Panzer II D",
+            cardId: "pzkpfw_ii_ausf_d",
+            experienceCost: 220,
+            purchaseCost: 1600,
+            tier: 0,
+            slot: 1,
+          }),
+          // Уровень 3: быстрый Panzer 38(t).
+          unitNode({
+            id: "de-motor-pz38",
+            title: "Panzer 38(t)",
+            cardId: "panzer_38t",
+            experienceCost: 340,
+            purchaseCost: 2500,
+            requires: ["de-motor-pz2f", "de-motor-pz2d"],
             tier: 1,
             slot: 0,
           }),
-          unitNode({
-            id: "de-motor-pz4b",
-            title: "Panzer IV B",
-            cardId: "pzkpfw_iv_ausf_b",
-            experienceCost: 320,
-            purchaseCost: 2300,
-            requires: ["de-motor-marder"],
-            tier: 1,
-            slot: 1,
-          }),
+          // Уровень 4: штаб.
           headquartersNode({
             id: "de-motor-hq",
             headquartersId: "german_motorized_division",
             experienceCost: 900,
             purchaseCost: 6800,
             status: "locked",
-            requires: ["de-motor-pz4b"],
+            requires: ["de-motor-pz38"],
             tier: 2,
             slot: 0,
           }),
-          // Развилка после штаба: штурмовое орудие (6.99) и прорыв (7.29).
+          // Уровень 5: штурмовое орудие.
           unitNode({
             id: "de-motor-stug",
-            title: "StuG III",
+            title: "StuG III G",
             cardId: "stug_iii",
-            experienceCost: 580,
-            purchaseCost: 4700,
+            experienceCost: 560,
+            purchaseCost: 4500,
             requires: ["de-motor-hq"],
             tier: 3,
-            slot: 0,
-          }),
-          unitNode({
-            id: "de-motor-pz38",
-            title: "Panzer 38(t)",
-            cardId: "panzer_38t",
-            experienceCost: 620,
-            purchaseCost: 5000,
-            requires: ["de-motor-hq"],
-            tier: 3,
-            slot: 1,
-          }),
-          // Вершина: бронированный эскорт для быстрых лёгких танков.
-          unitNode({
-            id: "de-motor-porsche823",
-            title: "Porsche-823",
-            cardId: "porsche_823",
-            experienceCost: 700,
-            purchaseCost: 5800,
-            requires: ["de-motor-pz38"],
-            tier: 4,
             slot: 0,
           }),
         ],
@@ -300,57 +324,80 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
         title: "Артиллерийские штабы",
         shortTitle: "Артиллерия",
         description:
-          "Bison I и leFH 18 ведут к штабу; после покупки открываются Wespe и тяжёлая Bison II.",
+          "Bison I, leFH 18 и PzJäger I ведут к штабу; за ним — Marder III (ранний) и Wespe. Премиум: Bison II за золотые траки.",
         nodes: [
+          // Уровень 2: самоходное орудие Bison I.
           unitNode({
             id: "de-art-bison-i",
             title: "Bison I",
             cardId: "sig_33_pzi",
-            experienceCost: 170,
-            purchaseCost: 1200,
+            experienceCost: 200,
+            purchaseCost: 1400,
             tier: 0,
             slot: 0,
           }),
+          // Премиум: Bison II покупается напрямую за золотые траки.
+          premiumNode({
+            id: "de-art-bison-ii",
+            title: "Bison II",
+            cardId: "sig_33_pzii",
+            goldCost: 500,
+            tier: 0,
+            slot: 1,
+          }),
+          // Уровень 3: гаубица и ПТ-самоходка.
           unitNode({
             id: "de-art-lefh",
             title: "leFH 18",
             cardId: "lefh_18",
-            experienceCost: 230,
-            purchaseCost: 1700,
+            experienceCost: 320,
+            purchaseCost: 2300,
             requires: ["de-art-bison-i"],
             tier: 1,
             slot: 0,
           }),
+          unitNode({
+            id: "de-art-pzjager",
+            title: "PzJäger I",
+            cardId: "panzerjaeger_i",
+            experienceCost: 320,
+            purchaseCost: 2300,
+            requires: ["de-art-bison-i"],
+            tier: 1,
+            slot: 1,
+          }),
+          // Уровень 4: штаб.
           headquartersNode({
             id: "de-art-hq",
             headquartersId: "german_artillery_division",
             experienceCost: 900,
             purchaseCost: 6800,
             status: "locked",
-            requires: ["de-art-lefh"],
+            requires: ["de-art-lefh", "de-art-pzjager"],
             tier: 2,
             slot: 0,
           }),
-          // Развилка после штаба: дальнобойная Wespe (3.61) и Bison II (7.20).
+          // Уровень 5: опытный истребитель танков.
+          unitNode({
+            id: "de-art-marder38",
+            title: "Marder III (ранний)",
+            cardId: "panzerjaeger_38t_early",
+            experienceCost: 560,
+            purchaseCost: 4500,
+            requires: ["de-art-hq"],
+            tier: 3,
+            slot: 0,
+          }),
+          // Уровень 6: дальнобойная САУ.
           unitNode({
             id: "de-art-wespe",
             title: "Wespe",
             cardId: "wespe",
-            experienceCost: 250,
-            purchaseCost: 1800,
-            requires: ["de-art-hq"],
-            tier: 3,
+            experienceCost: 640,
+            purchaseCost: 5200,
+            requires: ["de-art-marder38"],
+            tier: 4,
             slot: 0,
-          }),
-          unitNode({
-            id: "de-art-bison-ii",
-            title: "Bison II",
-            cardId: "sig_33_pzii",
-            experienceCost: 600,
-            purchaseCost: 4900,
-            requires: ["de-art-hq"],
-            tier: 3,
-            slot: 1,
           }),
         ],
       },
@@ -359,77 +406,59 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
         title: "Тыловые штабы",
         shortTitle: "Тыловые",
         description:
-          "Снабжение и ПТ-самоходки ведут к штабу; за ним — линия тяжёлых прототипов.",
+          "Снабжение Sanitäter → Horch 830 ведёт к штабу; за ним — Krupp и бронированный Porsche.",
         nodes: [
+          // Уровень 2: медицинская машина.
           unitNode({
             id: "de-rear-medic",
             title: "Sanitätskraftwagen",
             cardId: "sanitaetskraftwagen",
-            experienceCost: 120,
-            purchaseCost: 900,
+            experienceCost: 200,
+            purchaseCost: 1400,
             tier: 0,
             slot: 0,
           }),
-          // Параллельное исследование: снабжение и ПТ-самоходка.
+          // Уровень 3: штабной кабриолет.
           unitNode({
-            id: "de-rear-krupp",
-            title: "Krupp L3H163",
-            cardId: "krupp_l3h163",
-            experienceCost: 200,
-            purchaseCost: 1400,
+            id: "de-rear-horch",
+            title: "Horch 830",
+            cardId: "horch_830r",
+            experienceCost: 320,
+            purchaseCost: 2300,
             requires: ["de-rear-medic"],
             tier: 1,
             slot: 0,
           }),
-          unitNode({
-            id: "de-rear-pzjager",
-            title: "PzJäger I",
-            cardId: "panzerjaeger_i",
-            experienceCost: 180,
-            purchaseCost: 1300,
-            requires: ["de-rear-medic"],
-            tier: 1,
-            slot: 1,
-          }),
+          // Уровень 4: штаб.
           headquartersNode({
             id: "de-rear-hq",
             headquartersId: "german_rear_corps",
             experienceCost: 900,
             purchaseCost: 6800,
             status: "locked",
-            requires: ["de-rear-pzjager"],
+            requires: ["de-rear-horch"],
             tier: 2,
             slot: 0,
           }),
-          // Развилка после штаба: тяжёлый прототип (6.80) и истребитель (7.34).
+          // Уровень 5: армейский грузовик-снабженец.
           unitNode({
-            id: "de-rear-nb",
-            title: "Nb.Fz.",
-            cardId: "neubaufahrzeug",
+            id: "de-rear-krupp",
+            title: "Krupp L3H163",
+            cardId: "krupp_l3h163",
             experienceCost: 560,
             purchaseCost: 4500,
             requires: ["de-rear-hq"],
             tier: 3,
             slot: 0,
           }),
+          // Уровень 6: бронированный автотранспорт.
           unitNode({
-            id: "de-rear-marder38",
-            title: "Marder III (ранний)",
-            cardId: "panzerjaeger_38t_early",
-            experienceCost: 620,
-            purchaseCost: 5000,
-            requires: ["de-rear-hq"],
-            tier: 3,
-            slot: 1,
-          }),
-          // Вершина прототипов (7.02).
-          unitNode({
-            id: "de-rear-grosstraktor",
-            title: "Großtraktor",
-            cardId: "grosstraktor",
-            experienceCost: 580,
-            purchaseCost: 4700,
-            requires: ["de-rear-nb"],
+            id: "de-rear-porsche",
+            title: "Porsche-823",
+            cardId: "porsche_823",
+            experienceCost: 640,
+            purchaseCost: 5200,
+            requires: ["de-rear-krupp"],
             tier: 4,
             slot: 0,
           }),
@@ -1029,19 +1058,20 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
 export const RESEARCH_NATIONS: ResearchNation[] = ["germany", "ussr", "usa"];
 
 /**
- * Stock German collection: 10 units a player owns from the start (the
+ * Stock German collection: the 11 units a player owns from the start (the
  * Trainingslager starting deck, granted by getStarterOwnedCardCopies). These
  * are intentionally kept out of the research tree — everything else is unlocked
  * through it.
  */
 export const GERMAN_STOCK_CARD_IDS: readonly string[] = [
+  "leichttraktor",
+  "grosstraktor",
   "pzkpfw_i_ausf_a",
   "pzkpfw_i_ausf_b",
   "pzkpfw_ii_ausf_c",
-  "pzkpfw_ii_ausf_f",
-  "pzkpfw_ii_ausf_d",
-  "pzbef_i",
+  "pzkpfw_iii_ausf_a",
   "panzer_35t",
+  "stug_iii_b",
   "leig_18",
   "mercedes_g3a",
   "adler_type_10_n",

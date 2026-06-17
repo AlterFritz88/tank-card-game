@@ -112,6 +112,18 @@ export type PvpClientMessage =
       headquartersId: HeadquartersId;
     }
   | {
+      type: "PURCHASE_PREMIUM_CARD";
+      requestId: string;
+      playerId: string;
+      cardId: string;
+    }
+  | {
+      type: "CLAIM_CAMPAIGN_REWARD";
+      requestId: string;
+      playerId: string;
+      rewardId: string;
+    }
+  | {
       type: "SAVE_CUSTOM_DECK";
       requestId: string;
       playerId: string;

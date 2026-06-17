@@ -28,7 +28,15 @@ import { getMissionIllustrationAsset } from "../assets/missionIllustrationAssets
 import { getNationFlagAsset } from "../assets/nationFlagAssets";
 import { createRadarScanSoundPlayer, playMusic } from "../game/audio";
 import { calculateDeckWeight, getDefaultDeckWeight } from "../game/deckWeight";
-import { CAMPAIGNS, isCampaignMissionUnlocked } from "../game/campaigns";
+import {
+  CAMPAIGNS,
+  getCampaignCompletionRewardsForCampaign,
+  getEarnedCampaignCompletionRewards,
+  isCampaignMissionUnlocked,
+  isCampaignRewardClaimed,
+  type CampaignCompletionReward,
+} from "../game/campaigns";
+import { getCardOrNull } from "../game/cards";
 import {
   DECK_UNIT_LIMIT,
   deleteCustomDeck,
@@ -48,6 +56,7 @@ import {
 import { getHeadquartersImageAsset } from "../game/headquartersImages";
 import { getDeckCardIds } from "../game/initialState";
 import {
+  claimCampaignRewardFromServer,
   getFavoriteHeadquartersId,
   loginPlayerAccount,
   loadPlayerProgress,
@@ -64,7 +73,7 @@ import type { HeadquartersId, Nation, TankCard } from "../game/types";
 import type { PvpConnectionState } from "../game/modes";
 import { useBattleStore } from "../store/battleStore";
 import { HandCardView } from "./HandCardView";
-import { useStageOverlayTransform } from "./GameStage";
+import { useStageOverlayTransform, screenDeltaToStage } from "./GameStage";
 import { usePngFallback } from "./LoadingScreen";
 import {
   isProfileServerUnavailable,
@@ -123,6 +132,7 @@ type CarouselDragState = {
   moved: boolean;
   pointerId: number;
   startX: number;
+  startY: number;
   startScrollLeft: number;
 };
 
@@ -1084,6 +1094,7 @@ function CarouselTapFrame({
       moved: false,
       pointerId: event.pointerId,
       startX: event.clientX,
+      startY: event.clientY,
       startScrollLeft: viewport.scrollLeft,
     };
   }
@@ -1095,7 +1106,13 @@ function CarouselTapFrame({
       return;
     }
 
-    const distance = event.clientX - state.startX;
+    // Convert the raw screen-space finger movement into the stage's own axes,
+    // so a swipe along the carousel's visual horizontal scrolls it even when the
+    // stage is rotated 90° on a portrait phone (where physical X/Y are swapped).
+    const { x: distance } = screenDeltaToStage(
+      event.clientX - state.startX,
+      event.clientY - state.startY
+    );
     if (Math.abs(distance) > 6) {
       state.moved = true;
       event.preventDefault();
@@ -1133,10 +1150,14 @@ function CarouselTapFrame({
     const viewport = viewportRef.current;
     if (!viewport) return;
 
+    const { x: deltaXInStage, y: deltaYInStage } = screenDeltaToStage(
+      event.deltaX,
+      event.deltaY
+    );
     const delta =
-      Math.abs(event.deltaX) > Math.abs(event.deltaY)
-        ? event.deltaX
-        : event.deltaY;
+      Math.abs(deltaXInStage) > Math.abs(deltaYInStage)
+        ? deltaXInStage
+        : deltaYInStage;
 
     if (delta === 0) return;
 
@@ -1229,6 +1250,7 @@ export function PvpLobby() {
   const deckPreviewDragRef = useRef<{
     active: boolean;
     pointerId: number;
+    startX: number;
     startY: number;
     startScrollTop: number;
   } | null>(null);
@@ -1236,6 +1258,7 @@ export function PvpLobby() {
     string | null
   >(null);
   const [selectedMissionId, setSelectedMissionId] = useState("");
+  const [claimingRewardId, setClaimingRewardId] = useState<string | null>(null);
   const mainMenuCarouselRef = useRef<HTMLDivElement>(null);
   const headquartersCarouselRef = useRef<HTMLDivElement>(null);
   const campaignsCarouselRef = useRef<HTMLDivElement>(null);
@@ -1291,6 +1314,27 @@ export function PvpLobby() {
       cancelled = true;
     };
   }, []);
+
+  async function claimCampaignReward(rewardId: string) {
+    if (!profileServerReady) {
+      window.alert("Сервер профиля недоступен");
+      return;
+    }
+
+    setClaimingRewardId(rewardId);
+
+    try {
+      const nextProgress = await claimCampaignRewardFromServer(rewardId);
+
+      if (nextProgress) {
+        setProfileRevision((revision) => revision + 1);
+      } else {
+        window.alert("Награда не выдана: сервер профиля недоступен");
+      }
+    } finally {
+      setClaimingRewardId(null);
+    }
+  }
 
   async function retryProfileSync() {
     try {
@@ -1544,6 +1588,7 @@ export function PvpLobby() {
     deckPreviewDragRef.current = {
       active: true,
       pointerId: event.pointerId,
+      startX: event.clientX,
       startY: event.clientY,
       startScrollTop: list.scrollTop,
     };
@@ -1555,7 +1600,14 @@ export function PvpLobby() {
     const list = deckPreviewListRef.current;
     if (!state?.active || !list || state.pointerId !== event.pointerId) return;
 
-    list.scrollTop = state.startScrollTop - (event.clientY - state.startY);
+    // Convert the screen-space finger movement into the stage's own axes so a
+    // swipe along the list's visual vertical scrolls it even when the stage is
+    // rotated 90° on a portrait phone.
+    const { y: distance } = screenDeltaToStage(
+      event.clientX - state.startX,
+      event.clientY - state.startY
+    );
+    list.scrollTop = state.startScrollTop - distance;
   }
 
   function stopDeckPreviewScroll(event: PointerEvent<HTMLDivElement>) {
@@ -1750,6 +1802,71 @@ export function PvpLobby() {
   }
 
   if (menuView === "missions" && missionCampaign) {
+    const campaignRewards =
+      getCampaignCompletionRewardsForCampaign(missionCampaign);
+    const earnedRewardIds = new Set(
+      getEarnedCampaignCompletionRewards(completedCampaignMissionIds).map(
+        (reward) => reward.id
+      )
+    );
+
+    // Index of the last mission a reward depends on — the reward card is shown
+    // right after that mission in the carousel.
+    const getRewardGatingMissionIndex = (reward: CampaignCompletionReward) =>
+      Math.max(
+        ...reward.missionIds.map((missionId) =>
+          missionCampaign.missions.findIndex((item) => item.id === missionId)
+        )
+      );
+
+    const renderCampaignRewardCard = (reward: CampaignCompletionReward) => {
+      const rewardCard = getCardOrNull(reward.cardId);
+      if (!rewardCard) return null;
+
+      const rewardUnlocked = earnedRewardIds.has(reward.id);
+      const rewardClaimed = isCampaignRewardClaimed(
+        playerProgress.claimedBattleRewardIds,
+        reward.id
+      );
+      const claiming = claimingRewardId === reward.id;
+      const requiredMissionLabel = String(
+        getRewardGatingMissionIndex(reward) + 1
+      ).padStart(2, "0");
+      const cardLabel =
+        reward.copies > 1
+          ? `${rewardCard.name} ×${reward.copies}`
+          : rewardCard.name;
+      const canClaim = rewardUnlocked && !rewardClaimed;
+      const tooltip = rewardClaimed
+        ? `Награда получена: ${cardLabel}`
+        : rewardUnlocked
+          ? claiming
+            ? "Выдача награды…"
+            : `Нажмите, чтобы забрать: ${cardLabel}`
+          : `Завершите операцию ${requiredMissionLabel}, чтобы забрать ${cardLabel}`;
+
+      return (
+        <div
+          key={`reward-${reward.id}`}
+          style={{
+            ...styles.rewardCardSlot,
+            ...(rewardUnlocked ? {} : styles.rewardCardSlotLocked),
+            ...(canClaim ? styles.rewardCardSlotClaimable : {}),
+          }}
+          title={tooltip}
+          aria-label={tooltip}
+          role={canClaim ? "button" : undefined}
+          onClick={
+            canClaim && !claiming
+              ? () => void claimCampaignReward(reward.id)
+              : undefined
+          }
+        >
+          <HandCardView card={rewardCard} ownerId="player" />
+        </div>
+      );
+    };
+
     return (
       <main style={styles.page}>
         <div style={styles.backgroundShade} />
@@ -1782,8 +1899,11 @@ export function PvpLobby() {
                 const missionIllustration =
                   getMissionIllustrationAsset(mission.illustrationId) ??
                   "/menu-background.webp";
+                const rewardsAfterMission = campaignRewards.filter(
+                  (reward) => getRewardGatingMissionIndex(reward) === index
+                );
 
-                return (
+                return [
                   <motion.button
                     key={mission.id}
                     type="button"
@@ -1838,8 +1958,11 @@ export function PvpLobby() {
                         </span>
                       </div>
                     </div>
-                  </motion.button>
-                );
+                  </motion.button>,
+                  ...rewardsAfterMission.map((reward) =>
+                    renderCampaignRewardCard(reward)
+                  ),
+                ];
               })}
             </div>
           </CarouselTapFrame>
@@ -3923,6 +4046,27 @@ const styles: Record<string, CSSProperties> = {
     backgroundPosition: "center center",
     backgroundRepeat: "no-repeat",
     borderBottom: "1px solid rgba(244, 209, 124, 0.24)",
+  },
+
+  rewardCardSlot: {
+    flex: "0 0 auto",
+    alignSelf: "center",
+    width: 226,
+    padding: 0,
+    border: "none",
+    background: "transparent",
+    scrollSnapAlign: "center",
+    transition: "filter 180ms ease, transform 180ms ease",
+  },
+
+  rewardCardSlotLocked: {
+    filter: "grayscale(0.85) brightness(0.55)",
+    cursor: "default",
+  },
+
+  rewardCardSlotClaimable: {
+    cursor: "pointer",
+    filter: "drop-shadow(0 0 16px rgba(243, 205, 108, 0.55))",
   },
 
   missionArtContent: {

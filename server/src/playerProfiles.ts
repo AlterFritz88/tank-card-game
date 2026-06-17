@@ -16,6 +16,10 @@ import {
   RESEARCH_TREES,
   type ResearchNode,
 } from "../../tank-card-game/src/game/researchTrees";
+import {
+  getCampaignCompletionReward,
+  getCampaignRewardClaimKey,
+} from "../../tank-card-game/src/game/campaigns";
 import type {
   ClientBattleState,
   HeadquartersId,
@@ -795,6 +799,98 @@ function purchaseCardCopyOnProfile(
   };
 }
 
+function findPremiumCardGoldCost(cardId: string): number | null {
+  for (const tree of Object.values(RESEARCH_TREES)) {
+    for (const branch of tree.branches) {
+      for (const node of branch.nodes) {
+        if (node.cardId === cardId && typeof node.goldCost === "number") {
+          return node.goldCost;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function purchasePremiumCardOnProfile(
+  progress: PlayerProgress,
+  cardId: string
+): PlayerProgress {
+  const resolvedCardId = getKnownCardId(cardId);
+  if (!resolvedCardId) {
+    throw new Error("Карта не найдена");
+  }
+
+  const goldCost = findPremiumCardGoldCost(resolvedCardId);
+  if (goldCost === null) {
+    throw new Error("Карта не является премиум");
+  }
+
+  const ownedCopies = progress.ownedCardCopies[resolvedCardId] ?? 0;
+  if (ownedCopies >= CARD_COPY_LIMIT) {
+    throw new Error("Куплены все доступные копии");
+  }
+
+  if (progress.goldTracks < goldCost) {
+    throw new Error("Не хватает золотых траков");
+  }
+
+  return {
+    ...progress,
+    goldTracks: progress.goldTracks - goldCost,
+    researchedCardIds: Array.from(
+      new Set([...progress.researchedCardIds, resolvedCardId])
+    ),
+    unlockedCardIds: Array.from(
+      new Set([...progress.unlockedCardIds, resolvedCardId])
+    ),
+    ownedCardCopies: {
+      ...progress.ownedCardCopies,
+      [resolvedCardId]: ownedCopies + 1,
+    },
+  };
+}
+
+function claimCampaignRewardOnProfile(
+  progress: PlayerProgress,
+  rewardId: string
+): PlayerProgress {
+  const reward = getCampaignCompletionReward(rewardId);
+  if (!reward) {
+    throw new Error("Награда кампании не найдена");
+  }
+
+  const claimKey = getCampaignRewardClaimKey(reward.id);
+  if (progress.claimedBattleRewardIds.includes(claimKey)) {
+    return progress;
+  }
+
+  const cardId = getKnownCardId(reward.cardId);
+  if (!cardId) {
+    throw new Error("Карта награды не найдена");
+  }
+
+  const ownedCopies = progress.ownedCardCopies[cardId] ?? 0;
+  const nextCopies = Math.min(CARD_COPY_LIMIT, ownedCopies + reward.copies);
+
+  return {
+    ...progress,
+    researchedCardIds: Array.from(
+      new Set([...progress.researchedCardIds, cardId])
+    ),
+    unlockedCardIds: Array.from(new Set([...progress.unlockedCardIds, cardId])),
+    ownedCardCopies: {
+      ...progress.ownedCardCopies,
+      [cardId]: nextCopies,
+    },
+    claimedBattleRewardIds: [claimKey, ...progress.claimedBattleRewardIds].slice(
+      0,
+      500
+    ),
+  };
+}
+
 function purchaseHeadquartersOnProfile(
   progress: PlayerProgress,
   headquartersId: HeadquartersId
@@ -1115,6 +1211,22 @@ export class PlayerProfileManager {
     return this.persistProfile(
       playerId,
       purchaseHeadquartersOnProfile(profile, headquartersId)
+    );
+  }
+
+  purchasePremiumCard(playerId: string, cardId: string): PlayerProgress {
+    const profile = this.getProfile(playerId);
+    return this.persistProfile(
+      playerId,
+      purchasePremiumCardOnProfile(profile, cardId)
+    );
+  }
+
+  claimCampaignReward(playerId: string, rewardId: string): PlayerProgress {
+    const profile = this.getProfile(playerId);
+    return this.persistProfile(
+      playerId,
+      claimCampaignRewardOnProfile(profile, rewardId)
     );
   }
 }

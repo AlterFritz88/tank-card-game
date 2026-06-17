@@ -396,6 +396,12 @@ export class RoomManager {
       case "PURCHASE_HEADQUARTERS":
         this.purchaseHeadquarters(socket, message);
         break;
+      case "PURCHASE_PREMIUM_CARD":
+        this.purchasePremiumCard(socket, message);
+        break;
+      case "CLAIM_CAMPAIGN_REWARD":
+        this.claimCampaignReward(socket, message);
+        break;
       case "SAVE_CUSTOM_DECK":
         this.saveCustomDeck(socket, message);
         break;
@@ -794,6 +800,42 @@ export class RoomManager {
         profile: this.profiles.purchaseHeadquarters(
           message.playerId,
           message.headquartersId
+        ),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
+  private purchasePremiumCard(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "PURCHASE_PREMIUM_CARD" }>
+  ) {
+    try {
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile: this.profiles.purchasePremiumCard(
+          message.playerId,
+          message.cardId
+        ),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
+  private claimCampaignReward(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "CLAIM_CAMPAIGN_REWARD" }>
+  ) {
+    try {
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile: this.profiles.claimCampaignReward(
+          message.playerId,
+          message.rewardId
         ),
       });
     } catch (error) {

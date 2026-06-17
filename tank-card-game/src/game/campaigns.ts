@@ -212,6 +212,79 @@ export const CAMPAIGNS: Campaign[] = [
   },
 ];
 
+/**
+ * Cards granted for completing a fixed set of campaign missions. Shared between
+ * the client (which detects completion and requests the claim) and the server
+ * (which actually grants the copies and guards against double-claiming). The
+ * grant is idempotent server-side, keyed by the reward `id`.
+ */
+export type CampaignCompletionReward = {
+  id: string;
+  /** Every listed mission must be completed before the reward unlocks. */
+  missionIds: string[];
+  cardId: string;
+  copies: number;
+};
+
+export const CAMPAIGN_COMPLETION_REWARDS: CampaignCompletionReward[] = [
+  {
+    id: "first_panzer_poland",
+    missionIds: [
+      "training-front-1",
+      "training-front-2",
+      "training-front-3",
+      "training-front-4",
+    ],
+    cardId: "pzbef_i",
+    copies: 2,
+  },
+];
+
+export function getCampaignCompletionReward(
+  rewardId: string
+): CampaignCompletionReward | null {
+  return (
+    CAMPAIGN_COMPLETION_REWARDS.find((reward) => reward.id === rewardId) ?? null
+  );
+}
+
+/** Stable id used to mark a campaign reward as claimed in the player profile. */
+export function getCampaignRewardClaimKey(rewardId: string): string {
+  return `campaign-reward:${rewardId}`;
+}
+
+export function isCampaignRewardClaimed(
+  claimedRewardIds: string[],
+  rewardId: string
+): boolean {
+  return claimedRewardIds.includes(getCampaignRewardClaimKey(rewardId));
+}
+
+/** Campaign-completion rewards that belong to (are earned within) a campaign. */
+export function getCampaignCompletionRewardsForCampaign(
+  campaign: Campaign
+): CampaignCompletionReward[] {
+  const missionIds = new Set(campaign.missions.map((mission) => mission.id));
+
+  return CAMPAIGN_COMPLETION_REWARDS.filter((reward) =>
+    reward.missionIds.every((missionId) => missionIds.has(missionId))
+  );
+}
+
+/**
+ * Returns the rewards whose required missions are all present in the completed
+ * set — i.e. the campaign rewards the player is now entitled to claim.
+ */
+export function getEarnedCampaignCompletionRewards(
+  completedMissionIds: string[]
+): CampaignCompletionReward[] {
+  const completed = new Set(completedMissionIds);
+
+  return CAMPAIGN_COMPLETION_REWARDS.filter((reward) =>
+    reward.missionIds.every((missionId) => completed.has(missionId))
+  );
+}
+
 export function getCampaignMission(
   missionId: string
 ): { campaign: Campaign; mission: CampaignMission; index: number } | null {
