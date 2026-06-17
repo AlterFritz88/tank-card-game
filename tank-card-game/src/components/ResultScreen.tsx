@@ -135,7 +135,12 @@ export function ResultScreen({
       <main
         style={{
           ...styles.resultWindow,
-          transform: `rotate(${stageRotation}deg) scale(${stageScale})`,
+          // Center via translate(-50%,-50%) (like GameStage's design box) rather
+          // than relying on the overlay's grid centering: the window is wider
+          // than a phone's portrait viewport, and grid `place-items: center`
+          // does not center an oversized item (it aligns to the start), so after
+          // rotation only a strip of the window was visible on screen.
+          transform: `translate(-50%, -50%) rotate(${stageRotation}deg) scale(${stageScale})`,
           transformOrigin: "center center",
         }}
       >
@@ -620,7 +625,13 @@ const styles: Record<string, CSSProperties> = {
   },
 
   resultWindow: {
-    position: "relative",
+    // Absolutely centered in the overlay (top/left 50% + translate(-50%,-50%)
+    // in the transform) so it stays centered even when the fixed design width is
+    // larger than the viewport — grid centering can't do that for oversized
+    // items.
+    position: "absolute",
+    top: "50%",
+    left: "50%",
     // Fixed design size (matches desktop); the stage's uniform scale is applied
     // via transform so it fits any device exactly like the rest of the game.
     width: 875,

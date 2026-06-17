@@ -595,15 +595,15 @@
     "tutorialCompleted": true,
     "favoriteHeadquartersId": null,
     "battleStats": {
-      "wins": 15,
+      "wins": 16,
       "losses": 7
     },
-    "ironTracks": 420,
+    "ironTracks": 468,
     "goldTracks": 5,
-    "freeXp": 133,
+    "freeXp": 139,
     "headquartersXp": {
       "german_artillery_division": 80,
-      "training_unit": 960,
+      "training_unit": 1029,
       "german_rear_corps": 67,
       "trainingslager": 0,
       "german_motorized_division": 56,
@@ -612,7 +612,7 @@
     },
     "headquartersMatchCounts": {
       "german_artillery_division": 2,
-      "training_unit": 13,
+      "training_unit": 14,
       "german_rear_corps": 1,
       "trainingslager": 3,
       "german_motorized_division": 1,
@@ -625,7 +625,7 @@
         "losses": 1
       },
       "training_unit": {
-        "wins": 8,
+        "wins": 9,
         "losses": 5
       },
       "german_rear_corps": {
@@ -806,6 +806,7 @@
     },
     "savedDecks": [],
     "claimedBattleRewardIds": [
+      "pvp:7Q6PY:player",
       "pvp:XYKC7:player",
       "pvp:XYKC7:bot",
       "pvp:YYZ39:bot",
@@ -968,14 +969,23 @@
     "favoriteHeadquartersId": null,
     "battleStats": {
       "wins": 0,
-      "losses": 0
+      "losses": 1
     },
-    "ironTracks": 0,
+    "ironTracks": 28,
     "goldTracks": 0,
-    "freeXp": 0,
-    "headquartersXp": {},
-    "headquartersMatchCounts": {},
-    "headquartersBattleStats": {},
+    "freeXp": 3,
+    "headquartersXp": {
+      "training_unit": 43
+    },
+    "headquartersMatchCounts": {
+      "training_unit": 1
+    },
+    "headquartersBattleStats": {
+      "training_unit": {
+        "wins": 0,
+        "losses": 1
+      }
+    },
     "researchedHeadquartersIds": [
       "training_unit",
       "trainingslager",
@@ -1116,7 +1126,9 @@
       "willys_mb": 1
     },
     "savedDecks": [],
-    "claimedBattleRewardIds": [],
+    "claimedBattleRewardIds": [
+      "pvp:7Q6PY:bot"
+    ],
     "pendingRewardClaims": []
   }
 }
