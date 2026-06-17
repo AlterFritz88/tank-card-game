@@ -27,6 +27,7 @@ import type {
   PlayerId,
   Position,
   SupportSlot,
+  TankCard,
 } from "../game/types";
 import { isHiddenCardInstance } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
@@ -99,6 +100,9 @@ function isBotSpawn(position: Position): boolean {
 
 // Design-space width of a player hand card (matches styles.card).
 const HAND_CARD_WIDTH = 175;
+// How far (in screen px) the pointer must travel from the press point before a
+// hand-card press turns into a drag instead of a tap-to-select.
+const DRAG_START_THRESHOLD_PX = 8;
 // Design-space width of an enemy (face-down) hand card (matches styles.cardBack).
 const ENEMY_HAND_CARD_WIDTH = 104;
 
@@ -712,6 +716,30 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   );
 
   const [cardPreview, setCardPreview] = useState<CardPreview | null>(null);
+  // Drag-and-drop play: while a hand card is being dragged we show a card "ghost"
+  // following the pointer and reuse the existing selection-based cell/slot
+  // highlights. Dropping over a valid cell/slot plays the card; a plain tap still
+  // selects it for the click-to-place flow.
+  const [dragCard, setDragCard] = useState<{
+    cardInstanceId: string;
+    cardId: string;
+    isSupport: boolean;
+  } | null>(null);
+  const [dragPointer, setDragPointer] = useState<{ x: number; y: number } | null>(
+    null
+  );
+  const dragPointerStartRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    cardInstanceId: string;
+    cardId: string;
+    isSupport: boolean;
+    dragging: boolean;
+  } | null>(null);
+  // Set true on pointer-up after an actual drag so the synthetic click that
+  // follows does not also toggle the card selection.
+  const dragHappenedRef = useRef(false);
   // The preview overlay is portaled to <body>, outside the scaled/rotated
   // GameStage, so it applies the stage transform (rotate + uniform scale) to its
   // content. This keeps the enlarged card pixel-identical to the desktop layout
@@ -2714,6 +2742,159 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     );
   }
 
+  // Hit-test the pointer (screen coords) against the live cell / support-slot
+  // refs. getBoundingClientRect already accounts for the scaled+rotated stage,
+  // so a plain rectangle test in screen space is correct without any inverse
+  // transform math. Only empty battlefield cells register a cellRef, so a found
+  // cell is always a legal drop surface for a battlefield card.
+  function findHandCardDropTarget(
+    clientX: number,
+    clientY: number
+  ):
+    | { type: "cell"; position: Position }
+    | { type: "support"; owner: PlayerId; supportSlot: SupportSlot }
+    | null {
+    const inside = (rect: DOMRect) =>
+      clientX >= rect.left &&
+      clientX <= rect.right &&
+      clientY >= rect.top &&
+      clientY <= rect.bottom;
+
+    for (const [key, element] of cellRefs.current) {
+      if (!inside(element.getBoundingClientRect())) continue;
+
+      const [row, col] = key.split("-").map(Number);
+      return { type: "cell", position: { row, col } };
+    }
+
+    for (const [key, element] of supportCellRefs.current) {
+      if (!inside(element.getBoundingClientRect())) continue;
+
+      const separatorIndex = key.indexOf("-");
+      const owner = key.slice(0, separatorIndex) as PlayerId;
+      const supportSlot = Number(key.slice(separatorIndex + 1)) as SupportSlot;
+      return { type: "support", owner, supportSlot };
+    }
+
+    return null;
+  }
+
+  function handleHandCardPointerDown(
+    event: React.PointerEvent<HTMLButtonElement>,
+    cardInstance: CardInstance,
+    card: TankCard
+  ) {
+    // Only the primary mouse button starts a drag; touch/pen always do.
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (debugPaused) return;
+    if (battle.status !== "active") return;
+    if (battle.activePlayer !== humanPlayerId) return;
+    if (spawningCardInstanceId) return;
+    if (isHiddenCardInstance(cardInstance)) return;
+
+    dragHappenedRef.current = false;
+    dragPointerStartRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      cardInstanceId: cardInstance.instanceId,
+      cardId: card.id,
+      isSupport: card.deploymentZone === "support",
+      dragging: false,
+    };
+
+    // Capture so move/up keep firing even when the pointer leaves the card and
+    // travels across the board.
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Older browsers / detached nodes — drag simply falls back to no-capture.
+    }
+  }
+
+  function handleHandCardPointerMove(
+    event: React.PointerEvent<HTMLButtonElement>
+  ) {
+    const state = dragPointerStartRef.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+
+    if (!state.dragging) {
+      const dx = event.clientX - state.startX;
+      const dy = event.clientY - state.startY;
+
+      if (Math.hypot(dx, dy) < DRAG_START_THRESHOLD_PX) return;
+
+      state.dragging = true;
+      // Selecting lights up the legal cells/slots via the existing
+      // placingBattlefieldCard / placingSupport highlight logic.
+      selectCard(state.cardInstanceId);
+      setDragCard({
+        cardInstanceId: state.cardInstanceId,
+        cardId: state.cardId,
+        isSupport: state.isSupport,
+      });
+    }
+
+    setDragPointer({ x: event.clientX, y: event.clientY });
+  }
+
+  function handleHandCardPointerUp(
+    event: React.PointerEvent<HTMLButtonElement>
+  ) {
+    const state = dragPointerStartRef.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // No capture was held — nothing to release.
+    }
+
+    dragPointerStartRef.current = null;
+
+    // Plain tap (no movement past the threshold): let the click handler run the
+    // existing select-then-place flow.
+    if (!state.dragging) return;
+
+    dragHappenedRef.current = true;
+    setDragCard(null);
+    setDragPointer(null);
+
+    const target = findHandCardDropTarget(event.clientX, event.clientY);
+
+    // Clearing the selection cancels the pick-up; the play command below reads
+    // the card straight from the hand by id, so it is unaffected by this.
+    selectCard(null);
+
+    if (!target) return;
+
+    if (target.type === "cell" && !state.isSupport) {
+      enqueueBattleCommand(() =>
+        executeQueuedPlayCard(state.cardInstanceId, target.position)
+      );
+    } else if (target.type === "support" && state.isSupport) {
+      enqueueBattleCommand(() =>
+        executeQueuedPlaySupportCard(state.cardInstanceId, target.supportSlot)
+      );
+    }
+  }
+
+  function handleHandCardPointerCancel(
+    event: React.PointerEvent<HTMLButtonElement>
+  ) {
+    const state = dragPointerStartRef.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+
+    dragPointerStartRef.current = null;
+
+    if (!state.dragging) return;
+
+    dragHappenedRef.current = true;
+    setDragCard(null);
+    setDragPointer(null);
+    selectCard(null);
+  }
+
   function handleAttackTarget(
     targetType: "unit" | "headquarters",
     targetId: string
@@ -4303,6 +4484,8 @@ function renderEnemyDeckWithTimer() {
                 const tutorialCardBlocked = Boolean(
                   tutorialHighlights && !tutorialCardHighlighted
                 );
+                const isBeingDragged =
+                  dragCard?.cardInstanceId === cardInstance.instanceId;
 
                 // Cards are positioned by an animated `x` transform instead of
                 // flow margins + framer `layout`. The whole UI lives inside a
@@ -4329,7 +4512,11 @@ function renderEnemyDeckWithTimer() {
                     style={{
                       ...styles.card,
                       ...styles.handCardSlot,
-                      zIndex: selected ? 120 : index + 1,
+                      // Stop touch-drags from being hijacked as page scroll/zoom
+                      // so the pointer drag-to-play gesture works on the phone
+                      // stage (see the rotated-stage gesture notes).
+                      touchAction: "none",
+                      zIndex: selected || isBeingDragged ? 120 : index + 1,
                       pointerEvents:
                         isHiddenDrawnCard ||
                         isHiddenSpawningCard ||
@@ -4344,7 +4531,11 @@ function renderEnemyDeckWithTimer() {
                     initial={{ opacity: 0, y: 16, x: slotX }}
                     animate={{
                       opacity:
-                        isHiddenDrawnCard || isHiddenSpawningCard ? 0 : 1,
+                        isHiddenDrawnCard || isHiddenSpawningCard
+                          ? 0
+                          : isBeingDragged
+                            ? 0.32
+                            : 1,
                       y: 0,
                       x: slotX,
                     }}
@@ -4381,7 +4572,19 @@ function renderEnemyDeckWithTimer() {
                       cardId: card.id,
                       ownerId: humanPlayerId,
                     })}
+                    onPointerDown={(event) =>
+                      handleHandCardPointerDown(event, cardInstance, card)
+                    }
+                    onPointerMove={handleHandCardPointerMove}
+                    onPointerUp={handleHandCardPointerUp}
+                    onPointerCancel={handleHandCardPointerCancel}
                     onClick={() => {
+                      // A completed drag fires a trailing click — swallow it so
+                      // the card is not also toggled in/out of selection.
+                      if (dragHappenedRef.current) {
+                        dragHappenedRef.current = false;
+                        return;
+                      }
                       if (debugPaused) return;
                       if (battle.status !== "active") return;
                       if (battle.activePlayer !== humanPlayerId) return;
@@ -4410,6 +4613,35 @@ function renderEnemyDeckWithTimer() {
         </section>
 
       </main>
+
+      {createPortal(
+        dragCard && dragPointer ? (
+          // The dragged card "ghost" follows the pointer. It is portaled to
+          // <body> (outside the scaled/rotated stage) and re-applies the stage
+          // transform so it matches the in-game card size, exactly like the
+          // long-press preview. translate(-50%, -70%) lifts it above the finger.
+          <div
+            style={{
+              position: "fixed",
+              left: dragPointer.x,
+              top: dragPointer.y,
+              zIndex: 1000,
+              pointerEvents: "none",
+              transform: `translate(-50%, -70%) rotate(${stageRotation}deg) scale(${stageScale})`,
+              transformOrigin: "center center",
+            }}
+          >
+            <div style={{ width: HAND_CARD_WIDTH }}>
+              <HandCardView
+                card={getCard(dragCard.cardId)}
+                ownerId={getVisualOwnerId(humanPlayerId)}
+                selected
+              />
+            </div>
+          </div>
+        ) : null,
+        document.body
+      )}
 
       {createPortal(
         <AnimatePresence>

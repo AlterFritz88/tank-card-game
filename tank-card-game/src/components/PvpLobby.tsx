@@ -3495,7 +3495,11 @@ const styles: Record<string, CSSProperties> = {
     scrollbarWidth: "none",
     cursor: "grab",
     userSelect: "none",
-    touchAction: "pan-y",
+    // Custom JS drag-scroller inside the rotatable stage: disable native panning
+    // entirely so the pointer handlers receive the gesture on any orientation.
+    // (pan-y would let the browser steal the physical-vertical swipe that scrolls
+    // this carousel when the stage is rotated 90° on a portrait phone.)
+    touchAction: "none",
   },
 
   headquartersCarouselViewport: {
@@ -3992,6 +3996,8 @@ const styles: Record<string, CSSProperties> = {
     WebkitOverflowScrolling: "touch",
     scrollSnapType: "x mandatory",
     scrollbarWidth: "none",
+    // See carouselViewport: custom JS drag-scroller, so no native panning.
+    touchAction: "none",
   },
 
   missionCarouselTrack: {
