@@ -378,6 +378,14 @@ class ProfileClient {
     };
   }
 
+  async claimPVPBattleReward(
+    playerId: string,
+    roomId: string,
+    localPlayerId?: PlayerId
+  ): Promise<{ profile: PlayerProgress; reward?: BattleReward }> {
+    return this.claimPvpBattleReward(playerId, roomId, localPlayerId);
+  }
+
   async claimTutorialReward(
     playerId: string,
     reward: BattleReward,

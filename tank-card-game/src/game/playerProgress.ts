@@ -90,7 +90,12 @@ const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
 
 async function getProfileClient() {
-  return (await import("../network/profileClient")).profileClient;
+  const module = await import("../network/profileClient");
+  if (!module.profileClient) {
+    throw new Error("Profile client module did not export profileClient");
+  }
+
+  return module.profileClient;
 }
 
 export function normalizePlayerNickname(value: string, fallback = "Командир") {
