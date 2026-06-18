@@ -1,7 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { dirname } from "node:path";
-import { resolveDbPath } from "./storagePath";
+import { resolveWritableDbPath, writeJsonFileAtomic } from "./storagePath";
 
 type PlayerAccount = {
   userId: string;
@@ -15,9 +14,10 @@ type PlayerAccount = {
 
 type AccountDb = Record<string, PlayerAccount>;
 
-const ACCOUNT_DB_PATH = resolveDbPath(
+const ACCOUNT_DB_PATH = resolveWritableDbPath(
   process.env.PLAYER_ACCOUNT_DB_PATH,
-  "player-accounts.json"
+  "player-accounts.json",
+  "Player accounts"
 );
 const PASSWORD_HASH_BYTES = 64;
 
@@ -39,8 +39,7 @@ function readDb(): AccountDb {
 }
 
 function writeDb(db: AccountDb) {
-  mkdirSync(dirname(ACCOUNT_DB_PATH), { recursive: true });
-  writeFileSync(ACCOUNT_DB_PATH, JSON.stringify(db, null, 2), "utf8");
+  writeJsonFileAtomic(ACCOUNT_DB_PATH, db);
 }
 
 function normalizeUsername(username: string): string {

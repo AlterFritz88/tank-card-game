@@ -1,6 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { resolveDbPath } from "./storagePath";
+import { existsSync, readFileSync } from "node:fs";
+import { resolveWritableDbPath, writeJsonFileAtomic } from "./storagePath";
 import { getCard, normalizeCardId } from "../../tank-card-game/src/game/cards";
 import {
   calculateBattleReward,
@@ -46,9 +45,10 @@ type ClaimBattleRewardInput = {
   matchEndReason?: MatchEndReason | null;
 };
 
-const PROFILE_DB_PATH = resolveDbPath(
+const PROFILE_DB_PATH = resolveWritableDbPath(
   process.env.PLAYER_PROFILE_DB_PATH,
-  "player-profiles.json"
+  "player-profiles.json",
+  "Player profiles"
 );
 const CARD_COPY_LIMIT = 4;
 
@@ -229,8 +229,7 @@ function readDb(): ProfileDb {
 }
 
 function writeDb(db: ProfileDb) {
-  mkdirSync(dirname(PROFILE_DB_PATH), { recursive: true });
-  writeFileSync(PROFILE_DB_PATH, JSON.stringify(db, null, 2), "utf8");
+  writeJsonFileAtomic(PROFILE_DB_PATH, db);
 }
 
 function getPositiveInteger(value: unknown): number {
@@ -1033,29 +1032,25 @@ export class PlayerProfileManager {
       input.battle[input.localPlayerId].headquartersId;
 
     if (profile.claimedBattleRewardIds.includes(claimId)) {
-      const reward = calculateBattleReward({
-        battle: input.battle,
-        mode: input.mode,
-        localPlayerId: input.localPlayerId,
-        matchEndReason: input.matchEndReason ?? null,
-        headquartersFullyResearched: isHeadquartersFullyResearched(
-          profile,
-          rewardHeadquartersId
-        ),
-      });
-
+      // Already credited once. The profile is returned unchanged (so the balance
+      // is never credited twice), but we return the *real* recomputed reward for
+      // display rather than an all-zero one. Returning zeros here clobbered the
+      // credited amount in the UI whenever a battle was claimed twice (e.g. the
+      // "retry reward" button or a duplicate claim), which read as "reward not
+      // credited" even though the tracks/XP had already been added.
+      console.log(`Battle reward already claimed (display-only): ${claimId}`);
       return {
         profile,
-        reward: {
-          ...reward,
-          rawHeadquartersXp: 0,
-          headquartersXp: 0,
-          freeXp: 0,
-          rawIronTracks: 0,
-          repairCost: 0,
-          ironTracks: 0,
-          goldTracks: 0,
-        },
+        reward: calculateBattleReward({
+          battle: input.battle,
+          mode: input.mode,
+          localPlayerId: input.localPlayerId,
+          matchEndReason: input.matchEndReason ?? null,
+          headquartersFullyResearched: isHeadquartersFullyResearched(
+            profile,
+            rewardHeadquartersId
+          ),
+        }),
       };
     }
 

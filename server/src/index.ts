@@ -4,6 +4,7 @@ import { createServer, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { WebSocketServer } from "ws";
 import { RoomManager } from "./rooms";
+import { getStorageStatuses } from "./storagePath";
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST;
@@ -71,6 +72,24 @@ async function handleHttpRequest(
   if (rawUrl === "/health") {
     response.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
     response.end("ok");
+    return;
+  }
+
+  if (rawUrl === "/health/storage") {
+    response.writeHead(200, {
+      "Cache-Control": "no-cache",
+      "Content-Type": "application/json; charset=utf-8",
+    });
+    response.end(
+      JSON.stringify(
+        {
+          ok: getStorageStatuses().every((status) => status.writable),
+          storage: getStorageStatuses(),
+        },
+        null,
+        2
+      )
+    );
     return;
   }
 
