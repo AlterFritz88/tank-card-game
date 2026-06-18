@@ -12,6 +12,11 @@ import cardDistribution2Url from "../assets/sounds/card_distrib/playing_card_dis
 import cardDistribution3Url from "../assets/sounds/card_distrib/playing_card_distrib_3.mp3?url";
 import radarScanning1Url from "../assets/sounds/radar/Radar_scaning_1.mp3?url";
 import radarScanning2Url from "../assets/sounds/radar/Radar_scaning_2.mp3?url";
+import {
+  getEffectsVolume,
+  getMusicVolume,
+  subscribeSettings,
+} from "./settings";
 
 type MusicTrack = "main" | "battle";
 type OneShotSound = "cannonShot" | "cardDistribution" | "turnStart" | "destroyed";
@@ -55,6 +60,38 @@ const fadeTimers = new Map<MusicTrack, number>();
 let currentTrack: MusicTrack | null = null;
 let pendingTrack: MusicTrack | null = null;
 let unlockListenerAttached = false;
+
+// Final music volume = authored base × the user's music-volume setting (0..1).
+function musicTargetVolume(): number {
+  return MUSIC_VOLUME * getMusicVolume();
+}
+
+// Reconcile the playing track with the current music-volume setting. At 0% the
+// track is fully stopped (paused), not just silenced; above 0% it resumes and
+// tracks the slider live. Skips a live volume write while a fade is running so
+// it doesn't fight the fade interval (which already targets musicTargetVolume).
+function applyMusicVolume() {
+  if (!currentTrack) return;
+
+  const audio = getMusicElement(currentTrack);
+
+  if (getMusicVolume() === 0) {
+    clearFade(currentTrack);
+    audio.volume = 0;
+    audio.pause();
+    return;
+  }
+
+  if (audio.paused) {
+    void audio.play().catch(() => undefined);
+  }
+
+  if (!fadeTimers.has(currentTrack)) {
+    audio.volume = musicTargetVolume();
+  }
+}
+
+subscribeSettings(applyMusicVolume);
 
 function getMusicElement(track: MusicTrack): HTMLAudioElement {
   const existing = musicElements.get(track);
@@ -137,7 +174,13 @@ export async function playMusic(track: MusicTrack) {
   const previousTrack = currentTrack;
   currentTrack = track;
 
-  fadeAudio(track, MUSIC_VOLUME);
+  if (getMusicVolume() === 0) {
+    // Muted: don't leave the freshly-started track playing silently.
+    nextAudio.volume = 0;
+    nextAudio.pause();
+  } else {
+    fadeAudio(track, musicTargetVolume());
+  }
 
   if (previousTrack && previousTrack !== track) {
     fadeAudio(previousTrack, 0, () => {
@@ -155,7 +198,7 @@ export function playRandomSound(sound: OneShotSound) {
   const url = urls[Math.floor(Math.random() * urls.length)];
   const audio = new Audio(url);
   audio.preload = "auto";
-  audio.volume = EFFECT_VOLUME[sound];
+  audio.volume = EFFECT_VOLUME[sound] * getEffectsVolume();
 
   void audio.play().catch(() => undefined);
 }
@@ -163,7 +206,7 @@ export function playRandomSound(sound: OneShotSound) {
 function playSoundUrl(url: string, volume: number) {
   const audio = new Audio(url);
   audio.preload = "auto";
-  audio.volume = volume;
+  audio.volume = volume * getEffectsVolume();
 
   void audio.play().catch(() => undefined);
 }
@@ -189,7 +232,7 @@ export function playRotatingCartridgeSound(durationMs: number) {
   let stopTimer: number | null = null;
 
   audio.preload = "auto";
-  audio.volume = ROTATING_CARTRIDGE_VOLUME;
+  audio.volume = ROTATING_CARTRIDGE_VOLUME * getEffectsVolume();
   audio.currentTime = 0;
 
   void audio.play().catch(() => undefined);

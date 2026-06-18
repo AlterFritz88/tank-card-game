@@ -125,6 +125,20 @@ const MODE_REWARD = {
   },
 } as const;
 
+/**
+ * Representative headquarters XP a single victory awards, averaged across the
+ * game modes for a decisive win (full activity, no early-exit penalty — i.e.
+ * resultMultiplier, reasonMultiplier and activityMultiplier all at 1). The
+ * research screen uses it to estimate how many victories remain before a node
+ * can be afforded.
+ */
+export const AVERAGE_VICTORY_XP = Math.round(
+  Object.values(MODE_REWARD).reduce(
+    (total, modeReward) => total + modeReward.headquartersXp * modeReward.multiplier,
+    0
+  ) / Object.keys(MODE_REWARD).length
+);
+
 export function calculateBattleReward({
   battle,
   mode,

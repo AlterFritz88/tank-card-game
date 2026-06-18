@@ -90,6 +90,10 @@ function samePosition(a: Position, b: Position): boolean {
   return a.row === b.row && a.col === b.col;
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 function isPlayerSpawn(position: Position): boolean {
   return PLAYER_SPAWN_CELLS.some((cell) => samePosition(cell, position));
 }
@@ -999,10 +1003,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     const localPlayerWon =
       (battle.status === "player_won" && humanPlayerId === "player") ||
       (battle.status === "bot_won" && humanPlayerId === "bot");
+    let serverError: string | null = null;
 
     if (tutorialActive) {
       setRewardClaimStatus("pending");
-      setRewardClaimError(null);
+      setRewardClaimError(
+        serverError
+          ? `${serverError}. Награда сохранена локально и будет синхронизирована позже.`
+          : null
+      );
 
       const serverResult = await claimTutorialRewardFromServer({
         reward: TUTORIAL_REWARD,
@@ -1023,7 +1032,11 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       );
       setBattleReward(localReward);
       setRewardClaimStatus("claimed");
-      setRewardClaimError(null);
+      setRewardClaimError(
+        serverError
+          ? `${serverError}. Награда сохранена локально и будет синхронизирована позже.`
+          : null
+      );
       setRewardSyncPending(localProgress.pendingRewardClaims.length > 0);
       return;
     }
@@ -1055,11 +1068,18 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       return;
     }
 
+    serverError = null;
     const serverResult = await claimBattleRewardFromServer({
       battle,
       mode,
       localPlayerId: humanPlayerId,
       matchEndReason: null,
+    }).catch((error: unknown) => {
+      serverError = getErrorMessage(
+        error,
+        "Награда не начислена: сервер профиля недоступен"
+      );
+      return null;
     });
 
     if (serverResult?.reward) {
@@ -1079,12 +1099,20 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     if (localResult) {
       setBattleReward(localResult.reward);
       setRewardClaimStatus("claimed");
-      setRewardClaimError(null);
+      setRewardClaimError(
+        serverError
+          ? `${serverError}. Награда сохранена локально и будет синхронизирована позже.`
+          : null
+      );
       setRewardSyncPending(localResult.progress.pendingRewardClaims.length > 0);
       return;
     }
 
     setRewardClaimStatus("failed");
+    if (serverError) {
+      setRewardClaimError(serverError);
+      return;
+    }
     setRewardClaimError("Награда не начислена: сервер профиля недоступен");
   }
 

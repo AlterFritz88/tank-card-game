@@ -276,26 +276,22 @@ export async function claimBattleRewardFromServer(input: {
   mode: GameMode;
   localPlayerId: PlayerId;
   matchEndReason?: MatchEndReason | null;
-}): Promise<{ profile: PlayerProgress; reward?: BattleReward } | null> {
-  try {
-    const profileClient = await getProfileClient();
-    const claimId = createBattleRewardClaimId(input);
-    const result = await profileClient.claimBattleReward(
-      getCurrentUserId(),
-      claimId,
-      { ...input, battle: buildBattleRewardSource(input.battle) }
-    );
-    const pendingRewardClaims = loadPlayerProgress().pendingRewardClaims.filter(
-      (claim) => claim.type !== "battle" || claim.claimId !== claimId
-    );
+}): Promise<{ profile: PlayerProgress; reward?: BattleReward }> {
+  const profileClient = await getProfileClient();
+  const claimId = createBattleRewardClaimId(input);
+  const result = await profileClient.claimBattleReward(
+    getCurrentUserId(),
+    claimId,
+    { ...input, battle: buildBattleRewardSource(input.battle) }
+  );
+  const pendingRewardClaims = loadPlayerProgress().pendingRewardClaims.filter(
+    (claim) => claim.type !== "battle" || claim.claimId !== claimId
+  );
 
-    return {
-      ...result,
-      profile: saveServerPlayerProgress(result.profile, pendingRewardClaims),
-    };
-  } catch {
-    return null;
-  }
+  return {
+    ...result,
+    profile: saveServerPlayerProgress(result.profile, pendingRewardClaims),
+  };
 }
 
 export async function claimPvpBattleRewardFromServer(input: {

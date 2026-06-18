@@ -26,6 +26,7 @@ import {
   type ResearchNode,
 } from "../game/researchTrees";
 import { getTankImage } from "../game/tankImages";
+import { AVERAGE_VICTORY_XP } from "../game/economy";
 import type { HeadquartersId } from "../game/types";
 import { CARD_COPY_LIMIT } from "../game/customDecks";
 import {
@@ -71,7 +72,36 @@ type ResearchNodeView = ResearchNode & {
   requiredPreviousTitle?: string;
   /** Whether the node directly above this one in the branch is already acquired. */
   incomingPathComplete?: boolean;
+  /**
+   * Estimated number of average victories still needed to afford this unit's
+   * research (XP shortage ÷ average XP per victory). Only set for not-yet-owned
+   * unit nodes that still need experience.
+   */
+  victoriesToResearch?: number;
 };
+
+/**
+ * Canonical left-to-right column order for branches, shared by every nation so
+ * the tree layout stays consistent: the tank line sits first, then motorized,
+ * artillery and rear. Unknown branches fall to the end.
+ */
+const BRANCH_DISPLAY_ORDER: Record<string, number> = {
+  tank: 0,
+  motorized: 1,
+  artillery: 2,
+  rear: 3,
+};
+
+/** Russian pluralization for "победа" (victory). */
+function formatVictories(count: number): string {
+  const mod100 = count % 100;
+  const mod10 = count % 10;
+
+  if (mod100 >= 11 && mod100 <= 14) return `${count} побед`;
+  if (mod10 === 1) return `${count} победа`;
+  if (mod10 >= 2 && mod10 <= 4) return `${count} победы`;
+  return `${count} побед`;
+}
 
 type ResearchBranchProgress = {
   acquired: number;
@@ -275,16 +305,24 @@ function createNodeView({
     };
   }
 
+  // Estimated victories still needed to research this unit: the XP shortage
+  // (after current HQ XP + free XP) divided by the average XP a victory awards.
+  // Shown for unit nodes only — headquarters are gated by purchase, not grind.
+  const experienceCost = node.experienceCost ?? 0;
+  const victoriesToResearch = node.cardId
+    ? getVictoriesToResearch(node, progress, sourceHeadquartersId, experienceCost)
+    : undefined;
+
   if (!previousComplete) {
     return {
       ...node,
       stage: "locked",
       statusLabel: previousNodeTitle ? "Нужен узел" : "Закрыто",
       requiredPreviousTitle: previousNodeTitle,
+      victoriesToResearch,
     };
   }
 
-  const experienceCost = node.experienceCost ?? 0;
   const canResearch = canSpendResearchExperience(
     progress,
     sourceHeadquartersId,
@@ -299,7 +337,24 @@ function createNodeView({
     costIcon: experienceCost ? experienceIcon : undefined,
     costValue: experienceCost || undefined,
     costInsufficient: !canResearch,
+    victoriesToResearch,
   };
+}
+
+function getVictoriesToResearch(
+  _node: ResearchNode,
+  progress: PlayerProgress,
+  sourceHeadquartersId: HeadquartersId,
+  experienceCost: number
+): number | undefined {
+  if (experienceCost <= 0) return undefined;
+
+  const availableExperience =
+    (progress.headquartersXp[sourceHeadquartersId] ?? 0) + progress.freeXp;
+  const shortage = Math.max(0, experienceCost - availableExperience);
+  if (shortage <= 0) return undefined;
+
+  return Math.ceil(shortage / AVERAGE_VICTORY_XP);
 }
 
 function isNodeAcquired(node: ResearchNode, progress: PlayerProgress): boolean {
@@ -553,6 +608,12 @@ function ResearchNodeCard({
           ) : null}
         </span>
       </div>
+
+      {node.victoriesToResearch ? (
+        <span style={styles.nodeVictories} title="Примерно столько побед нужно для исследования">
+          ≈ {formatVictories(node.victoriesToResearch)} до открытия
+        </span>
+      ) : null}
     </motion.div>
   );
 }
@@ -874,7 +935,13 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
   const branchNodeViews = useMemo(
     () =>
       sourceHeadquartersId
-        ? tree.branches.map((branch) => {
+        ? [...tree.branches]
+            .sort(
+              (left, right) =>
+                (BRANCH_DISPLAY_ORDER[left.id] ?? 99) -
+                (BRANCH_DISPLAY_ORDER[right.id] ?? 99)
+            )
+            .map((branch) => {
             const nodes = createBranchNodeViews({
               nodes: branch.nodes,
               progress,
@@ -1983,6 +2050,19 @@ const styles: Record<string, CSSProperties> = {
     height: 18,
     objectFit: "contain",
     filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.78))",
+  },
+
+  nodeVictories: {
+    display: "block",
+    marginTop: 5,
+    textAlign: "center",
+    color: "rgba(243, 205, 108, 0.78)",
+    fontSize: 9.5,
+    fontWeight: 800,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    textShadow: "0 1px 3px rgba(0,0,0,0.85)",
+    fontVariantNumeric: "tabular-nums",
   },
 
   backButton: {

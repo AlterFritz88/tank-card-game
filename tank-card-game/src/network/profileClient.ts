@@ -223,7 +223,7 @@ const PROFILE_SERVER_URL =
   (import.meta as ProfileImportMeta).env.VITE_PROFILE_SERVER_URL ??
   (import.meta as ProfileImportMeta).env.VITE_PVP_SERVER_URL ??
   getDefaultWebSocketUrl();
-const PROFILE_REQUEST_TIMEOUT_MS = 5_000;
+const PROFILE_REQUEST_TIMEOUT_MS = 15_000;
 const SESSION_INSTANCE_STORAGE_KEY = "tank-card-game:session-instance-id";
 
 function createRequestId(): string {

@@ -5,6 +5,7 @@ import {
   LoadingScreen,
   preloadCriticalMenuAssets,
 } from "./components/LoadingScreen";
+import { SettingsControls } from "./components/SettingsControls";
 import { useBattleStore } from "./store/battleStore";
 
 const BattleScreen = lazy(() =>
@@ -47,12 +48,18 @@ export default function App() {
   if (!bootReady) return <LoadingScreen />;
 
   return (
-    <Suspense fallback={<LoadingScreen />}>
-      {battle ? <BattleScreen /> : <PvpLobby />}
-      {sessionError ? (
-        <SessionErrorNotice message={sessionError} onClose={clearSessionError} />
-      ) : null}
-    </Suspense>
+    <>
+      <Suspense fallback={<LoadingScreen />}>
+        {battle ? <BattleScreen /> : <PvpLobby />}
+        {sessionError ? (
+          <SessionErrorNotice
+            message={sessionError}
+            onClose={clearSessionError}
+          />
+        ) : null}
+      </Suspense>
+      <SettingsControls side={battle ? "left" : "right"} />
+    </>
   );
 }
 
