@@ -293,12 +293,17 @@ export class RoomManager {
   private socketToSessionAccount = new WeakMap<WebSocket, string>();
 
   handleMessage(socket: WebSocket, rawData: WebSocket.RawData) {
-    if (getRawDataByteLength(rawData) > MAX_INCOMING_MESSAGE_BYTES) {
+    const byteLength = getRawDataByteLength(rawData);
+    if (byteLength > MAX_INCOMING_MESSAGE_BYTES) {
+      console.warn(
+        `Rejected oversized message: ${byteLength} bytes (limit ${MAX_INCOMING_MESSAGE_BYTES})`
+      );
       safeSend(socket, { type: "ERROR", message: "Сообщение слишком большое" });
       return;
     }
 
     if (this.isRateLimited(socket)) {
+      console.warn("Rejected message: rate limit exceeded");
       safeSend(socket, { type: "ERROR", message: "Слишком много сообщений" });
       return;
     }
@@ -308,14 +313,22 @@ export class RoomManager {
     try {
       const parsedMessage = JSON.parse(rawData.toString());
       if (!hasMessageType(parsedMessage)) {
+        console.warn("Rejected message: missing type field");
         safeSend(socket, { type: "ERROR", message: "Некорректное сообщение" });
         return;
       }
 
       message = parsedMessage as PvpClientMessage;
     } catch {
+      console.warn("Rejected message: invalid JSON");
       safeSend(socket, { type: "ERROR", message: "Некорректное JSON-сообщение" });
       return;
+    }
+
+    if ("requestId" in message && message.requestId) {
+      console.log(
+        `Handling ${message.type} (requestId ${message.requestId}, ${byteLength} bytes)`
+      );
     }
 
     switch (message.type) {
@@ -421,6 +434,7 @@ export class RoomManager {
         this.loginAccount(socket, message);
         break;
       default:
+        console.warn(`Rejected message: unknown type "${(message as { type?: unknown }).type}"`);
         safeSend(socket, { type: "ERROR", message: "Неизвестное сообщение" });
     }
   }

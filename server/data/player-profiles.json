@@ -603,7 +603,7 @@
     "freeXp": 139,
     "headquartersXp": {
       "german_artillery_division": 80,
-      "training_unit": 1029,
+      "training_unit": 639,
       "german_rear_corps": 67,
       "trainingslager": 0,
       "german_motorized_division": 56,
@@ -705,7 +705,10 @@
       "pzbef_i",
       "m3_lee",
       "sig_33_pzi",
-      "sanitaetskraftwagen"
+      "sanitaetskraftwagen",
+      "t27",
+      "gun_76_1927",
+      "repair_letuchka"
     ],
     "unlockedHeadquartersIds": [
       "training_unit",
@@ -763,7 +766,10 @@
       "pzbef_i",
       "m3_lee",
       "sig_33_pzi",
-      "sanitaetskraftwagen"
+      "sanitaetskraftwagen",
+      "t27",
+      "gun_76_1927",
+      "repair_letuchka"
     ],
     "ownedCardCopies": {
       "ms_1_t18": 2,
