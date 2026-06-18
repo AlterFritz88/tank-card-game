@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
+import { resolveDbPath } from "./storagePath";
 
 type PlayerAccount = {
   userId: string;
@@ -14,10 +15,13 @@ type PlayerAccount = {
 
 type AccountDb = Record<string, PlayerAccount>;
 
-const ACCOUNT_DB_PATH =
-  process.env.PLAYER_ACCOUNT_DB_PATH ??
-  join(process.cwd(), "data", "player-accounts.json");
+const ACCOUNT_DB_PATH = resolveDbPath(
+  process.env.PLAYER_ACCOUNT_DB_PATH,
+  "player-accounts.json"
+);
 const PASSWORD_HASH_BYTES = 64;
+
+console.log(`Player accounts database path: ${ACCOUNT_DB_PATH}`);
 
 function readDb(): AccountDb {
   try {

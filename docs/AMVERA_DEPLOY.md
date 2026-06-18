@@ -71,6 +71,10 @@ https://panzershrek-server-burdin009.amvera.io
 
 - Keep profile/account JSON files under `/data`; Amvera mounts persistent
   storage there.
+- If `PLAYER_PROFILE_DB_PATH` / `PLAYER_ACCOUNT_DB_PATH` are not set, the server
+  now auto-detects the `/data` mount and writes there. The startup log prints
+  the resolved paths (`Player profiles database path: ...`). Setting the env
+  vars explicitly is still recommended.
 - `containerPort` is `8787`, matching the server default.
 - Do not set `HOST` unless Amvera support specifically tells you to.
 - `docs/amvera.client.yaml.example` is only for a separate static-client app.

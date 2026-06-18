@@ -924,6 +924,7 @@ export class RoomManager {
     requestId: string,
     error: unknown
   ) {
+    console.error("Profile request failed:", error);
     safeSend(socket, {
       type: "PROFILE_ERROR",
       requestId,
@@ -936,6 +937,7 @@ export class RoomManager {
     requestId: string,
     error: unknown
   ) {
+    console.error("Auth request failed:", error);
     safeSend(socket, {
       type: "AUTH_ERROR",
       requestId,

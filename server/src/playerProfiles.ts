@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
+import { resolveDbPath } from "./storagePath";
 import { getCard, normalizeCardId } from "../../tank-card-game/src/game/cards";
 import { calculateBattleReward, type BattleReward } from "../../tank-card-game/src/game/economy";
 import { getHeadquartersDefinition, HEADQUARTERS } from "../../tank-card-game/src/game/headquarters";
@@ -42,10 +43,13 @@ type ClaimBattleRewardInput = {
   matchEndReason?: MatchEndReason | null;
 };
 
-const PROFILE_DB_PATH =
-  process.env.PLAYER_PROFILE_DB_PATH ??
-  join(process.cwd(), "data", "player-profiles.json");
+const PROFILE_DB_PATH = resolveDbPath(
+  process.env.PLAYER_PROFILE_DB_PATH,
+  "player-profiles.json"
+);
 const CARD_COPY_LIMIT = 4;
+
+console.log(`Player profiles database path: ${PROFILE_DB_PATH}`);
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const MAX_SAVED_DECKS = 80;
 
