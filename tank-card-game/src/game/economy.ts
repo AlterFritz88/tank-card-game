@@ -3,12 +3,73 @@ import { getHeadquartersDefinition } from "./headquarters";
 import type { GameMode, MatchEndReason } from "./modes";
 import type {
   BattleKillStats,
+  BattleStats,
+  BattleStatus,
+  BoardUnit,
   ClientBattleState,
   ClientCardInstance,
   HeadquartersId,
+  HeadquartersState,
   PlayerId,
 } from "./types";
 import { isHiddenCardInstance } from "./types";
+
+/**
+ * The minimal slice of a finished battle the reward formula actually reads.
+ *
+ * Reward claims are sent to the profile server over WebSocket; serializing the
+ * whole {@link ClientBattleState} (units, full hands/decks, the per-action log)
+ * produces messages large enough to be dropped by hosting reverse proxies
+ * before they reach the app. Sending only this compact source keeps the payload
+ * tiny while preserving identical reward math.
+ */
+export type BattleRewardSource = {
+  status: BattleStatus;
+  stats: BattleStats;
+  headquarters: Record<PlayerId, Pick<HeadquartersState, "headquartersId" | "hp">>;
+  player: BattleRewardArmySource;
+  bot: BattleRewardArmySource;
+  units: Pick<BoardUnit, "ownerId" | "currentHp">[];
+};
+
+type BattleRewardArmySource = {
+  headquartersId: HeadquartersId;
+  hand: ClientCardInstance[];
+  deck: ClientCardInstance[];
+};
+
+export function buildBattleRewardSource(
+  battle: ClientBattleState
+): BattleRewardSource {
+  return {
+    status: battle.status,
+    stats: battle.stats,
+    headquarters: {
+      player: {
+        headquartersId: battle.headquarters.player.headquartersId,
+        hp: battle.headquarters.player.hp,
+      },
+      bot: {
+        headquartersId: battle.headquarters.bot.headquartersId,
+        hp: battle.headquarters.bot.hp,
+      },
+    },
+    player: {
+      headquartersId: battle.player.headquartersId,
+      hand: battle.player.hand,
+      deck: battle.player.deck,
+    },
+    bot: {
+      headquartersId: battle.bot.headquartersId,
+      hand: battle.bot.hand,
+      deck: battle.bot.deck,
+    },
+    units: battle.units.map((unit) => ({
+      ownerId: unit.ownerId,
+      currentHp: unit.currentHp,
+    })),
+  };
+}
 
 export type BattleReward = {
   headquartersId: HeadquartersId;
@@ -27,7 +88,7 @@ export type BattleReward = {
 };
 
 type BattleRewardInput = {
-  battle: ClientBattleState;
+  battle: BattleRewardSource;
   mode: GameMode;
   localPlayerId: PlayerId;
   matchEndReason?: MatchEndReason | null;
@@ -150,7 +211,7 @@ export function calculateBattleReward({
 }
 
 function getHeadquartersIdForReward(
-  battle: ClientBattleState,
+  battle: BattleRewardSource,
   playerId: PlayerId
 ): HeadquartersId {
   return battle.headquarters[playerId].headquartersId ?? battle[playerId].headquartersId;
@@ -185,7 +246,7 @@ function getReasonMultiplier(
 }
 
 function getDestructionProgress(
-  battle: ClientBattleState,
+  battle: BattleRewardSource,
   opponentId: PlayerId,
   destroyedStats: BattleKillStats
 ): number {
@@ -211,7 +272,7 @@ function estimateDestroyedHp(stats: BattleKillStats): number {
 }
 
 function estimateKnownArmyHp(
-  battle: ClientBattleState,
+  battle: BattleRewardSource,
   owner: PlayerId
 ): number {
   const visibleDeckAndHandHp = [

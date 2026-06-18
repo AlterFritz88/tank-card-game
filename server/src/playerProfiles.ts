@@ -2,7 +2,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { resolveDbPath } from "./storagePath";
 import { getCard, normalizeCardId } from "../../tank-card-game/src/game/cards";
-import { calculateBattleReward, type BattleReward } from "../../tank-card-game/src/game/economy";
+import {
+  calculateBattleReward,
+  type BattleReward,
+  type BattleRewardSource,
+} from "../../tank-card-game/src/game/economy";
 import { getHeadquartersDefinition, HEADQUARTERS } from "../../tank-card-game/src/game/headquarters";
 import type { GameMode, MatchEndReason } from "../../tank-card-game/src/game/modes";
 import {
@@ -22,7 +26,6 @@ import {
   getCampaignRewardClaimKey,
 } from "../../tank-card-game/src/game/campaigns";
 import type {
-  ClientBattleState,
   HeadquartersId,
   PlayerId,
 } from "../../tank-card-game/src/game/types";
@@ -37,7 +40,7 @@ type ResearchNodeContext = {
 
 type ClaimBattleRewardInput = {
   claimId: string;
-  battle: ClientBattleState;
+  battle: BattleRewardSource;
   mode: GameMode;
   localPlayerId: PlayerId;
   matchEndReason?: MatchEndReason | null;
@@ -565,7 +568,7 @@ function sanitizeClaimId(claimId: unknown): string {
   return claimId.replace(/[^a-zA-Z0-9:_-]/g, "").slice(0, 180);
 }
 
-function getBattleWinner(battle: ClientBattleState, localPlayerId: PlayerId) {
+function getBattleWinner(battle: BattleRewardSource, localPlayerId: PlayerId) {
   return (
     (battle.status === "player_won" && localPlayerId === "player") ||
     (battle.status === "bot_won" && localPlayerId === "bot")

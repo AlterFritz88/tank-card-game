@@ -4,7 +4,12 @@ import {
   getTrainingHeadquartersIds,
 } from "./headquarters";
 import { getCardOrNull, normalizeCardId } from "./cards";
-import { calculateBattleReward, type BattleReward } from "./economy";
+import {
+  buildBattleRewardSource,
+  calculateBattleReward,
+  type BattleReward,
+  type BattleRewardSource,
+} from "./economy";
 import { getDeckCardIds } from "./initialState";
 import { RESEARCH_TREES, type ResearchNode } from "./researchTrees";
 import {
@@ -41,7 +46,7 @@ export type PendingPlayerRewardClaim =
   | {
       type: "battle";
       claimId: string;
-      battle: ClientBattleState;
+      battle: BattleRewardSource;
       mode: GameMode;
       localPlayerId: PlayerId;
       matchEndReason?: MatchEndReason | null;
@@ -278,7 +283,7 @@ export async function claimBattleRewardFromServer(input: {
     const result = await profileClient.claimBattleReward(
       getCurrentUserId(),
       claimId,
-      input
+      { ...input, battle: buildBattleRewardSource(input.battle) }
     );
     const pendingRewardClaims = loadPlayerProgress().pendingRewardClaims.filter(
       (claim) => claim.type !== "battle" || claim.claimId !== claimId
@@ -439,7 +444,7 @@ export function applyBattleRewardToProgress(input: {
           {
             type: "battle" as const,
             claimId,
-            battle,
+            battle: buildBattleRewardSource(battle),
             mode,
             localPlayerId,
             matchEndReason,
@@ -669,11 +674,22 @@ function normalizePendingRewardClaims(
         return [];
       }
 
+      // Slim the stored battle down to the reward-relevant fields. Safe to
+      // re-apply to already-slim claims, and it shrinks legacy claims that were
+      // persisted with the full battle state before this change. Drop the claim
+      // if the stored battle is malformed rather than failing the whole load.
+      let battle: BattleRewardSource;
+      try {
+        battle = buildBattleRewardSource(candidate.battle as ClientBattleState);
+      } catch {
+        return [];
+      }
+
       return [
         {
           type: "battle",
           claimId: candidate.claimId,
-          battle: candidate.battle as ClientBattleState,
+          battle,
           mode: candidate.mode,
           localPlayerId: candidate.localPlayerId,
           matchEndReason: candidate.matchEndReason ?? null,

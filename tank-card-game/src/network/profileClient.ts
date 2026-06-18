@@ -1,11 +1,7 @@
-import type { BattleReward } from "../game/economy";
+import type { BattleReward, BattleRewardSource } from "../game/economy";
 import type { GameMode, MatchEndReason } from "../game/modes";
 import type { PlayerProgress, PlayerSavedDeck } from "../game/playerProgress";
-import type {
-  ClientBattleState,
-  HeadquartersId,
-  PlayerId,
-} from "../game/types";
+import type { HeadquartersId, PlayerId } from "../game/types";
 import { getDefaultWebSocketUrl } from "./webSocketUrl";
 
 type ProfileClientMessage =
@@ -33,7 +29,7 @@ type ProfileClientMessage =
       requestId: string;
       playerId: string;
       claimId: string;
-      battle: ClientBattleState;
+      battle: BattleRewardSource;
       mode: GameMode;
       localPlayerId: PlayerId;
       matchEndReason?: MatchEndReason | null;
@@ -343,7 +339,7 @@ class ProfileClient {
     playerId: string,
     claimId: string,
     input: {
-      battle: ClientBattleState;
+      battle: BattleRewardSource;
       mode: GameMode;
       localPlayerId: PlayerId;
       matchEndReason?: MatchEndReason | null;

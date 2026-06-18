@@ -6,7 +6,7 @@ import type {
   PlayerId,
 } from "../../tank-card-game/src/game/types";
 import type { AttackAnimationStrike } from "../../tank-card-game/src/game/engine";
-import type { BattleReward } from "../../tank-card-game/src/game/economy";
+import type { BattleReward, BattleRewardSource } from "../../tank-card-game/src/game/economy";
 import type { GameMode, MatchEndReason as GameMatchEndReason } from "../../tank-card-game/src/game/modes";
 import type {
   PlayerProgress,
@@ -66,7 +66,7 @@ export type PvpClientMessage =
       requestId: string;
       playerId: string;
       claimId: string;
-      battle: ClientBattleState;
+      battle: BattleRewardSource;
       mode: GameMode;
       localPlayerId: PlayerId;
       matchEndReason?: GameMatchEndReason | null;
