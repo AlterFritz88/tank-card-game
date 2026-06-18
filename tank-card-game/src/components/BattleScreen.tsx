@@ -728,6 +728,17 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const [dragPointer, setDragPointer] = useState<{ x: number; y: number } | null>(
     null
   );
+  // When the dragged card hovers a legal drop target, the ghost cross-fades from
+  // the hand-card look into the on-board card look, sized to match that target
+  // cell so it reads as the card about to settle into place. `active` is true
+  // only while actually over a legal target; we keep the last size around when
+  // it goes false so the board layer can fade back out smoothly instead of
+  // popping. null = no drag / never entered a target yet.
+  const [dragBoardView, setDragBoardView] = useState<{
+    size: number;
+    isSupport: boolean;
+    active: boolean;
+  } | null>(null);
   const dragPointerStartRef = useRef<{
     pointerId: number;
     startX: number;
@@ -2527,9 +2538,38 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     void runQueuedBattleCommands();
   }
 
+  // Place a freshly played unit straight onto the board with no hand→cell fly
+  // animation, marking it static so its board cell mounts without a pop-in — the
+  // drag ghost already carried the card to the target.
+  function placeUnitStatically(cardInstanceId: string, dispatch: () => void) {
+    playCardDistributionSound();
+
+    flushSync(() => {
+      setStaticSpawnUnitIds((current) => {
+        const next = new Set(current);
+        next.add(cardInstanceId);
+        return next;
+      });
+    });
+
+    dispatch();
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        setStaticSpawnUnitIds((current) => {
+          if (!current.has(cardInstanceId)) return current;
+          const next = new Set(current);
+          next.delete(cardInstanceId);
+          return next;
+        });
+      });
+    });
+  }
+
   async function executeQueuedPlayCard(
     cardInstanceId: string,
-    position: Position
+    position: Position,
+    options: { skipSpawnAnimation?: boolean } = {}
   ) {
     const currentBattle = getCurrentCommandBattle();
     const currentHumanPlayerId = humanPlayerIdRef.current;
@@ -2550,6 +2590,19 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     if (!cardInstance || isHiddenCardInstance(cardInstance)) return;
     if (getCard(cardInstance.cardId).deploymentZone === "support") return;
 
+    const dispatch = () =>
+      dispatchQueuedBattleAction({
+        type: "PLAY_CARD",
+        playerId: currentHumanPlayerId,
+        cardInstanceId: cardInstance.instanceId,
+        position,
+      });
+
+    if (options.skipSpawnAnimation) {
+      placeUnitStatically(cardInstance.instanceId, dispatch);
+      return;
+    }
+
     await playSpawnCardAnimationRef.current(
       currentHumanPlayerId,
       cardInstance.instanceId,
@@ -2557,17 +2610,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       position
     );
 
-    dispatchQueuedBattleAction({
-      type: "PLAY_CARD",
-      playerId: currentHumanPlayerId,
-      cardInstanceId: cardInstance.instanceId,
-      position,
-    });
+    dispatch();
   }
 
   async function executeQueuedPlaySupportCard(
     cardInstanceId: string,
-    supportSlot: SupportSlot
+    supportSlot: SupportSlot,
+    options: { skipSpawnAnimation?: boolean } = {}
   ) {
     const currentBattle = getCurrentCommandBattle();
     const currentHumanPlayerId = humanPlayerIdRef.current;
@@ -2588,6 +2637,19 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     if (!cardInstance || isHiddenCardInstance(cardInstance)) return;
     if (getCard(cardInstance.cardId).deploymentZone !== "support") return;
 
+    const dispatch = () =>
+      dispatchQueuedBattleAction({
+        type: "PLAY_SUPPORT_CARD",
+        playerId: currentHumanPlayerId,
+        cardInstanceId: cardInstance.instanceId,
+        supportSlot,
+      });
+
+    if (options.skipSpawnAnimation) {
+      placeUnitStatically(cardInstance.instanceId, dispatch);
+      return;
+    }
+
     await playSupportSpawnCardAnimationRef.current(
       currentHumanPlayerId,
       cardInstance.instanceId,
@@ -2595,12 +2657,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       supportSlot
     );
 
-    dispatchQueuedBattleAction({
-      type: "PLAY_SUPPORT_CARD",
-      playerId: currentHumanPlayerId,
-      cardInstanceId: cardInstance.instanceId,
-      supportSlot,
-    });
+    dispatch();
   }
 
   async function executeQueuedMove(
@@ -2751,8 +2808,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     clientX: number,
     clientY: number
   ):
-    | { type: "cell"; position: Position }
-    | { type: "support"; owner: PlayerId; supportSlot: SupportSlot }
+    | { type: "cell"; position: Position; element: HTMLElement }
+    | {
+        type: "support";
+        owner: PlayerId;
+        supportSlot: SupportSlot;
+        element: HTMLElement;
+      }
     | null {
     const inside = (rect: DOMRect) =>
       clientX >= rect.left &&
@@ -2764,7 +2826,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       if (!inside(element.getBoundingClientRect())) continue;
 
       const [row, col] = key.split("-").map(Number);
-      return { type: "cell", position: { row, col } };
+      return { type: "cell", position: { row, col }, element };
     }
 
     for (const [key, element] of supportCellRefs.current) {
@@ -2773,7 +2835,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       const separatorIndex = key.indexOf("-");
       const owner = key.slice(0, separatorIndex) as PlayerId;
       const supportSlot = Number(key.slice(separatorIndex + 1)) as SupportSlot;
-      return { type: "support", owner, supportSlot };
+      return { type: "support", owner, supportSlot, element };
     }
 
     return null;
@@ -2836,6 +2898,29 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     }
 
     setDragPointer({ x: event.clientX, y: event.clientY });
+
+    // Morph the ghost into the on-board card look once it hovers a legal drop
+    // target that matches the card's deployment zone, sized to that cell.
+    const target = findHandCardDropTarget(event.clientX, event.clientY);
+    const matchesTarget =
+      target &&
+      ((target.type === "cell" && !state.isSupport) ||
+        (target.type === "support" &&
+          state.isSupport &&
+          target.owner === humanPlayerId));
+
+    if (matchesTarget && target) {
+      // Cells are square, so screen width / scale recovers the design-px side
+      // regardless of the stage's 0°/90° rotation.
+      const size = target.element.getBoundingClientRect().width / (stageScale || 1);
+      setDragBoardView({ size, isSupport: state.isSupport, active: true });
+    } else {
+      // Keep the last measured size so the board layer fades back out instead of
+      // vanishing the instant the pointer leaves a legal cell.
+      setDragBoardView((current) =>
+        current ? { ...current, active: false } : null
+      );
+    }
   }
 
   function handleHandCardPointerUp(
@@ -2859,6 +2944,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     dragHappenedRef.current = true;
     setDragCard(null);
     setDragPointer(null);
+    setDragBoardView(null);
 
     const target = findHandCardDropTarget(event.clientX, event.clientY);
 
@@ -2868,13 +2954,23 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     if (!target) return;
 
+    // The dragged ghost has already carried the card to the target, so skip the
+    // hand→cell fly animation and drop it straight onto the cell.
     if (target.type === "cell" && !state.isSupport) {
       enqueueBattleCommand(() =>
-        executeQueuedPlayCard(state.cardInstanceId, target.position)
+        executeQueuedPlayCard(state.cardInstanceId, target.position, {
+          skipSpawnAnimation: true,
+        })
       );
-    } else if (target.type === "support" && state.isSupport) {
+    } else if (
+      target.type === "support" &&
+      state.isSupport &&
+      target.owner === humanPlayerId
+    ) {
       enqueueBattleCommand(() =>
-        executeQueuedPlaySupportCard(state.cardInstanceId, target.supportSlot)
+        executeQueuedPlaySupportCard(state.cardInstanceId, target.supportSlot, {
+          skipSpawnAnimation: true,
+        })
       );
     }
   }
@@ -2892,6 +2988,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     dragHappenedRef.current = true;
     setDragCard(null);
     setDragPointer(null);
+    setDragBoardView(null);
     selectCard(null);
   }
 
@@ -4619,7 +4716,10 @@ function renderEnemyDeckWithTimer() {
           // The dragged card "ghost" follows the pointer. It is portaled to
           // <body> (outside the scaled/rotated stage) and re-applies the stage
           // transform so it matches the in-game card size, exactly like the
-          // long-press preview. translate(-50%, -70%) lifts it above the finger.
+          // long-press preview. The outer node is a zero-size anchor at the
+          // pointer; each card layer centers itself over it (translate(-50%,
+          // -70%) also lifts it above the finger) and the two cross-fade as the
+          // ghost moves on/off a legal drop target.
           <div
             style={{
               position: "fixed",
@@ -4627,15 +4727,48 @@ function renderEnemyDeckWithTimer() {
               top: dragPointer.y,
               zIndex: 1000,
               pointerEvents: "none",
-              transform: `translate(-50%, -70%) rotate(${stageRotation}deg) scale(${stageScale})`,
+              transform: `rotate(${stageRotation}deg) scale(${stageScale})`,
               transformOrigin: "center center",
             }}
           >
-            <div style={{ width: HAND_CARD_WIDTH }}>
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                width: HAND_CARD_WIDTH,
+                transform: "translate(-50%, -70%)",
+                opacity: dragBoardView?.active ? 0 : 1,
+                transition: "opacity 0.16s ease",
+              }}
+            >
               <HandCardView
                 card={getCard(dragCard.cardId)}
                 ownerId={getVisualOwnerId(humanPlayerId)}
                 selected
+              />
+            </div>
+
+            {/* Always mounted during the drag (at zero size / opacity until a
+                target is entered) so its opacity can transition from 0 — a
+                freshly mounted layer would otherwise pop straight to full. */}
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                width: dragBoardView?.size ?? 0,
+                height: dragBoardView?.size ?? 0,
+                transform: "translate(-50%, -70%)",
+                opacity: dragBoardView?.active ? 1 : 0,
+                transition: "opacity 0.16s ease",
+              }}
+            >
+              <TankCardView
+                card={getCard(dragCard.cardId)}
+                variant="board"
+                ownerId={getVisualOwnerId(humanPlayerId)}
+                borderlessBoard={dragCard.isSupport}
               />
             </div>
           </div>

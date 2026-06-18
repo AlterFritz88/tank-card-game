@@ -459,7 +459,7 @@ export const cards: TankCard[] = [
     class: "td",
     rarity: "uncommon",
     cost: 3,
-    attack: 3,
+    attack: 2,
     armor: 2,
     hp: 4,
     range: 1,
