@@ -2,7 +2,6 @@ import { cards, getCardOrNull, normalizeCardId } from "./cards";
 import { HEADQUARTERS } from "./headquarters";
 import { loadPlayerProgress, savePlayerProgress, type PlayerProgress } from "./playerProgress";
 import { getCurrentUserId } from "./playerIdentity";
-import { profileClient } from "../network/profileClient";
 import type { HeadquartersId, Nation, TankCard, TankClass } from "./types";
 
 export const DECK_UNIT_LIMIT = 40;
@@ -64,8 +63,15 @@ function createDeckId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-async function getProfileClient() {
-  return profileClient;
+type ProfileClientInstance = typeof import("../network/profileClient").profileClient;
+
+async function getProfileClient(): Promise<ProfileClientInstance> {
+  if (typeof window === "undefined") {
+    throw new Error("Profile client is only available in the browser");
+  }
+
+  const module = await import("../network/profileClient");
+  return module.profileClient;
 }
 
 function getCardById(cardId: string): TankCard | null {

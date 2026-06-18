@@ -19,7 +19,6 @@ import {
   setCurrentUserId,
   switchToGuestUser,
 } from "./playerIdentity";
-import { profileClient } from "../network/profileClient";
 import type {
   ClientBattleState,
   HeadquartersId,
@@ -90,8 +89,15 @@ const STARTING_IRON_TRACKS = 0;
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
 
-async function getProfileClient() {
-  return profileClient;
+type ProfileClientInstance = typeof import("../network/profileClient").profileClient;
+
+async function getProfileClient(): Promise<ProfileClientInstance> {
+  if (typeof window === "undefined") {
+    throw new Error("Profile client is only available in the browser");
+  }
+
+  const module = await import("../network/profileClient");
+  return module.profileClient;
 }
 
 export function normalizePlayerNickname(value: string, fallback = "Командир") {

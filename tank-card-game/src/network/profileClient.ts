@@ -213,15 +213,16 @@ type ProfileConnectionListener = (
 ) => void;
 
 type ProfileImportMeta = ImportMeta & {
-  env: {
+  env?: {
     VITE_PROFILE_SERVER_URL?: string;
     VITE_PVP_SERVER_URL?: string;
   };
 };
 
+const profileImportMetaEnv = (import.meta as ProfileImportMeta).env ?? {};
 const PROFILE_SERVER_URL =
-  (import.meta as ProfileImportMeta).env.VITE_PROFILE_SERVER_URL ??
-  (import.meta as ProfileImportMeta).env.VITE_PVP_SERVER_URL ??
+  profileImportMetaEnv.VITE_PROFILE_SERVER_URL ??
+  profileImportMetaEnv.VITE_PVP_SERVER_URL ??
   getDefaultWebSocketUrl();
 const PROFILE_REQUEST_TIMEOUT_MS = 15_000;
 const SESSION_INSTANCE_STORAGE_KEY = "tank-card-game:session-instance-id";
