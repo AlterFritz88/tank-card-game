@@ -2,6 +2,7 @@ import { cards, getCardOrNull, normalizeCardId } from "./cards";
 import { HEADQUARTERS } from "./headquarters";
 import { loadPlayerProgress, savePlayerProgress, type PlayerProgress } from "./playerProgress";
 import { getCurrentUserId } from "./playerIdentity";
+import { profileClient } from "../network/profileClient";
 import type { HeadquartersId, Nation, TankCard, TankClass } from "./types";
 
 export const DECK_UNIT_LIMIT = 40;
@@ -64,7 +65,7 @@ function createDeckId(): string {
 }
 
 async function getProfileClient() {
-  return (await import("../network/profileClient")).profileClient;
+  return profileClient;
 }
 
 function getCardById(cardId: string): TankCard | null {
