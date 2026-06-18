@@ -1257,6 +1257,9 @@ export function PvpLobby() {
   const [hoveredDeckOptionKey, setHoveredDeckOptionKey] = useState<
     string | null
   >(null);
+  const [deckNationFilter, setDeckNationFilter] = useState<Nation | "all">(
+    "all"
+  );
   const [selectedMissionId, setSelectedMissionId] = useState("");
   const [claimingRewardId, setClaimingRewardId] = useState<string | null>(null);
   const mainMenuCarouselRef = useRef<HTMLDivElement>(null);
@@ -1710,14 +1713,29 @@ export function PvpLobby() {
   const previewDeckIsCustom = Boolean(previewDeck?.deck.savedDeck);
   const battleDeckOptions = headquartersList.flatMap((headquarters) => {
     const headquartersId = headquarters.id as HeadquartersId;
+    const nation = HEADQUARTERS[headquartersId].nation;
 
     return getDeckOptionsForHeadquarters(headquartersId).map((deck) => ({
       headquarters,
       headquartersId,
+      nation,
       deck,
       optionKey: `${headquartersId}-${deck.id ?? "default"}`,
     }));
   });
+
+  const availableDeckNations = (
+    Object.keys(NATION_LABELS) as Nation[]
+  ).filter((nation) =>
+    battleDeckOptions.some((option) => option.nation === nation)
+  );
+
+  const filteredDeckOptions =
+    deckNationFilter === "all"
+      ? battleDeckOptions
+      : battleDeckOptions.filter(
+          (option) => option.nation === deckNationFilter
+        );
 
   if (!guestSessionReady && menuView === "main" && mode !== "pvp") {
     return (
@@ -2165,7 +2183,7 @@ export function PvpLobby() {
           ariaLabel="Выбор штаба"
         >
           <div style={styles.carouselTrack}>
-            {battleDeckOptions.map(
+            {filteredDeckOptions.map(
               ({ headquarters, headquartersId, deck, optionKey }) => {
               const highlighted = optionKey === hoveredDeckOptionKey;
 
@@ -2235,39 +2253,90 @@ export function PvpLobby() {
               );
             })}
 
-            <motion.button
-              type="button"
-              style={{
-                ...styles.campaignEntryOption,
-                ...(buttonsDisabled ? styles.headquartersOptionDisabled : {}),
-              }}
-              disabled={buttonsDisabled}
-              onClick={openCreateDeckBuilder}
-              whileHover={buttonsDisabled ? undefined : { y: -8, scale: 1.035 }}
-              whileTap={buttonsDisabled ? undefined : { scale: 0.985 }}
-              transition={{ type: "spring", stiffness: 360, damping: 28 }}
-              aria-label="Открыть создание колоды"
-            >
-              <div style={styles.deckBuilderEntryCard}>
-                <span style={styles.deckBuilderEntryMark}>+</span>
-                <span style={styles.deckBuilderEntryTitle}>Создать колоду</span>
-              </div>
-            </motion.button>
-
           </div>
         </CarouselTapFrame>
 
         {!pvpBusy ? (
-          <div style={styles.singleMenuAction}>
+          <>
+            <div style={styles.singleMenuAction}>
+              <button
+                type="button"
+                className="menu-image-button"
+                style={{
+                  ...styles.createDeckButton,
+                  ...(buttonsDisabled ? styles.headquartersOptionDisabled : {}),
+                }}
+                disabled={buttonsDisabled}
+                onClick={openCreateDeckBuilder}
+                aria-label="Открыть создание колоды"
+              >
+                Создать колоду
+              </button>
+
+              <div
+                style={styles.deckNationFilterRow}
+                role="group"
+                aria-label="Фильтр колод по нации"
+              >
+                <button
+                  type="button"
+                  style={{
+                    ...styles.deckNationFilterAll,
+                    ...(deckNationFilter === "all"
+                      ? styles.deckNationFilterButtonActive
+                      : {}),
+                  }}
+                  onClick={() => setDeckNationFilter("all")}
+                  aria-pressed={deckNationFilter === "all"}
+                  title="Все нации"
+                >
+                  Все
+                </button>
+                {availableDeckNations.map((nation) => {
+                  const flag = getNationFlagAsset(nation);
+                  const active = deckNationFilter === nation;
+
+                  return (
+                    <button
+                      key={nation}
+                      type="button"
+                      style={{
+                        ...styles.deckNationFilterButton,
+                        ...(active
+                          ? styles.deckNationFilterButtonActive
+                          : {}),
+                      }}
+                      onClick={() => setDeckNationFilter(nation)}
+                      aria-pressed={active}
+                      aria-label={`Колоды нации: ${NATION_LABELS[nation]}`}
+                      title={NATION_LABELS[nation]}
+                    >
+                      {flag ? (
+                        <img
+                          src={flag}
+                          alt=""
+                          draggable={false}
+                          style={styles.deckNationFilterFlag}
+                        />
+                      ) : (
+                        NATION_LABELS[nation]
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <button
               type="button"
               className="menu-image-button"
-              style={styles.backButton}
+              style={styles.headquartersBackButton}
               onClick={closeHeadquartersMenu}
+              aria-label="Назад"
+              title="Назад"
             >
-              Назад
+              ←
             </button>
-          </div>
+          </>
         ) : null}
 
         {pvpBusy && matchmakingAvatar ? (
@@ -4220,6 +4289,110 @@ const styles: Record<string, CSSProperties> = {
   singleMenuAction: {
     width: "min(260px, calc(100cqw - 48px))",
     margin: "0 auto 4px",
+  },
+
+  createDeckButton: {
+    cursor: "pointer",
+    display: "block",
+    width: "100%",
+    margin: 0,
+    padding: "11px 18px 13px",
+    borderRadius: 0,
+    border: "none",
+    backgroundColor: "transparent",
+    backgroundImage: `url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    color: "#fff0bd",
+    fontWeight: 1000,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.2)",
+    boxShadow: "none",
+  },
+
+  deckNationFilterRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 22,
+  },
+
+  deckNationFilterButton: {
+    position: "relative",
+    width: 58,
+    height: 44,
+    padding: 0,
+    overflow: "hidden",
+    border: "1px solid rgba(215, 185, 112, 0.22)",
+    borderRadius: 3,
+    background: "rgba(32, 35, 30, 0.92)",
+    color: "#fff0bb",
+    cursor: "pointer",
+    fontSize: 9,
+    fontWeight: 1000,
+    textTransform: "uppercase",
+    filter: "grayscale(0.5) brightness(0.72)",
+    transition:
+      "filter 160ms ease, border-color 160ms ease, transform 160ms ease",
+  },
+
+  deckNationFilterAll: {
+    height: 44,
+    padding: "0 14px",
+    border: "1px solid rgba(215, 185, 112, 0.22)",
+    borderRadius: 3,
+    background: "rgba(32, 35, 30, 0.92)",
+    color: "#fff0bb",
+    cursor: "pointer",
+    fontSize: 10,
+    fontWeight: 1000,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    filter: "grayscale(0.5) brightness(0.72)",
+    transition:
+      "filter 160ms ease, border-color 160ms ease, transform 160ms ease",
+  },
+
+  deckNationFilterButtonActive: {
+    borderColor: "rgba(243, 205, 108, 0.82)",
+    filter: "none",
+    boxShadow: "0 0 12px rgba(222, 176, 67, 0.24)",
+  },
+
+  deckNationFilterFlag: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    opacity: 0.84,
+  },
+
+  headquartersBackButton: {
+    position: "absolute",
+    zIndex: 6,
+    left: 20,
+    bottom: 18,
+    width: 58,
+    height: 46,
+    padding: 0,
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    backgroundImage: `url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    color: "#fff0bd",
+    cursor: "pointer",
+    fontSize: 25,
+    fontWeight: 1000,
+    lineHeight: "43px",
+    textAlign: "center",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.2)",
+    boxShadow: "none",
   },
 
   researchButton: {

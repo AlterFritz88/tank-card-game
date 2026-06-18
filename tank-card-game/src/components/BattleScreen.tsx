@@ -1054,6 +1054,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       const serverResult = await claimPvpBattleRewardFromServer({
         roomId: pvpRoomId,
         localPlayerId: humanPlayerId,
+      }).catch((error: unknown) => {
+        setRewardClaimStatus("failed");
+        setRewardClaimError(
+          getErrorMessage(
+            error,
+            "Награда не начислена: сервер профиля недоступен"
+          )
+        );
+        return null;
       });
 
       if (serverResult?.reward) {
@@ -5197,11 +5206,11 @@ actionSideColumn: {
   },
 
   supportLineFriendly: {
-    left: -111,
+    left: -101,
   },
 
   supportLineEnemy: {
-    right: -111,
+    right: -101,
   },
 
   supportLineLabel: {
@@ -5288,7 +5297,7 @@ actionSideColumn: {
  board: {
   position: "relative",
   display: "grid",
-  gridTemplateColumns: "repeat(5, minmax(120.5px, 1fr))",
+  gridTemplateColumns: "repeat(5, minmax(127px, 1fr))",
   gap: 4,
   alignItems: "stretch",
 },
@@ -5516,7 +5525,7 @@ actionSideColumn: {
   background: "transparent",
   border: "none",
   boxShadow: "none",
-  transform: "translateY(-233px)",
+  transform: "translateY(-210px)",
   overflow: "visible",
 },
 

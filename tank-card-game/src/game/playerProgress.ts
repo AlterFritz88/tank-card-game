@@ -297,22 +297,18 @@ export async function claimBattleRewardFromServer(input: {
 export async function claimPvpBattleRewardFromServer(input: {
   roomId: string;
   localPlayerId: PlayerId;
-}): Promise<{ profile: PlayerProgress; reward?: BattleReward } | null> {
-  try {
-    const profileClient = await getProfileClient();
-    const result = await profileClient.claimPvpBattleReward(
-      getCurrentUserId(),
-      input.roomId,
-      input.localPlayerId
-    );
+}): Promise<{ profile: PlayerProgress; reward?: BattleReward }> {
+  const profileClient = await getProfileClient();
+  const result = await profileClient.claimPvpBattleReward(
+    getCurrentUserId(),
+    input.roomId,
+    input.localPlayerId
+  );
 
-    return {
-      ...result,
-      profile: saveServerPlayerProgress(result.profile),
-    };
-  } catch {
-    return null;
-  }
+  return {
+    ...result,
+    profile: saveServerPlayerProgress(result.profile),
+  };
 }
 
 export async function claimTutorialRewardFromServer(input: {
