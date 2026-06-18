@@ -1051,10 +1051,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         return;
       }
 
+      let pvpRewardError: string | null = null;
       const serverResult = await claimPvpBattleRewardFromServer({
         roomId: pvpRoomId,
         localPlayerId: humanPlayerId,
       }).catch((error: unknown) => {
+        pvpRewardError = getErrorMessage(
+          error,
+          "Запрос PVP-награды не был обработан сервером"
+        );
         setRewardClaimStatus("failed");
         setRewardClaimError(
           getErrorMessage(
@@ -1069,6 +1074,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         setBattleReward(serverResult.reward);
         setRewardClaimStatus("claimed");
         setRewardSyncPending(false);
+        return;
+      }
+
+      if (pvpRewardError) {
+        setRewardClaimStatus("failed");
+        setRewardClaimError(pvpRewardError);
         return;
       }
 
