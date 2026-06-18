@@ -952,85 +952,65 @@ export async function researchCardOnServer(
   cardId: string,
   headquartersId: HeadquartersId,
   _cost: number
-): Promise<PlayerProgress | null> {
-  try {
-    const profileClient = await getProfileClient();
-    const profile = await profileClient.researchCard(
-      getCurrentUserId(),
-      cardId,
-      headquartersId
-    );
-    return saveServerPlayerProgress(profile);
-  } catch {
-    return null;
-  }
+): Promise<PlayerProgress> {
+  const profileClient = await getProfileClient();
+  const profile = await profileClient.researchCard(
+    getCurrentUserId(),
+    cardId,
+    headquartersId
+  );
+  return saveServerPlayerProgress(profile);
 }
 
 export async function researchHeadquartersOnServer(
   targetHeadquartersId: HeadquartersId,
   sourceHeadquartersId: HeadquartersId,
   _cost: number
-): Promise<PlayerProgress | null> {
-  try {
-    const profileClient = await getProfileClient();
-    const profile = await profileClient.researchHeadquarters(
-      getCurrentUserId(),
-      targetHeadquartersId,
-      sourceHeadquartersId
-    );
-    return saveServerPlayerProgress(profile);
-  } catch {
-    return null;
-  }
+): Promise<PlayerProgress> {
+  const profileClient = await getProfileClient();
+  const profile = await profileClient.researchHeadquarters(
+    getCurrentUserId(),
+    targetHeadquartersId,
+    sourceHeadquartersId
+  );
+  return saveServerPlayerProgress(profile);
 }
 
 export async function purchaseCardCopyOnServer(
   cardId: string,
   _cost: number,
   _copyLimit = 4
-): Promise<PlayerProgress | null> {
-  try {
-    const profileClient = await getProfileClient();
-    const profile = await profileClient.purchaseCardCopy(
-      getCurrentUserId(),
-      cardId
-    );
-    return saveServerPlayerProgress(profile);
-  } catch {
-    return null;
-  }
+): Promise<PlayerProgress> {
+  const profileClient = await getProfileClient();
+  const profile = await profileClient.purchaseCardCopy(
+    getCurrentUserId(),
+    cardId
+  );
+  return saveServerPlayerProgress(profile);
 }
 
 export async function purchaseHeadquartersOnServer(
   headquartersId: HeadquartersId,
   _cost: number
-): Promise<PlayerProgress | null> {
-  try {
-    const profileClient = await getProfileClient();
-    const profile = await profileClient.purchaseHeadquarters(
-      getCurrentUserId(),
-      headquartersId
-    );
-    return saveServerPlayerProgress(profile);
-  } catch {
-    return null;
-  }
+): Promise<PlayerProgress> {
+  const profileClient = await getProfileClient();
+  const profile = await profileClient.purchaseHeadquarters(
+    getCurrentUserId(),
+    headquartersId
+  );
+  return saveServerPlayerProgress(profile);
 }
 
 export async function purchasePremiumCardOnServer(
   cardId: string,
   _goldCost: number
-): Promise<PlayerProgress | null> {
-  try {
-    const profileClient = await getProfileClient();
-    const profile = await profileClient.purchasePremiumCard(
-      getCurrentUserId(),
-      cardId
-    );
-    return saveServerPlayerProgress(profile);
-  } catch {
-    return null;
-  }
+): Promise<PlayerProgress> {
+  const profileClient = await getProfileClient();
+  const profile = await profileClient.purchasePremiumCard(
+    getCurrentUserId(),
+    cardId
+  );
+  return saveServerPlayerProgress(profile);
 }
 
 /**
@@ -1040,17 +1020,13 @@ export async function purchasePremiumCardOnServer(
  */
 export async function claimCampaignRewardFromServer(
   rewardId: string
-): Promise<PlayerProgress | null> {
-  try {
-    const profileClient = await getProfileClient();
-    const profile = await profileClient.claimCampaignReward(
-      getCurrentUserId(),
-      rewardId
-    );
-    return saveServerPlayerProgress(profile);
-  } catch {
-    return null;
-  }
+): Promise<PlayerProgress> {
+  const profileClient = await getProfileClient();
+  const profile = await profileClient.claimCampaignReward(
+    getCurrentUserId(),
+    rewardId
+  );
+  return saveServerPlayerProgress(profile);
 }
 
 function getPositiveInteger(value: unknown): number {

@@ -166,6 +166,10 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat("ru-RU").format(value);
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 function isNodeResearched(node: ResearchNode, progress: PlayerProgress): boolean {
   if (node.cardId) return progress.researchedCardIds.includes(node.cardId);
   if (node.headquartersId) {
@@ -957,6 +961,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
   async function handleNodeAction(node: ResearchNodeView) {
     if (!sourceHeadquartersId) return;
 
+    try {
     if (!profileServerReady) {
       showFeedback(
         profileServerUnavailable
@@ -1087,6 +1092,14 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
       }
     } else if (celebrationLabel) {
       showFeedback("Операция не была подтверждена сервером");
+    }
+    } catch (error) {
+      showFeedback(
+        getErrorMessage(
+          error,
+          "Операция не была подтверждена сервером"
+        )
+      );
     }
   }
 

@@ -1331,6 +1331,12 @@ export function PvpLobby() {
       } else {
         window.alert("Награда не выдана: сервер профиля недоступен");
       }
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Награда не выдана: сервер профиля недоступен"
+      );
     } finally {
       setClaimingRewardId(null);
     }

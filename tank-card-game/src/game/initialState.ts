@@ -42,29 +42,31 @@ export type CreateBattleOptions = {
 };
 
 const DECK_CARD_IDS: Record<string, string[]> = {
-  // Учебная часть (СССР) — сбалансированный набор ранней лёгкой техники
-  // плюс знакомство со средним танком, САУ, ПТ-САУ и медицинской поддержкой.
+  // Учебная часть (СССР) — базовые юниты, которыми каждый игрок владеет с
+  // самого начала (всё остальное открывается в дереве развития). Эти 11 машин
+  // намеренно держатся вне дерева исследований — аналог немецкого стартового
+  // набора.
   training_unit_default: [
     "ms_1_t18",
     "ms_1_t18",
     "t26_1931",
     "t26_1931",
-    "t26_1933",
-    "t26_1933",
-    "t26_1938",
-    "t26_1938",
     "bt_2",
     "bt_2",
-    "bt_5",
-    "bt_5",
-    "bt_7",
     "t37a",
-    "t40",
+    "t37a",
     "t24",
-    "t28",
-    "su76",
-    "su_5_2",
-    "gaz_55_ambulance",
+    "t24",
+    "t-12",
+    "t-12",
+    "t27",
+    "t27",
+    "su18",
+    "su18",
+    "gun_53k",
+    "gun_53k",
+    "amo_f15",
+    "ford_aa_ammo",
   ],
 
   // Trainingslager (Германия) — стартовый набор: базовые юниты, которыми
@@ -93,29 +95,30 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "adler_type_10_n",
   ],
 
-  // Training Camp (США) — слабый штаб, но мощное снабжение (4 топлива).
-  // Дешёвая лёгкая техника, транспорт с +топливом и ранние ПТ-САУ.
+  // Training Camp (США) — стартовый набор: базовые юниты, которыми владеет
+  // каждый игрок с самого начала (всё остальное открывается в дереве развития).
+  // Слабый штаб, но мощное снабжение (4 топлива).
   training_camp_default: [
     "m2_light_tank",
     "m2_light_tank",
     "m2_light_tank",
+    "m2_light_tank",
     "m1_combat_car",
     "m1_combat_car",
-    "m3_stuart",
-    "m3_stuart",
-    "m5_stuart",
-    "m5_stuart",
-    "m2a4",
-    "m2a4",
-    "marmon_ctls",
+    "m1_combat_car",
+    "m1_combat_car",
+    "m2a1_medium",
+    "m2a1_medium",
+    "m2a1_medium",
+    "m2a1_medium",
     "m2_medium_tank",
-    "m4_sherman",
-    "m3_gmc",
-    "m6_gmc_fargo",
+    "m2_medium_tank",
     "m3_halftrack",
     "m3_halftrack",
+    "m5_hst",
     "dodge_wc54",
-    "willys_mb",
+    "gun_37mm_m3",
+    "gun_75_pack",
   ],
 
   // 1. Panzer-Division — «Танковый клин»: первый танк за ход получает Блиц.
