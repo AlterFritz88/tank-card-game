@@ -1,0 +1,11 @@
+{
+  "sashka": {
+    "userId": "user:sashka",
+    "username": "Sashka",
+    "usernameKey": "sashka",
+    "passwordHash": "3eae7893e7c8d6502193b7dfb496a3cfbfb390d9d985158fc31f2cfe2eb73dac281a1d5a544cfe3cd61e626469ef197e4a338d3dafc06e19dd5d23cef0db0748",
+    "salt": "9480d38447327dacb39306562724fc4d",
+    "createdAt": 1781893232503,
+    "lastLoginAt": 1781893232503
+  }
+}

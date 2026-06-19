@@ -58,11 +58,14 @@ import { getDeckCardIds } from "../game/initialState";
 import {
   claimCampaignRewardFromServer,
   getFavoriteHeadquartersId,
+  isValidPlayerNickname,
   loginPlayerAccount,
   loadPlayerProgress,
   logoutPlayerAccount,
   normalizePlayerNickname,
+  PLAYER_NICKNAME_MAX_LENGTH,
   registerPlayerAccount,
+  sanitizePlayerNicknameInput,
   setFavoriteHeadquartersIdOnServer,
   setPlayerNicknameOnServer,
   syncPlayerProgressFromServer,
@@ -73,7 +76,13 @@ import type { HeadquartersId, Nation, TankCard } from "../game/types";
 import type { PvpConnectionState } from "../game/modes";
 import { useBattleStore } from "../store/battleStore";
 import { HandCardView } from "./HandCardView";
+import { CardKeywordsPanel } from "./CardKeywordsPanel";
+import {
+  getCardKeywords,
+  getHeadquartersKeywords,
+} from "../game/cardKeywords";
 import { useStageOverlayTransform, screenDeltaToStage } from "./GameStage";
+import { useLandscapeKeyboardLock } from "./useLandscapeKeyboardLock";
 import { usePngFallback } from "./LoadingScreen";
 import {
   isProfileServerUnavailable,
@@ -84,7 +93,6 @@ import {
   getCurrentUserId,
   getCurrentUserLogin,
   GUEST_SESSION_READY_STORAGE_KEY,
-  isGuestUserId,
   isRegisteredUserId,
 } from "../game/playerIdentity";
 
@@ -113,6 +121,9 @@ const NATION_LABELS: Record<Nation, string> = {
 };
 
 const TEST_BATTLE_HEADQUARTERS_LEVEL = 4;
+const PLAYER_NICKNAME_INPUT_PATTERN = "[A-Za-z0-9_-]{3,14}";
+const PLAYER_NICKNAME_HINT =
+  "Ник: 3-14 символов, только латинские буквы, цифры, дефис и нижнее подчёркивание";
 
 type BattleDeckOption = {
   id: string | null;
@@ -149,25 +160,20 @@ function getMostPlayedHeadquartersId(progress: PlayerProgress): HeadquartersId {
 }
 
 function getPlayerDisplayNickname(progress: PlayerProgress, userLogin?: string | null) {
-  return userLogin?.trim() || progress.nickname;
+  return progress.nickname?.trim() || userLogin?.trim() || "Commander";
 }
 
 function getPlayerAccountData() {
   const progress = loadPlayerProgress();
   const headquarters = HEADQUARTERS[getMostPlayedHeadquartersId(progress)];
   const premium = progress.accountType === "premium";
-  const userId = getCurrentUserId();
   const userLogin = getCurrentUserLogin();
 
   return {
     avatar: getHeadquartersAvatarAsset(headquarters.id),
     flag: getNationFlagAsset(headquarters.nation),
     nickname: getPlayerDisplayNickname(progress, userLogin),
-    pendingSyncCount: progress.pendingRewardClaims.length,
-    identityLabel: isGuestUserId(userId)
-      ? "Гость"
-      : `Аккаунт${userLogin ? `: ${userLogin}` : ""}`,
-    accountLabel: premium ? "Премиум аккаунт" : "Базовый аккаунт",
+    accountLabel: premium ? "Премиум профиль" : "Базовый профиль",
   };
 }
 
@@ -205,14 +211,8 @@ function PlayerAccountPanel({ onOpenProfile }: { onOpenProfile?: () => void }) {
 
       <div style={styles.playerAccountText}>
         <strong style={styles.playerAccountName}>{account.nickname}</strong>
-        <span style={styles.playerAccountType}>{account.identityLabel}</span>
         <span style={styles.playerAccountType}>{account.accountLabel}</span>
       </div>
-      {account.pendingSyncCount > 0 ? (
-        <span style={styles.playerAccountSyncBadge}>
-          синхр. {account.pendingSyncCount}
-        </span>
-      ) : null}
     </button>
   );
 }
@@ -318,12 +318,18 @@ function GuestEntryScreen({
   const [authMode, setAuthMode] = useState<"guest" | "login" | "register">(
     "guest"
   );
-  const [nickname, setNickname] = useState(initialNickname);
+  const [nickname, setNickname] = useState(() =>
+    sanitizePlayerNicknameInput(initialNickname)
+  );
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [repeatPassword, setRepeatPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const normalizedNickname = normalizePlayerNickname(nickname);
+  // Forces the device into landscape while a field is focused so the mobile
+  // keyboard opens horizontally to match the rotated landscape UI.
+  const keyboardLock = useLandscapeKeyboardLock();
 
   async function submitGuest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -332,6 +338,10 @@ function GuestEntryScreen({
     setSaving(true);
     setAuthError(null);
     try {
+      if (!isValidPlayerNickname(normalizedNickname)) {
+        throw new Error(PLAYER_NICKNAME_HINT);
+      }
+
       await onEnter(normalizedNickname);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Не удалось войти");
@@ -350,6 +360,14 @@ function GuestEntryScreen({
       if (authMode === "login") {
         await onLogin(username, password);
       } else {
+        if (!isValidPlayerNickname(username)) {
+          throw new Error(PLAYER_NICKNAME_HINT);
+        }
+
+        if (password !== repeatPassword) {
+          throw new Error("Пароли не совпадают");
+        }
+
         await onRegister(username, password);
       }
     } catch (error) {
@@ -379,10 +397,15 @@ function GuestEntryScreen({
           <input
             id="guest-nickname"
             value={nickname}
-            maxLength={32}
-            onChange={(event) => setNickname(event.target.value)}
+            maxLength={PLAYER_NICKNAME_MAX_LENGTH}
+            pattern={PLAYER_NICKNAME_INPUT_PATTERN}
+            title={PLAYER_NICKNAME_HINT}
+            onChange={(event) =>
+              setNickname(sanitizePlayerNicknameInput(event.target.value))
+            }
             style={styles.guestEntryInput}
             autoComplete="nickname"
+            {...keyboardLock}
           />
 
           <button
@@ -400,6 +423,7 @@ function GuestEntryScreen({
               onClick={() => {
                 setAuthMode("login");
                 setAuthError(null);
+                setRepeatPassword("");
               }}
             >
               Войти
@@ -410,6 +434,7 @@ function GuestEntryScreen({
               onClick={() => {
                 setAuthMode("register");
                 setAuthError(null);
+                setRepeatPassword("");
               }}
             >
               Регистрация
@@ -426,6 +451,7 @@ function GuestEntryScreen({
                 onClick={() => {
                   setAuthMode("guest");
                   setAuthError(null);
+                  setRepeatPassword("");
                 }}
               >
                 Гость
@@ -438,10 +464,15 @@ function GuestEntryScreen({
             <input
               id="account-username"
               value={username}
-              maxLength={32}
-              onChange={(event) => setUsername(event.target.value)}
+              maxLength={PLAYER_NICKNAME_MAX_LENGTH}
+              pattern={PLAYER_NICKNAME_INPUT_PATTERN}
+              title={PLAYER_NICKNAME_HINT}
+              onChange={(event) =>
+                setUsername(sanitizePlayerNicknameInput(event.target.value))
+              }
               style={styles.guestEntryInput}
               autoComplete="username"
+              {...keyboardLock}
             />
 
             <label style={styles.guestEntryLabel} htmlFor="account-password">
@@ -458,7 +489,30 @@ function GuestEntryScreen({
               autoComplete={
                 authMode === "login" ? "current-password" : "new-password"
               }
+              {...keyboardLock}
             />
+
+            {authMode === "register" ? (
+              <>
+                <label
+                  style={styles.guestEntryLabel}
+                  htmlFor="account-repeat-password"
+                >
+                  Повторить пароль
+                </label>
+                <input
+                  id="account-repeat-password"
+                  value={repeatPassword}
+                  minLength={6}
+                  maxLength={72}
+                  type="password"
+                  onChange={(event) => setRepeatPassword(event.target.value)}
+                  style={styles.guestEntryInput}
+                  autoComplete="new-password"
+                  {...keyboardLock}
+                />
+              </>
+            ) : null}
 
             <button
               type="submit"
@@ -520,8 +574,10 @@ function ProfileRegisterModal({
   const overlayTransform = useStageOverlayTransform();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [repeatPassword, setRepeatPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const keyboardLock = useLandscapeKeyboardLock();
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -538,6 +594,14 @@ function ProfileRegisterModal({
     setSaving(true);
     setError(null);
     try {
+      if (!isValidPlayerNickname(username)) {
+        throw new Error(PLAYER_NICKNAME_HINT);
+      }
+
+      if (password !== repeatPassword) {
+        throw new Error("Пароли не совпадают");
+      }
+
       await onRegister(username, password);
       onClose();
     } catch (submitError) {
@@ -583,10 +647,15 @@ function ProfileRegisterModal({
             <input
               id="profile-register-username"
               value={username}
-              maxLength={32}
-              onChange={(event) => setUsername(event.target.value)}
+              maxLength={PLAYER_NICKNAME_MAX_LENGTH}
+              pattern={PLAYER_NICKNAME_INPUT_PATTERN}
+              title={PLAYER_NICKNAME_HINT}
+              onChange={(event) =>
+                setUsername(sanitizePlayerNicknameInput(event.target.value))
+              }
               style={styles.guestEntryInput}
               autoComplete="username"
+              {...keyboardLock}
             />
 
             <label
@@ -599,9 +668,30 @@ function ProfileRegisterModal({
               id="profile-register-password"
               type="password"
               value={password}
+              minLength={6}
+              maxLength={72}
               onChange={(event) => setPassword(event.target.value)}
               style={styles.guestEntryInput}
               autoComplete="new-password"
+              {...keyboardLock}
+            />
+
+            <label
+              style={styles.guestEntryLabel}
+              htmlFor="profile-register-repeat-password"
+            >
+              Повторить пароль
+            </label>
+            <input
+              id="profile-register-repeat-password"
+              type="password"
+              value={repeatPassword}
+              minLength={6}
+              maxLength={72}
+              onChange={(event) => setRepeatPassword(event.target.value)}
+              style={styles.guestEntryInput}
+              autoComplete="new-password"
+              {...keyboardLock}
             />
 
             <button
@@ -750,6 +840,15 @@ function PlayerProfileMenu({
           >
             Назад
           </button>
+          {registeredUser ? (
+            <button
+              type="button"
+              style={styles.profileLogoutButton}
+              onClick={() => void logoutAccount()}
+            >
+              Выйти из аккаунта
+            </button>
+          ) : null}
           {registeredUser ? null : (
             <button
               type="button"
@@ -777,20 +876,6 @@ function PlayerProfileMenu({
                 ? "Премиум аккаунт"
                 : "Базовый аккаунт"}
             </span>
-            <span style={styles.profileAccount}>
-              {registeredUser
-                ? `Аккаунт${currentUserLogin ? `: ${currentUserLogin}` : ""}`
-                : "Гостевой профиль"}
-            </span>
-            {registeredUser ? (
-              <button
-                type="button"
-                style={styles.profileLogoutButton}
-                onClick={() => void logoutAccount()}
-              >
-                Выйти из аккаунта
-              </button>
-            ) : null}
             <strong
               style={{
                 ...styles.profileFavorite,
@@ -2570,6 +2655,14 @@ export function PvpLobby() {
                 onMouseDown={(event) => event.stopPropagation()}
                 onContextMenu={(event) => event.preventDefault()}
               >
+                {!previewDeckIsCustom && previewHeadquarters ? (
+                  <CardKeywordsPanel
+                    keywords={getHeadquartersKeywords(
+                      previewHeadquarters.ability
+                    )}
+                  />
+                ) : null}
+
                 <button
                   type="button"
                   style={styles.cardPreviewClose}
@@ -2673,6 +2766,8 @@ export function PvpLobby() {
                     setPreviewUnitCard(null);
                   }}
                 >
+                  <CardKeywordsPanel keywords={getCardKeywords(previewUnitCard)} />
+
                   <button
                     type="button"
                     style={styles.cardPreviewClose}
@@ -3484,8 +3579,12 @@ const styles: Record<string, CSSProperties> = {
   },
 
   profileLogoutButton: {
+    position: "absolute",
+    bottom: 12,
+    right: 12,
+    zIndex: 3,
     cursor: "pointer",
-    width: 178,
+    width: 156,
     minHeight: 32,
     border: "none",
     borderRadius: 0,

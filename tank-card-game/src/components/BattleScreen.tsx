@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { getCard } from "../game/cards";
+import { getCardKeywords, getHeadquartersKeywords } from "../game/cardKeywords";
+import { CardKeywordsPanel } from "./CardKeywordsPanel";
 import { getNextBotAction } from "../game/bot";
 import {
   PLAYER_SPAWN_CELLS,
@@ -66,7 +68,10 @@ import {
   getLocalTutorialReward,
   loadPlayerProgress,
 } from "../game/playerProgress";
-import { getHeadquartersDefinition } from "../game/headquarters";
+import {
+  getHeadquartersAbility,
+  getHeadquartersDefinition,
+} from "../game/headquarters";
 import {
   TUTORIAL_EPILOGUE_TEXT,
   TUTORIAL_REWARD,
@@ -499,7 +504,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const opponentPlayerId: PlayerId =
     humanPlayerId === "player" ? "bot" : "player";
 
-  // Имя локального игрока берем из профиля один раз — оно не меняется во время боя.
+  // Имя локального игрока берем из актуального аккаунта: у зарегистрированного
+  // профиля это логин, у гостя — сохраненный ник.
   const [localPlayerNickname] = useState(() => loadPlayerProgress().nickname);
 
   // The single scripted destination cell for the BT-7's advance in the active
@@ -917,8 +923,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }
 
   // На телефоне нет правой кнопки мыши, поэтому увеличенный просмотр карточки
-  // открывается долгим нажатием (touch). Долгое нажатие подавляет обычный клик,
-  // чтобы карта не выбиралась/не атаковала при открытии превью.
+  // открывается долгим нажатием (touch) и держится, пока палец на экране —
+  // как только палец отпускают, превью закрывается. Долгое нажатие подавляет
+  // обычный клик, чтобы карта не выбиралась/не атаковала при открытии превью.
   function longPressPreviewHandlers(preview: CardPreview) {
     return {
       onTouchStart: () => {
@@ -929,15 +936,24 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           setCardPreview(preview);
         }, CARD_PREVIEW_LONG_PRESS_MS);
       },
+      // Лёгкое дрожание пальца после открытия не должно закрывать превью —
+      // таймер к этому моменту уже сброшен, так что clear безопасен.
       onTouchMove: clearLongPressTimer,
       onTouchEnd: (event: React.TouchEvent) => {
         clearLongPressTimer();
         if (longPressTriggeredRef.current) {
           event.preventDefault();
           longPressTriggeredRef.current = false;
+          closeCardPreview();
         }
       },
-      onTouchCancel: clearLongPressTimer,
+      onTouchCancel: () => {
+        clearLongPressTimer();
+        if (longPressTriggeredRef.current) {
+          longPressTriggeredRef.current = false;
+          closeCardPreview();
+        }
+      },
     };
   }
 
@@ -4847,6 +4863,8 @@ function renderEnemyDeckWithTimer() {
                   transform: `rotate(${stageRotation}deg) scale(${stageScale})`,
                   transformOrigin: "center center",
                   display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                 }}
               >
                 <motion.div
@@ -4862,6 +4880,16 @@ function renderEnemyDeckWithTimer() {
                   onMouseDown={(event) => event.stopPropagation()}
                   onContextMenu={(event) => event.preventDefault()}
                 >
+                  <CardKeywordsPanel
+                    keywords={
+                      cardPreview.type === "unit"
+                        ? getCardKeywords(getCard(cardPreview.cardId))
+                        : getHeadquartersKeywords(
+                            getHeadquartersAbility(cardPreview.headquartersId)
+                          )
+                    }
+                  />
+
                   <button
                     type="button"
                     style={styles.cardPreviewClose}
@@ -4892,7 +4920,7 @@ function renderEnemyDeckWithTimer() {
                   )}
 
                   <div style={styles.cardPreviewHint}>
-                    ПКМ по фону или Esc — закрыть
+                    Удерживайте карту или ПКМ/Esc — закрыть
                   </div>
                 </motion.div>
               </div>
@@ -6105,6 +6133,7 @@ destroyedCardEffect: {
     // the stage's uniform scale + rotation via a wrapper, so this never needs
     // viewport-relative clamping — it fits exactly like the rest of the game.
     width: 390,
+    flexShrink: 0,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",

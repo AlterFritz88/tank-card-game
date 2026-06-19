@@ -20,6 +20,7 @@ const ACCOUNT_DB_PATH = resolveWritableDbPath(
   "Player accounts"
 );
 const PASSWORD_HASH_BYTES = 64;
+const USERNAME_PATTERN = /^[A-Za-z0-9_-]{3,14}$/;
 
 console.log(`Player accounts database path: ${ACCOUNT_DB_PATH}`);
 
@@ -43,7 +44,7 @@ function writeDb(db: AccountDb) {
 }
 
 function normalizeUsername(username: string): string {
-  return username.trim().replace(/\s+/g, "_").slice(0, 32);
+  return username.trim().slice(0, 14);
 }
 
 function getUsernameKey(username: string): string {
@@ -54,11 +55,16 @@ function getUsernameKey(username: string): string {
 }
 
 function validateUsername(username: string): { username: string; key: string } {
+  const trimmedUsername = username.trim();
   const normalizedUsername = normalizeUsername(username);
   const usernameKey = getUsernameKey(username);
 
-  if (usernameKey.length < 3) {
-    throw new Error("Логин должен содержать минимум 3 латинских символа");
+  if (
+    trimmedUsername !== normalizedUsername ||
+    !USERNAME_PATTERN.test(normalizedUsername) ||
+    usernameKey !== normalizedUsername.toLowerCase()
+  ) {
+    throw new Error("Логин: 3-14 символов, только латиница, цифры, дефис и нижнее подчёркивание");
   }
 
   return {

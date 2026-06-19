@@ -12,7 +12,11 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { StageBackground, useStageOverlayTransform } from "./GameStage";
+import {
+  StageBackground,
+  screenDeltaToStage,
+  useStageOverlayTransform,
+} from "./GameStage";
 import buttonImage from "../assets/button.webp";
 import {
   HEADQUARTERS,
@@ -36,8 +40,20 @@ import {
   type SavedDeck,
   type UnitTypeFilter,
 } from "../game/customDecks";
-import type { HeadquartersId, TankCard } from "../game/types";
+import type { HeadquartersId, Nation, TankCard } from "../game/types";
+import { getNationFlagAsset } from "../assets/nationFlagAssets";
+import classLightIcon from "../assets/icons/classes/class-light-player.webp";
+import classMediumIcon from "../assets/icons/classes/class-medium-player.webp";
+import classHeavyIcon from "../assets/icons/classes/class-heavy-player.webp";
+import classTdIcon from "../assets/icons/classes/class-td-player.webp";
+import classSpgIcon from "../assets/icons/classes/class-spg-player.webp";
+import classCarIcon from "../assets/icons/classes/class-car-player.webp";
 import { HandCardView } from "./HandCardView";
+import { CardKeywordsPanel } from "./CardKeywordsPanel";
+import {
+  getCardKeywords,
+  getHeadquartersKeywords,
+} from "../game/cardKeywords";
 import { calculateDeckWeight, getCardLevel } from "../game/deckWeight";
 import {
   loadPlayerProgress,
@@ -55,13 +71,50 @@ const BUILDER_CARD_SCALE = 0.76;
 const BUILDER_CARD_WIDTH = Math.round(HAND_CARD_BASE_WIDTH * BUILDER_CARD_SCALE);
 const BUILDER_CARD_HEIGHT = Math.round(HAND_CARD_BASE_HEIGHT * BUILDER_CARD_SCALE);
 
+// Icons shown next to the unit-type filter options. "support" (Тыл) groups
+// several support roles, so it uses the transport icon as a representative.
+const UNIT_TYPE_FILTER_ICONS: Partial<Record<UnitTypeFilter, string>> = {
+  light: classLightIcon,
+  medium: classMediumIcon,
+  heavy: classHeavyIcon,
+  td: classTdIcon,
+  spg: classSpgIcon,
+  support: classCarIcon,
+};
+
+function getNationFilterIcon(value: NationFilter): string | undefined {
+  if (value === "all") return undefined;
+  return getNationFlagAsset(value as Nation) ?? undefined;
+}
+
+// Payload describing what a card button is, recorded on pointerdown so the row
+// handler knows whether a touch gesture should move a card or just scroll.
+type CardDragPayload =
+  | { kind: "hq"; hqId: HeadquartersId; cardId?: undefined }
+  | { kind: "card"; cardId: string; hqId?: undefined }
+  | { kind: "deck-card"; cardId: string; hqId?: undefined };
+
 type DragScrollState = {
   active: boolean;
   captured: boolean;
   moved: boolean;
   pointerId: number;
+  pointerType: string;
   startX: number;
+  startY: number;
   startScrollLeft: number;
+  // Committed gesture: scroll the row, drag a card between zones, or undecided.
+  mode: "idle" | "scroll" | "card";
+  dragKind: CardDragPayload["kind"] | null;
+  dragCardId: string | null;
+  dragHqId: HeadquartersId | null;
+};
+
+type DragGhost = {
+  card?: TankCard;
+  headquarters?: HeadquartersDefinition;
+  x: number;
+  y: number;
 };
 
 type DeckBuilderPreview =
@@ -136,13 +189,18 @@ function FilterDropdown<T extends string>({
   ariaLabel,
 }: {
   value: T;
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; icon?: string; iconShape?: "contain" | "cover" }[];
   onChange: (next: T) => void;
   ariaLabel: string;
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const selected = options.find((option) => option.value === value);
+
+  const iconStyle = (shape: "contain" | "cover" | undefined) =>
+    shape === "cover"
+      ? { ...styles.dropdownIcon, ...styles.dropdownFlagIcon }
+      : styles.dropdownIcon;
 
   useEffect(() => {
     if (!open) return;
@@ -178,8 +236,18 @@ function FilterDropdown<T extends string>({
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span style={styles.dropdownTriggerLabel}>
-          {selected?.label ?? options[0]?.label}
+        <span style={styles.dropdownTriggerContent}>
+          {selected?.icon ? (
+            <img
+              src={selected.icon}
+              alt=""
+              aria-hidden="true"
+              style={iconStyle(selected.iconShape)}
+            />
+          ) : null}
+          <span style={styles.dropdownTriggerLabel}>
+            {selected?.label ?? options[0]?.label}
+          </span>
         </span>
         <span
           style={{
@@ -209,7 +277,17 @@ function FilterDropdown<T extends string>({
                 setOpen(false);
               }}
             >
-              {option.label}
+              {option.icon ? (
+                <img
+                  src={option.icon}
+                  alt=""
+                  aria-hidden="true"
+                  style={iconStyle(option.iconShape)}
+                />
+              ) : (
+                <span style={styles.dropdownIconPlaceholder} aria-hidden="true" />
+              )}
+              <span style={styles.dropdownOptionLabel}>{option.label}</span>
             </button>
           ))}
         </div>
@@ -251,6 +329,10 @@ export function DeckBuilder({
   const collectionDragScrollRef = useRef<DragScrollState | null>(null);
   const deckDragScrollRef = useRef<DragScrollState | null>(null);
   const suppressCardClickRef = useRef(false);
+  // Set by a card button on pointerdown (touch), consumed by the row handler.
+  const pendingCardDragRef = useRef<CardDragPayload | null>(null);
+  // Floating card that follows the finger during a touch drag.
+  const [dragGhost, setDragGhost] = useState<DragGhost | null>(null);
 
   const headquartersList = useMemo(
     () =>
@@ -285,16 +367,21 @@ export function DeckBuilder({
   // "Тип"/"Нация" instead of "Все".
   const unitTypeOptions = useMemo(
     () =>
-      UNIT_TYPE_FILTERS.map((filter) =>
-        filter.value === "all" ? { ...filter, label: "Тип" } : filter
-      ),
+      UNIT_TYPE_FILTERS.map((filter) => ({
+        ...filter,
+        label: filter.value === "all" ? "Тип" : filter.label,
+        icon: UNIT_TYPE_FILTER_ICONS[filter.value],
+      })),
     []
   );
   const nationOptions = useMemo(
     () =>
-      NATION_FILTERS.map((filter) =>
-        filter.value === "all" ? { ...filter, label: "Нация" } : filter
-      ),
+      NATION_FILTERS.map((filter) => ({
+        ...filter,
+        label: filter.value === "all" ? "Нация" : filter.label,
+        icon: getNationFilterIcon(filter.value),
+        iconShape: "cover" as const,
+      })),
     []
   );
   const deckWeight = selectedHeadquartersId
@@ -439,29 +526,105 @@ export function DeckBuilder({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [preview]);
 
+  // Records which card a touch started on (called from the card's own
+  // onPointerDown, which fires before the row's bubbling handler below).
+  function recordCardDragStart(payload: CardDragPayload) {
+    pendingCardDragRef.current = payload;
+  }
+
+  function resolveDragGhost(state: DragScrollState): Omit<DragGhost, "x" | "y"> | null {
+    if (state.dragKind === "hq" && state.dragHqId) {
+      return { headquarters: HEADQUARTERS[state.dragHqId] };
+    }
+    if (state.dragCardId) {
+      const card =
+        availableCards.find((entry) => entry.id === state.dragCardId) ??
+        groupedDeckCards.find((entry) => entry.card.id === state.dragCardId)
+          ?.card;
+      if (card) return { card };
+    }
+    return null;
+  }
+
+  function beginCardDrag(
+    event: PointerEvent<HTMLDivElement>,
+    state: DragScrollState
+  ) {
+    const ghost = resolveDragGhost(state);
+    setDragGhost(
+      ghost ? { ...ghost, x: event.clientX, y: event.clientY } : null
+    );
+    // Highlight the zone the card would land in.
+    if (state.dragKind === "deck-card") {
+      setCollectionDropActive(true);
+    } else {
+      setDeckDropActive(true);
+    }
+  }
+
+  function endCardDrag() {
+    setDragGhost(null);
+    setDeckDropActive(false);
+    setCollectionDropActive(false);
+  }
+
+  function dropCard(event: PointerEvent<HTMLDivElement>, state: DragScrollState) {
+    const dropEl = document.elementFromPoint(
+      event.clientX,
+      event.clientY
+    ) as HTMLElement | null;
+    const zone = dropEl
+      ?.closest("[data-dropzone]")
+      ?.getAttribute("data-dropzone");
+    if (!zone) return;
+
+    if (state.dragKind === "deck-card") {
+      if (zone === "collection" && state.dragCardId) removeCard(state.dragCardId);
+    } else if (state.dragKind === "card") {
+      if (zone === "deck" && state.dragCardId) addCard(state.dragCardId);
+    } else if (state.dragKind === "hq") {
+      if (zone === "deck" && state.dragHqId) selectHeadquarters(state.dragHqId);
+    }
+  }
+
   function startDragScroll(
     event: PointerEvent<HTMLDivElement>,
     rowRef: RefObject<HTMLDivElement | null>,
     stateRef: RefObject<DragScrollState | null>
   ) {
+    // Always consume the pending payload so it can't leak into a later press
+    // (e.g. after an ignored right-click).
+    const payload = pendingCardDragRef.current;
+    pendingCardDragRef.current = null;
+
     if (event.button !== 0) return;
     const target = event.target as HTMLElement | null;
     if (target?.closest("select")) return;
 
     const row = rowRef.current;
     if (!row) return;
-    const startsOnCard = Boolean(target?.closest("button"));
+
+    const startsOnCard = Boolean(payload ?? target?.closest("button"));
 
     stateRef.current = {
       active: true,
-      captured: !startsOnCard,
+      captured: false,
       moved: false,
       pointerId: event.pointerId,
+      pointerType: event.pointerType,
       startX: event.clientX,
+      startY: event.clientY,
       startScrollLeft: row.scrollLeft,
+      // Background presses commit straight to scrolling; presses on a card stay
+      // undecided until the gesture direction is known.
+      mode: startsOnCard ? "idle" : "scroll",
+      dragKind: payload?.kind ?? null,
+      dragCardId: payload?.cardId ?? null,
+      dragHqId: payload?.hqId ?? null,
     };
 
     if (!startsOnCard) {
+      stateRef.current.captured = true;
       row.setPointerCapture(event.pointerId);
     }
   }
@@ -475,12 +638,47 @@ export function DeckBuilder({
     const row = rowRef.current;
     if (!state?.active || !row || state.pointerId !== event.pointerId) return;
 
-    const distance = event.clientX - state.startX;
-    if (Math.abs(distance) > 6) {
-      state.moved = true;
+    // Map the raw screen movement onto the stage axes so the gestures stay
+    // correct on a portrait phone, where the stage is rotated 90°.
+    const { x: stageX, y: stageY } = screenDeltaToStage(
+      event.clientX - state.startX,
+      event.clientY - state.startY
+    );
+
+    if (state.mode === "idle") {
+      const absX = Math.abs(stageX);
+      const absY = Math.abs(stageY);
+      // Native HTML5 drag still drives desktop mouse, so the pointer-based card
+      // drag is reserved for touch/pen. A mostly-vertical drag (toward the other
+      // zone) moves the card; a horizontal drag scrolls the row.
+      const canCardDrag = state.dragKind !== null && state.pointerType !== "mouse";
+      if (canCardDrag && absY > absX && absY > 12) {
+        state.mode = "card";
+        state.moved = true;
+        if (!row.hasPointerCapture(event.pointerId)) {
+          row.setPointerCapture(event.pointerId);
+          state.captured = true;
+        }
+        beginCardDrag(event, state);
+      } else if (absX > 6 && absX >= absY) {
+        state.mode = "scroll";
+        state.moved = true;
+        if (state.pointerType !== "mouse" && !row.hasPointerCapture(event.pointerId)) {
+          row.setPointerCapture(event.pointerId);
+          state.captured = true;
+        }
+      } else {
+        return;
+      }
     }
 
-    row.scrollLeft = state.startScrollLeft - distance;
+    if (state.mode === "scroll") {
+      row.scrollLeft = state.startScrollLeft - stageX;
+    } else if (state.mode === "card") {
+      setDragGhost((ghost) =>
+        ghost ? { ...ghost, x: event.clientX, y: event.clientY } : ghost
+      );
+    }
   }
 
   function stopDragScroll(
@@ -494,6 +692,15 @@ export function DeckBuilder({
 
     if (state.captured && row.hasPointerCapture(event.pointerId)) {
       row.releasePointerCapture(event.pointerId);
+    }
+
+    // Only a genuine pointerup (not a cancel) commits the drop.
+    if (state.mode === "card" && event.type !== "pointercancel") {
+      dropCard(event, state);
+    }
+
+    if (state.mode === "card") {
+      endCardDrag();
     }
 
     if (state.moved) {
@@ -718,6 +925,7 @@ export function DeckBuilder({
             <div
               ref={collectionRowRef}
               className="menu-carousel-scroll"
+              data-dropzone="collection"
               style={{
                 ...styles.cardRow,
                 ...(collectionDropActive ? styles.collectionDropActive : {}),
@@ -749,6 +957,9 @@ export function DeckBuilder({
                         className="deck-builder-card-button"
                         style={styles.cardButton}
                       draggable
+                      onPointerDown={() =>
+                        recordCardDragStart({ kind: "hq", hqId: headquarters.id })
+                      }
                       onDragStartCapture={(event) =>
                         handleHeadquartersDragStart(
                           event as unknown as DragEvent<HTMLButtonElement>,
@@ -791,6 +1002,15 @@ export function DeckBuilder({
                         style={styles.cardButton}
                         disabled={disabled}
                         draggable={!disabled}
+                        onPointerDown={
+                          disabled
+                            ? undefined
+                            : () =>
+                                recordCardDragStart({
+                                  kind: "card",
+                                  cardId: card.id,
+                                })
+                        }
                         onDragStartCapture={(event) =>
                           handleCardDragStart(
                             event as unknown as DragEvent<HTMLButtonElement>,
@@ -855,6 +1075,7 @@ export function DeckBuilder({
             <div
               ref={deckRowRef}
               className="menu-carousel-scroll"
+              data-dropzone="deck"
               style={{
                 ...styles.cardRow,
                 ...(deckDropActive ? styles.deckDropActive : {}),
@@ -907,6 +1128,9 @@ export function DeckBuilder({
                   className="deck-builder-card-button"
                   style={styles.cardButton}
                   draggable
+                  onPointerDown={() =>
+                    recordCardDragStart({ kind: "deck-card", cardId: card.id })
+                  }
                   onDragStartCapture={(event) =>
                     handleDeckCardDragStart(
                       event as unknown as DragEvent<HTMLButtonElement>,
@@ -948,6 +1172,30 @@ export function DeckBuilder({
         </section>
       </section>
 
+      {dragGhost
+        ? createPortal(
+            <div
+              style={{
+                position: "fixed",
+                left: dragGhost.x,
+                top: dragGhost.y,
+                zIndex: 9500,
+                pointerEvents: "none",
+                transform: "translate(-50%, -50%)",
+              }}
+            >
+              <div style={{ ...stageOverlayTransform, opacity: 0.92 }}>
+                <MiniHandCard
+                  card={dragGhost.card}
+                  headquarters={dragGhost.headquarters}
+                  headquartersId={dragGhost.headquarters?.id}
+                />
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
+
       {createPortal(
         <AnimatePresence>
           {preview ? (
@@ -977,6 +1225,14 @@ export function DeckBuilder({
                 onMouseDown={(event) => event.stopPropagation()}
                 onContextMenu={(event) => event.preventDefault()}
               >
+                <CardKeywordsPanel
+                  keywords={
+                    preview.type === "card"
+                      ? getCardKeywords(preview.card)
+                      : getHeadquartersKeywords(preview.headquarters.ability)
+                  }
+                />
+
                 <button
                   type="button"
                   style={styles.previewCloseButton}
@@ -1268,7 +1524,45 @@ const styles: Record<string, CSSProperties> = {
     boxSizing: "border-box",
   },
 
+  dropdownTriggerContent: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    minWidth: 0,
+    overflow: "hidden",
+  },
+
   dropdownTriggerLabel: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
+  dropdownIcon: {
+    flex: "0 0 auto",
+    width: 18,
+    height: 18,
+    objectFit: "contain",
+    filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.8))",
+  },
+
+  // Nation flags read better as a cropped square chip (matching the research
+  // tree rail) rather than a letterboxed full flag.
+  dropdownFlagIcon: {
+    width: 20,
+    height: 20,
+    objectFit: "cover",
+    borderRadius: 3,
+    border: "1px solid rgba(232, 198, 112, 0.4)",
+  },
+
+  dropdownIconPlaceholder: {
+    flex: "0 0 auto",
+    width: 18,
+    height: 18,
+  },
+
+  dropdownOptionLabel: {
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -1318,6 +1612,9 @@ const styles: Record<string, CSSProperties> = {
     textAlign: "left",
     whiteSpace: "nowrap",
     cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    gap: 9,
   },
 
   dropdownOptionActive: {
@@ -1361,7 +1658,10 @@ const styles: Record<string, CSSProperties> = {
     padding: "18px 8px 16px",
     scrollbarWidth: "none",
     boxSizing: "border-box",
-    touchAction: "pan-x",
+    // The stage is rotated 90° on portrait phones, so the browser's own panning
+    // can't follow the visual axis — we drive scroll + card drag from pointer
+    // events instead and disable native touch panning here.
+    touchAction: "none",
     cursor: "grab",
   },
 

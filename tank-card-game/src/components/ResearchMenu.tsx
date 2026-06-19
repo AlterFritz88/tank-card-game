@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -41,6 +42,11 @@ import {
   type PlayerProgress,
 } from "../game/playerProgress";
 import { HandCardView } from "./HandCardView";
+import { CardKeywordsPanel } from "./CardKeywordsPanel";
+import {
+  getCardKeywords,
+  getHeadquartersKeywords,
+} from "../game/cardKeywords";
 import {
   isProfileServerUnavailable,
   retryProfileConnection,
@@ -853,7 +859,7 @@ function ResearchCelebrationOverlay({
 }
 
 export function ResearchMenu({ onBack }: { onBack: () => void }) {
-  const [selectedNation, setSelectedNation] = useState<ResearchNation>("germany");
+  const [selectedNation, setSelectedNation] = useState<ResearchNation>("ussr");
   const [previewNode, setPreviewNode] = useState<ResearchNode | null>(null);
   // Applies the stage scale + rotation so the body-portaled preview renders like
   // desktop and fits/rotates exactly like the rest of the game.
@@ -882,6 +888,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
   // Drag-to-pan: navigate the tree by grabbing it with the mouse, like a touch
   // screen. Touch keeps native scrolling; only mouse uses manual panning.
   const viewportRef = useRef<HTMLDivElement>(null);
+  const starterAreaRef = useRef<HTMLDivElement>(null);
   const panState = useRef({
     active: false,
     moved: false,
@@ -963,6 +970,20 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
       panState.current.moved = false;
     }
   }
+  // On entering the tree (and whenever the nation switches to a different tree)
+  // center the viewport horizontally on the starter HQ — the first training
+  // headquarters under "Начало пути".
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const starter = starterAreaRef.current;
+    if (!viewport || !starter) return;
+
+    const targetLeft =
+      starter.offsetLeft + starter.offsetWidth / 2 - viewport.clientWidth / 2;
+    viewport.scrollLeft = Math.max(0, targetLeft);
+    viewport.scrollTop = 0;
+  }, [selectedNation]);
+
   const tree = RESEARCH_TREES[selectedNation];
   const sourceHeadquartersId = tree.starterHeadquarters.headquartersId;
   const starterNodeView: ResearchNodeView = {
@@ -1350,7 +1371,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
           onClickCapture={handlePanClickCapture}
         >
           <div style={styles.treeCanvas}>
-            <div style={styles.starterArea}>
+            <div ref={starterAreaRef} style={styles.starterArea}>
               <div style={styles.starterCaption}>Начало пути</div>
               <ResearchNodeCard
                 node={starterNodeView}
@@ -1492,6 +1513,16 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
                 onMouseDown={(event) => event.stopPropagation()}
                 onContextMenu={(event) => event.preventDefault()}
               >
+                <CardKeywordsPanel
+                  keywords={
+                    previewCard
+                      ? getCardKeywords(previewCard)
+                      : previewHeadquarters
+                        ? getHeadquartersKeywords(previewHeadquarters.ability)
+                        : []
+                  }
+                />
+
                 <button
                   type="button"
                   style={styles.cardPreviewClose}

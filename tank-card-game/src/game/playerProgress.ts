@@ -90,13 +90,23 @@ const FAVORITE_HEADQUARTERS_STORAGE_KEY = "panzershrek.favoriteHeadquartersId";
 const STARTING_IRON_TRACKS = 0;
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
+export const PLAYER_NICKNAME_MAX_LENGTH = 14;
+export const PLAYER_NICKNAME_PATTERN = /^[A-Za-z0-9_-]{3,14}$/;
 
 async function getProfileClient() {
   return profileClient;
 }
 
-export function normalizePlayerNickname(value: string, fallback = "Командир") {
-  const normalized = value.trim().slice(0, 32);
+export function sanitizePlayerNicknameInput(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]/g, "").slice(0, PLAYER_NICKNAME_MAX_LENGTH);
+}
+
+export function isValidPlayerNickname(value: string): boolean {
+  return PLAYER_NICKNAME_PATTERN.test(value);
+}
+
+export function normalizePlayerNickname(value: string, fallback = "Commander") {
+  const normalized = sanitizePlayerNicknameInput(value.trim());
   return normalized || fallback;
 }
 
@@ -505,7 +515,7 @@ export function createInitialPlayerProgress(): PlayerProgress {
   const starterCardIds = Object.keys(starterCardCopies);
 
   return {
-    nickname: readLegacyString(PLAYER_NICKNAME_STORAGE_KEY) ?? "Командир",
+    nickname: readLegacyString(PLAYER_NICKNAME_STORAGE_KEY) ?? "Commander",
     accountType:
       readLegacyString(PLAYER_ACCOUNT_TYPE_STORAGE_KEY) === "premium"
         ? "premium"
@@ -597,8 +607,8 @@ function normalizePlayerProgress(
 
   return {
     nickname:
-      typeof progress.nickname === "string" && progress.nickname.trim()
-        ? progress.nickname.trim()
+      typeof progress.nickname === "string"
+        ? normalizePlayerNickname(progress.nickname, fallback.nickname)
         : fallback.nickname,
     accountType: progress.accountType === "premium" ? "premium" : "base",
     tutorialCompleted:
@@ -776,6 +786,9 @@ export async function registerPlayerAccount(input: {
   mergeGuestProgress?: boolean;
 }): Promise<PlayerProgress> {
   const profileClient = await getProfileClient();
+  const pendingRewardClaims = input.mergeGuestProgress ?? true
+    ? loadPlayerProgress().pendingRewardClaims
+    : [];
   const authResult = await profileClient.registerAccount({
     ...input,
     guestPlayerId: getCurrentUserId(),
@@ -783,12 +796,32 @@ export async function registerPlayerAccount(input: {
   });
 
   setCurrentUserId(authResult.userId);
-  return saveServerPlayerProgress(
+  const savedProfile = saveServerPlayerProgress(
     authResult.profile,
-    input.mergeGuestProgress ?? true
-      ? loadPlayerProgress().pendingRewardClaims
-      : []
+    pendingRewardClaims
   );
+  const accountNickname = normalizePlayerNickname(authResult.username, savedProfile.nickname);
+
+  if (savedProfile.nickname === accountNickname) {
+    return savedProfile;
+  }
+
+  const renamedProfile = {
+    ...savedProfile,
+    nickname: accountNickname,
+  };
+  savePlayerProgress(renamedProfile);
+  window.localStorage.setItem(PLAYER_NICKNAME_STORAGE_KEY, accountNickname);
+
+  try {
+    const profile = await profileClient.updateNickname(
+      authResult.userId,
+      accountNickname
+    );
+    return saveServerPlayerProgress(profile, pendingRewardClaims);
+  } catch {
+    return renamedProfile;
+  }
 }
 
 export async function loginPlayerAccount(input: {

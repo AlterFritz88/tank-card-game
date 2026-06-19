@@ -1134,7 +1134,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
   },
 };
 
-export const RESEARCH_NATIONS: ResearchNation[] = ["germany", "ussr", "usa"];
+export const RESEARCH_NATIONS: ResearchNation[] = ["ussr", "germany", "usa"];
 
 /**
  * Stock German collection: the 11 units a player owns from the start (the
