@@ -2,6 +2,11 @@ const PLAYER_ID_STORAGE_KEY = "tank-card-game:player-id";
 const CURRENT_USER_ID_STORAGE_KEY = "panzershrek.current-user-id";
 const LEGACY_PLAYER_ID_MIGRATION_KEY = "panzershrek.legacy-player-id";
 
+// Flag the main menu uses to skip the guest entry screen once the player has
+// chosen a nickname / signed in. Cleared when signing out so the entry screen
+// reappears. Exported so the settings sign-out can reset it too.
+export const GUEST_SESSION_READY_STORAGE_KEY = "panzershrek.guestSessionReady";
+
 const GUEST_USER_PREFIX = "guest:";
 const REGISTERED_USER_PREFIX = "user:";
 
@@ -131,6 +136,20 @@ export function getCurrentUserLogin(): string | null {
 export function switchToGuestUser(): CurrentUserId {
   const guestUserId = getGuestUserId();
   window.localStorage.setItem(CURRENT_USER_ID_STORAGE_KEY, guestUserId);
+  return guestUserId;
+}
+
+/**
+ * Mints a brand-new guest identity, abandoning the previous guest's progress on
+ * this device/browser. Used when a guest signs out and starts over from a clean
+ * slate.
+ */
+export function resetGuestUserId(): CurrentUserId {
+  const guestUserId =
+    `${GUEST_USER_PREFIX}${createLocalIdentityId()}` as CurrentUserId;
+  window.localStorage.setItem(PLAYER_ID_STORAGE_KEY, guestUserId);
+  window.localStorage.setItem(CURRENT_USER_ID_STORAGE_KEY, guestUserId);
+  window.localStorage.removeItem(LEGACY_PLAYER_ID_MIGRATION_KEY);
   return guestUserId;
 }
 

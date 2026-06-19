@@ -15,6 +15,16 @@ import {
   useSettings,
   type Language,
 } from "../game/settings";
+import {
+  GUEST_SESSION_READY_STORAGE_KEY,
+  isRegisteredUserId,
+} from "../game/playerIdentity";
+import {
+  logoutPlayerAccount,
+  resetGuestProgress,
+} from "../game/playerProgress";
+import { clearLocalDeckStorage } from "../game/customDecks";
+import { useBattleStore } from "../store/battleStore";
 
 type FullscreenDocument = Document & {
   webkitFullscreenElement?: Element | null;
@@ -161,9 +171,16 @@ function VolumeRow({
   );
 }
 
-function SettingsModal({ onClose }: { onClose: () => void }) {
+function SettingsModal({
+  onClose,
+  canSignOut,
+}: {
+  onClose: () => void;
+  canSignOut: boolean;
+}) {
   const settings = useSettings();
   const overlayTransform = useStageOverlayTransform();
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -172,6 +189,33 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
+
+  async function signOut() {
+    if (signingOut) return;
+
+    const registered = isRegisteredUserId();
+    const confirmed = window.confirm(
+      registered
+        ? "Выйти из профиля и вернуться к гостевому входу?"
+        : "Выйти из профиля? Гостевой прогресс на этом устройстве будет удалён."
+    );
+    if (!confirmed) return;
+
+    setSigningOut(true);
+    try {
+      if (registered) {
+        await logoutPlayerAccount();
+      } else {
+        resetGuestProgress();
+        clearLocalDeckStorage();
+      }
+      window.localStorage.removeItem(GUEST_SESSION_READY_STORAGE_KEY);
+      window.location.reload();
+    } catch {
+      setSigningOut(false);
+      window.alert("Не удалось выйти из профиля");
+    }
+  }
 
   return createPortal(
     <motion.div
@@ -240,6 +284,25 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
               Другие языки появятся в следующих обновлениях.
             </p>
           </section>
+
+          {canSignOut ? (
+            <section style={styles.modalSection}>
+              <h3 style={styles.modalSectionTitle}>Профиль</h3>
+              <button
+                type="button"
+                style={styles.signOutButton}
+                onClick={() => void signOut()}
+                disabled={signingOut}
+              >
+                {signingOut ? "Выход..." : "Выйти из профиля"}
+              </button>
+              <p style={styles.languageNote}>
+                {isRegisteredUserId()
+                  ? "Вы вернётесь к гостевому входу."
+                  : "Гостевой прогресс будет обнулён на этом устройстве."}
+              </p>
+            </section>
+          ) : null}
         </motion.div>
       </div>
     </motion.div>,
@@ -256,9 +319,15 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 export function SettingsControls({ side = "right" }: { side?: "left" | "right" }) {
   const { isFullscreen, toggle } = useFullscreen();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const menuView = useBattleStore((state) => state.menuView);
+  const battle = useBattleStore((state) => state.battle);
+  // The deck builder has its own header controls; hide the global gear +
+  // fullscreen bar there so it doesn't overlap the builder's filters/actions.
+  const hideControlBar = !battle && menuView === "deckBuilder";
 
   return (
     <>
+      {hideControlBar ? null : (
       <div
         style={{
           ...styles.controlBar,
@@ -286,10 +355,14 @@ export function SettingsControls({ side = "right" }: { side?: "left" | "right" }
           <GearIcon />
         </button>
       </div>
+      )}
 
       <AnimatePresence>
         {settingsOpen ? (
-          <SettingsModal onClose={() => setSettingsOpen(false)} />
+          <SettingsModal
+            onClose={() => setSettingsOpen(false)}
+            canSignOut={!battle}
+          />
         ) : null}
       </AnimatePresence>
     </>
@@ -458,5 +531,21 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 12,
     lineHeight: 1.4,
     color: "rgba(236, 224, 204, 0.6)",
+  },
+
+  signOutButton: {
+    width: "100%",
+    minHeight: 44,
+    padding: "0 18px",
+    borderRadius: 8,
+    border: "1px solid rgba(220, 120, 96, 0.5)",
+    background:
+      "linear-gradient(180deg, rgba(120, 48, 36, 0.92), rgba(64, 24, 18, 0.94))",
+    color: "#ffd9cc",
+    fontSize: 14,
+    fontWeight: 900,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    cursor: "pointer",
   },
 };

@@ -83,6 +83,7 @@ import {
 import {
   getCurrentUserId,
   getCurrentUserLogin,
+  GUEST_SESSION_READY_STORAGE_KEY,
   isGuestUserId,
   isRegisteredUserId,
 } from "../game/playerIdentity";
@@ -100,7 +101,7 @@ const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
 const MENU_CARD_SCALE = 1.08;
 const MENU_CARD_WIDTH = Math.round(HAND_CARD_BASE_WIDTH * MENU_CARD_SCALE);
 const MENU_CARD_HEIGHT = Math.round(HAND_CARD_BASE_HEIGHT * MENU_CARD_SCALE);
-const GUEST_SESSION_READY_KEY = "panzershrek.guestSessionReady";
+const GUEST_SESSION_READY_KEY = GUEST_SESSION_READY_STORAGE_KEY;
 
 const NATION_LABELS: Record<Nation, string> = {
   france: "Франция",
@@ -504,6 +505,122 @@ function getTotalMatchCount(progress: PlayerProgress) {
   );
 }
 
+/**
+ * Registration dialog opened from the guest profile header. On success the
+ * guest progress is merged into the new account (handled server-side via
+ * mergeGuestProgress) and the caller refreshes the profile view.
+ */
+function ProfileRegisterModal({
+  onClose,
+  onRegister,
+}: {
+  onClose: () => void;
+  onRegister: (username: string, password: string) => Promise<void>;
+}) {
+  const overlayTransform = useStageOverlayTransform();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving) return;
+
+    setSaving(true);
+    setError(null);
+    try {
+      await onRegister(username, password);
+      onClose();
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Не удалось зарегистрироваться"
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return createPortal(
+    <div style={styles.authModalOverlay} onClick={onClose}>
+      <div style={overlayTransform}>
+        <div
+          style={styles.authModalPanel}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div style={styles.guestAuthHeader}>
+            <span style={styles.guestAuthTitle}>Регистрация</span>
+            <button
+              type="button"
+              style={styles.guestAuthBackButton}
+              onClick={onClose}
+            >
+              Отмена
+            </button>
+          </div>
+
+          <p style={styles.guestEntryNote}>
+            Гостевой прогресс будет перенесён в новый аккаунт.
+          </p>
+
+          <form style={styles.guestEntryForm} onSubmit={submit}>
+            <label
+              style={styles.guestEntryLabel}
+              htmlFor="profile-register-username"
+            >
+              Логин
+            </label>
+            <input
+              id="profile-register-username"
+              value={username}
+              maxLength={32}
+              onChange={(event) => setUsername(event.target.value)}
+              style={styles.guestEntryInput}
+              autoComplete="username"
+            />
+
+            <label
+              style={styles.guestEntryLabel}
+              htmlFor="profile-register-password"
+            >
+              Пароль
+            </label>
+            <input
+              id="profile-register-password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              style={styles.guestEntryInput}
+              autoComplete="new-password"
+            />
+
+            <button
+              type="submit"
+              style={styles.guestPrimaryButton}
+              disabled={saving}
+            >
+              {saving ? "Регистрация..." : "Зарегистрироваться"}
+            </button>
+          </form>
+
+          {error ? <p style={styles.guestEntryError}>{error}</p> : null}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function PlayerProfileMenu({
   onBack,
   onProfileChanged,
@@ -512,6 +629,7 @@ function PlayerProfileMenu({
   onProfileChanged?: () => void;
 }) {
   const [progress, setProgress] = useState(() => loadPlayerProgress());
+  const [registerOpen, setRegisterOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<
     "idle" | "syncing" | "synced" | "failed"
   >("idle");
@@ -579,6 +697,17 @@ function PlayerProfileMenu({
     });
   }
 
+  async function registerFromProfile(username: string, password: string) {
+    const nextProgress = await registerPlayerAccount({
+      username,
+      password,
+      mergeGuestProgress: true,
+    });
+    window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
+    setProgress(nextProgress);
+    onProfileChanged?.();
+  }
+
   async function logoutAccount() {
     if (!registeredUser) return;
 
@@ -621,6 +750,15 @@ function PlayerProfileMenu({
           >
             Назад
           </button>
+          {registeredUser ? null : (
+            <button
+              type="button"
+              style={styles.profileRegisterButton}
+              onClick={() => setRegisterOpen(true)}
+            >
+              Регистрация
+            </button>
+          )}
           <div style={styles.profileAvatarFrame}>
             {favoriteAvatar ? (
               <img
@@ -781,6 +919,13 @@ function PlayerProfileMenu({
           </div>
         </section>
       </section>
+
+      {registerOpen ? (
+        <ProfileRegisterModal
+          onClose={() => setRegisterOpen(false)}
+          onRegister={registerFromProfile}
+        />
+      ) : null}
     </main>
   );
 }
@@ -1074,11 +1219,13 @@ function CarouselTapFrame({
   viewportRef,
   viewportStyle,
   ariaLabel,
+  hideArrows = false,
 }: {
   children: ReactNode;
   viewportRef: RefObject<HTMLDivElement | null>;
   viewportStyle: CSSProperties;
   ariaLabel: string;
+  hideArrows?: boolean;
 }) {
   const dragScrollRef = useRef<CarouselDragState | null>(null);
   const suppressClickRef = useRef(false);
@@ -1167,14 +1314,16 @@ function CarouselTapFrame({
 
   return (
     <div style={styles.carouselShell}>
-      <button
-        type="button"
-        style={{ ...styles.carouselTapZone, ...styles.carouselTapZoneLeft }}
-        onClick={() => scrollCarousel(viewportRef, -1)}
-        aria-label="Прокрутить влево"
-      >
-        <span style={styles.carouselTapArrow}>‹</span>
-      </button>
+      {hideArrows ? null : (
+        <button
+          type="button"
+          style={{ ...styles.carouselTapZone, ...styles.carouselTapZoneLeft }}
+          onClick={() => scrollCarousel(viewportRef, -1)}
+          aria-label="Прокрутить влево"
+        >
+          <span style={styles.carouselTapArrow}>‹</span>
+        </button>
+      )}
 
       <div
         ref={viewportRef}
@@ -1191,14 +1340,16 @@ function CarouselTapFrame({
         {children}
       </div>
 
-      <button
-        type="button"
-        style={{ ...styles.carouselTapZone, ...styles.carouselTapZoneRight }}
-        onClick={() => scrollCarousel(viewportRef, 1)}
-        aria-label="Прокрутить вправо"
-      >
-        <span style={styles.carouselTapArrow}>›</span>
-      </button>
+      {hideArrows ? null : (
+        <button
+          type="button"
+          style={{ ...styles.carouselTapZone, ...styles.carouselTapZoneRight }}
+          onClick={() => scrollCarousel(viewportRef, 1)}
+          aria-label="Прокрутить вправо"
+        >
+          <span style={styles.carouselTapArrow}>›</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -2050,6 +2201,7 @@ export function PvpLobby() {
             viewportRef={mainMenuCarouselRef}
             viewportStyle={styles.carouselViewport}
             ariaLabel="Выбор режима боя"
+            hideArrows
           >
             <div style={styles.mainMenuTrack}>
             <motion.button
@@ -3203,6 +3355,52 @@ const styles: Record<string, CSSProperties> = {
     padding: "6px 12px 8px",
     fontSize: 11,
     lineHeight: 1,
+  },
+
+  profileRegisterButton: {
+    position: "absolute",
+    bottom: 12,
+    right: 12,
+    zIndex: 3,
+    cursor: "pointer",
+    minHeight: 34,
+    padding: "6px 18px 8px",
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "#7b5a24",
+    backgroundImage: `linear-gradient(180deg, rgba(234, 190, 94, 0.5), rgba(84, 58, 20, 0.86)), url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    color: "#fff0c2",
+    fontFamily: "var(--font-display)",
+    fontSize: 13,
+    fontWeight: 900,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.86)",
+  },
+
+  authModalOverlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 6000,
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(3, 4, 5, 0.72)",
+    backdropFilter: "blur(3px)",
+  },
+
+  authModalPanel: {
+    width: 420,
+    maxWidth: "90vw",
+    display: "grid",
+    gap: 14,
+    padding: "22px 24px 24px",
+    border: "1px solid rgba(216,174,92,0.4)",
+    background:
+      "linear-gradient(180deg, rgba(34, 30, 22, 0.98), rgba(14, 12, 9, 0.98))",
+    boxShadow: "0 28px 70px rgba(0,0,0,0.75)",
+    color: "#f1e6d2",
+    fontFamily: "var(--font-body)",
   },
 
   profileHero: {

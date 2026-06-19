@@ -16,6 +16,7 @@ import {
   clearLegacyPlayerIdMigration,
   getCurrentUserId,
   getLegacyPlayerIdForMigration,
+  resetGuestUserId,
   setCurrentUserId,
   switchToGuestUser,
 } from "./playerIdentity";
@@ -809,6 +810,25 @@ export async function loginPlayerAccount(input: {
       ? loadPlayerProgress().pendingRewardClaims
       : []
   );
+}
+
+/**
+ * Wipes the guest's progress on this device/browser and mints a fresh guest
+ * identity. Used by the settings "sign out" action for guest profiles — the old
+ * guest profile on the server is left orphaned and the player starts clean.
+ */
+export function resetGuestProgress(): PlayerProgress {
+  window.localStorage.removeItem(PLAYER_PROGRESS_KEY);
+  window.localStorage.removeItem(PLAYER_NICKNAME_STORAGE_KEY);
+  window.localStorage.removeItem(PLAYER_ACCOUNT_TYPE_STORAGE_KEY);
+  window.localStorage.removeItem(FAVORITE_HEADQUARTERS_STORAGE_KEY);
+
+  resetGuestUserId();
+
+  const freshProgress = createInitialPlayerProgress();
+  savePlayerProgress(freshProgress);
+
+  return freshProgress;
 }
 
 export async function logoutPlayerAccount(): Promise<PlayerProgress> {

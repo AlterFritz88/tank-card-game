@@ -265,6 +265,17 @@ export function saveDecks(decks: SavedDeck[]) {
   window.localStorage.setItem(SAVED_DECKS_STORAGE_KEY, JSON.stringify(decks));
 }
 
+/**
+ * Drops every locally cached deck artifact (legacy saved decks, migration
+ * backup, recent selections). Used when a guest signs out and their device
+ * progress is wiped.
+ */
+export function clearLocalDeckStorage() {
+  window.localStorage.removeItem(SAVED_DECKS_STORAGE_KEY);
+  window.localStorage.removeItem(SAVED_DECKS_MIGRATION_BACKUP_KEY);
+  window.localStorage.removeItem(RECENT_DECK_STORAGE_KEY);
+}
+
 export async function syncSavedDecksFromServer(): Promise<SavedDeck[]> {
   const profileClient = await getProfileClient();
   const playerId = getCurrentUserId();

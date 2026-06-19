@@ -126,6 +126,98 @@ function MiniHandCard({
   );
 }
 
+// Styled dropdown matching the app theme. Rendered inline inside the scaled
+// GameStage (not a native <select>, whose popup ignores the stage transform and
+// would open in the wrong orientation on the 90°-rotated mobile stage).
+function FilterDropdown<T extends string>({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (next: T) => void;
+  ariaLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handlePointerDown(event: globalThis.PointerEvent) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={containerRef} style={styles.dropdown}>
+      <button
+        type="button"
+        style={styles.dropdownTrigger}
+        onClick={() => setOpen((current) => !current)}
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span style={styles.dropdownTriggerLabel}>
+          {selected?.label ?? options[0]?.label}
+        </span>
+        <span
+          style={{
+            ...styles.dropdownChevron,
+            ...(open ? styles.dropdownChevronOpen : {}),
+          }}
+          aria-hidden="true"
+        >
+          ▾
+        </span>
+      </button>
+
+      {open ? (
+        <div style={styles.dropdownMenu} role="listbox">
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              aria-selected={option.value === value}
+              style={{
+                ...styles.dropdownOption,
+                ...(option.value === value ? styles.dropdownOptionActive : {}),
+              }}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function DeckBuilder({
   editingDeck,
   onBack,
@@ -187,6 +279,23 @@ export function DeckBuilder({
   const groupedDeckCards = useMemo(
     () => getGroupedDeckCards(deckCardIds),
     [deckCardIds]
+  );
+
+  // The "all" reset option doubles as the dropdown's resting label, so it reads
+  // "Тип"/"Нация" instead of "Все".
+  const unitTypeOptions = useMemo(
+    () =>
+      UNIT_TYPE_FILTERS.map((filter) =>
+        filter.value === "all" ? { ...filter, label: "Тип" } : filter
+      ),
+    []
+  );
+  const nationOptions = useMemo(
+    () =>
+      NATION_FILTERS.map((filter) =>
+        filter.value === "all" ? { ...filter, label: "Нация" } : filter
+      ),
+    []
   );
   const deckWeight = selectedHeadquartersId
     ? calculateDeckWeight(selectedHeadquartersId, deckCardIds)
@@ -543,35 +652,18 @@ export function DeckBuilder({
           />
           {selectedHeadquarters ? (
             <div style={styles.filters}>
-              <select
+              <FilterDropdown
                 value={unitTypeFilter}
-                onChange={(event) =>
-                  setUnitTypeFilter(event.target.value as UnitTypeFilter)
-                }
-                style={styles.filterSelect}
-                aria-label="Фильтр по типу юнита"
-              >
-                {UNIT_TYPE_FILTERS.map((filter) => (
-                  <option key={filter.value} value={filter.value}>
-                    {filter.label}
-                  </option>
-                ))}
-              </select>
-
-              <select
+                options={unitTypeOptions}
+                onChange={setUnitTypeFilter}
+                ariaLabel="Фильтр по типу юнита"
+              />
+              <FilterDropdown
                 value={nationFilter}
-                onChange={(event) =>
-                  setNationFilter(event.target.value as NationFilter)
-                }
-                style={styles.filterSelect}
-                aria-label="Фильтр по нации"
-              >
-                {NATION_FILTERS.map((filter) => (
-                  <option key={filter.value} value={filter.value}>
-                    {filter.label}
-                  </option>
-                ))}
-              </select>
+                options={nationOptions}
+                onChange={setNationFilter}
+                ariaLabel="Фильтр по нации"
+              />
             </div>
           ) : null}
           <div style={styles.deckCounter}>
@@ -949,7 +1041,9 @@ const styles: Record<string, CSSProperties> = {
 
   header: {
     position: "relative",
-    zIndex: 2,
+    // Above the workspace (zIndex 2) so the open filter dropdown is not covered
+    // by the card rows below it.
+    zIndex: 40,
     height: 82,
     display: "grid",
     gridTemplateColumns: "64px 1fr auto",
@@ -1147,16 +1241,89 @@ const styles: Record<string, CSSProperties> = {
     background: "transparent",
   },
 
-  filterSelect: {
+  dropdown: {
+    position: "relative",
+    minWidth: 132,
+  },
+
+  dropdownTrigger: {
+    width: "100%",
     minWidth: 132,
     height: 34,
-    border: "none",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    padding: "0 12px",
+    border: "1px solid rgba(232, 198, 112, 0.32)",
     borderRadius: 4,
-    background: "rgba(15, 18, 14, 0.58)",
+    background:
+      "linear-gradient(180deg, rgba(36, 31, 21, 0.92), rgba(15, 13, 9, 0.94))",
     color: "#f8e3ae",
     fontSize: 12,
     fontWeight: 900,
+    letterSpacing: 0.4,
+    cursor: "pointer",
     outline: "none",
+    boxSizing: "border-box",
+  },
+
+  dropdownTriggerLabel: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
+  dropdownChevron: {
+    flex: "0 0 auto",
+    fontSize: 11,
+    color: "rgba(246, 220, 145, 0.78)",
+    transition: "transform 140ms ease",
+  },
+
+  dropdownChevronOpen: {
+    transform: "rotate(180deg)",
+  },
+
+  dropdownMenu: {
+    position: "absolute",
+    top: "calc(100% + 6px)",
+    left: 0,
+    zIndex: 50,
+    minWidth: "100%",
+    maxHeight: 248,
+    overflowY: "auto",
+    display: "flex",
+    flexDirection: "column",
+    padding: 5,
+    borderRadius: 6,
+    border: "1px solid rgba(232, 198, 112, 0.4)",
+    background:
+      "linear-gradient(180deg, rgba(34, 30, 22, 0.98), rgba(14, 12, 9, 0.98))",
+    boxShadow: "0 18px 40px rgba(0,0,0,0.6)",
+    scrollbarWidth: "none",
+  },
+
+  dropdownOption: {
+    width: "100%",
+    minHeight: 32,
+    padding: "0 12px",
+    border: "none",
+    borderRadius: 4,
+    background: "transparent",
+    color: "#ece0cc",
+    fontSize: 12,
+    fontWeight: 800,
+    letterSpacing: 0.3,
+    textAlign: "left",
+    whiteSpace: "nowrap",
+    cursor: "pointer",
+  },
+
+  dropdownOptionActive: {
+    background:
+      "linear-gradient(180deg, rgba(120, 92, 44, 0.95), rgba(70, 52, 24, 0.95))",
+    color: "#fff3d6",
   },
 
   saveButtonDisabled: {

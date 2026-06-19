@@ -378,6 +378,30 @@ function isPrerequisiteSatisfied(
   return isNodeAcquired(node, progress);
 }
 
+/**
+ * Whether a single prerequisite is satisfied, treating parallel units on the
+ * same level as interchangeable: the required node OR any acquired same-tier
+ * sibling (same branch, same node type, non-premium) unlocks the successor. This
+ * lets the parallel units of a tier be researched in any order without forcing
+ * the player down one specific column.
+ */
+function isInterchangeablePrerequisiteSatisfied(
+  required: ResearchNode,
+  progress: PlayerProgress,
+  tierMembers: Map<number, ResearchNode[]>
+): boolean {
+  if (isPrerequisiteSatisfied(required, progress)) return true;
+
+  const siblings = tierMembers.get(required.tier ?? -1) ?? [];
+  return siblings.some(
+    (sibling) =>
+      sibling.id !== required.id &&
+      sibling.type === required.type &&
+      sibling.goldCost === undefined &&
+      isPrerequisiteSatisfied(sibling, progress)
+  );
+}
+
 function createBranchNodeViews({
   nodes,
   progress,
@@ -394,12 +418,35 @@ function createBranchNodeViews({
 
   if (isGraph) {
     const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    // Group nodes by tier so a single-parent prerequisite can be satisfied by
+    // any parallel unit on that level (researchable in any order).
+    const tierMembers = new Map<number, ResearchNode[]>();
+    nodes.forEach((node) => {
+      const tier = node.tier ?? -1;
+      const members = tierMembers.get(tier) ?? [];
+      members.push(node);
+      tierMembers.set(tier, members);
+    });
 
     return nodes.map((node) => {
       const requires = node.requires ?? [];
+      // Single-parent nodes accept any same-tier sibling of that parent, so the
+      // parallel units of a level can be researched in any order. Multi-parent
+      // nodes are branch merges and keep strict AND gating on every prerequisite.
+      const interchangeable = requires.length === 1;
       const blocking = requires
         .map((requiredId) => nodeById.get(requiredId))
-        .find((required) => required && !isPrerequisiteSatisfied(required, progress));
+        .find(
+          (required) =>
+            required &&
+            !(interchangeable
+              ? isInterchangeablePrerequisiteSatisfied(
+                  required,
+                  progress,
+                  tierMembers
+                )
+              : isPrerequisiteSatisfied(required, progress))
+        );
       const reachable = !blocking;
 
       const view = createNodeView({
