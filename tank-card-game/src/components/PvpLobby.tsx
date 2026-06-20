@@ -57,13 +57,17 @@ import { getHeadquartersImageAsset } from "../game/headquartersImages";
 import { getDeckCardIds } from "../game/initialState";
 import {
   claimCampaignRewardFromServer,
+  createGoldTracksPaymentOnServer,
   getFavoriteHeadquartersId,
+  isPremiumAccountActive,
   isValidPlayerNickname,
+  loadShopCatalogFromServer,
   loginPlayerAccount,
   loadPlayerProgress,
   logoutPlayerAccount,
   normalizePlayerNickname,
   PLAYER_NICKNAME_MAX_LENGTH,
+  purchasePremiumDaysOnServer,
   registerPlayerAccount,
   sanitizePlayerNicknameInput,
   setFavoriteHeadquartersIdOnServer,
@@ -221,7 +225,67 @@ function formatResourceValue(value: number) {
   return new Intl.NumberFormat("ru-RU").format(value);
 }
 
-function PlayerResourcesPanel() {
+function formatRubPrice(value: number) {
+  return new Intl.NumberFormat("ru-RU", {
+    maximumFractionDigits: 0,
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+  }).format(value);
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+const GOLD_TRACK_PRODUCTS = [
+  { id: "gold-100" as const, gold: 100, label: "100 золотых траков" },
+  { id: "gold-500" as const, gold: 500, label: "500 золотых траков" },
+  { id: "gold-1500" as const, gold: 1500, label: "1500 золотых траков" },
+];
+const LEGAL_ACCEPTED_STORAGE_KEY = "panzershrek.legalAccepted.v2026-06-20";
+const LEGAL_LINKS = [
+  { href: "/legal/user-agreement", label: "Пользовательское соглашение" },
+  { href: "/legal/offer", label: "Оферта" },
+  { href: "/legal/privacy-policy", label: "Политика конфиденциальности" },
+];
+
+const PREMIUM_PRODUCTS = [
+  { days: 1, cost: 99 },
+  { days: 5, cost: 470 },
+  { days: 21, cost: 1500 },
+  { days: 50, cost: 4199 },
+];
+
+function formatPremiumUntil(progress: PlayerProgress) {
+  if (!progress.premiumUntil) return null;
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date(progress.premiumUntil));
+}
+
+function LegalLinks({ compact = false }: { compact?: boolean }) {
+  return (
+    <span style={compact ? styles.legalLinksCompact : styles.legalLinks}>
+      {LEGAL_LINKS.map((link, index) => (
+        <span key={link.href}>
+          {index > 0 ? <span style={styles.legalLinksSeparator}> · </span> : null}
+          <a
+            href={link.href}
+            target="_blank"
+            rel="noreferrer"
+            style={compact ? styles.legalLinkCompact : styles.legalLink}
+          >
+            {link.label}
+          </a>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function PlayerResourcesPanel({ onOpenShop }: { onOpenShop?: () => void }) {
   const progress = loadPlayerProgress();
   const resources = [
     {
@@ -262,6 +326,16 @@ function PlayerResourcesPanel() {
           </span>
         </div>
       ))}
+      {onOpenShop ? (
+        <button
+          type="button"
+          style={styles.playerShopButton}
+          onClick={onOpenShop}
+          aria-label="Открыть магазин"
+        >
+          Магазин
+        </button>
+      ) : null}
     </aside>
   );
 }
@@ -284,6 +358,264 @@ function ProfileServerBanner({
         Повторить
       </button>
     </div>
+  );
+}
+
+function ShopMenu({
+  onBack,
+  onProfileChanged,
+}: {
+  onBack: () => void;
+  onProfileChanged: () => void;
+}) {
+  const [progress, setProgress] = useState(() => loadPlayerProgress());
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [purchasingPremiumDays, setPurchasingPremiumDays] = useState<
+    number | null
+  >(null);
+  const [purchasingGoldProductId, setPurchasingGoldProductId] = useState<
+    (typeof GOLD_TRACK_PRODUCTS)[number]["id"] | null
+  >(null);
+  const [goldProductPrices, setGoldProductPrices] = useState<
+    Partial<Record<(typeof GOLD_TRACK_PRODUCTS)[number]["id"], number | null>>
+  >({});
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const profileConnection = useProfileConnection();
+  const profileServerUnavailable = isProfileServerUnavailable(profileConnection);
+  const premiumUntilText = formatPremiumUntil(progress);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setCatalogLoading(true);
+    void loadShopCatalogFromServer()
+      .then((catalog) => {
+        if (cancelled) return;
+
+        setGoldProductPrices(
+          Object.fromEntries(
+            catalog.goldProducts.map((product) => [
+              product.id,
+              product.amountRub,
+            ])
+          )
+        );
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setStatusMessage(
+            error instanceof Error
+              ? error.message
+              : "Не удалось загрузить цены магазина"
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCatalogLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function buyPremium(days: number) {
+    setStatusMessage(null);
+    setPurchasingPremiumDays(days);
+
+    try {
+      const nextProgress = await purchasePremiumDaysOnServer(days);
+      setProgress(nextProgress);
+      onProfileChanged();
+      const nextPremiumUntil = formatPremiumUntil(nextProgress);
+      setStatusMessage(
+        `Премиум активирован${nextPremiumUntil ? ` до ${nextPremiumUntil}` : ""}.`
+      );
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error
+          ? error.message
+          : "Не удалось купить премиум аккаунт"
+      );
+    } finally {
+      setPurchasingPremiumDays(null);
+    }
+  }
+
+  async function buyGoldProduct(product: (typeof GOLD_TRACK_PRODUCTS)[number]) {
+    setStatusMessage(null);
+    setPurchasingGoldProductId(product.id);
+
+    try {
+      const payment = await createGoldTracksPaymentOnServer(product.id);
+      window.location.assign(payment.confirmationUrl);
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error
+          ? error.message
+          : "Не удалось создать платеж"
+      );
+    } finally {
+      setPurchasingGoldProductId(null);
+    }
+  }
+
+  return (
+    <main style={styles.page}>
+      <div style={styles.backgroundShade} />
+      <PlayerAccountPanel />
+      <PlayerResourcesPanel />
+      {profileServerUnavailable ? (
+        <ProfileServerBanner
+          message={profileConnection.message}
+          onRetry={() => window.location.reload()}
+        />
+      ) : null}
+
+      <section style={{ ...styles.menuLayer, ...styles.shopLayer }}>
+        <header style={styles.shopHeader}>
+          <button type="button" style={styles.shopBackButton} onClick={onBack}>
+            Назад
+          </button>
+          <div>
+            <h1 style={styles.title}>МАГАЗИН</h1>
+            <p style={styles.shopSubtitle}>
+              Золотые траки и премиум аккаунт
+            </p>
+          </div>
+        </header>
+
+        <div style={styles.shopBalanceRow}>
+          <span>Баланс</span>
+          <strong>
+            <img
+              src={goldTracksIcon}
+              alt=""
+              draggable={false}
+              style={styles.shopBalanceIcon}
+            />
+            {formatResourceValue(progress.goldTracks)}
+          </strong>
+          <span>
+            {isPremiumAccountActive(progress)
+              ? `Премиум аккаунт${premiumUntilText ? ` до ${premiumUntilText}` : ""}`
+              : "Базовый аккаунт"}
+          </span>
+        </div>
+
+        <div style={styles.shopGrid}>
+          <section style={styles.shopSection}>
+            <h2 style={styles.shopSectionTitle}>Золотые траки</h2>
+            <div style={styles.shopOfferGrid}>
+              {GOLD_TRACK_PRODUCTS.map((product) => {
+                const priceRub = goldProductPrices[product.id];
+                const priceReady =
+                  typeof priceRub === "number" && Number.isFinite(priceRub);
+                const disabled =
+                  purchasingGoldProductId !== null ||
+                  profileServerUnavailable ||
+                  catalogLoading ||
+                  !priceReady;
+
+                return (
+                  <button
+                    key={product.gold}
+                    type="button"
+                    style={{
+                      ...styles.shopOfferCard,
+                      ...(disabled ? styles.shopOfferCardDisabled : {}),
+                    }}
+                    disabled={disabled}
+                    onClick={() => void buyGoldProduct(product)}
+                  >
+                    <img
+                      src={goldTracksIcon}
+                      alt=""
+                      draggable={false}
+                      style={styles.shopOfferIcon}
+                    />
+                    <strong>{product.label}</strong>
+                    <span style={styles.shopRubPrice}>
+                      {catalogLoading
+                        ? "Загрузка цены..."
+                        : priceReady
+                          ? `${formatRubPrice(priceRub)} ₽`
+                          : "Цена не задана"}
+                    </span>
+                    <span>
+                      {purchasingGoldProductId === product.id
+                        ? "Создание платежа..."
+                        : priceReady
+                          ? "Оплата через ЮKassa"
+                          : "Настройте цену на сервере"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section style={styles.shopSection}>
+            <h2 style={styles.shopSectionTitle}>Премиум аккаунт</h2>
+            <div style={styles.shopOfferGrid}>
+              {PREMIUM_PRODUCTS.map((product) => {
+                const affordable = progress.goldTracks >= product.cost;
+                const busy = purchasingPremiumDays === product.days;
+                const dayLabel = product.days === 1 ? "день" : "дней";
+
+                return (
+                  <button
+                    key={product.days}
+                    type="button"
+                    style={{
+                      ...styles.shopOfferCard,
+                      ...(affordable ? {} : styles.shopOfferCardDisabled),
+                    }}
+                    disabled={!affordable || busy || profileServerUnavailable}
+                    onClick={() => void buyPremium(product.days)}
+                  >
+                    <strong>
+                      {product.days} {dayLabel}
+                    </strong>
+                    <span style={styles.shopPremiumPrice}>
+                      <img
+                        src={goldTracksIcon}
+                        alt=""
+                        draggable={false}
+                        style={styles.shopPremiumPriceIcon}
+                      />
+                      {formatResourceValue(product.cost)}
+                    </span>
+                    <span>
+                      {busy
+                        ? "Покупка..."
+                        : affordable
+                          ? "Купить"
+                          : "Не хватает золота"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+
+        <section style={styles.shopPaymentNote}>
+          <strong>Платежная схема для ЮKassa</strong>
+          <span>
+            Клиент выбирает пакет золота, сервер создает платеж и возвращает
+            ссылку подтверждения. Золото начисляется только после webhook от
+            ЮKassa со статусом успешной оплаты.
+          </span>
+        </section>
+
+        {statusMessage ? (
+          <div style={styles.shopStatusMessage}>{statusMessage}</div>
+        ) : null}
+      </section>
+    </main>
   );
 }
 
@@ -311,9 +643,14 @@ function GuestEntryScreen({
   profileMessage: string | null;
   profileUnavailable: boolean;
   onRetryProfile: () => void;
-  onEnter: (nickname: string) => Promise<void>;
+  onEnter: (nickname: string, legalAccepted: boolean) => Promise<void>;
   onLogin: (username: string, password: string) => Promise<void>;
-  onRegister: (username: string, password: string) => Promise<void>;
+  onRegister: (
+    username: string,
+    email: string,
+    password: string,
+    legalAccepted: boolean
+  ) => Promise<void>;
 }) {
   const [authMode, setAuthMode] = useState<"guest" | "login" | "register">(
     "guest"
@@ -322,8 +659,12 @@ function GuestEntryScreen({
     sanitizePlayerNicknameInput(initialNickname)
   );
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
+  const [legalAccepted, setLegalAccepted] = useState(
+    () => window.localStorage.getItem(LEGAL_ACCEPTED_STORAGE_KEY) === "true"
+  );
   const [saving, setSaving] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const normalizedNickname = normalizePlayerNickname(nickname);
@@ -342,7 +683,12 @@ function GuestEntryScreen({
         throw new Error(PLAYER_NICKNAME_HINT);
       }
 
-      await onEnter(normalizedNickname);
+      if (!legalAccepted) {
+        throw new Error("Необходимо ознакомиться с документами и принять условия");
+      }
+
+      await onEnter(normalizedNickname, legalAccepted);
+      window.localStorage.setItem(LEGAL_ACCEPTED_STORAGE_KEY, "true");
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Не удалось войти");
     } finally {
@@ -364,11 +710,20 @@ function GuestEntryScreen({
           throw new Error(PLAYER_NICKNAME_HINT);
         }
 
+        if (!isValidEmail(email)) {
+          throw new Error("Укажите корректный e-mail");
+        }
+
         if (password !== repeatPassword) {
           throw new Error("Пароли не совпадают");
         }
 
-        await onRegister(username, password);
+        if (!legalAccepted) {
+          throw new Error("Необходимо ознакомиться с документами и принять условия");
+        }
+
+        await onRegister(username, email, password, legalAccepted);
+        window.localStorage.setItem(LEGAL_ACCEPTED_STORAGE_KEY, "true");
       }
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Не удалось войти");
@@ -415,6 +770,18 @@ function GuestEntryScreen({
           >
             {saving ? "Сохранение..." : "Играть как гость"}
           </button>
+
+          <label style={styles.legalConsentRow}>
+            <input
+              type="checkbox"
+              checked={legalAccepted}
+              onChange={(event) => setLegalAccepted(event.target.checked)}
+              style={styles.legalConsentCheckbox}
+            />
+            <span>
+              Я ознакомился и согласен: <LegalLinks compact />
+            </span>
+          </label>
 
           <div style={styles.guestSecondaryActions}>
             <button
@@ -475,6 +842,24 @@ function GuestEntryScreen({
               {...keyboardLock}
             />
 
+            {authMode === "register" ? (
+              <>
+                <label style={styles.guestEntryLabel} htmlFor="account-email">
+                  E-mail
+                </label>
+                <input
+                  id="account-email"
+                  value={email}
+                  maxLength={254}
+                  type="email"
+                  onChange={(event) => setEmail(event.target.value)}
+                  style={styles.guestEntryInput}
+                  autoComplete="email"
+                  {...keyboardLock}
+                />
+              </>
+            ) : null}
+
             <label style={styles.guestEntryLabel} htmlFor="account-password">
               Пароль
             </label>
@@ -512,6 +897,20 @@ function GuestEntryScreen({
                   {...keyboardLock}
                 />
               </>
+            ) : null}
+
+            {authMode === "register" ? (
+              <label style={styles.legalConsentRow}>
+                <input
+                  type="checkbox"
+                  checked={legalAccepted}
+                  onChange={(event) => setLegalAccepted(event.target.checked)}
+                  style={styles.legalConsentCheckbox}
+                />
+                <span>
+                  Я ознакомился и согласен: <LegalLinks compact />
+                </span>
+              </label>
             ) : null}
 
             <button
@@ -569,12 +968,21 @@ function ProfileRegisterModal({
   onRegister,
 }: {
   onClose: () => void;
-  onRegister: (username: string, password: string) => Promise<void>;
+  onRegister: (
+    username: string,
+    email: string,
+    password: string,
+    legalAccepted: boolean
+  ) => Promise<void>;
 }) {
   const overlayTransform = useStageOverlayTransform();
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
+  const [legalAccepted, setLegalAccepted] = useState(
+    () => window.localStorage.getItem(LEGAL_ACCEPTED_STORAGE_KEY) === "true"
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const keyboardLock = useLandscapeKeyboardLock();
@@ -598,11 +1006,20 @@ function ProfileRegisterModal({
         throw new Error(PLAYER_NICKNAME_HINT);
       }
 
+      if (!isValidEmail(email)) {
+        throw new Error("Укажите корректный e-mail");
+      }
+
       if (password !== repeatPassword) {
         throw new Error("Пароли не совпадают");
       }
 
-      await onRegister(username, password);
+      if (!legalAccepted) {
+        throw new Error("Необходимо ознакомиться с документами и принять условия");
+      }
+
+      await onRegister(username, email, password, legalAccepted);
+      window.localStorage.setItem(LEGAL_ACCEPTED_STORAGE_KEY, "true");
       onClose();
     } catch (submitError) {
       setError(
@@ -678,6 +1095,23 @@ function ProfileRegisterModal({
 
             <label
               style={styles.guestEntryLabel}
+              htmlFor="profile-register-email"
+            >
+              E-mail
+            </label>
+            <input
+              id="profile-register-email"
+              type="email"
+              value={email}
+              maxLength={254}
+              onChange={(event) => setEmail(event.target.value)}
+              style={styles.guestEntryInput}
+              autoComplete="email"
+              {...keyboardLock}
+            />
+
+            <label
+              style={styles.guestEntryLabel}
               htmlFor="profile-register-repeat-password"
             >
               Повторить пароль
@@ -693,6 +1127,18 @@ function ProfileRegisterModal({
               autoComplete="new-password"
               {...keyboardLock}
             />
+
+            <label style={styles.legalConsentRow}>
+              <input
+                type="checkbox"
+                checked={legalAccepted}
+                onChange={(event) => setLegalAccepted(event.target.checked)}
+                style={styles.legalConsentCheckbox}
+              />
+              <span>
+                Я ознакомился и согласен: <LegalLinks compact />
+              </span>
+            </label>
 
             <button
               type="submit"
@@ -787,10 +1233,17 @@ function PlayerProfileMenu({
     });
   }
 
-  async function registerFromProfile(username: string, password: string) {
+  async function registerFromProfile(
+    username: string,
+    email: string,
+    password: string,
+    legalAccepted: boolean
+  ) {
     const nextProgress = await registerPlayerAccount({
       username,
+      email,
       password,
+      legalAccepted,
       mergeGuestProgress: true,
     });
     window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
@@ -1461,6 +1914,8 @@ export function PvpLobby() {
     closeProfileMenu,
     openResearchMenu,
     closeResearchMenu,
+    openShopMenu,
+    closeShopMenu,
     openCampaignMenu,
     openCampaignMissions,
     closeCampaignMissions,
@@ -1594,9 +2049,14 @@ export function PvpLobby() {
     }
   }
 
-  async function enterGuestSession(nickname: string) {
+  async function enterGuestSession(nickname: string, legalAccepted: boolean) {
+    if (!legalAccepted) {
+      throw new Error("Необходимо ознакомиться с документами и принять условия");
+    }
+
     await setPlayerNicknameOnServer(nickname);
     window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
+    window.localStorage.setItem(LEGAL_ACCEPTED_STORAGE_KEY, "true");
     setGuestSessionReady(true);
     setProfileRevision((revision) => revision + 1);
   }
@@ -1612,13 +2072,21 @@ export function PvpLobby() {
     setProfileRevision((revision) => revision + 1);
   }
 
-  async function registerAccount(username: string, password: string) {
+  async function registerAccount(
+    username: string,
+    email: string,
+    password: string,
+    legalAccepted: boolean
+  ) {
     await registerPlayerAccount({
       username,
+      email,
       password,
+      legalAccepted,
       mergeGuestProgress: true,
     });
     window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
+    window.localStorage.setItem(LEGAL_ACCEPTED_STORAGE_KEY, "true");
     setGuestSessionReady(true);
     setProfileRevision((revision) => revision + 1);
   }
@@ -2008,10 +2476,10 @@ export function PvpLobby() {
       <main style={styles.page}>
         <div style={styles.backgroundShade} />
         <PlayerAccountPanel onOpenProfile={openProfileMenu} />
-        <PlayerResourcesPanel />
+        <PlayerResourcesPanel onOpenShop={openShopMenu} />
         {renderProfileServerBanner()}
 
-        <section style={styles.menuLayer}>
+        <section style={{ ...styles.menuLayer, ...styles.mainMenuLayer }}>
           <header style={styles.header}>
             <h1 style={styles.title}>ВЫБЕРИ КОМПАНИЮ</h1>
           </header>
@@ -2131,7 +2599,7 @@ export function PvpLobby() {
       <main style={styles.page}>
         <div style={styles.backgroundShade} />
         <PlayerAccountPanel onOpenProfile={openProfileMenu} />
-        <PlayerResourcesPanel />
+        <PlayerResourcesPanel onOpenShop={openShopMenu} />
         {renderProfileServerBanner()}
 
         <section style={styles.menuLayer}>
@@ -2254,6 +2722,15 @@ export function PvpLobby() {
     );
   }
 
+  if (menuView === "shop") {
+    return (
+      <ShopMenu
+        onBack={closeShopMenu}
+        onProfileChanged={() => setProfileRevision((revision) => revision + 1)}
+      />
+    );
+  }
+
   if (menuView === "deckBuilder") {
     return (
       <Suspense fallback={<MenuChunkLoadingScreen />}>
@@ -2274,7 +2751,7 @@ export function PvpLobby() {
       <main style={styles.page}>
         <div style={styles.backgroundShade} />
         <PlayerAccountPanel onOpenProfile={openProfileMenu} />
-        <PlayerResourcesPanel />
+        <PlayerResourcesPanel onOpenShop={openShopMenu} />
         {renderProfileServerBanner()}
 
         <section style={styles.menuLayer}>
@@ -2392,6 +2869,10 @@ export function PvpLobby() {
           >
             Исследования
           </button>
+
+          <footer style={styles.mainLegalFooter}>
+            <LegalLinks />
+          </footer>
         </section>
       </main>
     );
@@ -2401,7 +2882,7 @@ export function PvpLobby() {
     <main style={styles.page}>
       <div style={styles.backgroundShade} />
       <PlayerAccountPanel onOpenProfile={openProfileMenu} />
-      <PlayerResourcesPanel />
+      <PlayerResourcesPanel onOpenShop={openShopMenu} />
       {renderProfileServerBanner()}
 
       <section style={{ ...styles.menuLayer, ...styles.headquartersMenuLayer }}>
@@ -3032,6 +3513,29 @@ const styles: Record<string, CSSProperties> = {
     whiteSpace: "nowrap",
   },
 
+  playerShopButton: {
+    position: "absolute",
+    left: "calc(100% + 8px)",
+    top: 5,
+    width: 104,
+    height: 30,
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    backgroundImage: `url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    color: "#fff0bd",
+    cursor: "pointer",
+    fontSize: 10,
+    fontWeight: 1000,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84)",
+    pointerEvents: "auto",
+  },
+
   menuChunkLoading: {
     alignSelf: "center",
     justifySelf: "center",
@@ -3089,6 +3593,60 @@ const styles: Record<string, CSSProperties> = {
   guestEntryForm: {
     display: "grid",
     gap: 12,
+  },
+
+  legalConsentRow: {
+    display: "grid",
+    gridTemplateColumns: "18px minmax(0, 1fr)",
+    alignItems: "start",
+    gap: 10,
+    color: "rgba(244,229,191,0.76)",
+    fontSize: 12,
+    lineHeight: 1.35,
+    fontWeight: 700,
+  },
+
+  legalConsentCheckbox: {
+    width: 16,
+    height: 16,
+    margin: "2px 0 0",
+    accentColor: "#c49b4a",
+  },
+
+  legalLinks: {
+    display: "inline-flex",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 0,
+    color: "rgba(244,229,191,0.72)",
+    fontSize: 12,
+    fontWeight: 800,
+    lineHeight: 1.4,
+  },
+
+  legalLinksCompact: {
+    color: "rgba(244,229,191,0.76)",
+    fontSize: 12,
+    fontWeight: 800,
+    lineHeight: 1.35,
+  },
+
+  legalLink: {
+    color: "rgba(255, 232, 174, 0.86)",
+    textDecoration: "none",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    pointerEvents: "auto",
+  },
+
+  legalLinkCompact: {
+    color: "#ffe3a4",
+    textDecoration: "underline",
+    textUnderlineOffset: 2,
+  },
+
+  legalLinksSeparator: {
+    color: "rgba(244,229,191,0.42)",
   },
 
   guestEntryLabel: {
@@ -3806,6 +4364,200 @@ const styles: Record<string, CSSProperties> = {
     padding: "2px 24px 4px",
     overflowY: "auto",
     scrollbarWidth: "none",
+  },
+
+  mainMenuLayer: {
+    paddingBottom: 44,
+  },
+
+  shopLayer: {
+    justifyContent: "flex-start",
+    maxWidth: 1180,
+    paddingTop: 58,
+    gap: 14,
+    overflowY: "auto",
+    scrollbarWidth: "none",
+  },
+
+  shopHeader: {
+    position: "relative",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    minHeight: 72,
+    textAlign: "center",
+  },
+
+  shopBackButton: {
+    position: "absolute",
+    right: 0,
+    top: 10,
+    width: 132,
+    padding: "11px 18px 13px",
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    backgroundImage: `url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    color: "#fff0bd",
+    cursor: "pointer",
+    fontWeight: 1000,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84)",
+  },
+
+  shopSubtitle: {
+    margin: "6px 0 0",
+    color: "rgba(238, 224, 190, 0.84)",
+    fontSize: 14,
+    fontWeight: 800,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+
+  shopBalanceRow: {
+    alignSelf: "center",
+    minWidth: 520,
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr 1.6fr",
+    alignItems: "center",
+    gap: 14,
+    padding: "10px 18px",
+    background:
+      "linear-gradient(180deg, rgba(29, 34, 33, 0.78), rgba(10, 13, 13, 0.84))",
+    color: "#f8efd9",
+    boxShadow:
+      "0 12px 28px rgba(0,0,0,0.38), inset 0 0 0 1px rgba(214, 173, 83, 0.18)",
+    fontSize: 13,
+    fontWeight: 900,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+
+  shopBalanceIcon: {
+    width: 22,
+    height: 22,
+    objectFit: "contain",
+    marginRight: 7,
+    verticalAlign: "middle",
+    filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.85))",
+  },
+
+  shopGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 18,
+  },
+
+  shopSection: {
+    padding: 18,
+    background:
+      "linear-gradient(180deg, rgba(31, 35, 32, 0.82), rgba(9, 12, 11, 0.88))",
+    boxShadow:
+      "0 18px 40px rgba(0,0,0,0.42), inset 0 0 0 1px rgba(224, 190, 104, 0.18)",
+  },
+
+  shopSectionTitle: {
+    margin: "0 0 14px",
+    color: "var(--brass-400)",
+    fontFamily: "var(--font-display)",
+    fontSize: 22,
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+  },
+
+  shopOfferGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 12,
+  },
+
+  shopOfferCard: {
+    minHeight: 132,
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    padding: "14px 12px",
+    border: "1px solid rgba(214, 173, 83, 0.25)",
+    background:
+      "radial-gradient(circle at center, rgba(179, 137, 53, 0.22), transparent 68%), linear-gradient(180deg, rgba(36, 38, 35, 0.92), rgba(15, 16, 15, 0.96))",
+    color: "#fff0bd",
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 900,
+    letterSpacing: 0.4,
+    textAlign: "center",
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84)",
+    boxShadow: "0 12px 24px rgba(0,0,0,0.3)",
+  },
+
+  shopOfferCardDisabled: {
+    opacity: 0.52,
+    cursor: "not-allowed",
+    filter: "grayscale(0.42)",
+  },
+
+  shopOfferIcon: {
+    width: 48,
+    height: 48,
+    objectFit: "contain",
+    filter: "drop-shadow(0 4px 5px rgba(0,0,0,0.82))",
+  },
+
+  shopRubPrice: {
+    color: "#f8efd9",
+    fontFamily: "var(--font-display)",
+    fontSize: 21,
+    fontWeight: 700,
+    letterSpacing: "0.04em",
+    textShadow: "0 2px 0 rgba(0,0,0,0.92)",
+  },
+
+  shopPremiumPrice: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    color: "#fce7a9",
+  },
+
+  shopPremiumPriceIcon: {
+    width: 20,
+    height: 20,
+    objectFit: "contain",
+    filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.85))",
+  },
+
+  shopPaymentNote: {
+    display: "grid",
+    gap: 6,
+    padding: "12px 16px",
+    background: "rgba(8, 11, 10, 0.62)",
+    color: "rgba(244, 232, 204, 0.84)",
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1.35,
+    boxShadow: "inset 0 0 0 1px rgba(224, 190, 104, 0.12)",
+  },
+
+  shopStatusMessage: {
+    alignSelf: "center",
+    maxWidth: 720,
+    padding: "10px 16px",
+    background: "rgba(19, 24, 22, 0.82)",
+    color: "#fff0bd",
+    fontSize: 13,
+    fontWeight: 900,
+    textAlign: "center",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84)",
+    boxShadow: "inset 0 0 0 1px rgba(224, 190, 104, 0.2)",
   },
 
   header: {
@@ -4711,6 +5463,20 @@ const styles: Record<string, CSSProperties> = {
     textTransform: "uppercase",
     textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.22)",
     boxShadow: "none",
+  },
+
+  mainLegalFooter: {
+    position: "fixed",
+    left: 0,
+    right: 0,
+    bottom: 10,
+    zIndex: 7,
+    pointerEvents: "none",
+    display: "flex",
+    justifyContent: "center",
+    padding: "0 16px",
+    textAlign: "center",
+    textShadow: "0 2px 8px rgba(0,0,0,0.82)",
   },
 
   backButton: {

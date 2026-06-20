@@ -6,8 +6,12 @@ type PlayerAccount = {
   userId: string;
   username: string;
   usernameKey: string;
+  email: string;
+  emailKey: string;
   passwordHash: string;
   salt: string;
+  legalAcceptedAt: number;
+  legalVersion: string;
   createdAt: number;
   lastLoginAt: number;
 };
@@ -21,6 +25,8 @@ const ACCOUNT_DB_PATH = resolveWritableDbPath(
 );
 const PASSWORD_HASH_BYTES = 64;
 const USERNAME_PATTERN = /^[A-Za-z0-9_-]{3,14}$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const LEGAL_VERSION = "2026-06-20";
 
 console.log(`Player accounts database path: ${ACCOUNT_DB_PATH}`);
 
@@ -79,6 +85,23 @@ function validatePassword(password: string) {
   }
 }
 
+function validateEmail(email: string): { email: string; key: string } {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (
+    normalizedEmail.length < 5 ||
+    normalizedEmail.length > 254 ||
+    !EMAIL_PATTERN.test(normalizedEmail)
+  ) {
+    throw new Error("Укажите корректный e-mail");
+  }
+
+  return {
+    email: normalizedEmail,
+    key: normalizedEmail,
+  };
+}
+
 function hashPassword(password: string, salt: string): string {
   return scryptSync(password, salt, PASSWORD_HASH_BYTES).toString("hex");
 }
@@ -94,13 +117,31 @@ function verifyPassword(password: string, account: PlayerAccount): boolean {
 }
 
 export class PlayerAccountManager {
-  register(username: string, password: string): PlayerAccount {
+  register({
+    username,
+    password,
+    email,
+    legalAccepted,
+  }: {
+    username: string;
+    password: string;
+    email: string;
+    legalAccepted: boolean;
+  }): PlayerAccount {
     const validatedUsername = validateUsername(username);
+    const validatedEmail = validateEmail(email);
     validatePassword(password);
+
+    if (!legalAccepted) {
+      throw new Error("Необходимо принять пользовательское соглашение, оферту и политику конфиденциальности");
+    }
 
     const db = readDb();
     if (db[validatedUsername.key]) {
       throw new Error("Такой логин уже занят");
+    }
+    if (Object.values(db).some((account) => account.emailKey === validatedEmail.key)) {
+      throw new Error("Такой e-mail уже используется");
     }
 
     const now = Date.now();
@@ -109,8 +150,12 @@ export class PlayerAccountManager {
       userId: `user:${validatedUsername.key}`,
       username: validatedUsername.username,
       usernameKey: validatedUsername.key,
+      email: validatedEmail.email,
+      emailKey: validatedEmail.key,
       passwordHash: hashPassword(password, salt),
       salt,
+      legalAcceptedAt: now,
+      legalVersion: LEGAL_VERSION,
       createdAt: now,
       lastLoginAt: now,
     };

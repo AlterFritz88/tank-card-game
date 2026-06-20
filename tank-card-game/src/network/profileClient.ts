@@ -81,6 +81,12 @@ type ProfileClientMessage =
       cardId: string;
     }
   | {
+      type: "PURCHASE_PREMIUM_DAYS";
+      requestId: string;
+      playerId: string;
+      days: number;
+    }
+  | {
       type: "CLAIM_CAMPAIGN_REWARD";
       requestId: string;
       playerId: string;
@@ -102,7 +108,9 @@ type ProfileClientMessage =
       type: "REGISTER_ACCOUNT";
       requestId: string;
       username: string;
+      email: string;
       password: string;
+      legalAccepted: boolean;
       guestPlayerId?: string;
       mergeGuestProgress?: boolean;
     }
@@ -224,6 +232,10 @@ const PROFILE_SERVER_URL =
   profileImportMetaEnv.VITE_PROFILE_SERVER_URL ??
   profileImportMetaEnv.VITE_PVP_SERVER_URL ??
   getDefaultWebSocketUrl();
+const PROFILE_HTTP_SERVER_URL = PROFILE_SERVER_URL.replace(/^wss:/, "https:").replace(
+  /^ws:/,
+  "http:"
+);
 const PROFILE_REQUEST_TIMEOUT_MS = 15_000;
 const SESSION_INSTANCE_STORAGE_KEY = "tank-card-game:session-instance-id";
 
@@ -233,6 +245,82 @@ function createRequestId(): string {
   }
 
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+export type GoldProductId = "gold-100" | "gold-500" | "gold-1500";
+
+export type GoldProductCatalogItem = {
+  id: GoldProductId;
+  goldTracks: number;
+  amountRub: number | null;
+};
+
+export async function getShopCatalog(): Promise<{
+  goldProducts: GoldProductCatalogItem[];
+}> {
+  const response = await fetch(`${PROFILE_HTTP_SERVER_URL}/api/shop/catalog`, {
+    method: "GET",
+  });
+  const result = (await response.json()) as
+    | {
+        ok: true;
+        goldProducts: GoldProductCatalogItem[];
+      }
+    | { ok: false; message?: string };
+
+  if (!response.ok || !result.ok) {
+    throw new Error(
+      "message" in result && result.message
+        ? result.message
+        : "Не удалось загрузить каталог магазина"
+    );
+  }
+
+  return {
+    goldProducts: result.goldProducts,
+  };
+}
+
+export async function createGoldPayment(
+  playerId: string,
+  productId: GoldProductId
+): Promise<{
+  paymentId: string;
+  confirmationUrl: string;
+  goldTracks: number;
+  amountRub: number;
+}> {
+  const response = await fetch(`${PROFILE_HTTP_SERVER_URL}/api/shop/gold-payment`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ playerId, productId }),
+  });
+  const result = (await response.json()) as
+    | {
+        ok: true;
+        paymentId: string;
+        confirmationUrl: string;
+        goldTracks: number;
+        amountRub: number;
+      }
+    | { ok: false; message?: string };
+
+  if (!response.ok || !result.ok) {
+    throw new Error(
+      "message" in result && result.message
+        ? result.message
+        : "Не удалось создать платеж"
+    );
+  }
+
+  return {
+    paymentId: result.paymentId,
+    confirmationUrl: result.confirmationUrl,
+    goldTracks: result.goldTracks,
+    amountRub: result.amountRub,
+  };
 }
 
 // Stable per-tab identifier for the single-session lock. Kept in sessionStorage
@@ -480,6 +568,20 @@ class ProfileClient {
     return response.profile;
   }
 
+  async purchasePremiumDays(
+    playerId: string,
+    days: number
+  ): Promise<PlayerProgress> {
+    const response = await this.requestProfileUpdate({
+      type: "PURCHASE_PREMIUM_DAYS",
+      requestId: createRequestId(),
+      playerId,
+      days,
+    });
+
+    return response.profile;
+  }
+
   async claimCampaignReward(
     playerId: string,
     rewardId: string
@@ -580,7 +682,9 @@ class ProfileClient {
 
   async registerAccount(input: {
     username: string;
+    email: string;
     password: string;
+    legalAccepted: boolean;
     guestPlayerId?: string;
     mergeGuestProgress?: boolean;
   }): Promise<AuthResult> {

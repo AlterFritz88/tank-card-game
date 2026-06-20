@@ -22,6 +22,7 @@ export type HeadquartersId =
   | "polish_army_lodz"
   | "polish_army_prusy"
   | "polish_warsaw_defense"
+  | "lavrinenko_tank_brigade"
   | "first_guards_tank_brigade"
   | "panfilov_division"
   | "german_4_panzer"
@@ -101,6 +102,11 @@ export type HeadquartersAbility = {
    * reduced by this much (never below zero damage).
    */
   stationaryTankHpBonus?: number;
+  /**
+   * Attack bonus for own tanks that HAVE moved this turn ("armored momentum" —
+   * the mirror of the dug-in ambush bonus). Rewards charging on the move.
+   */
+  movedTankAttackBonus?: number;
   /** Light units enter the battlefield with blitz. */
   lightUnitsBlitz?: boolean;
   /** Extra headquarters damage against already damaged enemy units. */
@@ -166,6 +172,12 @@ export type TankCard = {
      * redirected into this unit instead.
      */
     lightScreen?: boolean;
+    /**
+     * While this unit is alive on the battlefield, every friendly battlefield
+     * tank takes this much less damage from each incoming strike (a command
+     * tank coordinating the armored group). Does not stack with itself.
+     */
+    tankDefenseAura?: number;
   };
 };
 

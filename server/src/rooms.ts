@@ -412,6 +412,9 @@ export class RoomManager {
       case "PURCHASE_PREMIUM_CARD":
         this.purchasePremiumCard(socket, message);
         break;
+      case "PURCHASE_PREMIUM_DAYS":
+        this.purchasePremiumDays(socket, message);
+        break;
       case "CLAIM_CAMPAIGN_REWARD":
         this.claimCampaignReward(socket, message);
         break;
@@ -839,6 +842,24 @@ export class RoomManager {
     }
   }
 
+  private purchasePremiumDays(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "PURCHASE_PREMIUM_DAYS" }>
+  ) {
+    try {
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile: this.profiles.purchasePremiumDays(
+          message.playerId,
+          message.days
+        ),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
   private claimCampaignReward(
     socket: WebSocket,
     message: Extract<PvpClientMessage, { type: "CLAIM_CAMPAIGN_REWARD" }>
@@ -892,7 +913,12 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "REGISTER_ACCOUNT" }>
   ) {
     try {
-      const account = this.accounts.register(message.username, message.password);
+      const account = this.accounts.register({
+        username: message.username,
+        password: message.password,
+        email: message.email,
+        legalAccepted: message.legalAccepted,
+      });
       const profile =
         message.mergeGuestProgress && message.guestPlayerId
           ? this.profiles.mergeGuestProgress(account.userId, message.guestPlayerId)

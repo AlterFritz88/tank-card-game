@@ -7,6 +7,7 @@ export type MainMenuView =
   | "missions"
   | "profile"
   | "research"
+  | "shop"
   | "deckBuilder";
 
 export type MatchEndReason =

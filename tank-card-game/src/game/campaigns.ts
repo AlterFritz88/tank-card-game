@@ -217,7 +217,7 @@ export const CAMPAIGNS: Campaign[] = [
     title: "Лавриненко. 52 за два месяца",
     description:
       "Осень 1941 года. Проведи лучшего танкового аса Второй мировой и его 4-ю танковую бригаду от засад под Мценском до обороны Москвы. Доктрина одна: заманить и бить из засады.",
-    playerHeadquartersId: "soviet_tank_brigade",
+    playerHeadquartersId: "lavrinenko_tank_brigade",
     playerDeckId: "lavrinenko_brigade_campaign",
     missions: [
       {
@@ -351,6 +351,11 @@ export type CampaignCompletionReward = {
   missionIds: string[];
   cardId: string;
   copies: number;
+  /**
+   * Optional headquarters unlocked alongside the card reward. Granted by the
+   * server when the reward is claimed, which makes it selectable in PvE/PvP.
+   */
+  unlockHeadquartersId?: HeadquartersId;
 };
 
 export const CAMPAIGN_COMPLETION_REWARDS: CampaignCompletionReward[] = [
@@ -372,7 +377,7 @@ export const CAMPAIGN_COMPLETION_REWARDS: CampaignCompletionReward[] = [
     cardId: "t34_1941",
     copies: 2,
   },
-  // За удержание Волоколамского рубежа — дальнобойная поддержка засад.
+  // За удержание Волоколамского рубежа — мощная ПТ-САУ для засад.
   {
     id: "lavrinenko_volokolamsk",
     missionIds: [
@@ -384,7 +389,7 @@ export const CAMPAIGN_COMPLETION_REWARDS: CampaignCompletionReward[] = [
       "lavrinenko-6",
       "lavrinenko-7",
     ],
-    cardId: "su_122",
+    cardId: "zis_30",
     copies: 2,
   },
   // За прохождение всей кампании — легендарный личный Т-34 аса (уникум).
@@ -404,6 +409,8 @@ export const CAMPAIGN_COMPLETION_REWARDS: CampaignCompletionReward[] = [
     ],
     cardId: "t34_lavrinenko",
     copies: 1,
+    // Пройдя кампанию, игрок открывает штаб 4-й танковой бригады для PvE/PvP.
+    unlockHeadquartersId: "lavrinenko_tank_brigade",
   },
 ];
 

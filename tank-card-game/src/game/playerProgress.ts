@@ -20,7 +20,12 @@ import {
   setCurrentUserId,
   switchToGuestUser,
 } from "./playerIdentity";
-import { profileClient } from "../network/profileClient";
+import {
+  createGoldPayment,
+  getShopCatalog,
+  profileClient,
+  type GoldProductId,
+} from "../network/profileClient";
 import type {
   ClientBattleState,
   HeadquartersId,
@@ -62,6 +67,7 @@ export type PendingPlayerRewardClaim =
 export type PlayerProfile = {
   nickname: string;
   accountType: PlayerAccountType;
+  premiumUntil: number | null;
   tutorialCompleted: boolean;
   favoriteHeadquartersId: HeadquartersId | null;
   battleStats: PlayerBattleStats;
@@ -88,6 +94,7 @@ const PLAYER_NICKNAME_STORAGE_KEY = "panzershrek.playerNickname";
 const PLAYER_ACCOUNT_TYPE_STORAGE_KEY = "panzershrek.accountType";
 const FAVORITE_HEADQUARTERS_STORAGE_KEY = "panzershrek.favoriteHeadquartersId";
 const STARTING_IRON_TRACKS = 0;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
 export const PLAYER_NICKNAME_MAX_LENGTH = 14;
@@ -520,6 +527,7 @@ export function createInitialPlayerProgress(): PlayerProgress {
       readLegacyString(PLAYER_ACCOUNT_TYPE_STORAGE_KEY) === "premium"
         ? "premium"
         : "base",
+    premiumUntil: null,
     tutorialCompleted: false,
     favoriteHeadquartersId: getValidHeadquartersId(
       readLegacyString(FAVORITE_HEADQUARTERS_STORAGE_KEY)
@@ -604,13 +612,22 @@ function normalizePlayerProgress(
           ...progress.ownedCardCopies,
         })
       : fallback.ownedCardCopies;
+  const premiumUntil =
+    typeof progress.premiumUntil === "number" &&
+    Number.isFinite(progress.premiumUntil) &&
+    progress.premiumUntil > Date.now()
+      ? Math.floor(progress.premiumUntil)
+      : null;
+  const hasLegacyPremium =
+    progress.accountType === "premium" && progress.premiumUntil == null;
 
   return {
     nickname:
       typeof progress.nickname === "string"
         ? normalizePlayerNickname(progress.nickname, fallback.nickname)
         : fallback.nickname,
-    accountType: progress.accountType === "premium" ? "premium" : "base",
+    accountType: premiumUntil || hasLegacyPremium ? "premium" : "base",
+    premiumUntil,
     tutorialCompleted:
       typeof progress.tutorialCompleted === "boolean"
         ? progress.tutorialCompleted
@@ -655,6 +672,40 @@ function normalizePlayerProgress(
     pendingRewardClaims: Array.isArray(progress.pendingRewardClaims)
       ? normalizePendingRewardClaims(progress.pendingRewardClaims)
       : fallback.pendingRewardClaims,
+  };
+}
+
+export function isPremiumAccountActive(
+  progress: Pick<PlayerProgress, "accountType" | "premiumUntil">,
+  now = Date.now()
+): boolean {
+  if (
+    typeof progress.premiumUntil === "number" &&
+    Number.isFinite(progress.premiumUntil)
+  ) {
+    return progress.premiumUntil > now;
+  }
+
+  return progress.accountType === "premium";
+}
+
+export function addPremiumDaysToProgress(
+  progress: PlayerProgress,
+  days: number,
+  now = Date.now()
+): PlayerProgress {
+  const safeDays = getPositiveInteger(days);
+  const currentUntil =
+    typeof progress.premiumUntil === "number" &&
+    Number.isFinite(progress.premiumUntil)
+      ? progress.premiumUntil
+      : 0;
+  const startsAt = Math.max(now, currentUntil);
+
+  return {
+    ...progress,
+    accountType: "premium",
+    premiumUntil: startsAt + safeDays * DAY_MS,
   };
 }
 
@@ -782,7 +833,9 @@ export async function setPlayerNicknameOnServer(
 
 export async function registerPlayerAccount(input: {
   username: string;
+  email: string;
   password: string;
+  legalAccepted: boolean;
   mergeGuestProgress?: boolean;
 }): Promise<PlayerProgress> {
   const profileClient = await getProfileClient();
@@ -1057,6 +1110,27 @@ export async function purchasePremiumCardOnServer(
     cardId
   );
   return saveServerPlayerProgress(profile);
+}
+
+export async function purchasePremiumDaysOnServer(
+  days: number
+): Promise<PlayerProgress> {
+  const profileClient = await getProfileClient();
+  const profile = await profileClient.purchasePremiumDays(
+    getCurrentUserId(),
+    days
+  );
+  return saveServerPlayerProgress(profile);
+}
+
+export async function createGoldTracksPaymentOnServer(
+  productId: GoldProductId
+) {
+  return createGoldPayment(getCurrentUserId(), productId);
+}
+
+export async function loadShopCatalogFromServer() {
+  return getShopCatalog();
 }
 
 /**

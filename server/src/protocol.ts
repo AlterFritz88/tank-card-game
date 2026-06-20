@@ -118,6 +118,12 @@ export type PvpClientMessage =
       cardId: string;
     }
   | {
+      type: "PURCHASE_PREMIUM_DAYS";
+      requestId: string;
+      playerId: string;
+      days: number;
+    }
+  | {
       type: "CLAIM_CAMPAIGN_REWARD";
       requestId: string;
       playerId: string;
@@ -139,7 +145,9 @@ export type PvpClientMessage =
       type: "REGISTER_ACCOUNT";
       requestId: string;
       username: string;
+      email: string;
       password: string;
+      legalAccepted: boolean;
       guestPlayerId?: string;
       mergeGuestProgress?: boolean;
     }

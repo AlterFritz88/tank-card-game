@@ -10,6 +10,7 @@ import { getHeadquartersDefinition, HEADQUARTERS } from "../../tank-card-game/sr
 import type { GameMode, MatchEndReason } from "../../tank-card-game/src/game/modes";
 import {
   canSpendResearchExperience,
+  addPremiumDaysToProgress,
   createInitialPlayerProgress,
   isHeadquartersFullyResearched,
   spendResearchExperience,
@@ -51,6 +52,12 @@ const PROFILE_DB_PATH = resolveWritableDbPath(
   "Player profiles"
 );
 const CARD_COPY_LIMIT = 4;
+const PREMIUM_DAY_OFFERS: Record<number, number> = {
+  1: 99,
+  5: 470,
+  21: 1500,
+  50: 4199,
+};
 
 console.log(`Player profiles database path: ${PROFILE_DB_PATH}`);
 const CUSTOM_DECK_CARD_LIMIT = 40;
@@ -361,11 +368,21 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
     }
   );
 
+  const premiumUntil =
+    typeof profile.premiumUntil === "number" &&
+    Number.isFinite(profile.premiumUntil) &&
+    profile.premiumUntil > Date.now()
+      ? Math.floor(profile.premiumUntil)
+      : null;
+  const hasLegacyPremium =
+    profile.accountType === "premium" && profile.premiumUntil == null;
+
   return {
     ...fallback,
     ...profile,
     nickname: sanitizeNickname(profile.nickname, fallback.nickname),
-    accountType: profile.accountType === "premium" ? "premium" : "base",
+    accountType: premiumUntil || hasLegacyPremium ? "premium" : "base",
+    premiumUntil,
     tutorialCompleted:
       typeof profile.tutorialCompleted === "boolean"
         ? profile.tutorialCompleted
@@ -858,6 +875,30 @@ function purchasePremiumCardOnProfile(
   };
 }
 
+function purchasePremiumDaysOnProfile(
+  progress: PlayerProgress,
+  days: number
+): PlayerProgress {
+  const safeDays = getPositiveInteger(days);
+  const goldCost = PREMIUM_DAY_OFFERS[safeDays];
+
+  if (!goldCost) {
+    throw new Error("Такой срок премиума недоступен");
+  }
+
+  if (progress.goldTracks < goldCost) {
+    throw new Error("Не хватает золотых траков");
+  }
+
+  return addPremiumDaysToProgress(
+    {
+      ...progress,
+      goldTracks: progress.goldTracks - goldCost,
+    },
+    safeDays
+  );
+}
+
 function claimCampaignRewardOnProfile(
   progress: PlayerProgress,
   rewardId: string
@@ -880,6 +921,14 @@ function claimCampaignRewardOnProfile(
   const ownedCopies = progress.ownedCardCopies[cardId] ?? 0;
   const nextCopies = Math.min(CARD_COPY_LIMIT, ownedCopies + reward.copies);
 
+  // Optional headquarters unlock (e.g. completing the Lavrinenko campaign makes
+  // the 4th Tank Brigade selectable in PvE/PvP).
+  const unlockHeadquartersId =
+    reward.unlockHeadquartersId &&
+    HEADQUARTERS[reward.unlockHeadquartersId as HeadquartersId]
+      ? (reward.unlockHeadquartersId as HeadquartersId)
+      : null;
+
   return {
     ...progress,
     researchedCardIds: Array.from(
@@ -890,6 +939,16 @@ function claimCampaignRewardOnProfile(
       ...progress.ownedCardCopies,
       [cardId]: nextCopies,
     },
+    researchedHeadquartersIds: unlockHeadquartersId
+      ? Array.from(
+          new Set([...progress.researchedHeadquartersIds, unlockHeadquartersId])
+        )
+      : progress.researchedHeadquartersIds,
+    unlockedHeadquartersIds: unlockHeadquartersId
+      ? Array.from(
+          new Set([...progress.unlockedHeadquartersIds, unlockHeadquartersId])
+        )
+      : progress.unlockedHeadquartersIds,
     claimedBattleRewardIds: [claimKey, ...progress.claimedBattleRewardIds].slice(
       0,
       500
@@ -1222,6 +1281,41 @@ export class PlayerProfileManager {
       playerId,
       purchasePremiumCardOnProfile(profile, cardId)
     );
+  }
+
+  purchasePremiumDays(playerId: string, days: number): PlayerProgress {
+    const profile = this.getProfile(playerId);
+    return this.persistProfile(
+      playerId,
+      purchasePremiumDaysOnProfile(profile, days)
+    );
+  }
+
+  creditGoldTracks(
+    playerId: string,
+    goldTracks: number,
+    claimKey: string
+  ): PlayerProgress {
+    const profile = this.getProfile(playerId);
+    const safeGoldTracks = getPositiveInteger(goldTracks);
+    const safeClaimKey = claimKey.trim();
+
+    if (!safeClaimKey) {
+      throw new Error("Не указан ключ начисления золота");
+    }
+
+    if (profile.claimedBattleRewardIds.includes(safeClaimKey)) {
+      return profile;
+    }
+
+    return this.persistProfile(playerId, {
+      ...profile,
+      goldTracks: profile.goldTracks + safeGoldTracks,
+      claimedBattleRewardIds: [
+        safeClaimKey,
+        ...profile.claimedBattleRewardIds,
+      ].slice(0, 500),
+    });
   }
 
   claimCampaignReward(playerId: string, rewardId: string): PlayerProgress {

@@ -103,6 +103,14 @@ function getAbilityKeywords(card: TankCard): CardKeyword[] {
     });
   }
 
+  if (card.combatAbilities?.tankDefenseAura) {
+    keywords.push({
+      id: "tankDefenseAura",
+      title: "КОМАНДНАЯ МАШИНА",
+      body: `Пока этот юнит в строю, каждый ваш танк на поле получает −${card.combatAbilities.tankDefenseAura} к входящему урону от каждого удара.`,
+    });
+  }
+
   const draw = card.onPlayEffects?.draw ?? 0;
   const hqProtection = card.onPlayEffects?.hqProtection ?? 0;
 
@@ -249,6 +257,14 @@ function getHeadquartersAbilityKeyword(
       id: "hq-stationary",
       title,
       body: `Ваши танки, не двигавшиеся в этот ход, наносят на +${ability.stationaryTankAttackBonus} урона больше.${toughness}`,
+    };
+  }
+
+  if (ability.movedTankAttackBonus) {
+    return {
+      id: "hq-moved",
+      title,
+      body: `Ваши танки, продвинувшиеся в этот ход, наносят на +${ability.movedTankAttackBonus} урона больше — удар на острие наступления.`,
     };
   }
 

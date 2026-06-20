@@ -1222,6 +1222,7 @@
   "user:sashka": {
     "nickname": "Sashka",
     "accountType": "base",
+    "premiumUntil": null,
     "tutorialCompleted": true,
     "favoriteHeadquartersId": null,
     "battleStats": {

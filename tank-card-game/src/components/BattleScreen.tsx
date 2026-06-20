@@ -774,6 +774,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const stageScale = useStageScale();
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
+  const ignorePreviewBackdropUntilRef = useRef(0);
   // Where the finger first touched, so micro-jitter while holding does not abort
   // the pending peek (only a deliberate drag past the tolerance does).
   const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
@@ -928,10 +929,18 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     setCardPreview(null);
   }
 
+  function handleCardPreviewBackdropMouseDown() {
+    if (Date.now() < ignorePreviewBackdropUntilRef.current) {
+      return;
+    }
+
+    closeCardPreview();
+  }
+
   // На телефоне нет правой кнопки мыши, поэтому увеличенный просмотр карточки
-  // открывается долгим нажатием (touch) и держится, пока палец на экране —
-  // как только палец отпускают, превью закрывается. Долгое нажатие подавляет
-  // обычный клик, чтобы карта не выбиралась/не атаковала при открытии превью.
+  // открывается долгим нажатием (touch) и остаётся на экране, пока игрок не
+  // закроет его тапом по фону или крестиком. Долгое нажатие подавляет обычный
+  // клик, чтобы карта не выбиралась/не атаковала при открытии превью.
   function longPressPreviewHandlers(preview: CardPreview) {
     return {
       onTouchStart: (event: React.TouchEvent) => {
@@ -947,6 +956,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         clearLongPressTimer();
         longPressTimerRef.current = window.setTimeout(() => {
           longPressTriggeredRef.current = true;
+          ignorePreviewBackdropUntilRef.current = Date.now() + 600;
           setCardPreview(preview);
         }, CARD_PREVIEW_LONG_PRESS_MS);
       },
@@ -965,15 +975,16 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           clearLongPressTimer();
         }
       },
-      // Releasing the finger closes the peek and swallows the trailing click so
-      // the card is not selected/attacked when the press was only a peek.
+      // Releasing the finger keeps the peek open and swallows the trailing click
+      // so the card is not selected/attacked when the press was only a peek.
       onTouchEnd: (event: React.TouchEvent) => {
         clearLongPressTimer();
         longPressOriginRef.current = null;
         if (longPressTriggeredRef.current) {
           event.preventDefault();
-          longPressTriggeredRef.current = false;
-          closeCardPreview();
+          window.setTimeout(() => {
+            longPressTriggeredRef.current = false;
+          }, 350);
         }
       },
       // A browser-initiated cancel (OS long-press/callout, pointer capture
@@ -4888,7 +4899,7 @@ function renderEnemyDeckWithTimer() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.16 }}
-              onMouseDown={closeCardPreview}
+              onMouseDown={handleCardPreviewBackdropMouseDown}
               onContextMenu={(event) => {
                 event.preventDefault();
                 closeCardPreview();

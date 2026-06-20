@@ -437,6 +437,29 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
 
   // === Кампания «Лавриненко» — штабы игрока ===
 
+  lavrinenko_tank_brigade: {
+    id: "lavrinenko_tank_brigade",
+    title: "4-я танковая",
+    subtitle: "4-я танковая бригада · экипаж Лавриненко",
+    type: "Танковый штаб",
+    description:
+      "Танковая засада: танк, не двигавшийся в этом ходу, бьёт на +2 урона и крепче держит удар (−1 к входящему урону).",
+    ability: {
+      name: "Танковая засада",
+      stationaryTankAttackBonus: 2,
+      stationaryTankHpBonus: 1,
+    },
+    faction: "Красная армия",
+    nation: "ussr",
+    hp: 22,
+    attack: 1,
+    range: 99,
+    fuelGeneration: 4,
+    level: 4,
+    defaultDeckId: "lavrinenko_tank_brigade_default",
+    availableInMainMenu: false,
+  },
+
   first_guards_tank_brigade: {
     id: "first_guards_tank_brigade",
     title: "1-я гв. танковая",
@@ -491,10 +514,10 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "4-я танковая дивизия (Гудериан)",
     type: "Танковая дивизия",
     description:
-      "Танковый клин: первый танк, разыгранный за ход, получает «Блиц».",
+      "Танковый натиск: танк, продвинувшийся в этом ходу, наносит +1 урон — дивизия бьёт на острие наступления.",
     ability: {
-      name: "Танковый клин",
-      firstTankBlitz: true,
+      name: "Танковый натиск",
+      movedTankAttackBonus: 1,
     },
     faction: "Wehrmacht",
     nation: "germany",
@@ -601,10 +624,10 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "4-я танковая дивизия — зимний некомплект",
     type: "Танковая дивизия",
     description:
-      "Замёрзшее снабжение: морозы остановили моторы и заморозили горючее — генерация топлива резко снижена.",
+      "Танковый натиск, скованный морозом: танк на ходу всё ещё бьёт +1, но замёрзшее горючее резко срезало снабжение.",
     ability: {
-      name: "Танковый клин",
-      firstTankBlitz: true,
+      name: "Танковый натиск",
+      movedTankAttackBonus: 1,
     },
     faction: "Wehrmacht",
     nation: "germany",

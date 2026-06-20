@@ -2382,9 +2382,10 @@ export const cards: TankCard[] = [
     hp: 5,
     range: 1,
     movement: 1,
-    fuelGeneration: 1,
+    fuelGeneration: 0,
     initiative: 3,
-    abilityText: "Упрощённый сталинградский Т-34. Дешёвый и массовый.",
+    abilityText:
+      "Упрощённый сталинградский Т-34. Дешёвый и массовый, но не даёт топлива.",
   },
   {
     id: "bt_7_command",
@@ -2400,9 +2401,10 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 5,
-    combatAbilities: { blitz: true },
+    combatAbilities: { tankDefenseAura: 1 },
     onPlayEffects: { draw: 1 },
-    abilityText: "Блиц и разведка: при выходе добирает карту и сразу идёт в бой.",
+    abilityText:
+      "Командная машина: при выходе добирает карту, а пока в строю — все ваши танки получают +1 к защите (−1 к каждому входящему удару).",
   },
   {
     id: "t60",
@@ -2420,6 +2422,23 @@ export const cards: TankCard[] = [
     initiative: 5,
     combatAbilities: { blitz: true },
     abilityText: "Массовый лёгкий танк 1941 года. Блиц — быстро занимает фланг.",
+  },
+  {
+    id: "zis_30",
+    name: "ЗИС-30",
+    nation: "ussr",
+    class: "td",
+    rarity: "uncommon",
+    cost: 3,
+    attack: 5,
+    armor: 0,
+    hp: 2,
+    range: 1,
+    movement: 1,
+    fuelGeneration: 0,
+    initiative: 3,
+    abilityText:
+      "57-мм ПТ-САУ на шасси «Комсомольца». Бьёт мощно из засады, но открыта и хрупка.",
   },
   {
     id: "zis_5_ammo",

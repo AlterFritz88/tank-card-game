@@ -4,10 +4,16 @@ import './index.css'
 import App from './App.tsx'
 import { GameStage } from './components/GameStage.tsx'
 
+const isLegalRoute = window.location.pathname.startsWith('/legal/')
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <GameStage>
+    {isLegalRoute ? (
       <App />
-    </GameStage>
+    ) : (
+      <GameStage>
+        <App />
+      </GameStage>
+    )}
   </StrictMode>,
 )

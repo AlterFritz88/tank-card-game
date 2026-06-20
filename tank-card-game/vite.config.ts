@@ -34,6 +34,12 @@ function rasterWebpFallback(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [rasterWebpFallback(), react()],
+  server: {
+    proxy: {
+      '/api': 'http://localhost:8787',
+      '/legal': 'http://localhost:8787',
+    },
+  },
   resolve: {
     dedupe: ['react', 'react-dom'],
   },

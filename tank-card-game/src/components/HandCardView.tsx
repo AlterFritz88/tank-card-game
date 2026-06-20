@@ -131,6 +131,7 @@ function StatTooltipTarget({
         isActive ? onHide(id) : onShow(id);
       }}
     >
+      <span style={styles.statTooltipHitArea} />
       {children}
       {isActive ? (
         <span
@@ -410,6 +411,7 @@ export function HandCardView({
           text={costTooltip}
           enabled={tooltipEnabled}
           position="bottom-right"
+          style={styles.fillStatTooltipTarget}
           onShow={showTooltip}
           onHide={hideTooltip}
         >
@@ -440,6 +442,7 @@ export function HandCardView({
             text={fuelTooltip}
             enabled={tooltipEnabled}
             position="bottom-right"
+            style={styles.fillStatTooltipTarget}
             onShow={showTooltip}
             onHide={hideTooltip}
           >
@@ -510,8 +513,8 @@ export function HandCardView({
             enabled={tooltipEnabled}
             position="right"
             style={{
-              width: scaled(34),
-              height: scaled(42),
+              width: scaled(20),
+              height: scaled(29),
               transform: `translate(${-7 * uiScale}px, ${-36 * uiScale}px)`,
             }}
             onShow={showTooltip}
@@ -863,8 +866,8 @@ const styles: Record<string, React.CSSProperties> = {
 
   statTooltipTarget: {
     position: "relative",
-    width: "100%",
-    height: "100%",
+    width: "max-content",
+    height: "max-content",
     margin: 0,
     padding: 0,
     border: "none",
@@ -877,6 +880,23 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "help",
     WebkitTapHighlightColor: "transparent",
     touchAction: "manipulation",
+  },
+
+  fillStatTooltipTarget: {
+    width: "100%",
+    height: "100%",
+  },
+
+  statTooltipHitArea: {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    zIndex: 1,
+    width: 82,
+    height: 82,
+    transform: "translate(-50%, -50%)",
+    background: "transparent",
+    pointerEvents: "auto",
   },
 
   statTooltipBubble: {

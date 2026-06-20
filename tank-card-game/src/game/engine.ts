@@ -968,16 +968,62 @@ function getStationaryTankDefenseBonus(
   return ability.stationaryTankHpBonus;
 }
 
+/**
+ * Armored momentum: own tanks that HAVE moved this turn strike harder — the
+ * aggressive mirror of the dug-in ambush bonus. Only rewards a unit attacking
+ * on its own turn (a defender's move counter is reset before it counterattacks).
+ */
+function getMovedTankAttackBonus(state: BattleState, unit: BoardUnit): number {
+  const ability = getAbility(state, unit.ownerId);
+
+  if (!ability?.movedTankAttackBonus) return 0;
+  if (!isBattlefieldUnit(unit)) return 0;
+  if (!isTankClassCard(getCard(unit.cardId))) return 0;
+  if (unit.moveCountThisTurn === 0) return 0;
+
+  return ability.movedTankAttackBonus;
+}
+
+/**
+ * Command-tank defense aura: while a friendly unit with `tankDefenseAura` is
+ * alive on the battlefield, every friendly battlefield tank soaks part of each
+ * incoming strike. The strongest aura on the field applies (it does not stack).
+ */
+function getTankDefenseAuraBonus(state: BattleState, unit: BoardUnit): number {
+  if (!isBattlefieldUnit(unit)) return 0;
+  if (!isTankClassCard(getCard(unit.cardId))) return 0;
+
+  let bestAura = 0;
+  for (const ally of state.units) {
+    if (ally.ownerId !== unit.ownerId) continue;
+    if (ally.currentHp <= 0) continue;
+    if (!isBattlefieldUnit(ally)) continue;
+
+    const aura = getCard(ally.cardId).combatAbilities?.tankDefenseAura ?? 0;
+    if (aura > bestAura) bestAura = aura;
+  }
+
+  return bestAura;
+}
+
 function getUnitCombatBonuses(
   state: BattleState,
   attacker: BoardUnit,
   target: BoardUnit
 ) {
   return {
-    attackerAttackBonus: getStationaryTankAttackBonus(state, attacker),
-    targetAttackBonus: getStationaryTankAttackBonus(state, target),
-    attackerDefenseBonus: getStationaryTankDefenseBonus(state, attacker),
-    targetDefenseBonus: getStationaryTankDefenseBonus(state, target),
+    attackerAttackBonus:
+      getStationaryTankAttackBonus(state, attacker) +
+      getMovedTankAttackBonus(state, attacker),
+    targetAttackBonus:
+      getStationaryTankAttackBonus(state, target) +
+      getMovedTankAttackBonus(state, target),
+    attackerDefenseBonus:
+      getStationaryTankDefenseBonus(state, attacker) +
+      getTankDefenseAuraBonus(state, attacker),
+    targetDefenseBonus:
+      getStationaryTankDefenseBonus(state, target) +
+      getTankDefenseAuraBonus(state, target),
   };
 }
 
@@ -1463,7 +1509,7 @@ function attack(state: BattleState, action: AttackAction) {
       if (combatBonuses.attackerAttackBonus > 0) {
         addLog(
           state,
-          `${getAbility(state, attacker.ownerId)?.name}: ${attackerCard.name} бьёт с позиции (+${combatBonuses.attackerAttackBonus} к атаке).`
+          `${getAbility(state, attacker.ownerId)?.name}: ${attackerCard.name} наносит усиленный удар (+${combatBonuses.attackerAttackBonus} к атаке).`
         );
       }
 

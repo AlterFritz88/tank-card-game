@@ -136,6 +136,8 @@ type BattleStore = {
   closeProfileMenu: () => void;
   openResearchMenu: () => void;
   closeResearchMenu: () => void;
+  openShopMenu: () => void;
+  closeShopMenu: () => void;
   openCampaignMenu: () => void;
   openCampaignMissions: (campaignId: string) => void;
   closeCampaignMissions: () => void;
@@ -1084,6 +1086,22 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   closeResearchMenu: () => {
+    set({
+      menuView: "main",
+      mode: "ai",
+      pvpError: null,
+    });
+  },
+
+  openShopMenu: () => {
+    set({
+      menuView: "shop",
+      mode: "ai",
+      pvpError: null,
+    });
+  },
+
+  closeShopMenu: () => {
     set({
       menuView: "main",
       mode: "ai",
