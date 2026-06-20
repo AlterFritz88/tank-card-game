@@ -4909,8 +4909,12 @@ function renderEnemyDeckWithTimer() {
               transition={{ duration: 0.16 }}
               onPointerDown={handleCardPreviewBackdropPointerDown}
               onContextMenu={(event) => {
+                // Swallow the OS long-press/context menu but do NOT close: the
+                // peek opens (our 420ms timer) while the finger is still down,
+                // so the native long-press `contextmenu` lands here on the
+                // backdrop a moment later — closing on it made the peek flash
+                // open then vanish. Dismissal is a fresh tap / Esc / × only.
                 event.preventDefault();
-                closeCardPreview();
               }}
             >
               {/* Static wrapper carrying the exact stage transform (uniform
@@ -6197,6 +6201,14 @@ destroyedCardEffect: {
     padding: 24,
     background: "rgba(0,0,0,0.5)",
     backdropFilter: "blur(4px)",
+    // The peek opens while the finger is still pressing, so this backdrop sits
+    // under the finger before the OS long-press fires. Suppress the native
+    // callout/selection/menu here too (the cells already do) so the long-press
+    // can't pop a context menu that would dismiss the peek the instant it opens.
+    touchAction: "none",
+    userSelect: "none",
+    WebkitUserSelect: "none",
+    WebkitTouchCallout: "none",
   },
 
   cardPreviewPanel: {
