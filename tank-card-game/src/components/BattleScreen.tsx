@@ -5780,7 +5780,7 @@ actionSideColumn: {
     flex: "0 0 auto",
     width: 164,
     height: 226,
-    marginTop: -35,
+    marginTop: -5,
   },
   cardsLeftInfo: {
     display: "none",
@@ -5809,7 +5809,7 @@ actionSideColumn: {
     alignItems: "stretch",
     gap: 5,
     transform: "translateX(-78px)",
-    marginTop: -55,
+    marginTop: -85,
   },
   enemyDeckCompact: {
     minHeight: 132,
@@ -5947,6 +5947,7 @@ turnCounterValue: {
     lineHeight: 1.12,
     textShadow: "0 1px 0 rgba(255,235,176,0.34)",
     boxShadow: "none",
+    marginTop: 58,
   },
 
   secondaryButton: {

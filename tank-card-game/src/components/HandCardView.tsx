@@ -1,3 +1,4 @@
+import { useState, type CSSProperties } from "react";
 import type React from "react";
 import { getHeadquartersDefinition } from "../game/headquarters";
 import {
@@ -68,6 +69,83 @@ type HandCardViewProps = {
   displayMode?: HandCardDisplayMode;
   previewScale?: number;
 };
+
+type StatTooltipId = "cost" | "fuel" | "class" | "attack" | "health";
+
+type StatTooltipPosition = "top-right" | "right" | "bottom-right";
+
+type StatTooltipProps = {
+  id: StatTooltipId;
+  activeTooltip: StatTooltipId | null;
+  text: string;
+  enabled: boolean;
+  position?: StatTooltipPosition;
+  style?: CSSProperties;
+  children: React.ReactNode;
+  onShow: (id: StatTooltipId) => void;
+  onHide: (id: StatTooltipId) => void;
+};
+
+function StatTooltipTarget({
+  id,
+  activeTooltip,
+  text,
+  enabled,
+  position = "right",
+  style,
+  children,
+  onShow,
+  onHide,
+}: StatTooltipProps) {
+  const isActive = enabled && activeTooltip === id;
+
+  if (!enabled) {
+    return (
+      <span
+        style={{
+          ...styles.statTooltipTarget,
+          ...style,
+          pointerEvents: "none",
+        }}
+      >
+        {children}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={text}
+      style={{
+        ...styles.statTooltipTarget,
+        ...style,
+      }}
+      onMouseEnter={() => onShow(id)}
+      onMouseLeave={() => onHide(id)}
+      onFocus={() => onShow(id)}
+      onBlur={() => onHide(id)}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        isActive ? onHide(id) : onShow(id);
+      }}
+    >
+      {children}
+      {isActive ? (
+        <span
+          style={{
+            ...styles.statTooltipBubble,
+            ...(position === "top-right" ? styles.statTooltipBubbleTopRight : {}),
+            ...(position === "bottom-right" ? styles.statTooltipBubbleBottomRight : {}),
+          }}
+        >
+          {text}
+        </span>
+      ) : null}
+    </button>
+  );
+}
 
 function getBoardClassIcon(cardClass: TankCard["class"], ownerId: PlayerId) {
   const isPlayer = ownerId === "player";
@@ -204,6 +282,7 @@ export function HandCardView({
   displayMode = "hand",
   previewScale,
 }: HandCardViewProps) {
+  const [activeTooltip, setActiveTooltip] = useState<StatTooltipId | null>(null);
   const isHeadquarters = Boolean(headquarters);
 
   if (!card && !headquarters) {
@@ -261,6 +340,20 @@ export function HandCardView({
   const abilityText = isHeadquarters
     ? headquartersDefinition?.description ?? "Командный пункт."
     : card!.abilityText || "Без особых свойств.";
+  const tooltipEnabled = isPreview;
+  const classTooltip = isHeadquarters
+    ? "Класс: штаб. Командная карта с прочностью, атакой и приростом топлива."
+    : `Класс: ${unitClass!.label}. Определяет роль юнита и его боевую механику.`;
+  const costTooltip = isHeadquarters
+    ? `Топливо штаба: +${fuelGenerationValue} к запасу в начале вашего хода.`
+    : `Стоимость: ${card!.cost} топлива нужно, чтобы вывести карту на поле.`;
+  const fuelTooltip = `Прирост топлива: +${fuelGenerationValue} к запасу в начале вашего хода.`;
+  const attackTooltip = `Атака: ${attackValue}. Столько урона карта наносит при ударе.`;
+  const healthTooltip = `Защита: ${hpValue}. Столько прочности осталось у карты.`;
+  const showTooltip = (id: StatTooltipId) => setActiveTooltip(id);
+  const hideTooltip = (id: StatTooltipId) => {
+    setActiveTooltip((current) => (current === id ? null : current));
+  };
 
 
   return (
@@ -305,29 +398,59 @@ export function HandCardView({
         />
       ) : null}
 
-      <div style={styles.spawnCostBadge}>
-        <StatBadge
-          type={isHeadquarters ? "fuelGeneration" : "spawnCost"}
-          mode={badgeMode}
-          value={isHeadquarters ? `+${fuelGenerationValue}` : card!.cost}
-          title={
-            isHeadquarters
-              ? "Генерация топлива штабом"
-              : "Стоимость розыгрыша"
-          }
-          style={styles.fullBadge}
-        />
+      <div
+        style={{
+          ...styles.spawnCostBadge,
+          pointerEvents: tooltipEnabled ? "auto" : "none",
+        }}
+      >
+        <StatTooltipTarget
+          id="cost"
+          activeTooltip={activeTooltip}
+          text={costTooltip}
+          enabled={tooltipEnabled}
+          position="bottom-right"
+          onShow={showTooltip}
+          onHide={hideTooltip}
+        >
+          <StatBadge
+            type={isHeadquarters ? "fuelGeneration" : "spawnCost"}
+            mode={badgeMode}
+            value={isHeadquarters ? `+${fuelGenerationValue}` : card!.cost}
+            title={
+              isHeadquarters
+                ? "Генерация топлива штабом"
+                : "Стоимость розыгрыша"
+            }
+            style={styles.fullBadge}
+          />
+        </StatTooltipTarget>
       </div>
 
       {!isHeadquarters && fuelGenerationValue > 0 && (
-        <div style={styles.spawnFuelGenerationBadge}>
-          <StatBadge
-            type="fuelGeneration"
-            mode={badgeMode}
-            value={`+${fuelGenerationValue}`}
-            title="Генерация топлива за ход"
-            style={styles.fullBadge}
-          />
+        <div
+          style={{
+            ...styles.spawnFuelGenerationBadge,
+            pointerEvents: tooltipEnabled ? "auto" : "none",
+          }}
+        >
+          <StatTooltipTarget
+            id="fuel"
+            activeTooltip={activeTooltip}
+            text={fuelTooltip}
+            enabled={tooltipEnabled}
+            position="bottom-right"
+            onShow={showTooltip}
+            onHide={hideTooltip}
+          >
+            <StatBadge
+              type="fuelGeneration"
+              mode={badgeMode}
+              value={`+${fuelGenerationValue}`}
+              title="Генерация топлива за ход"
+              style={styles.fullBadge}
+            />
+          </StatTooltipTarget>
         </div>
       )}
 
@@ -376,51 +499,97 @@ export function HandCardView({
         style={{
           ...styles.leftStats,
           gap: scaled(6),
+          pointerEvents: tooltipEnabled ? "auto" : "none",
         }}
       >
         {classIcon ? (
-          <img
-            src={classIcon}
-            alt={isHeadquarters ? "Штаб" : unitClass!.label}
-            title={isHeadquarters ? "Штаб" : unitClass!.label}
+          <StatTooltipTarget
+            id="class"
+            activeTooltip={activeTooltip}
+            text={classTooltip}
+            enabled={tooltipEnabled}
+            position="right"
             style={{
-              ...styles.classIcon,
-              width: scaled(20),
-              height: scaled(29),
+              width: scaled(34),
+              height: scaled(42),
               transform: `translate(${-7 * uiScale}px, ${-36 * uiScale}px)`,
             }}
-            draggable={false}
-          />
-        ) : (
-          <span
-            style={{
-              ...styles.classIconFallback,
-              width: scaled(29),
-              height: scaled(29),
-              fontSize: scaled(23),
-              color: ownerId === "player" ? "#7dff8a" : "#ff5a52",
-            }}
-            title="Штаб"
+            onShow={showTooltip}
+            onHide={hideTooltip}
           >
-            ⚑
-          </span>
+            <img
+              src={classIcon}
+              alt={isHeadquarters ? "Штаб" : unitClass!.label}
+              title={isHeadquarters ? "Штаб" : unitClass!.label}
+              style={{
+                ...styles.classIcon,
+                width: scaled(20),
+                height: scaled(29),
+                transform: "none",
+              }}
+              draggable={false}
+            />
+          </StatTooltipTarget>
+        ) : (
+          <StatTooltipTarget
+            id="class"
+            activeTooltip={activeTooltip}
+            text={classTooltip}
+            enabled={tooltipEnabled}
+            position="right"
+            onShow={showTooltip}
+            onHide={hideTooltip}
+          >
+            <span
+              style={{
+                ...styles.classIconFallback,
+                width: scaled(29),
+                height: scaled(29),
+                fontSize: scaled(23),
+                color: ownerId === "player" ? "#7dff8a" : "#ff5a52",
+              }}
+              title="Штаб"
+            >
+              ⚑
+            </span>
+          </StatTooltipTarget>
         )}
 
-        <StatBadge
-          type="attack"
-          mode={badgeMode}
-          ownerId={ownerId}
-          value={attackValue}
-          title="Атака"
-        />
+        <StatTooltipTarget
+          id="attack"
+          activeTooltip={activeTooltip}
+          text={attackTooltip}
+          enabled={tooltipEnabled}
+          position="right"
+          onShow={showTooltip}
+          onHide={hideTooltip}
+        >
+          <StatBadge
+            type="attack"
+            mode={badgeMode}
+            ownerId={ownerId}
+            value={attackValue}
+            title="Атака"
+          />
+        </StatTooltipTarget>
 
-        <StatBadge
-          type="health"
-          mode={badgeMode}
-          value={hpValue}
-          title="Здоровье"
+        <StatTooltipTarget
+          id="health"
+          activeTooltip={activeTooltip}
+          text={healthTooltip}
+          enabled={tooltipEnabled}
+          position="top-right"
           style={{ marginTop: -8 * uiScale }}
-        />
+          onShow={showTooltip}
+          onHide={hideTooltip}
+        >
+          <StatBadge
+            type="health"
+            mode={badgeMode}
+            value={hpValue}
+            title="Здоровье"
+          />
+        </StatTooltipTarget>
       </div>
 
       <div style={styles.descriptionPanel}>
@@ -690,6 +859,61 @@ const styles: Record<string, React.CSSProperties> = {
     width: "100%",
     height: "100%",
     filter: "drop-shadow(0 5px 8px rgba(0,0,0,0.72))",
+  },
+
+  statTooltipTarget: {
+    position: "relative",
+    width: "100%",
+    height: "100%",
+    margin: 0,
+    padding: 0,
+    border: "none",
+    background: "transparent",
+    color: "inherit",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
+    cursor: "help",
+    WebkitTapHighlightColor: "transparent",
+    touchAction: "manipulation",
+  },
+
+  statTooltipBubble: {
+    position: "absolute",
+    left: "calc(100% + 10px)",
+    top: "50%",
+    zIndex: 80,
+    transform: "translateY(-50%)",
+    width: 178,
+    padding: "10px 12px",
+    border: "1px solid rgba(226, 200, 120, 0.58)",
+    background:
+      "linear-gradient(180deg, rgba(24, 23, 19, 0.97), rgba(5, 6, 7, 0.96))",
+    boxShadow:
+      "0 0 0 1px rgba(0,0,0,0.72), 0 12px 28px rgba(0,0,0,0.62), inset 0 1px 0 rgba(255,255,255,0.08)",
+    color: "rgba(244, 238, 216, 0.96)",
+    fontFamily: "var(--font-body)",
+    fontSize: 13,
+    fontWeight: 800,
+    lineHeight: 1.18,
+    letterSpacing: 0.15,
+    textAlign: "left",
+    textTransform: "none",
+    whiteSpace: "normal",
+    pointerEvents: "none",
+    textShadow: "0 1px 0 rgba(0,0,0,0.9)",
+  },
+
+  statTooltipBubbleTopRight: {
+    top: "auto",
+    bottom: "calc(100% + 4px)",
+    transform: "none",
+  },
+
+  statTooltipBubbleBottomRight: {
+    top: "calc(100% + 4px)",
+    transform: "none",
   },
 
   spawnCostBadge: {

@@ -1225,20 +1225,21 @@
     "tutorialCompleted": true,
     "favoriteHeadquartersId": null,
     "battleStats": {
-      "wins": 16,
+      "wins": 17,
       "losses": 7
     },
-    "ironTracks": 468,
+    "ironTracks": 546,
     "goldTracks": 5,
-    "freeXp": 139,
+    "freeXp": 107,
     "headquartersXp": {
       "german_artillery_division": 80,
-      "training_unit": 319,
+      "training_unit": 0,
       "german_rear_corps": 67,
       "trainingslager": 0,
       "german_motorized_division": 56,
       "first_panzer_division": 70,
-      "training_camp": 13
+      "training_camp": 13,
+      "soviet_tank_brigade": 117
     },
     "headquartersMatchCounts": {
       "german_artillery_division": 2,
@@ -1247,7 +1248,8 @@
       "trainingslager": 3,
       "german_motorized_division": 1,
       "first_panzer_division": 1,
-      "training_camp": 1
+      "training_camp": 1,
+      "soviet_tank_brigade": 1
     },
     "headquartersBattleStats": {
       "german_artillery_division": {
@@ -1277,6 +1279,10 @@
       "training_camp": {
         "wins": 0,
         "losses": 1
+      },
+      "soviet_tank_brigade": {
+        "wins": 1,
+        "losses": 0
       }
     },
     "researchedHeadquartersIds": [
@@ -1348,7 +1354,8 @@
       "sanitaetskraftwagen",
       "gun_76_1927",
       "repair_letuchka",
-      "bt_7m"
+      "bt_7m",
+      "t35"
     ],
     "unlockedHeadquartersIds": [
       "training_unit",
@@ -1419,7 +1426,8 @@
       "sanitaetskraftwagen",
       "gun_76_1927",
       "repair_letuchka",
-      "bt_7m"
+      "bt_7m",
+      "t35"
     ],
     "ownedCardCopies": {
       "ms_1_t18": 2,
@@ -1484,6 +1492,7 @@
     },
     "savedDecks": [],
     "claimedBattleRewardIds": [
+      "battle:1ojez0a",
       "pvp:7Q6PY:player",
       "pvp:XYKC7:player",
       "pvp:XYKC7:bot",

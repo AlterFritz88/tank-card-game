@@ -9,6 +9,7 @@ export type CampaignMission = {
   botHeadquartersId?: HeadquartersId;
   botDeckId?: string;
   playerDeckId?: string; // allows progressive player decks per mission
+  playerHeadquartersId?: HeadquartersId; // overrides the campaign HQ for this mission
   backgroundId?: BattleBackgroundId;
   illustrationId?: string;
   available?: boolean;
@@ -210,6 +211,132 @@ export const CAMPAIGNS: Campaign[] = [
       },
     ],
   },
+
+  {
+    id: "lavrinenko-ace",
+    title: "Лавриненко. 52 за два месяца",
+    description:
+      "Осень 1941 года. Проведи лучшего танкового аса Второй мировой и его 4-ю танковую бригаду от засад под Мценском до обороны Москвы. Доктрина одна: заманить и бить из засады.",
+    playerHeadquartersId: "soviet_tank_brigade",
+    playerDeckId: "lavrinenko_brigade_campaign",
+    missions: [
+      {
+        id: "lavrinenko-1",
+        chapter: "Донбасс 1941 · Формирование",
+        title: "Боевое крещение у Сталино",
+        description:
+          "Сентябрь 1941. Первый бой свежесформированной 4-й танковой бригады. Учись держать танки в засаде: стоящий Т-34 бьёт втрое сильнее тонкого Pz II. Противник: разведбат 4-й танковой дивизии.",
+        botHeadquartersId: "german_4_panzer",
+        botDeckId: "german_4_panzer_campaign",
+        playerDeckId: "lavrinenko_brigade_campaign",
+        backgroundId: "base_1",
+      },
+      {
+        id: "lavrinenko-2",
+        chapter: "Мценск 1941 · Гудериан",
+        title: "Первый Воин: танковая засада",
+        description:
+          "4 октября 1941, станция Первый Воин. Дебют катуковской доктрины: подпусти немецкую волну и расстреляй её с замаскированных позиций. Противник: масса Pz III/IV 4-й танковой дивизии.",
+        botHeadquartersId: "german_4_panzer",
+        botDeckId: "german_panzer_mtsensk_campaign",
+        playerDeckId: "lavrinenko_brigade_campaign",
+        backgroundId: "russian_1",
+      },
+      {
+        id: "lavrinenko-3",
+        chapter: "Мценск 1941 · Гудериан",
+        title: "Бои за Мценск",
+        description:
+          "6–11 октября 1941. Подвижная оборона: отходи с контрударами, не давая 2-й танковой армии обойти бригаду. Противник: 24-й танковый корпус Гудериана со штурмовыми орудиями.",
+        botHeadquartersId: "guderian_corps",
+        botDeckId: "guderian_corps_campaign",
+        playerDeckId: "lavrinenko_brigade_campaign",
+        backgroundId: "russian_1",
+      },
+      {
+        id: "lavrinenko-4",
+        chapter: "Переброска",
+        title: "Марш под Москву",
+        description:
+          "Октябрь 1941. Эшелоны бригады идут на Волоколамское направление. Короткий встречный бой с немецким разведдозором — успей собрать карты и навязать темп. Противник: моторизованный авангард.",
+        botHeadquartersId: "german_4_panzer",
+        botDeckId: "german_aufklarung_campaign",
+        playerDeckId: "lavrinenko_brigade_campaign",
+        backgroundId: "german_1",
+      },
+      {
+        id: "lavrinenko-5",
+        chapter: "Волоколамск 1941",
+        title: "Контрудар у Скирманово",
+        description:
+          "12–13 ноября 1941. Бригада придаёт удар рою лёгких БТ — врывайся с «Блицем» в укреплённую немцами деревню. Противник: 10-я танковая дивизия с пехотными пушками.",
+        botHeadquartersId: "german_10_panzer",
+        botDeckId: "german_10_panzer_campaign",
+        playerHeadquartersId: "soviet_motor_rifle_division",
+        playerDeckId: "soviet_motor_rifle_division_default",
+        backgroundId: "winter_1",
+      },
+      {
+        id: "lavrinenko-6",
+        chapter: "Волоколамск 1941",
+        title: "Одинокий Т-34",
+        description:
+          "19 ноября 1941, Гусенево. Легендарный эпизод: один экипаж аса из засады встречает немецкую колонну на марше. Мало машин — но каждая бьёт насмерть. Противник: 11-я танковая «Призрачная» дивизия.",
+        botHeadquartersId: "german_11_panzer",
+        botDeckId: "german_11_panzer_campaign",
+        playerDeckId: "lavrinenko_ace_campaign",
+        backgroundId: "winter_1",
+      },
+      {
+        id: "lavrinenko-7",
+        chapter: "Волоколамск 1941",
+        title: "Плечом к плечу с Панфиловым",
+        description:
+          "16–20 ноября 1941. Удержи рубеж рядом с 316-й стрелковой дивизией: заслоны ПТО, мало танков, стоять насмерть. Противник: штурмовые группы 2-й танковой армии.",
+        botHeadquartersId: "guderian_corps",
+        botDeckId: "german_moscow_assault_campaign",
+        playerHeadquartersId: "panfilov_division",
+        playerDeckId: "panfilov_division_campaign",
+        backgroundId: "winter_2",
+      },
+      {
+        id: "lavrinenko-8",
+        chapter: "Гвардия",
+        title: "Гвардейское знамя",
+        description:
+          "22 ноября 1941, Лысцево. Бригада стала 1-й гвардейской: засадный танк теперь ещё и первым выходит с «Блицем». Противник: элитный моторизованный полк «Großdeutschland».",
+        botHeadquartersId: "grossdeutschland",
+        botDeckId: "grossdeutschland_campaign",
+        playerHeadquartersId: "first_guards_tank_brigade",
+        playerDeckId: "lavrinenko_guards_campaign",
+        backgroundId: "winter_2",
+      },
+      {
+        id: "lavrinenko-9",
+        chapter: "Контрнаступление",
+        title: "Перелом под Москвой",
+        description:
+          "6–10 декабря 1941. Теперь наступаешь ты. У немцев замёрзло горючее и встали моторы — снабжение врага резко просело. Гони их от Москвы. Противник: обескровленная зимой 4-я танковая дивизия.",
+        botHeadquartersId: "german_winter_panzer",
+        botDeckId: "german_winter_campaign",
+        playerHeadquartersId: "first_guards_tank_brigade",
+        playerDeckId: "lavrinenko_guards_campaign",
+        backgroundId: "winter_2",
+      },
+      {
+        id: "lavrinenko-10",
+        chapter: "Последний бой",
+        title: "Горюны, 18 декабря",
+        description:
+          "18 декабря 1941. Последний бой аса: пробей плотный заградительный заслон из противотанковых пушек и штурмовых орудий. Противник: сводный арьергард у Горюнов.",
+        botHeadquartersId: "winter_blocking_force",
+        botDeckId: "winter_blocking_force_campaign",
+        playerHeadquartersId: "first_guards_tank_brigade",
+        playerDeckId: "lavrinenko_guards_campaign",
+        backgroundId: "winter_1",
+      },
+    ],
+  },
 ];
 
 /**
@@ -237,6 +364,46 @@ export const CAMPAIGN_COMPLETION_REWARDS: CampaignCompletionReward[] = [
     ],
     cardId: "pzbef_i",
     copies: 2,
+  },
+  // Кампания «Лавриненко»: за взятие Мценска — рабочая лошадка аса.
+  {
+    id: "lavrinenko_mtsensk",
+    missionIds: ["lavrinenko-1", "lavrinenko-2", "lavrinenko-3"],
+    cardId: "t34_1941",
+    copies: 2,
+  },
+  // За удержание Волоколамского рубежа — дальнобойная поддержка засад.
+  {
+    id: "lavrinenko_volokolamsk",
+    missionIds: [
+      "lavrinenko-1",
+      "lavrinenko-2",
+      "lavrinenko-3",
+      "lavrinenko-4",
+      "lavrinenko-5",
+      "lavrinenko-6",
+      "lavrinenko-7",
+    ],
+    cardId: "su_122",
+    copies: 2,
+  },
+  // За прохождение всей кампании — легендарный личный Т-34 аса (уникум).
+  {
+    id: "lavrinenko_ace",
+    missionIds: [
+      "lavrinenko-1",
+      "lavrinenko-2",
+      "lavrinenko-3",
+      "lavrinenko-4",
+      "lavrinenko-5",
+      "lavrinenko-6",
+      "lavrinenko-7",
+      "lavrinenko-8",
+      "lavrinenko-9",
+      "lavrinenko-10",
+    ],
+    cardId: "t34_lavrinenko",
+    copies: 1,
   },
 ];
 

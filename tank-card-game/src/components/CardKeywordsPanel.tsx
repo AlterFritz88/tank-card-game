@@ -50,11 +50,11 @@ const styles: Record<string, CSSProperties> = {
   },
 
   panel: {
-    width: 300,
+    width: 340,
     display: "flex",
     flexDirection: "column",
-    gap: 14,
-    padding: "20px 20px",
+    gap: 16,
+    padding: "22px 22px",
     borderRadius: 14,
     border: "1px solid rgba(255,255,255,0.10)",
     background:
@@ -72,7 +72,7 @@ const styles: Record<string, CSSProperties> = {
   },
 
   title: {
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: 800,
     letterSpacing: 0.6,
     color: "#f3ead0",
@@ -80,8 +80,8 @@ const styles: Record<string, CSSProperties> = {
 
   body: {
     margin: 0,
-    fontSize: 12.5,
-    lineHeight: 1.34,
+    fontSize: 15,
+    lineHeight: 1.36,
     color: "rgba(226,232,233,0.86)",
   },
 };

@@ -242,10 +242,13 @@ function getHeadquartersAbilityKeyword(
   }
 
   if (ability.stationaryTankAttackBonus) {
+    const toughness = ability.stationaryTankHpBonus
+      ? ` Кроме того, каждый удар по такому танку слабее на ${ability.stationaryTankHpBonus}.`
+      : "";
     return {
       id: "hq-stationary",
       title,
-      body: `Ваши танки, не двигавшиеся в этот ход, наносят на +${ability.stationaryTankAttackBonus} урона больше.`,
+      body: `Ваши танки, не двигавшиеся в этот ход, наносят на +${ability.stationaryTankAttackBonus} урона больше.${toughness}`,
     };
   }
 

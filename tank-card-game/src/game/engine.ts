@@ -950,6 +950,24 @@ function getStationaryTankAttackBonus(
   return ability.stationaryTankAttackBonus;
 }
 
+/**
+ * Dug-in toughness: own tanks that have not moved this turn reduce each
+ * incoming strike (the "+HP in ambush" of the tank-brigade ability).
+ */
+function getStationaryTankDefenseBonus(
+  state: BattleState,
+  unit: BoardUnit
+): number {
+  const ability = getAbility(state, unit.ownerId);
+
+  if (!ability?.stationaryTankHpBonus) return 0;
+  if (!isBattlefieldUnit(unit)) return 0;
+  if (!isTankClassCard(getCard(unit.cardId))) return 0;
+  if (unit.moveCountThisTurn > 0) return 0;
+
+  return ability.stationaryTankHpBonus;
+}
+
 function getUnitCombatBonuses(
   state: BattleState,
   attacker: BoardUnit,
@@ -958,6 +976,8 @@ function getUnitCombatBonuses(
   return {
     attackerAttackBonus: getStationaryTankAttackBonus(state, attacker),
     targetAttackBonus: getStationaryTankAttackBonus(state, target),
+    attackerDefenseBonus: getStationaryTankDefenseBonus(state, attacker),
+    targetDefenseBonus: getStationaryTankDefenseBonus(state, target),
   };
 }
 
@@ -1050,6 +1070,10 @@ export type UnitCombatBonuses = {
   attackerAttackBonus?: number;
   /** Extra damage added to the target's counterattack. */
   targetAttackBonus?: number;
+  /** Damage subtracted from each strike that hits the attacker (dug-in tank). */
+  attackerDefenseBonus?: number;
+  /** Damage subtracted from each strike that hits the target (dug-in tank). */
+  targetDefenseBonus?: number;
 };
 
 export function getUnitCombatPreview(
@@ -1060,8 +1084,19 @@ export function getUnitCombatPreview(
   const attackerCard = getCard(attacker.cardId);
   const targetCard = getCard(target.cardId);
   const strikes: AttackAnimationStrike[] = [];
-  const attackerDamage = attackerCard.attack + (bonuses.attackerAttackBonus ?? 0);
-  const targetDamage = targetCard.attack + (bonuses.targetAttackBonus ?? 0);
+  // Dug-in tanks soak part of each incoming strike (stationaryTankHpBonus).
+  const attackerDamage = Math.max(
+    0,
+    attackerCard.attack +
+      (bonuses.attackerAttackBonus ?? 0) -
+      (bonuses.targetDefenseBonus ?? 0)
+  );
+  const targetDamage = Math.max(
+    0,
+    targetCard.attack +
+      (bonuses.targetAttackBonus ?? 0) -
+      (bonuses.attackerDefenseBonus ?? 0)
+  );
   let attackerHpAfter = attacker.currentHp;
   let targetHpAfter = target.currentHp;
   let tdAmbushTriggered = false;

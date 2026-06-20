@@ -21,7 +21,16 @@ export type HeadquartersId =
   | "polish_border_guard"
   | "polish_army_lodz"
   | "polish_army_prusy"
-  | "polish_warsaw_defense";
+  | "polish_warsaw_defense"
+  | "first_guards_tank_brigade"
+  | "panfilov_division"
+  | "german_4_panzer"
+  | "guderian_corps"
+  | "german_10_panzer"
+  | "german_11_panzer"
+  | "grossdeutschland"
+  | "german_winter_panzer"
+  | "winter_blocking_force";
 
 export type Position = {
   row: number;
@@ -86,6 +95,12 @@ export type HeadquartersAbility = {
   drawEveryTurns?: number;
   /** Attack bonus for own tanks that have not moved this turn. */
   stationaryTankAttackBonus?: number;
+  /**
+   * Damage reduction for own tanks that have not moved this turn ("dug-in"
+   * ambush toughness). Each incoming strike against a stationary tank is
+   * reduced by this much (never below zero damage).
+   */
+  stationaryTankHpBonus?: number;
   /** Light units enter the battlefield with blitz. */
   lightUnitsBlitz?: boolean;
   /** Extra headquarters damage against already damaged enemy units. */

@@ -33,8 +33,8 @@ export function getNationVisual(nation: TankCard["nation"] | Nation): NationVisu
   switch (nation) {
     case "ussr":
       return {
-        label: "USSR",
-        shortLabel: "USSR",
+        label: "СССР",
+        shortLabel: "СССР",
         background:
           "linear-gradient(135deg, rgba(150, 20, 20, 0.95), rgba(52, 10, 10, 0.95))",
         accent: "#ff5555",
@@ -45,8 +45,8 @@ export function getNationVisual(nation: TankCard["nation"] | Nation): NationVisu
 
     case "germany":
       return {
-        label: "Germany",
-        shortLabel: "DE",
+        label: "Германия",
+        shortLabel: "ГЕР",
         background:
           "linear-gradient(135deg, rgba(38, 38, 38, 0.95), rgba(110, 28, 28, 0.82), rgba(165, 132, 38, 0.82))",
         accent: "#d7b75f",
@@ -57,8 +57,8 @@ export function getNationVisual(nation: TankCard["nation"] | Nation): NationVisu
 
     case "usa":
       return {
-        label: "USA",
-        shortLabel: "USA",
+        label: "США",
+        shortLabel: "США",
         background:
           "linear-gradient(135deg, rgba(31, 57, 114, 0.95), rgba(120, 28, 38, 0.85))",
         accent: "#7aa2ff",
@@ -69,8 +69,8 @@ export function getNationVisual(nation: TankCard["nation"] | Nation): NationVisu
 
     case "uk":
       return {
-        label: "UK",
-        shortLabel: "UK",
+        label: "Британия",
+        shortLabel: "БР",
         background:
           "linear-gradient(135deg, rgba(31, 45, 96, 0.95), rgba(130, 28, 45, 0.85))",
         accent: "#8fb7ff",
@@ -81,8 +81,8 @@ export function getNationVisual(nation: TankCard["nation"] | Nation): NationVisu
 
     case "poland":
       return {
-        label: "Poland",
-        shortLabel: "PL",
+        label: "Польша",
+        shortLabel: "ПЛ",
         background:
           "linear-gradient(135deg, rgba(238, 238, 232, 0.96), rgba(165, 42, 52, 0.9))",
         accent: "#ef6b76",
@@ -93,8 +93,8 @@ export function getNationVisual(nation: TankCard["nation"] | Nation): NationVisu
 
     case "france":
       return {
-        label: "France",
-        shortLabel: "FR",
+        label: "Франция",
+        shortLabel: "ФР",
         background:
           "linear-gradient(135deg, rgba(35, 61, 134, 0.95), rgba(236, 236, 226, 0.9), rgba(179, 42, 55, 0.92))",
         accent: "#8aa8ff",
@@ -105,8 +105,8 @@ export function getNationVisual(nation: TankCard["nation"] | Nation): NationVisu
 
     default:
       return {
-        label: "Unknown",
-        shortLabel: "N/A",
+        label: "Неизвестно",
+        shortLabel: "Н/Д",
         background:
           "linear-gradient(135deg, rgba(50, 50, 50, 0.95), rgba(20, 20, 20, 0.95))",
         accent: "#aaaaaa",
@@ -121,42 +121,42 @@ export function getClassVisual(vehicleClass: TankCard["class"]): ClassVisual {
   switch (vehicleClass) {
     case "light":
       return {
-        label: "Light",
+        label: "Лёгкий танк",
         icon: "⚡",
         accent: "#7de38d",
       };
 
     case "medium":
       return {
-        label: "Medium",
+        label: "Средний танк",
         icon: "◈",
         accent: "#6fb7ff",
       };
 
     case "heavy":
       return {
-        label: "Heavy",
+        label: "Тяжёлый танк",
         icon: "🛡",
         accent: "#d6a84f",
       };
 
     case "td":
       return {
-        label: "TD",
+        label: "ПТ-САУ",
         icon: "🎯",
         accent: "#ff6b5f",
       };
 
     case "spg":
       return {
-        label: "SPG",
+        label: "САУ",
         icon: "💥",
         accent: "#c084fc",
       };
 
     default:
       return {
-        label: "Unit",
+        label: "Юнит",
         icon: "◆",
         accent: "#aaaaaa",
       };

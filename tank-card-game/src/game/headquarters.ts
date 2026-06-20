@@ -192,10 +192,11 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "4-я танковая бригада",
     type: "Танковый штаб",
     description:
-      "Танковая засада: танки, не двигавшиеся в этом ходу, получают +1 к атаке.",
+      "Танковая засада: танк, не двигавшийся в этом ходу, бьёт на +2 урона и крепче держит удар (−1 к входящему урону).",
     ability: {
       name: "Танковая засада",
-      stationaryTankAttackBonus: 1,
+      stationaryTankAttackBonus: 2,
+      stationaryTankHpBonus: 1,
     },
     faction: "Красная армия",
     nation: "ussr",
@@ -431,6 +432,210 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     fuelGeneration: 4,
     level: 4,
     defaultDeckId: "polish_warsaw_defense_campaign",
+    availableInMainMenu: false,
+  },
+
+  // === Кампания «Лавриненко» — штабы игрока ===
+
+  first_guards_tank_brigade: {
+    id: "first_guards_tank_brigade",
+    title: "1-я гв. танковая",
+    subtitle: "1-я гвардейская танковая бригада",
+    type: "Гвардейский танковый штаб",
+    description:
+      "Гвардейская засада: стоящий танк бьёт на +2 и крепче держит удар (−1 к урону), а первый танк за ход выходит с «Блицем».",
+    ability: {
+      name: "Гвардейская засада",
+      stationaryTankAttackBonus: 2,
+      stationaryTankHpBonus: 1,
+      firstTankBlitz: true,
+    },
+    faction: "Красная армия",
+    nation: "ussr",
+    hp: 24,
+    attack: 1,
+    range: 99,
+    fuelGeneration: 4,
+    level: 5,
+    defaultDeckId: "first_guards_tank_brigade_default",
+    availableInMainMenu: false,
+  },
+
+  panfilov_division: {
+    id: "panfilov_division",
+    title: "316-я сд",
+    subtitle: "316-я стрелковая дивизия Панфилова",
+    type: "Стрелковый штаб",
+    description:
+      "Стоять насмерть: крепкая оборона рубежа. В начале хода штаб восстанавливает 1 прочность.",
+    ability: {
+      name: "Стоять насмерть",
+      healRandomUnitPerTurn: 1,
+    },
+    faction: "Красная армия",
+    nation: "ussr",
+    hp: 26,
+    attack: 1,
+    range: 99,
+    fuelGeneration: 4,
+    level: 4,
+    defaultDeckId: "panfilov_division_campaign",
+    availableInMainMenu: false,
+  },
+
+  // === Кампания «Лавриненко» — штабы противника ===
+
+  german_4_panzer: {
+    id: "german_4_panzer",
+    title: "4. Panzer-Div.",
+    subtitle: "4-я танковая дивизия (Гудериан)",
+    type: "Танковая дивизия",
+    description:
+      "Танковый клин: первый танк, разыгранный за ход, получает «Блиц».",
+    ability: {
+      name: "Танковый клин",
+      firstTankBlitz: true,
+    },
+    faction: "Wehrmacht",
+    nation: "germany",
+    hp: 20,
+    attack: 2,
+    range: 99,
+    fuelGeneration: 4,
+    level: 4,
+    defaultDeckId: "german_4_panzer_campaign",
+    availableInMainMenu: false,
+  },
+
+  guderian_corps: {
+    id: "guderian_corps",
+    title: "24. Pz.Korps",
+    subtitle: "24-й танковый корпус (2-я ТА Гудериана)",
+    type: "Танковый корпус",
+    description:
+      "Снабжение по графику: каждый третий ход штаб добирает дополнительную карту.",
+    ability: {
+      name: "Снабжение по графику",
+      drawEveryTurns: 3,
+    },
+    faction: "Wehrmacht",
+    nation: "germany",
+    hp: 23,
+    attack: 1,
+    range: 99,
+    fuelGeneration: 5,
+    level: 4,
+    defaultDeckId: "guderian_corps_campaign",
+    availableInMainMenu: false,
+  },
+
+  german_10_panzer: {
+    id: "german_10_panzer",
+    title: "10. Panzer-Div.",
+    subtitle: "10-я танковая дивизия",
+    type: "Танковая дивизия",
+    description:
+      "Артподготовка: атака штаба наносит +1 урон.",
+    ability: {
+      name: "Артподготовка",
+      hqAttackBonus: 1,
+    },
+    faction: "Wehrmacht",
+    nation: "germany",
+    hp: 21,
+    attack: 2,
+    range: 99,
+    fuelGeneration: 4,
+    level: 4,
+    defaultDeckId: "german_10_panzer_campaign",
+    availableInMainMenu: false,
+  },
+
+  german_11_panzer: {
+    id: "german_11_panzer",
+    title: "11. Panzer-Div.",
+    subtitle: "11-я танковая «Призрачная» дивизия",
+    type: "Танковая дивизия",
+    description:
+      "Моторизованный марш: первый юнит каждого хода стоит на 1 топливо дешевле.",
+    ability: {
+      name: "Моторизованный марш",
+      firstUnitFuelDiscount: 1,
+    },
+    faction: "Wehrmacht",
+    nation: "germany",
+    hp: 20,
+    attack: 1,
+    range: 99,
+    fuelGeneration: 5,
+    level: 4,
+    defaultDeckId: "german_11_panzer_campaign",
+    availableInMainMenu: false,
+  },
+
+  grossdeutschland: {
+    id: "grossdeutschland",
+    title: "«Großdeutschland»",
+    subtitle: "Моторизованный пехотный полк «Великая Германия»",
+    type: "Мотопехотный штаб",
+    description:
+      "Combined Arms: пока на поле есть и танк, и юнит поддержки, штаб даёт +1 топлива в ход.",
+    ability: {
+      name: "Combined Arms",
+      combinedArmsFuelBonus: 1,
+    },
+    faction: "Wehrmacht",
+    nation: "germany",
+    hp: 22,
+    attack: 2,
+    range: 99,
+    fuelGeneration: 5,
+    level: 5,
+    defaultDeckId: "grossdeutschland_campaign",
+    availableInMainMenu: false,
+  },
+
+  german_winter_panzer: {
+    id: "german_winter_panzer",
+    title: "4. Pz. (зима)",
+    subtitle: "4-я танковая дивизия — зимний некомплект",
+    type: "Танковая дивизия",
+    description:
+      "Замёрзшее снабжение: морозы остановили моторы и заморозили горючее — генерация топлива резко снижена.",
+    ability: {
+      name: "Танковый клин",
+      firstTankBlitz: true,
+    },
+    faction: "Wehrmacht",
+    nation: "germany",
+    hp: 19,
+    attack: 1,
+    range: 99,
+    fuelGeneration: 2,
+    level: 4,
+    defaultDeckId: "german_winter_campaign",
+    availableInMainMenu: false,
+  },
+
+  winter_blocking_force: {
+    id: "winter_blocking_force",
+    title: "Зимний заслон",
+    subtitle: "Сводный арьергард у Горюнов",
+    type: "Заградительный штаб",
+    description:
+      "Плотная ПТО: добивает повреждённую технику (+1 урон по ней), но мороз режет снабжение.",
+    ability: {
+      name: "Заградительный огонь",
+      hqAttackBonusVsDamaged: 1,
+    },
+    faction: "Wehrmacht",
+    nation: "germany",
+    hp: 22,
+    attack: 2,
+    range: 99,
+    fuelGeneration: 2,
+    level: 5,
+    defaultDeckId: "winter_blocking_force_campaign",
     availableInMainMenu: false,
   },
 };

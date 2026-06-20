@@ -915,38 +915,42 @@ function ResearchCelebrationOverlay({
           />
         ))}
 
-        <motion.div
-          style={styles.researchCelebrationCardWrap}
+        <div
+          style={styles.celebrationCardColumn}
           onMouseDown={(event) => event.stopPropagation()}
-          initial={{ y: 30, scale: 0.72, rotateY: -180 }}
-          animate={{
-            y: 0,
-            scale: [0.72, 1.1, 1],
-            rotateY: [-180, -34, 0],
-          }}
-          exit={{ y: -20, scale: 0.82, opacity: 0 }}
-          transition={{ duration: 0.9, ease: "easeOut" }}
         >
-          <div
-            aria-hidden="true"
-            style={{
-              ...styles.researchCelebrationBack,
-              backgroundImage: `url(${cardBackImage})`,
+          <motion.div
+            style={styles.researchCelebrationCardWrap}
+            initial={{ y: 30, scale: 0.72, rotateY: -180 }}
+            animate={{
+              y: 0,
+              scale: [0.72, 1.1, 1],
+              rotateY: [-180, -34, 0],
             }}
-          />
-          {card ? (
-            <HandCardView card={card} displayMode="preview" />
-          ) : headquarters ? (
-            <HandCardView
-              headquartersId={headquarters.id}
-              headquarters={{
-                hp: headquarters.hp,
-                attack: headquarters.attack,
-                fuelGeneration: headquarters.fuelGeneration,
+            exit={{ y: -20, scale: 0.82, opacity: 0 }}
+            transition={{ duration: 0.9, ease: "easeOut" }}
+          >
+            <div
+              aria-hidden="true"
+              style={{
+                ...styles.researchCelebrationBack,
+                backgroundImage: `url(${cardBackImage})`,
               }}
-              displayMode="preview"
             />
-          ) : null}
+            {card ? (
+              <HandCardView card={card} displayMode="preview" />
+            ) : headquarters ? (
+              <HandCardView
+                headquartersId={headquarters.id}
+                headquarters={{
+                  hp: headquarters.hp,
+                  attack: headquarters.attack,
+                  fuelGeneration: headquarters.fuelGeneration,
+                }}
+                displayMode="preview"
+              />
+            ) : null}
+          </motion.div>
           <motion.div
             style={{
               ...styles.researchCelebrationLabel,
@@ -961,7 +965,7 @@ function ResearchCelebrationOverlay({
           >
             {celebration.label}
           </motion.div>
-        </motion.div>
+        </div>
       </div>
     </motion.div>
   );
@@ -2444,11 +2448,16 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: "0 18px 36px rgba(0,0,0,0.68)",
   },
 
+  celebrationCardColumn: {
+    position: "relative",
+    zIndex: 2,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 14,
+  },
+
   researchCelebrationLabel: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: "12%",
     zIndex: 12,
     fontSize: 42,
     fontWeight: 1000,
