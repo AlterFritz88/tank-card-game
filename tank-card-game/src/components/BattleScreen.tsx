@@ -929,7 +929,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     setCardPreview(null);
   }
 
-  function handleCardPreviewBackdropMouseDown() {
+  // Closing the peek listens for a *pointer* down, not a mouse down. After a
+  // touch releases the browser fires synthetic compatibility MOUSE events
+  // (mousedown/click) at the touch point — which now sits over this backdrop —
+  // and during board movement the pressed cell unmounts, so `touchcancel` (no
+  // preventDefault) fires instead of `touchend` and those synthetic events are
+  // no longer suppressed. Pointer events don't include those compatibility
+  // events, and the opening touch's real pointerdown landed on the unit button,
+  // never here — so only a genuinely new tap on the backdrop dismisses the peek.
+  function handleCardPreviewBackdropPointerDown() {
     if (Date.now() < ignorePreviewBackdropUntilRef.current) {
       return;
     }
@@ -4899,7 +4907,7 @@ function renderEnemyDeckWithTimer() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.16 }}
-              onMouseDown={handleCardPreviewBackdropMouseDown}
+              onPointerDown={handleCardPreviewBackdropPointerDown}
               onContextMenu={(event) => {
                 event.preventDefault();
                 closeCardPreview();
@@ -4927,7 +4935,7 @@ function renderEnemyDeckWithTimer() {
                     stiffness: 260,
                     damping: 24,
                   }}
-                  onMouseDown={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => event.stopPropagation()}
                   onContextMenu={(event) => event.preventDefault()}
                 >
                   <CardKeywordsPanel

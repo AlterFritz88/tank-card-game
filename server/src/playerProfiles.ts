@@ -13,6 +13,7 @@ import {
   addPremiumDaysToProgress,
   createInitialPlayerProgress,
   isHeadquartersFullyResearched,
+  mergeOwnedCardCopiesWithFloor,
   spendResearchExperience,
   type PlayerProgress,
   type PlayerSavedDeck,
@@ -359,10 +360,10 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
     normalizeCardIdList(profile.unlockedCardIds)
   ).filter((cardId) => researchedCardIds.includes(cardId));
   const ownedCardCopies = normalizeOwnedCardCopies(
-    {
-      ...fallback.ownedCardCopies,
-      ...profile.ownedCardCopies,
-    },
+    mergeOwnedCardCopiesWithFloor(
+      fallback.ownedCardCopies,
+      profile.ownedCardCopies ?? {}
+    ),
     researchedCardIds
   );
   const favoriteHeadquartersId = getUnlockedFavoriteHeadquartersId(

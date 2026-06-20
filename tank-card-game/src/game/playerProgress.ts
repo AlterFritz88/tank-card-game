@@ -607,10 +607,12 @@ function normalizePlayerProgress(
   );
   const ownedCardCopies =
     typeof progress.ownedCardCopies === "object" && progress.ownedCardCopies
-      ? normalizeCardCopies({
-          ...fallback.ownedCardCopies,
-          ...progress.ownedCardCopies,
-        })
+      ? normalizeCardCopies(
+          mergeOwnedCardCopiesWithFloor(
+            fallback.ownedCardCopies,
+            progress.ownedCardCopies
+          )
+        )
       : fallback.ownedCardCopies;
   const premiumUntil =
     typeof progress.premiumUntil === "number" &&
@@ -1176,11 +1178,33 @@ function getStarterOwnedCardCopies(
     if (!deckId) continue;
 
     for (const cardId of getDeckCardIds(deckId)) {
-      copies[cardId] = Math.min(4, (copies[cardId] ?? 0) + 1);
+      // Базовые карты выдаём сразу в максимальном количестве копий (4), чтобы из
+      // них можно было собрать колоду с полным набором копий каждой карты.
+      copies[cardId] = 4;
     }
   }
 
   return copies;
+}
+
+/**
+ * Сливает копии карт, беря максимум по каждой карте. Базовый набор (floor)
+ * выступает гарантированным минимумом владения — так базовые карты остаются
+ * во владении в количестве 4 даже у уже существующих профилей, а не только у
+ * новых.
+ */
+export function mergeOwnedCardCopiesWithFloor(
+  floor: Record<string, number>,
+  override: Record<string, unknown>
+): Record<string, number> {
+  const merged: Record<string, number> = {};
+  for (const [cardId, count] of Object.entries(floor)) {
+    merged[cardId] = getPositiveInteger(count);
+  }
+  for (const [cardId, count] of Object.entries(override)) {
+    merged[cardId] = Math.max(merged[cardId] ?? 0, getPositiveInteger(count));
+  }
+  return merged;
 }
 
 function normalizeCardCopies(copies: Record<string, unknown>): Record<string, number> {
