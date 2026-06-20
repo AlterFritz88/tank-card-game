@@ -8,6 +8,7 @@ import {
   type MouseEvent,
   type PointerEvent,
   type RefObject,
+  type TouchEvent as ReactTouchEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { createPortal } from "react-dom";
@@ -70,6 +71,12 @@ const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
 const BUILDER_CARD_SCALE = 0.76;
 const BUILDER_CARD_WIDTH = Math.round(HAND_CARD_BASE_WIDTH * BUILDER_CARD_SCALE);
 const BUILDER_CARD_HEIGHT = Math.round(HAND_CARD_BASE_HEIGHT * BUILDER_CARD_SCALE);
+
+// Phones have no right-click, so the zoomed card view opens on a long press.
+const CARD_PREVIEW_LONG_PRESS_MS = 420;
+// Finger travel (screen px) tolerated during a hold before it counts as a drag
+// (which scrolls the row / drags the card) and cancels the pending peek.
+const CARD_PREVIEW_LONG_PRESS_MOVE_TOLERANCE_PX = 12;
 
 // Icons shown next to the unit-type filter options. "support" (Тыл) groups
 // several support roles, so it uses the transport icon as a representative.
@@ -331,8 +338,25 @@ export function DeckBuilder({
   const suppressCardClickRef = useRef(false);
   // Set by a card button on pointerdown (touch), consumed by the row handler.
   const pendingCardDragRef = useRef<CardDragPayload | null>(null);
+  // Long-press (touch) card-zoom bookkeeping, mirroring the battle screen.
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
+  const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
   // Floating card that follows the finger during a touch drag.
   const [dragGhost, setDragGhost] = useState<DragGhost | null>(null);
+
+  // Touch-primary devices (phones) must NOT expose the native HTML5 `draggable`
+  // attribute: the browser's own long-press drag preempts our pointer-based
+  // drag (and there is no touch drop pipeline), so card/HQ drag silently fails.
+  // Desktops keep native drag; the pointer path is reserved for touch/pen.
+  const nativeDragEnabled = useMemo(
+    () =>
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+        ? true
+        : !window.matchMedia("(hover: none) and (pointer: coarse)").matches,
+    []
+  );
 
   const headquartersList = useMemo(
     () =>
@@ -513,6 +537,65 @@ export function DeckBuilder({
     setPreview(null);
   }
 
+  function clearLongPressTimer() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  // Long press (touch) opens the zoomed card view and stays open until tapped
+  // away / Esc, matching the research and HQ menus. It coexists with the row's
+  // pointer-based scroll+drag: a deliberate drag moves past the tolerance and
+  // cancels the pending peek, and starting a scroll/drag fires touchcancel.
+  function longPressPreviewHandlers(previewValue: DeckBuilderPreview) {
+    return {
+      onTouchStart: (event: ReactTouchEvent) => {
+        if (event.touches.length !== 1) {
+          clearLongPressTimer();
+          longPressOriginRef.current = null;
+          return;
+        }
+        const touch = event.touches[0];
+        longPressOriginRef.current = { x: touch.clientX, y: touch.clientY };
+        longPressTriggeredRef.current = false;
+        clearLongPressTimer();
+        longPressTimerRef.current = window.setTimeout(() => {
+          longPressTriggeredRef.current = true;
+          setPreview(previewValue);
+        }, CARD_PREVIEW_LONG_PRESS_MS);
+      },
+      onTouchMove: (event: ReactTouchEvent) => {
+        const origin = longPressOriginRef.current;
+        if (!origin || longPressTriggeredRef.current) return;
+        const touch = event.touches[0];
+        if (!touch) return;
+        if (
+          Math.hypot(touch.clientX - origin.x, touch.clientY - origin.y) >
+          CARD_PREVIEW_LONG_PRESS_MOVE_TOLERANCE_PX
+        ) {
+          clearLongPressTimer();
+        }
+      },
+      onTouchEnd: (event: ReactTouchEvent) => {
+        clearLongPressTimer();
+        longPressOriginRef.current = null;
+        if (longPressTriggeredRef.current) {
+          // The peek stays open (tap the backdrop / Esc / × to dismiss).
+          // Swallowing the synthesized click keeps the lift from also
+          // adding/removing/selecting the card and from hitting the backdrop's
+          // close handler, so the view does not flash and vanish.
+          event.preventDefault();
+          longPressTriggeredRef.current = false;
+        }
+      },
+      onTouchCancel: () => {
+        clearLongPressTimer();
+        longPressOriginRef.current = null;
+      },
+    };
+  }
+
   useEffect(() => {
     if (!preview) return;
 
@@ -525,6 +608,8 @@ export function DeckBuilder({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [preview]);
+
+  useEffect(() => clearLongPressTimer, []);
 
   // Records which card a touch started on (called from the card's own
   // onPointerDown, which fires before the row's bubbling handler below).
@@ -956,7 +1041,7 @@ export function DeckBuilder({
                         type="button"
                         className="deck-builder-card-button"
                         style={styles.cardButton}
-                      draggable
+                      draggable={nativeDragEnabled}
                       onPointerDown={() =>
                         recordCardDragStart({ kind: "hq", hqId: headquarters.id })
                       }
@@ -973,6 +1058,10 @@ export function DeckBuilder({
                           headquarters,
                         })
                       }
+                      {...longPressPreviewHandlers({
+                        type: "headquarters",
+                        headquarters,
+                      })}
                       whileHover={{ y: -6, scale: 1.025 }}
                       whileTap={{ scale: 0.985 }}
                       transition={{ type: "spring", stiffness: 360, damping: 28 }}
@@ -1001,7 +1090,7 @@ export function DeckBuilder({
                         className="deck-builder-card-button"
                         style={styles.cardButton}
                         disabled={disabled}
-                        draggable={!disabled}
+                        draggable={!disabled && nativeDragEnabled}
                         onPointerDown={
                           disabled
                             ? undefined
@@ -1021,6 +1110,9 @@ export function DeckBuilder({
                         onContextMenu={(event) =>
                           openCardPreview(event, { type: "card", card })
                         }
+                        {...(disabled
+                          ? {}
+                          : longPressPreviewHandlers({ type: "card", card }))}
                         whileHover={disabled ? undefined : { y: -6, scale: 1.025 }}
                         whileTap={disabled ? undefined : { scale: 0.985 }}
                         transition={{ type: "spring", stiffness: 360, damping: 28 }}
@@ -1109,6 +1201,10 @@ export function DeckBuilder({
                       headquarters: selectedHeadquarters,
                     })
                   }
+                  {...longPressPreviewHandlers({
+                    type: "headquarters",
+                    headquarters: selectedHeadquarters,
+                  })}
                   whileHover={{ y: -4, scale: 1.015 }}
                   whileTap={{ scale: 0.985 }}
                   transition={{ type: "spring", stiffness: 360, damping: 28 }}
@@ -1127,7 +1223,7 @@ export function DeckBuilder({
                   type="button"
                   className="deck-builder-card-button"
                   style={styles.cardButton}
-                  draggable
+                  draggable={nativeDragEnabled}
                   onPointerDown={() =>
                     recordCardDragStart({ kind: "deck-card", cardId: card.id })
                   }
@@ -1141,6 +1237,7 @@ export function DeckBuilder({
                   onContextMenu={(event) =>
                     openCardPreview(event, { type: "card", card })
                   }
+                  {...longPressPreviewHandlers({ type: "card", card })}
                   whileHover={{ y: -4, scale: 1.015 }}
                   whileTap={{ scale: 0.985 }}
                   transition={{ type: "spring", stiffness: 360, damping: 28 }}
@@ -1724,6 +1821,11 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
     textAlign: "center",
     boxSizing: "border-box",
+    // Keep the OS long-press (selection / callout) from firing touchcancel,
+    // which would abort the long-press card zoom before it opens.
+    userSelect: "none",
+    WebkitUserSelect: "none",
+    WebkitTouchCallout: "none",
   },
 
   cardWeightBadge: {

@@ -240,6 +240,9 @@ type QueuedBattleCommand = {
 };
 
 const CARD_PREVIEW_LONG_PRESS_MS = 420;
+// Finger travel (screen px) tolerated during a hold before it counts as a drag
+// and cancels the pending peek. Generous enough to ignore natural tremor.
+const CARD_PREVIEW_LONG_PRESS_MOVE_TOLERANCE_PX = 12;
 
 type CardPreview =
   | {
@@ -771,6 +774,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const stageScale = useStageScale();
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
+  // Where the finger first touched, so micro-jitter while holding does not abort
+  // the pending peek (only a deliberate drag past the tolerance does).
+  const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
   const [debugPaused, setDebugPaused] = useState(false);
   const [battleReward, setBattleReward] = useState<BattleReward | null>(null);
   const [rewardClaimStatus, setRewardClaimStatus] =
@@ -928,7 +934,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   // обычный клик, чтобы карта не выбиралась/не атаковала при открытии превью.
   function longPressPreviewHandlers(preview: CardPreview) {
     return {
-      onTouchStart: () => {
+      onTouchStart: (event: React.TouchEvent) => {
+        // Pinch/second finger is never a card peek — abort any pending one.
+        if (event.touches.length !== 1) {
+          clearLongPressTimer();
+          longPressOriginRef.current = null;
+          return;
+        }
+        const touch = event.touches[0];
+        longPressOriginRef.current = { x: touch.clientX, y: touch.clientY };
         longPressTriggeredRef.current = false;
         clearLongPressTimer();
         longPressTimerRef.current = window.setTimeout(() => {
@@ -936,23 +950,38 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           setCardPreview(preview);
         }, CARD_PREVIEW_LONG_PRESS_MS);
       },
-      // Лёгкое дрожание пальца после открытия не должно закрывать превью —
-      // таймер к этому моменту уже сброшен, так что clear безопасен.
-      onTouchMove: clearLongPressTimer,
+      // Only a deliberate drag (past the tolerance) cancels the pending peek;
+      // natural tremor while holding must not. Once the peek is open the timer
+      // is already gone, so further moves are ignored.
+      onTouchMove: (event: React.TouchEvent) => {
+        const origin = longPressOriginRef.current;
+        if (!origin || longPressTriggeredRef.current) return;
+        const touch = event.touches[0];
+        if (!touch) return;
+        if (
+          Math.hypot(touch.clientX - origin.x, touch.clientY - origin.y) >
+          CARD_PREVIEW_LONG_PRESS_MOVE_TOLERANCE_PX
+        ) {
+          clearLongPressTimer();
+        }
+      },
+      // Releasing the finger closes the peek and swallows the trailing click so
+      // the card is not selected/attacked when the press was only a peek.
       onTouchEnd: (event: React.TouchEvent) => {
         clearLongPressTimer();
+        longPressOriginRef.current = null;
         if (longPressTriggeredRef.current) {
           event.preventDefault();
           longPressTriggeredRef.current = false;
           closeCardPreview();
         }
       },
+      // A browser-initiated cancel (OS long-press/callout, pointer capture
+      // elsewhere) must NOT dismiss a peek that already opened — it would make
+      // the card flash big then vanish. Just stop a still-pending timer.
       onTouchCancel: () => {
         clearLongPressTimer();
-        if (longPressTriggeredRef.current) {
-          longPressTriggeredRef.current = false;
-          closeCardPreview();
-        }
+        longPressOriginRef.current = null;
       },
     };
   }
@@ -2929,13 +2958,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       dragging: false,
     };
 
-    // Capture so move/up keep firing even when the pointer leaves the card and
-    // travels across the board.
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // Older browsers / detached nodes — drag simply falls back to no-capture.
-    }
+    // NB: pointer capture is deferred until an actual drag begins (see
+    // handleHandCardPointerMove). Capturing here on touch makes the browser fire
+    // `touchcancel` for the same finger, which would kill the long-press peek
+    // timer before it ever opens. A still hold therefore stays a touch gesture.
   }
 
   function handleHandCardPointerMove(
@@ -2951,6 +2977,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       if (Math.hypot(dx, dy) < DRAG_START_THRESHOLD_PX) return;
 
       state.dragging = true;
+      // Now that it is a real drag, capture the pointer so move/up keep firing
+      // even when it leaves the card and travels across the board. (Deferred
+      // from pointerdown so a still hold can open the long-press peek instead.)
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Older browsers / detached nodes — drag falls back to no-capture.
+      }
       // Selecting lights up the legal cells/slots via the existing
       // placingBattlefieldCard / placingSupport highlight logic.
       selectCard(state.cardInstanceId);
@@ -4675,8 +4709,13 @@ function renderEnemyDeckWithTimer() {
                       ...styles.handCardSlot,
                       // Stop touch-drags from being hijacked as page scroll/zoom
                       // so the pointer drag-to-play gesture works on the phone
-                      // stage (see the rotated-stage gesture notes).
+                      // stage (see the rotated-stage gesture notes). The
+                      // selection/callout suppression also keeps the OS
+                      // long-press from cancelling the card peek.
                       touchAction: "none",
+                      userSelect: "none",
+                      WebkitUserSelect: "none",
+                      WebkitTouchCallout: "none",
                       zIndex: selected || isBeingDragged ? 120 : index + 1,
                       pointerEvents:
                         isHiddenDrawnCard ||
@@ -5309,6 +5348,11 @@ actionSideColumn: {
     background: "transparent",
     boxShadow: "none",
     cursor: "pointer",
+    // See styles.cell — keep the OS long-press from cancelling the card peek.
+    touchAction: "none",
+    userSelect: "none",
+    WebkitUserSelect: "none",
+    WebkitTouchCallout: "none",
   },
 
   supportCellAvailable: {
@@ -5390,6 +5434,14 @@ actionSideColumn: {
   position: "relative",
   overflow: "visible",
   outline: "none",
+  // Stop the browser's native long-press (text selection / callout / context
+  // menu) from firing `touchcancel`, which would instantly dismiss the
+  // long-press card peek the instant it opens. Also disables native panning so
+  // the gesture stays ours on the rotated phone stage.
+  touchAction: "none",
+  userSelect: "none",
+  WebkitUserSelect: "none",
+  WebkitTouchCallout: "none",
   borderRadius: 0,
   border: "1px solid rgba(255,255,255,0.075)",
   background:

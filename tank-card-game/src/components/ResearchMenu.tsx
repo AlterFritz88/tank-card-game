@@ -186,6 +186,17 @@ type ResearchCelebration = {
   node: ResearchNode;
 };
 
+/**
+ * Transient "Исследовано"/"Куплено" caption that pops up directly under the
+ * acted-on node in the tree, so the action reads in-place even before the
+ * full-screen celebration plays.
+ */
+type ResearchNodeFlash = {
+  key: number;
+  nodeId: string;
+  label: "Исследовано" | "Куплено";
+};
+
 function getNodeImage(node: ResearchNode) {
   if (node.headquartersId) {
     return getHeadquartersImageAsset(node.headquartersId) ?? "/panzer-shrek-icon.png";
@@ -569,10 +580,12 @@ function ResearchNodeCard({
   node,
   onPreview,
   onAction,
+  flash,
 }: {
   node: ResearchNodeView;
   onPreview: (event: MouseEvent, node: ResearchNode) => void;
   onAction?: (node: ResearchNodeView) => void | Promise<void>;
+  flash?: { key: number; label: ResearchNodeFlash["label"] };
 }) {
   const locked = node.stage === "locked" || node.stage === "planned";
   const actionable =
@@ -667,6 +680,31 @@ function ResearchNodeCard({
           ≈ {formatVictories(node.victoriesToResearch)} до открытия
         </span>
       ) : null}
+
+      <div style={styles.nodeFlashAnchor}>
+        <AnimatePresence>
+          {flash ? (
+            <motion.div
+              key={flash.key}
+              style={{
+                ...styles.nodeFlashLabel,
+                ...(flash.label === "Куплено"
+                  ? styles.nodeFlashPurchase
+                  : styles.nodeFlashResearch),
+              }}
+              initial={{ opacity: 0, y: -6, scale: 0.4 }}
+              animate={{ opacity: 1, y: 0, scale: [0.4, 1.18, 1] }}
+              exit={{ opacity: 0, y: -10, scale: 0.9 }}
+              transition={{ type: "spring", stiffness: 460, damping: 17 }}
+            >
+              <span style={styles.nodeFlashGlyph} aria-hidden="true">
+                {flash.label === "Куплено" ? "★" : "✦"}
+              </span>
+              {flash.label}
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </div>
     </motion.div>
   );
 }
@@ -691,10 +729,12 @@ function BranchGraph({
   nodes,
   onPreview,
   onAction,
+  flash,
 }: {
   nodes: ResearchNodeView[];
   onPreview: (event: MouseEvent, node: ResearchNode) => void;
   onAction?: (node: ResearchNodeView) => void;
+  flash?: ResearchNodeFlash | null;
 }) {
   const tiers = getBranchTiers(nodes);
   if (!tiers) return null;
@@ -781,6 +821,7 @@ function BranchGraph({
               node={node}
               onPreview={onPreview}
               onAction={onAction}
+              flash={flash?.nodeId === node.id ? flash : undefined}
             />
           </div>
         );
@@ -802,6 +843,24 @@ function ResearchCelebrationOverlay({
   const headquarters = celebration.node.headquartersId
     ? getHeadquartersDefinition(celebration.node.headquartersId)
     : null;
+  const purchased = celebration.label === "Куплено";
+
+  // Radial burst of sparks that fly outward from the card the moment it lands.
+  // Positions are deterministic per mount so the burst reads as a clean star.
+  const sparkles = useMemo(() => {
+    return Array.from({ length: 18 }, (_, index) => {
+      const angle = (index / 18) * Math.PI * 2 + (index % 2 ? 0.32 : 0);
+      const distance = 168 + (index % 4) * 30;
+      return {
+        id: index,
+        x: Math.cos(angle) * distance,
+        y: Math.sin(angle) * distance,
+        size: 7 + (index % 3) * 6,
+        delay: 0.14 + (index % 6) * 0.035,
+        gold: index % 3 !== 0,
+      };
+    });
+  }, []);
 
   return (
     <motion.div
@@ -812,48 +871,98 @@ function ResearchCelebrationOverlay({
       transition={{ duration: 0.18 }}
       onMouseDown={onClose}
     >
-      <motion.div
-        style={styles.researchCelebrationCardWrap}
-        onMouseDown={(event) => event.stopPropagation()}
-        initial={{ y: 30, scale: 0.72, rotateY: -180 }}
-        animate={{
-          y: 0,
-          scale: [0.72, 1.1, 1],
-          rotateY: [-180, -34, 0],
-        }}
-        exit={{ y: -20, scale: 0.82, opacity: 0 }}
-        transition={{ duration: 0.9, ease: "easeOut" }}
-      >
-        <div
+      <div style={styles.celebrationStage}>
+        <motion.div
           aria-hidden="true"
-          style={{
-            ...styles.researchCelebrationBack,
-            backgroundImage: `url(${cardBackImage})`,
+          style={styles.celebrationRays}
+          initial={{ opacity: 0, scale: 0.6, rotate: 0 }}
+          animate={{ opacity: [0, 0.85, 0.55], scale: 1, rotate: 360 }}
+          exit={{ opacity: 0 }}
+          transition={{
+            opacity: { duration: 1.1, ease: "easeOut" },
+            scale: { duration: 0.7, ease: "easeOut" },
+            rotate: { duration: 22, ease: "linear", repeat: Infinity },
           }}
         />
-        {card ? (
-          <HandCardView card={card} displayMode="preview" />
-        ) : headquarters ? (
-          <HandCardView
-            headquartersId={headquarters.id}
-            headquarters={{
-              hp: headquarters.hp,
-              attack: headquarters.attack,
-              fuelGeneration: headquarters.fuelGeneration,
-            }}
-            displayMode="preview"
-          />
-        ) : null}
         <motion.div
-          style={styles.researchCelebrationLabel}
-          initial={{ opacity: 0, scale: 0.92 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ delay: 0.22, duration: 0.24 }}
+          aria-hidden="true"
+          style={styles.celebrationRing}
+          initial={{ opacity: 0.7, scale: 0.25 }}
+          animate={{ opacity: 0, scale: 1.5 }}
+          transition={{ duration: 0.95, ease: "easeOut" }}
+        />
+
+        {sparkles.map((sparkle) => (
+          <motion.span
+            key={sparkle.id}
+            aria-hidden="true"
+            style={{
+              ...styles.celebrationSparkle,
+              width: sparkle.size,
+              height: sparkle.size,
+              background: sparkle.gold
+                ? "radial-gradient(circle, #fff4cf 0%, #f4c053 55%, rgba(244,192,83,0) 72%)"
+                : "radial-gradient(circle, #ffffff 0%, #b9e29a 55%, rgba(185,226,154,0) 72%)",
+            }}
+            initial={{ opacity: 0, x: 0, y: 0, scale: 0 }}
+            animate={{
+              opacity: [0, 1, 0],
+              x: sparkle.x,
+              y: sparkle.y,
+              scale: [0, 1, 0.3],
+            }}
+            transition={{ duration: 1.05, delay: sparkle.delay, ease: "easeOut" }}
+          />
+        ))}
+
+        <motion.div
+          style={styles.researchCelebrationCardWrap}
+          onMouseDown={(event) => event.stopPropagation()}
+          initial={{ y: 30, scale: 0.72, rotateY: -180 }}
+          animate={{
+            y: 0,
+            scale: [0.72, 1.1, 1],
+            rotateY: [-180, -34, 0],
+          }}
+          exit={{ y: -20, scale: 0.82, opacity: 0 }}
+          transition={{ duration: 0.9, ease: "easeOut" }}
         >
-          {celebration.label}
+          <div
+            aria-hidden="true"
+            style={{
+              ...styles.researchCelebrationBack,
+              backgroundImage: `url(${cardBackImage})`,
+            }}
+          />
+          {card ? (
+            <HandCardView card={card} displayMode="preview" />
+          ) : headquarters ? (
+            <HandCardView
+              headquartersId={headquarters.id}
+              headquarters={{
+                hp: headquarters.hp,
+                attack: headquarters.attack,
+                fuelGeneration: headquarters.fuelGeneration,
+              }}
+              displayMode="preview"
+            />
+          ) : null}
+          <motion.div
+            style={{
+              ...styles.researchCelebrationLabel,
+              ...(purchased
+                ? styles.researchCelebrationLabelPurchase
+                : styles.researchCelebrationLabelResearch),
+            }}
+            initial={{ opacity: 0, y: 18, scale: 0.6 }}
+            animate={{ opacity: 1, y: 0, scale: [0.6, 1.22, 1], rotate: [-3, 2, 0] }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            transition={{ delay: 0.4, duration: 0.5, ease: "easeOut" }}
+          >
+            {celebration.label}
+          </motion.div>
         </motion.div>
-      </motion.div>
+      </div>
     </motion.div>
   );
 }
@@ -867,6 +976,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
   const [progress, setProgress] = useState(() => loadPlayerProgress());
   const [feedback, setFeedback] = useState<ResearchFeedback | null>(null);
   const [celebration, setCelebration] = useState<ResearchCelebration | null>(null);
+  const [nodeFlash, setNodeFlash] = useState<ResearchNodeFlash | null>(null);
   const profileConnection = useProfileConnection();
   const profileServerUnavailable = isProfileServerUnavailable(profileConnection);
   const profileServerReady = profileConnection.status === "online";
@@ -1068,11 +1178,15 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
   }
 
   function showCelebration(label: ResearchCelebration["label"], node: ResearchNode) {
+    const id = Date.now();
     setCelebration({
-      id: Date.now(),
+      id,
       label,
       node,
     });
+    // In-place caption right under the acted-on node, independent of the
+    // full-screen celebration overlay above.
+    setNodeFlash({ key: id, nodeId: node.id, label });
   }
 
   async function retryProfileSync() {
@@ -1258,6 +1372,13 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
     return () => window.clearTimeout(timeoutId);
   }, [feedback]);
 
+  useEffect(() => {
+    if (!nodeFlash) return;
+
+    const timeoutId = window.setTimeout(() => setNodeFlash(null), 1900);
+    return () => window.clearTimeout(timeoutId);
+  }, [nodeFlash]);
+
   return (
     <main style={styles.page}>
       <StageBackground
@@ -1377,6 +1498,9 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
                 node={starterNodeView}
                 onPreview={openNodePreview}
                 onAction={handleNodeAction}
+                flash={
+                  nodeFlash?.nodeId === starterNodeView.id ? nodeFlash : undefined
+                }
               />
             </div>
             <div style={styles.rootStem} />
@@ -1423,6 +1547,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
                         nodes={nodes}
                         onPreview={openNodePreview}
                         onAction={handleNodeAction}
+                        flash={nodeFlash}
                       />
                     ) : (
                       <div style={styles.branchNodes}>
@@ -1440,6 +1565,11 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
                               node={node}
                               onPreview={openNodePreview}
                               onAction={handleNodeAction}
+                              flash={
+                                nodeFlash?.nodeId === node.id
+                                  ? nodeFlash
+                                  : undefined
+                              }
                             />
                           </div>
                         ))}
@@ -2143,6 +2273,52 @@ const styles: Record<string, CSSProperties> = {
     fontVariantNumeric: "tabular-nums",
   },
 
+  nodeFlashAnchor: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    right: 0,
+    zIndex: 8,
+    display: "flex",
+    justifyContent: "center",
+    marginTop: 6,
+    pointerEvents: "none",
+  },
+
+  nodeFlashLabel: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "5px 13px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 1000,
+    letterSpacing: 0.8,
+    whiteSpace: "nowrap",
+    textTransform: "uppercase",
+    color: "#1a1205",
+    textShadow: "0 1px 0 rgba(255,255,255,0.32)",
+  },
+
+  nodeFlashResearch: {
+    background: "linear-gradient(180deg, #ffe49a, #f0b94a)",
+    border: "1px solid rgba(255, 240, 196, 0.85)",
+    boxShadow:
+      "0 6px 16px rgba(0,0,0,0.5), 0 0 18px rgba(242, 188, 77, 0.6)",
+  },
+
+  nodeFlashPurchase: {
+    background: "linear-gradient(180deg, #c4ef9c, #79bb65)",
+    border: "1px solid rgba(214, 245, 191, 0.85)",
+    boxShadow:
+      "0 6px 16px rgba(0,0,0,0.5), 0 0 18px rgba(130, 187, 101, 0.55)",
+  },
+
+  nodeFlashGlyph: {
+    fontSize: 13,
+    lineHeight: 1,
+  },
+
   backButton: {
     position: "absolute",
     zIndex: 6,
@@ -2200,8 +2376,53 @@ const styles: Record<string, CSSProperties> = {
       "radial-gradient(circle at center, rgba(223, 170, 61, 0.16), transparent 38%)",
   },
 
+  celebrationStage: {
+    position: "relative",
+    display: "grid",
+    placeItems: "center",
+  },
+
+  celebrationRays: {
+    position: "absolute",
+    width: 760,
+    height: 760,
+    maxWidth: "150cqw",
+    maxHeight: "150cqh",
+    borderRadius: "50%",
+    pointerEvents: "none",
+    zIndex: 0,
+    mixBlendMode: "screen",
+    background:
+      "repeating-conic-gradient(from 0deg, rgba(255, 218, 120, 0) 0deg, rgba(255, 218, 120, 0.22) 4deg, rgba(255, 218, 120, 0) 9deg)",
+    WebkitMaskImage:
+      "radial-gradient(circle, rgba(0,0,0,0.95) 12%, rgba(0,0,0,0.5) 38%, transparent 68%)",
+    maskImage:
+      "radial-gradient(circle, rgba(0,0,0,0.95) 12%, rgba(0,0,0,0.5) 38%, transparent 68%)",
+  },
+
+  celebrationRing: {
+    position: "absolute",
+    width: 300,
+    height: 300,
+    borderRadius: "50%",
+    border: "3px solid rgba(255, 226, 150, 0.85)",
+    pointerEvents: "none",
+    zIndex: 1,
+    boxShadow:
+      "0 0 28px rgba(242, 188, 77, 0.7), inset 0 0 22px rgba(242, 188, 77, 0.45)",
+  },
+
+  celebrationSparkle: {
+    position: "absolute",
+    borderRadius: "50%",
+    pointerEvents: "none",
+    zIndex: 1,
+    filter: "drop-shadow(0 0 6px rgba(255, 222, 140, 0.8))",
+  },
+
   researchCelebrationCardWrap: {
     position: "relative",
+    zIndex: 2,
     width: 390,
     maxWidth: "min(390px, 78cqw)",
     display: "grid",
@@ -2229,15 +2450,24 @@ const styles: Record<string, CSSProperties> = {
     right: 0,
     bottom: "12%",
     zIndex: 12,
-    color: "#ffe7a9",
     fontSize: 42,
     fontWeight: 1000,
     letterSpacing: 2.2,
     textAlign: "center",
     textTransform: "uppercase",
-    textShadow:
-      "0 4px 0 rgba(0,0,0,0.82), 0 0 26px rgba(242, 188, 77, 0.54)",
     pointerEvents: "none",
+  },
+
+  researchCelebrationLabelResearch: {
+    color: "#ffe7a9",
+    textShadow:
+      "0 4px 0 rgba(0,0,0,0.82), 0 0 30px rgba(242, 188, 77, 0.7)",
+  },
+
+  researchCelebrationLabelPurchase: {
+    color: "#d7f3bd",
+    textShadow:
+      "0 4px 0 rgba(0,0,0,0.82), 0 0 30px rgba(130, 187, 101, 0.7)",
   },
 
   cardPreviewOverlay: {
