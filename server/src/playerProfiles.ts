@@ -32,6 +32,11 @@ import type {
 
 type ProfileDb = Record<string, PlayerProgress>;
 
+export type AdminPlayerProfileView = {
+  playerId: string;
+  profile: PlayerProgress;
+};
+
 type ResearchNodeContext = {
   node: ResearchNode;
   branchNodes: ResearchNode[];
@@ -1011,6 +1016,51 @@ export class PlayerProfileManager {
     writeDb(db);
 
     return profile;
+  }
+
+  listProfiles(): AdminPlayerProfileView[] {
+    const db = readDb();
+
+    return Object.entries(db)
+      .map(([playerId, profile]) => ({
+        playerId,
+        profile: mergeWithDefaultProgress(profile),
+      }))
+      .sort((left, right) => {
+        const leftMatches =
+          left.profile.battleStats.wins + left.profile.battleStats.losses;
+        const rightMatches =
+          right.profile.battleStats.wins + right.profile.battleStats.losses;
+
+        return rightMatches - leftMatches;
+      });
+  }
+
+  adminCreditTracks({
+    playerId,
+    ironTracks,
+    goldTracks,
+  }: {
+    playerId: string;
+    ironTracks: number;
+    goldTracks: number;
+  }): PlayerProgress {
+    const safePlayerId = sanitizePlayerId(playerId);
+    if (!safePlayerId) throw new Error("Некорректный playerId");
+
+    const profile = this.getProfile(safePlayerId);
+    const safeIronTracks = getPositiveInteger(ironTracks);
+    const safeGoldTracks = getPositiveInteger(goldTracks);
+
+    if (safeIronTracks <= 0 && safeGoldTracks <= 0) {
+      throw new Error("Укажите количество траков для начисления");
+    }
+
+    return this.persistProfile(safePlayerId, {
+      ...profile,
+      ironTracks: profile.ironTracks + safeIronTracks,
+      goldTracks: profile.goldTracks + safeGoldTracks,
+    });
   }
 
   saveProfile(playerId: string, profile: PlayerProgress): PlayerProgress {

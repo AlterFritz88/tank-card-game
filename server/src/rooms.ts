@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import type { WebSocket } from "ws";
+import { WebSocket } from "ws";
 import {
   applyAction,
   getAttackAnimationSequence,
@@ -92,6 +92,16 @@ type CompletedPvpMatch = {
   endReason: MatchEndReason | null;
   players: Partial<Record<PlayerId, { profilePlayerId: string | null }>>;
   timeoutId: NodeJS.Timeout;
+};
+
+export type AdminRuntimeStats = {
+  roomsTotal: number;
+  matchmakingRooms: number;
+  activeBattles: number;
+  finishedRooms: number;
+  connectedPvpPlayers: number;
+  activeGameSessions: number;
+  completedPvpRewardClaims: number;
 };
 
 const START_ROLL_DURATION_MS = 2800;
@@ -291,6 +301,44 @@ export class RoomManager {
     { socket: WebSocket; instanceId: string; kind: string; since: number }
   >();
   private socketToSessionAccount = new WeakMap<WebSocket, string>();
+
+  getAdminRuntimeStats(): AdminRuntimeStats {
+    let matchmakingRooms = 0;
+    let activeBattles = 0;
+    let finishedRooms = 0;
+    let connectedPvpPlayers = 0;
+
+    for (const room of this.rooms.values()) {
+      if (this.isWaitingForOpponent(room)) {
+        matchmakingRooms += 1;
+      }
+
+      if (room.battle?.status === "active") {
+        activeBattles += 1;
+      }
+
+      if (room.ended) {
+        finishedRooms += 1;
+      }
+
+      for (const player of Object.values(room.players)) {
+        const socket = player?.socket;
+        if (socket?.readyState === WebSocket.OPEN) {
+          connectedPvpPlayers += 1;
+        }
+      }
+    }
+
+    return {
+      roomsTotal: this.rooms.size,
+      matchmakingRooms,
+      activeBattles,
+      finishedRooms,
+      connectedPvpPlayers,
+      activeGameSessions: this.activeGameSessions.size,
+      completedPvpRewardClaims: this.completedPvpMatches.size,
+    };
+  }
 
   handleMessage(socket: WebSocket, rawData: WebSocket.RawData) {
     const byteLength = getRawDataByteLength(rawData);

@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Служебные и API-маршруты не индексируем
+Disallow: /api/
+
+Sitemap: https://panzershrek.com/sitemap.xml
+Host: https://panzershrek.com

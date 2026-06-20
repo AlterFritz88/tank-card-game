@@ -18,6 +18,11 @@ const PvpLobby = lazy(() =>
     default: module.PvpLobby,
   }))
 );
+const AdminPanel = lazy(() =>
+  import("./components/AdminPanel").then((module) => ({
+    default: module.AdminPanel,
+  }))
+);
 
 type LegalDocumentRoute = {
   slug: string;
@@ -43,6 +48,13 @@ export default function App() {
   const legalDocument = LEGAL_DOCUMENT_ROUTES[window.location.pathname];
 
   if (legalDocument) return <LegalDocumentPage document={legalDocument} />;
+  if (window.location.pathname === "/admin") {
+    return (
+      <Suspense fallback={<LoadingScreen />}>
+        <AdminPanel />
+      </Suspense>
+    );
+  }
 
   return <GameApp />;
 }

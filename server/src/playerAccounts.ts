@@ -18,6 +18,17 @@ type PlayerAccount = {
 
 type AccountDb = Record<string, PlayerAccount>;
 
+export type AdminPlayerAccountView = Pick<
+  PlayerAccount,
+  | "userId"
+  | "username"
+  | "email"
+  | "legalAcceptedAt"
+  | "legalVersion"
+  | "createdAt"
+  | "lastLoginAt"
+>;
+
 const ACCOUNT_DB_PATH = resolveWritableDbPath(
   process.env.PLAYER_ACCOUNT_DB_PATH,
   "player-accounts.json",
@@ -184,5 +195,19 @@ export class PlayerAccountManager {
     writeDb(db);
 
     return nextAccount;
+  }
+
+  listAccounts(): AdminPlayerAccountView[] {
+    return Object.values(readDb())
+      .map((account) => ({
+        userId: account.userId,
+        username: account.username,
+        email: account.email,
+        legalAcceptedAt: account.legalAcceptedAt,
+        legalVersion: account.legalVersion,
+        createdAt: account.createdAt,
+        lastLoginAt: account.lastLoginAt,
+      }))
+      .sort((left, right) => right.lastLoginAt - left.lastLoginAt);
   }
 }

@@ -10,6 +10,8 @@ import { WebSocketServer } from "ws";
 import { RoomManager } from "./rooms";
 import { getStorageStatuses } from "./storagePath";
 import { PaymentManager } from "./payments";
+import { PlayerAccountManager } from "./playerAccounts";
+import { PlayerProfileManager } from "./playerProfiles";
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST;
@@ -35,6 +37,8 @@ const server = new WebSocketServer({
 });
 const rooms = new RoomManager();
 const payments = new PaymentManager();
+const accounts = new PlayerAccountManager();
+const profiles = new PlayerProfileManager();
 const mimeTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -43,9 +47,11 @@ const mimeTypes: Record<string, string> = {
   ".mp3": "audio/mpeg",
   ".png": "image/png",
   ".svg": "image/svg+xml",
+  ".txt": "text/plain; charset=utf-8",
   ".webp": "image/webp",
   ".woff": "font/woff",
   ".woff2": "font/woff2",
+  ".xml": "application/xml; charset=utf-8",
 };
 const legalDocuments: Record<string, { fileName: string; title: string }> = {
   "/legal/user-agreement": {
@@ -111,6 +117,16 @@ async function handleHttpRequest(
 
   if (requestUrl.pathname.startsWith("/api/legal/")) {
     await handleLegalDocumentApi(requestUrl.pathname, response, corsHeaders);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/admin/overview") {
+    handleAdminOverview(request, response, corsHeaders);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/admin/credit-tracks") {
+    await handleAdminCreditTracks(request, response, corsHeaders);
     return;
   }
 
@@ -229,6 +245,104 @@ function getBodyString(body: unknown, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function getBodyNumber(body: unknown, key: string): number {
+  if (!body || typeof body !== "object") return 0;
+  const value = (body as Record<string, unknown>)[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function getAdminToken(request: IncomingMessage): string {
+  const authorization = request.headers.authorization;
+  if (authorization?.startsWith("Bearer ")) {
+    return authorization.slice("Bearer ".length).trim();
+  }
+
+  const headerValue = request.headers["x-admin-token"];
+  return Array.isArray(headerValue) ? headerValue[0] ?? "" : headerValue ?? "";
+}
+
+function isAdminAuthorized(request: IncomingMessage): boolean {
+  const configuredToken = process.env.ADMIN_TOKEN?.trim();
+  if (!configuredToken) return false;
+
+  return getAdminToken(request) === configuredToken;
+}
+
+function rejectAdminRequest(response: ServerResponse, corsHeaders: Record<string, string>) {
+  writeJson(
+    response,
+    process.env.ADMIN_TOKEN?.trim() ? 401 : 503,
+    {
+      ok: false,
+      message: process.env.ADMIN_TOKEN?.trim()
+        ? "Admin token is invalid"
+        : "ADMIN_TOKEN is not configured",
+    },
+    corsHeaders
+  );
+}
+
+function handleAdminOverview(
+  request: IncomingMessage,
+  response: ServerResponse,
+  corsHeaders: Record<string, string>
+) {
+  if (request.method !== "GET") {
+    response.writeHead(405, { ...corsHeaders, Allow: "GET" });
+    response.end();
+    return;
+  }
+
+  if (!isAdminAuthorized(request)) {
+    rejectAdminRequest(response, corsHeaders);
+    return;
+  }
+
+  writeJson(
+    response,
+    200,
+    {
+      ok: true,
+      generatedAt: Date.now(),
+      runtime: rooms.getAdminRuntimeStats(),
+      accounts: accounts.listAccounts(),
+      profiles: profiles.listProfiles(),
+    },
+    corsHeaders
+  );
+}
+
+async function handleAdminCreditTracks(
+  request: IncomingMessage,
+  response: ServerResponse,
+  corsHeaders: Record<string, string>
+) {
+  if (request.method !== "POST") {
+    response.writeHead(405, { ...corsHeaders, Allow: "POST" });
+    response.end();
+    return;
+  }
+
+  if (!isAdminAuthorized(request)) {
+    rejectAdminRequest(response, corsHeaders);
+    return;
+  }
+
+  try {
+    const body = await readJsonBody(request);
+    const profile = profiles.adminCreditTracks({
+      playerId: getBodyString(body, "playerId"),
+      ironTracks: getBodyNumber(body, "ironTracks"),
+      goldTracks: getBodyNumber(body, "goldTracks"),
+    });
+
+    writeJson(response, 200, { ok: true, profile }, corsHeaders);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    writeJson(response, 400, { ok: false, message }, corsHeaders);
+  }
+}
+
 async function handleCreateGoldPayment(
   request: IncomingMessage,
   response: ServerResponse,
@@ -306,7 +420,7 @@ async function handleLegalDocument(
 
   try {
     const content = await readFile(resolve(projectRootPath, document.fileName), "utf8");
-    const html = renderLegalDocumentPage(document.title, content);
+    const html = renderLegalDocumentPage(document.title, content, pathname);
     response.writeHead(200, {
       "Cache-Control": "no-cache",
       "Content-Type": "text/html; charset=utf-8",
@@ -369,13 +483,28 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function renderLegalDocumentPage(title: string, content: string): string {
+function renderLegalDocumentPage(
+  title: string,
+  content: string,
+  pathname: string
+): string {
+  const canonicalUrl = `https://panzershrek.com${pathname}`;
+  const metaDescription = `${title} игры PanzerShrek — браузерной карточной игры про танки. Официальный документ.`;
   return `<!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(title)} | PANZERSHREK</title>
+  <title>${escapeHtml(title)} | PanzerShrek</title>
+  <meta name="description" content="${escapeHtml(metaDescription)}" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="PanzerShrek" />
+  <meta property="og:locale" content="ru_RU" />
+  <meta property="og:title" content="${escapeHtml(title)} | PanzerShrek" />
+  <meta property="og:description" content="${escapeHtml(metaDescription)}" />
+  <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
