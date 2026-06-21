@@ -1,4 +1,22 @@
-import type { HeadquartersAbility, TankCard } from "./types";
+import type { HeadquartersAbility, TankClass, TankCard } from "./types";
+
+/** Genitive-plural label of a unit class for ability descriptions. */
+function getClassLabel(unitClass: TankClass): string {
+  switch (unitClass) {
+    case "light":
+      return "лёгких танков";
+    case "medium":
+      return "средних танков";
+    case "heavy":
+      return "тяжёлых танков";
+    case "td":
+      return "ПТ-САУ";
+    case "spg":
+      return "САУ";
+    default:
+      return "юнитов";
+  }
+}
 
 /**
  * A single explanatory entry shown beside the enlarged card view. Each entry
@@ -108,6 +126,98 @@ function getAbilityKeywords(card: TankCard): CardKeyword[] {
       id: "tankDefenseAura",
       title: "КОМАНДНАЯ МАШИНА",
       body: `Пока этот юнит в строю, каждый ваш танк на поле получает −${card.combatAbilities.tankDefenseAura} к входящему урону от каждого удара.`,
+    });
+  }
+
+  if (card.combatAbilities?.camouflage) {
+    keywords.push({
+      id: "camouflage",
+      title: "МАСКИРОВКА",
+      body: "Этот юнит нельзя атаковать дистанционно, из САУ или штабом — только соседним юнитом в ближнем бою. Маскировка спадает навсегда, как только юнит сам атакует.",
+    });
+  }
+
+  if (card.combatAbilities?.attackEqualsHq) {
+    keywords.push({
+      id: "attackEqualsHq",
+      title: "КОРРЕКТИРОВЩИК",
+      body: "Огневая мощь этого юнита равна текущей огневой мощи вашего штаба (со всеми бонусами), а не значению на карте.",
+    });
+  }
+
+  if (card.combatAbilities?.armorVsClass) {
+    const armor = card.combatAbilities.armorVsClass;
+    keywords.push({
+      id: "armorVsClass",
+      title: "СПЕЦБРОНЯ",
+      body: `Каждый удар по этому юниту со стороны ${getClassLabel(
+        armor.class
+      )} слабее на ${armor.amount}.`,
+    });
+  }
+
+  if (card.combatAbilities?.drawWhenAttacked) {
+    keywords.push({
+      id: "drawWhenAttacked",
+      title: "ДОЗОР",
+      body: `Когда этот юнит получает урон, вы добираете ${
+        card.combatAbilities.drawWhenAttacked === 1
+          ? "карту"
+          : `${card.combatAbilities.drawWhenAttacked} карты`
+      } (раз за ход).`,
+    });
+  }
+
+  if (card.combatAbilities?.cornerBonus) {
+    const corner = card.combatAbilities.cornerBonus;
+    const parts: string[] = [];
+    if (corner.attack) parts.push(`+${corner.attack} к огневой мощи`);
+    if (corner.hp) parts.push(`+${corner.hp} к прочности`);
+
+    keywords.push({
+      id: "cornerBonus",
+      title: "ОГНЕВАЯ ПОЗИЦИЯ",
+      body: `Пока эта САУ стоит в угловой клетке поля, она получает ${parts.join(
+        " и "
+      )}.`,
+    });
+  }
+
+  if (card.combatAbilities?.spawnDamageReduction) {
+    keywords.push({
+      id: "spawnDamageReduction",
+      title: "ОБОРОНА ПЛАЦДАРМА",
+      body: `Пока этот юнит находится на вашем плацдарме (клетке спавна), каждый удар по нему слабее на ${card.combatAbilities.spawnDamageReduction}.`,
+    });
+  }
+
+  if (card.combatAbilities?.raidDraw) {
+    keywords.push({
+      id: "raidDraw",
+      title: "ПРОРЫВ",
+      body: `Когда этот юнит впервые заходит на клетку плацдарма противника, вы добираете ${
+        card.combatAbilities.raidDraw === 1
+          ? "карту"
+          : `${card.combatAbilities.raidDraw} карты`
+      }.`,
+    });
+  }
+
+  if (card.costModifiers) {
+    keywords.push({
+      id: "costModifiers",
+      title: "СЛАЖЕННОСТЬ",
+      body: `Пока у вас на поле боя есть юнит класса «${getClassLabel(
+        card.costModifiers.ifClassPresent
+      )}», эта карта дешевле на ${card.costModifiers.discount} топлива.`,
+    });
+  }
+
+  if (card.onPlayEffects?.suppressEnemyIndirect) {
+    keywords.push({
+      id: "suppressEnemyIndirect",
+      title: "КОНТРБАТАРЕЙНЫЙ ОГОНЬ",
+      body: "При выходе на поле боя все САУ и штаб противника не могут атаковать до конца их следующего хода.",
     });
   }
 

@@ -2644,6 +2644,113 @@ export const cards: TankCard[] = [
   },
 ];
 
+/**
+ * Special abilities layered onto existing cards. Kept as one readable table so
+ * combat flavor/balance can be tuned in a single place without touching the
+ * large card literals above. Overrides are merged into a card's existing
+ * `combatAbilities` / `onPlayEffects`, so cards that already carry an ability
+ * keep it. A handful of plain "base" cards per class are intentionally absent
+ * here and stay ability-free.
+ */
+type AbilityOverride = Pick<
+  TankCard,
+  "combatAbilities" | "onPlayEffects" | "costModifiers"
+>;
+
+const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
+  // ===== Лёгкие танки ===== (база без способностей: МС-1, Т-26 1931, M2 Light)
+  t26_1933: { combatAbilities: { drawWhenAttacked: 1 } },
+  t26_1938: { combatAbilities: { armorVsClass: { class: "light", amount: 1 } } },
+  t46_1: { onPlayEffects: { draw: 1 } },
+  m2a4: { onPlayEffects: { draw: 1 } },
+  t111: { combatAbilities: { spawnDamageReduction: 1 } },
+  panzer_35t: { combatAbilities: { raidDraw: 1 } },
+  pzkpfw_ii_ausf_f: { combatAbilities: { camouflage: true } },
+  tkf: { combatAbilities: { camouflage: true } },
+  tkw: { combatAbilities: { drawWhenAttacked: 1 } },
+  tp7_dwuwiezowy: { onPlayEffects: { hqProtection: 1 } },
+  tp7_jednowiezowy: { combatAbilities: { blitz: true } },
+  tp7_wzmocniony: { combatAbilities: { armorVsClass: { class: "td", amount: 1 } } },
+  tp9: { combatAbilities: { armorVsClass: { class: "medium", amount: 1 } } },
+  vickers_e_type_a: { combatAbilities: { attackEqualsHq: true } },
+  vickers_e_type_b: { combatAbilities: { raidDraw: 1 } },
+  renault_r35: { combatAbilities: { spawnDamageReduction: 1 } },
+  hotchkiss_h35: { combatAbilities: { armorVsClass: { class: "light", amount: 1 } } },
+
+  // ===== Средние танки ===== (база: T-34/76, M4 Sherman, Panzer III A)
+  t24: { onPlayEffects: { draw: 1 } },
+  t28: { combatAbilities: { armorVsClass: { class: "light", amount: 1 } } },
+  panzer_iv: { costModifiers: { ifClassPresent: "light", discount: 1 } },
+  m2_medium_tank: { onPlayEffects: { hqProtection: 1 } },
+  m3_lee: { onPlayEffects: { suppressEnemyIndirect: true } },
+  tp14: { combatAbilities: { armorVsClass: { class: "medium", amount: 1 } } },
+  pzkpfw_iii_ausf_d: { combatAbilities: { drawWhenAttacked: 1 } },
+  pzkpfw_iii_ausf_e: { combatAbilities: { spawnDamageReduction: 1 } },
+  pzkpfw_iii_ausf_h: { combatAbilities: { armorVsClass: { class: "td", amount: 1 } } },
+  pzkpfw_iii_ausf_j: { combatAbilities: { spawnDamageReduction: 1 } },
+  pzkpfw_iv_ausf_a: { onPlayEffects: { draw: 1 } },
+  pzkpfw_iv_ausf_b: { combatAbilities: { blitz: true } },
+  pzkpfw_iv_ausf_e: { costModifiers: { ifClassPresent: "light", discount: 1 } },
+  m2a1_medium: { combatAbilities: { attackEqualsHq: true } },
+  t34_1940: { costModifiers: { ifClassPresent: "medium", discount: 1 } },
+  t34_1941: { combatAbilities: { armorVsClass: { class: "medium", amount: 1 } } },
+  t34_stz: { onPlayEffects: { draw: 1 } },
+  sherman_early: { combatAbilities: { drawWhenAttacked: 1 } },
+
+  // ===== Тяжёлые танки ===== (база: KV-1, Churchill)
+  t35: { combatAbilities: { armorVsClass: { class: "light", amount: 2 } } },
+  tiger_i: { combatAbilities: { armorVsClass: { class: "medium", amount: 2 } } },
+  pociag_pancerny_danuta: { onPlayEffects: { suppressEnemyIndirect: true } },
+  pociag_pancerny_smialy: { combatAbilities: { spawnDamageReduction: 2 } },
+  neubaufahrzeug: { combatAbilities: { drawWhenAttacked: 1 } },
+  grosstraktor: { combatAbilities: { attackEqualsHq: true } },
+  smk: { combatAbilities: { armorVsClass: { class: "td", amount: 2 } } },
+  t100: { combatAbilities: { spawnDamageReduction: 2 } },
+  kv2: { onPlayEffects: { suppressEnemyIndirect: true } },
+  m6_heavy: { combatAbilities: { armorVsClass: { class: "medium", amount: 2 } } },
+  t14_assault: { combatAbilities: { spawnDamageReduction: 2 } },
+  kv1_1940: { combatAbilities: { armorVsClass: { class: "td", amount: 2 } } },
+
+  // ===== ПТ-САУ ===== (база: StuG III B, АТ-1)
+  stug_iii: { combatAbilities: { camouflage: true } },
+  marder_iii: { combatAbilities: { camouflage: true } },
+  tks_20mm: { combatAbilities: { drawWhenAttacked: 1 } },
+  tks_d: { combatAbilities: { camouflage: true } },
+  panzerjaeger_i: { combatAbilities: { camouflage: true } },
+  panzerjaeger_38t_early: { combatAbilities: { camouflage: true } },
+  m3_gmc: { combatAbilities: { drawWhenAttacked: 1 } },
+  m6_gmc_fargo: { combatAbilities: { camouflage: true } },
+  zis_30: { combatAbilities: { camouflage: true } },
+
+  // ===== САУ ===== (база: СУ-18, TKD) — все остальные занимают огневую позицию
+  su_5_2: { combatAbilities: { cornerBonus: { attack: 1 } } },
+  wespe: { combatAbilities: { cornerBonus: { attack: 1 } } },
+  su_122: { combatAbilities: { cornerBonus: { hp: 2 } } },
+  sig_33_pzi: { combatAbilities: { cornerBonus: { attack: 1 } } },
+  sig_33_pzii: { combatAbilities: { cornerBonus: { attack: 1 } } },
+  su14: { combatAbilities: { cornerBonus: { attack: 2 } } },
+  t18_hmc: { combatAbilities: { cornerBonus: { hp: 2 } } },
+  t19_hmc: { combatAbilities: { cornerBonus: { attack: 1 } } },
+};
+
+for (const [cardId, override] of Object.entries(UNIT_ABILITY_OVERRIDES)) {
+  const card = cards.find((item) => item.id === cardId);
+
+  if (!card) continue;
+
+  if (override.combatAbilities) {
+    card.combatAbilities = { ...card.combatAbilities, ...override.combatAbilities };
+  }
+
+  if (override.onPlayEffects) {
+    card.onPlayEffects = { ...card.onPlayEffects, ...override.onPlayEffects };
+  }
+
+  if (override.costModifiers) {
+    card.costModifiers = override.costModifiers;
+  }
+}
+
 const CARD_ID_ALIASES: Record<string, string> = {
   ba_10: "t-12",
   zis_5_supply: "amo_f15",

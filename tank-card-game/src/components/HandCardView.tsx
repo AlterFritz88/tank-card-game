@@ -609,7 +609,7 @@ export function HandCardView({
         )}
 
         {/* New mechanics badges (only for select units) */}
-        {card && (card.onPlayEffects || card.combatAbilities?.blitz) && (
+        {card && (card.onPlayEffects || card.combatAbilities || card.costModifiers) && (
           <div
             style={{
               ...styles.mechanicsLine,
@@ -625,6 +625,22 @@ export function HandCardView({
                 title="Блиц: после выхода на поле боя юнит может сразу полноценно двигаться и атаковать."
               >
                 {isPreview ? "Блиц" : "БЛИЦ"}
+              </span>
+            )}
+            {card.combatAbilities?.lightScreen && (
+              <span
+                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
+                title="Экран: раз за ход первый удар по дружественному лёгкому танку перенаправляется в этот юнит."
+              >
+                {isPreview ? "Экран" : "ЭКРАН"}
+              </span>
+            )}
+            {card.combatAbilities?.tankDefenseAura && card.combatAbilities.tankDefenseAura > 0 && (
+              <span
+                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
+                title="Командная машина: пока юнит в строю, ваши танки получают меньше входящего урона."
+              >
+                {isPreview ? "Командная машина" : "КОМ"} −{card.combatAbilities.tankDefenseAura}
               </span>
             )}
             {card.onPlayEffects?.draw && card.onPlayEffects.draw > 0 && (
@@ -647,6 +663,78 @@ export function HandCardView({
                 title="Прикрытие: при выходе на поле боя ваш штаб получает дополнительные очки здоровья."
               >
                 {isPreview ? "Прикрытие" : "ПРИКР"} +{card.onPlayEffects.hqProtection}
+              </span>
+            )}
+            {card.combatAbilities?.camouflage && (
+              <span
+                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
+                title="Маскировка: юнит нельзя атаковать дистанционно, из САУ или штабом — только в ближнем бою."
+              >
+                {isPreview ? "Маскировка" : "МАСК"}
+              </span>
+            )}
+            {card.combatAbilities?.attackEqualsHq && (
+              <span
+                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
+                title="Корректировщик: огневая мощь равна огневой мощи штаба."
+              >
+                {isPreview ? "Корректировщик" : "КОРР"}
+              </span>
+            )}
+            {card.combatAbilities?.armorVsClass && (
+              <span
+                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
+                title={`Спецброня: −${card.combatAbilities.armorVsClass.amount} к урону от выбранного класса.`}
+              >
+                {isPreview ? "Спецброня" : "БРОНЯ"} −{card.combatAbilities.armorVsClass.amount}
+              </span>
+            )}
+            {card.combatAbilities?.drawWhenAttacked && card.combatAbilities.drawWhenAttacked > 0 && (
+              <span
+                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
+                title="Дозор: при получении урона добираете карту (раз за ход)."
+              >
+                {isPreview ? "Дозор" : "ДОЗОР"} +{card.combatAbilities.drawWhenAttacked}
+              </span>
+            )}
+            {card.combatAbilities?.cornerBonus && (
+              <span
+                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
+                title="Огневая позиция: в угловой клетке САУ получает бонус к атаке и/или прочности."
+              >
+                {isPreview ? "Огневая позиция" : "УГОЛ"}
+              </span>
+            )}
+            {card.combatAbilities?.spawnDamageReduction && card.combatAbilities.spawnDamageReduction > 0 && (
+              <span
+                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
+                title={`Оборона плацдарма: −${card.combatAbilities.spawnDamageReduction} к урону на своём плацдарме.`}
+              >
+                {isPreview ? "Оборона плацдарма" : "ПЛАЦ"}
+              </span>
+            )}
+            {card.combatAbilities?.raidDraw && card.combatAbilities.raidDraw > 0 && (
+              <span
+                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
+                title="Прорыв: заход на плацдарм врага добирает карту."
+              >
+                {isPreview ? "Прорыв" : "ПРОР"} +{card.combatAbilities.raidDraw}
+              </span>
+            )}
+            {card.costModifiers && (
+              <span
+                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
+                title={`Слаженность: дешевле на ${card.costModifiers.discount}, пока на поле есть нужный класс.`}
+              >
+                {isPreview ? "Слаженность" : "СЛАЖ"} −{card.costModifiers.discount}
+              </span>
+            )}
+            {card.onPlayEffects?.suppressEnemyIndirect && (
+              <span
+                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
+                title="Контрбатарейный огонь: при выходе вражеские САУ и штаб не могут атаковать."
+              >
+                {isPreview ? "Контрбатарея" : "КОНТРБ"}
               </span>
             )}
           </div>

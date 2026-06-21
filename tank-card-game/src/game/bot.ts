@@ -1,6 +1,8 @@
 import { getCard } from "./cards";
 import {
+  BOARD_CORNER_CELLS,
   BOT_SPAWN_CELLS,
+  PLAYER_SPAWN_CELLS,
   applyAction,
   getAttackAnimationSequence,
   getAvailableMoveCells,
@@ -36,6 +38,90 @@ function samePosition(a: Position, b: Position): boolean {
 
 function isBotSpawnCell(position: Position): boolean {
   return BOT_SPAWN_CELLS.some((cell) => samePosition(cell, position));
+}
+
+/** From the bot's perspective the player's spawn is the enemy bridgehead. */
+function isEnemySpawnCell(position: Position): boolean {
+  return PLAYER_SPAWN_CELLS.some((cell) => samePosition(cell, position));
+}
+
+function isCornerCell(position: Position): boolean {
+  return BOARD_CORNER_CELLS.some((cell) => samePosition(cell, position));
+}
+
+/**
+ * Whether moving the card to `cell` lets it attack any enemy (unit or HQ) this
+ * turn. Heavy tanks can never move and attack in the same turn. Used both to
+ * value advancing moves and to suppress pointless extra steps.
+ */
+function moveEnablesAttack(
+  state: BattleState,
+  card: TankCard,
+  cell: Position
+): boolean {
+  if (card.class === "heavy") return false;
+
+  if (canCardAttackPosition(card.id, cell, state.headquarters.player.position)) {
+    return true;
+  }
+
+  return state.units.some(
+    (unit) =>
+      unit.ownerId === "player" &&
+      isBattlefieldUnit(unit) &&
+      canCardAttackPosition(card.id, cell, unit.position)
+  );
+}
+
+/**
+ * Bonus the bot assigns to a card's special abilities so it values playing and
+ * positioning units that carry the new mechanics. Context-aware where it
+ * matters (suppression vs. an enemy artillery park, «Корректировщик» scaling
+ * with the headquarters' firepower).
+ */
+function getCardAbilityValue(state: BattleState, card: TankCard): number {
+  let value = 0;
+
+  const combat = card.combatAbilities;
+  if (combat) {
+    if (combat.camouflage) value += 9;
+    if (combat.attackEqualsHq) {
+      value += Math.max(0, state.headquarters.bot.attack - card.attack) * 5 + 6;
+    }
+    if (combat.armorVsClass) value += combat.armorVsClass.amount * 6;
+    if (combat.drawWhenAttacked) value += combat.drawWhenAttacked * 7;
+    if (combat.cornerBonus) {
+      value += (combat.cornerBonus.attack ?? 0) * 6 + (combat.cornerBonus.hp ?? 0) * 4;
+    }
+    if (combat.spawnDamageReduction) value += combat.spawnDamageReduction * 5;
+    if (combat.raidDraw) value += combat.raidDraw * 6;
+    if (combat.blitz) value += 6;
+    if (combat.lightScreen) value += 6;
+    if (combat.tankDefenseAura) value += combat.tankDefenseAura * 10;
+  }
+
+  const onPlay = card.onPlayEffects;
+  if (onPlay) {
+    if (onPlay.draw) value += onPlay.draw * 8;
+    if (onPlay.hqProtection) value += onPlay.hqProtection * 6;
+    if (onPlay.suppressEnemyIndirect) {
+      const enemySpgs = state.units.filter(
+        (unit) =>
+          unit.ownerId === "player" &&
+          isBattlefieldUnit(unit) &&
+          getCard(unit.cardId).class === "spg"
+      ).length;
+
+      value +=
+        10 +
+        enemySpgs * 14 +
+        (state.headquarters.player.alreadyAttacked ? 0 : 6);
+    }
+  }
+
+  if (card.costModifiers) value += 4;
+
+  return value;
 }
 
 function isBattlefieldSpg(card: TankCard): boolean {
@@ -327,6 +413,7 @@ function scoreCardForCurrentBattle(state: BattleState, cardId: string): number {
     scoreCardForBot(cardId) +
     card.fuelGeneration * economyMultiplier +
     getSpgProtectionCardBonus(state, card) +
+    getCardAbilityValue(state, card) +
     (needsBoard ? card.hp + card.attack * 2 : 0) +
     (getEffectiveCardCost(state, "bot", cardId) <= state.bot.resources ? 2 : 0)
   );
@@ -1039,17 +1126,30 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
     if (moveCells.length === 0) continue;
 
     if (card.class === "spg") {
-      if (!shouldMoveSpgToClearSpawn(state, unit)) continue;
+      const cornerBonus = card.combatAbilities?.cornerBonus;
+      const mustClearSpawn = shouldMoveSpgToClearSpawn(state, unit);
+      // «Огневая позиция»: an SPG with a corner bonus actively seeks a corner.
+      const wantsCorner = !!cornerBonus && !isCornerCell(unit.position);
+
+      if (!mustClearSpawn && !wantsCorner) continue;
+
+      const cornerValue = cornerBonus
+        ? (cornerBonus.attack ?? 0) * 10 + (cornerBonus.hp ?? 0) * 6 + 16
+        : 0;
+      const scoreCell = (cell: Position) =>
+        getSpgPositionScore(state, cell) +
+        (cornerBonus && isCornerCell(cell) ? cornerValue : 0);
 
       const bestCell = moveCells
-        .filter((cell) => !isBotSpawnCell(cell))
-        .map((cell) => ({
-          cell,
-          score: getSpgPositionScore(state, cell),
-        }))
+        .filter((cell) => (mustClearSpawn ? !isBotSpawnCell(cell) : true))
+        .map((cell) => ({ cell, score: scoreCell(cell) }))
         .sort((a, b) => b.score - a.score)[0];
 
       if (!bestCell) continue;
+
+      // When only repositioning for a corner (not forced off the spawn), the
+      // move must actually improve the SPG's firing position.
+      if (!mustClearSpawn && bestCell.score <= scoreCell(unit.position)) continue;
 
       candidates.push({
         action: {
@@ -1081,6 +1181,15 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
     const currentThreatDistance = mostDangerousEnemy
       ? getDistance(unit.position, mostDangerousEnemy.position)
       : null;
+    const enemyPressure =
+      mostDangerousEnemy &&
+      getDistance(mostDangerousEnemy.position, state.headquarters.bot.position) <= 3
+        ? getUnitThreatScore(state, mostDangerousEnemy)
+        : 0;
+    // «Прорыв»: a raid unit that has not triggered yet wants the enemy spawn.
+    const raidDraw = unit.raidDrawUsed
+      ? 0
+      : card.combatAbilities?.raidDraw ?? 0;
 
     const bestCell = moveCells
       .map((cell) => {
@@ -1090,32 +1199,26 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
           mostDangerousEnemy && currentThreatDistance !== null
             ? currentThreatDistance - getDistance(cell, mostDangerousEnemy.position)
             : 0;
-        const enemyPressure =
-          mostDangerousEnemy &&
-          getDistance(mostDangerousEnemy.position, state.headquarters.bot.position) <= 3
-            ? getUnitThreatScore(state, mostDangerousEnemy)
-            : 0;
-        // Heavy tanks either move or attack in a turn — a move never leads to
-        // an attack on the same turn, so the bonus must not apply to them.
-        const canAttackAfterMove =
-          card.class !== "heavy" &&
-          mostDangerousEnemy &&
-          canCardAttackPosition(card.id, cell, mostDangerousEnemy.position);
+        const enablesAttack = moveEnablesAttack(state, card, cell);
         const spgProtectionBonus = getSpgProtectionPositionScore(
           state,
           card,
           cell
         );
+        const raidBonus =
+          raidDraw > 0 && isEnemySpawnCell(cell) ? raidDraw * 12 + 10 : 0;
 
         return {
           cell,
           distanceGain,
           threatDistanceGain,
+          enablesAttack,
           score:
             distanceGain * 3 +
             threatDistanceGain * (enemyPressure > 0 ? 7 : 2) +
-            (canAttackAfterMove ? 12 : 0) +
-            spgProtectionBonus,
+            (enablesAttack ? 12 : 0) +
+            spgProtectionBonus +
+            raidBonus,
         };
       })
       .sort((a, b) => b.score - a.score)[0];
@@ -1123,6 +1226,18 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
     if (!bestCell) continue;
 
     if (bestCell.score <= 0) continue;
+
+    // Light tanks move up to two cells; don't spend the SECOND step on a purely
+    // positional shuffle that neither enables an attack nor escapes a real
+    // threat (the "pointless extra step").
+    if (
+      card.class === "light" &&
+      (unit.moveCountThisTurn ?? 0) > 0 &&
+      !bestCell.enablesAttack &&
+      !(enemyPressure > 0 && bestCell.threatDistanceGain > 0)
+    ) {
+      continue;
+    }
 
     candidates.push({
       action: {

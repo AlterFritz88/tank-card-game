@@ -156,12 +156,28 @@ export type TankCard = {
   supportRole?: SupportRole;
   supportEffects?: SupportEffects;
 
+  /**
+   * Fuel-cost modifier applied while a given unit class is on the battlefield
+   * («Слаженность»): the card is cheaper when the owner already controls a
+   * battlefield unit of `ifClassPresent`.
+   */
+  costModifiers?: {
+    ifClassPresent: TankClass;
+    discount: number;
+  };
+
   /** New mechanics - only for low-stat units */
   onPlayEffects?: {
     /** Number of cards the owner draws when this unit enters the battlefield */
     draw?: number;
     /** Headquarters health added when this unit enters the battlefield */
     hqProtection?: number;
+    /**
+     * On deploy this turn, the enemy headquarters and every enemy SPG on the
+     * battlefield cannot attack until their next turn ends («Контрбатарейный
+     * огонь»).
+     */
+    suppressEnemyIndirect?: boolean;
   };
 
   combatAbilities?: {
@@ -178,6 +194,42 @@ export type TankCard = {
      * tank coordinating the armored group). Does not stack with itself.
      */
     tankDefenseAura?: number;
+    /**
+     * «Маскировка»: this unit cannot be targeted by ranged fire, by an SPG, or
+     * by an enemy headquarters — only by an adjacent enemy unit in melee.
+     */
+    camouflage?: boolean;
+    /**
+     * «Корректировщик»: this unit's effective firepower equals its owner's
+     * current headquarters attack value (including support/ability bonuses)
+     * instead of its printed attack.
+     */
+    attackEqualsHq?: boolean;
+    /**
+     * «Спецброня»: incoming damage from attackers of the given class is reduced
+     * by `amount` (never below zero damage).
+     */
+    armorVsClass?: { class: TankClass; amount: number };
+    /**
+     * «Дозор»: when this unit takes damage, its owner draws this many cards
+     * (at most once per turn).
+     */
+    drawWhenAttacked?: number;
+    /**
+     * «Огневая позиция» (SPG only): while standing on a board corner cell, the
+     * unit gains the given firepower and/or maximum-HP bonus.
+     */
+    cornerBonus?: { attack?: number; hp?: number };
+    /**
+     * «Оборона плацдарма»: while standing on one of its own spawn cells, this
+     * unit reduces each incoming strike by this much.
+     */
+    spawnDamageReduction?: number;
+    /**
+     * «Прорыв»: the first time this unit moves onto an enemy spawn cell, its
+     * owner draws this many cards.
+     */
+    raidDraw?: number;
   };
 };
 
@@ -220,6 +272,11 @@ export type HeadquartersState = {
   fuelGeneration: number;
 
   alreadyAttacked: boolean;
+  /**
+   * «Контрбатарейный огонь»: this headquarters cannot attack until the end of
+   * its owner's next turn.
+   */
+  attackSuppressed?: boolean;
 };
 
 export type BoardUnit = {
@@ -241,6 +298,22 @@ export type BoardUnit = {
   tdAmbushUsedThisTurn: boolean;
   /** Anti-tank screen already fired this turn (see supportLineCover). */
   coverFiredThisTurn?: boolean;
+  /**
+   * «Маскировка» has been broken: the unit has attacked at least once and can
+   * now be targeted normally (see combatAbilities.camouflage).
+   */
+  revealed?: boolean;
+  /** «Дозор» already drew a card this turn (see combatAbilities.drawWhenAttacked). */
+  drawWhenAttackedUsedThisTurn?: boolean;
+  /** «Прорыв» already drew when this unit reached an enemy spawn cell. */
+  raidDrawUsed?: boolean;
+  /** Maximum-HP bonus currently granted by «Огневая позиция» (cornerBonus.hp). */
+  cornerHpApplied?: number;
+  /**
+   * «Контрбатарейный огонь»: this SPG cannot attack until the end of its
+   * owner's next turn.
+   */
+  attackSuppressed?: boolean;
 };
 
 export type PlayerTimerState = {

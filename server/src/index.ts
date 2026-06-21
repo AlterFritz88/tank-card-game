@@ -192,6 +192,15 @@ async function handleHttpRequest(
   await sendFile(filePath, response, method === "HEAD");
 }
 
+function getClientIp(request: IncomingMessage): string {
+  // Behind Render/Amvera the real client IP is in X-Forwarded-For (first hop).
+  const forwarded = request.headers["x-forwarded-for"];
+  const forwardedValue = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  const firstHop = forwardedValue?.split(",")[0]?.trim();
+
+  return firstHop || request.socket.remoteAddress || "unknown";
+}
+
 function getCorsHeaders(request: IncomingMessage): Record<string, string> {
   const origin = request.headers.origin;
   if (!origin) return {};
@@ -745,7 +754,14 @@ async function sendFile(
   createReadStream(filePath).pipe(response);
 }
 
-server.on("connection", (socket) => {
+server.on("connection", (socket, request) => {
+  const clientIp = getClientIp(request);
+
+  if (!rooms.registerConnection(socket, clientIp)) {
+    socket.close(1008, "Too many connections");
+    return;
+  }
+
   socket.on("message", (data) => rooms.handleMessage(socket, data));
   socket.on("close", () => rooms.handleClose(socket));
   socket.on("error", () => rooms.handleClose(socket));

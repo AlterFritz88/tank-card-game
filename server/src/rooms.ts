@@ -124,6 +124,28 @@ const WS_RATE_LIMIT_MAX_MESSAGES = Number(
   process.env.WS_RATE_LIMIT_MAX_MESSAGES ?? 60
 );
 const WS_RATE_LIMIT_BLOCK_MS = Number(process.env.WS_RATE_LIMIT_BLOCK_MS ?? 2000);
+// Per-IP guards. The per-socket rate limit above is trivially bypassed by
+// opening many sockets, so these aggregate by client IP instead.
+const WS_MAX_CONNECTIONS_PER_IP = Number(
+  process.env.WS_MAX_CONNECTIONS_PER_IP ?? 30
+);
+const WS_IP_RATE_LIMIT_WINDOW_MS = Number(
+  process.env.WS_IP_RATE_LIMIT_WINDOW_MS ?? 1000
+);
+const WS_IP_RATE_LIMIT_MAX_MESSAGES = Number(
+  process.env.WS_IP_RATE_LIMIT_MAX_MESSAGES ?? 240
+);
+const WS_IP_RATE_LIMIT_BLOCK_MS = Number(
+  process.env.WS_IP_RATE_LIMIT_BLOCK_MS ?? 5000
+);
+// Brute-force protection for the LOGIN_ACCOUNT message, keyed by client IP.
+const LOGIN_MAX_FAILED_ATTEMPTS = Number(
+  process.env.LOGIN_MAX_FAILED_ATTEMPTS ?? 10
+);
+const LOGIN_ATTEMPT_WINDOW_MS = Number(
+  process.env.LOGIN_ATTEMPT_WINDOW_MS ?? 15 * 60_000
+);
+const LOGIN_BLOCK_MS = Number(process.env.LOGIN_BLOCK_MS ?? 15 * 60_000);
 const RECONNECT_GRACE_MS = Number(process.env.PVP_RECONNECT_GRACE_MS ?? 15_000);
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
@@ -166,6 +188,12 @@ function safeSend(socket: WebSocket | null | undefined, message: PvpServerMessag
 type SocketRateLimitState = {
   windowStartedAt: number;
   count: number;
+  blockedUntil: number;
+};
+
+type LoginAttemptState = {
+  failedCount: number;
+  windowStartedAt: number;
   blockedUntil: number;
 };
 
@@ -287,6 +315,10 @@ export class RoomManager {
   private socketToRoom = new WeakMap<WebSocket, string>();
   private socketToPlayer = new WeakMap<WebSocket, PlayerId>();
   private socketRateLimits = new WeakMap<WebSocket, SocketRateLimitState>();
+  private socketToIp = new WeakMap<WebSocket, string>();
+  private connectionsPerIp = new Map<string, number>();
+  private ipRateLimits = new Map<string, SocketRateLimitState>();
+  private loginAttempts = new Map<string, LoginAttemptState>();
   private waitingRoomId: string | null = null;
   private movementIntentSequence = 0;
   private attackIntentSequence = 0;
@@ -350,7 +382,7 @@ export class RoomManager {
       return;
     }
 
-    if (this.isRateLimited(socket)) {
+    if (this.isRateLimited(socket) || this.isIpRateLimited(socket)) {
       console.warn("Rejected message: rate limit exceeded");
       safeSend(socket, { type: "ERROR", message: "Слишком много сообщений" });
       return;
@@ -516,7 +548,108 @@ export class RoomManager {
     return true;
   }
 
+  /**
+   * Register a freshly opened socket against its client IP. Returns false when
+   * the IP already holds the maximum number of concurrent connections, in which
+   * case the caller should close the socket. Protects against connection floods
+   * that would otherwise each get an independent per-socket rate-limit budget.
+   */
+  registerConnection(socket: WebSocket, ip: string): boolean {
+    const current = this.connectionsPerIp.get(ip) ?? 0;
+    if (current >= WS_MAX_CONNECTIONS_PER_IP) {
+      console.warn(
+        `Rejected connection from ${ip}: too many concurrent connections (${current})`
+      );
+      return false;
+    }
+
+    this.connectionsPerIp.set(ip, current + 1);
+    this.socketToIp.set(socket, ip);
+    return true;
+  }
+
+  private releaseConnection(socket: WebSocket) {
+    const ip = this.socketToIp.get(socket);
+    if (!ip) return;
+
+    this.socketToIp.delete(socket);
+    const remaining = (this.connectionsPerIp.get(ip) ?? 1) - 1;
+    if (remaining <= 0) {
+      this.connectionsPerIp.delete(ip);
+    } else {
+      this.connectionsPerIp.set(ip, remaining);
+    }
+  }
+
+  private isIpRateLimited(socket: WebSocket): boolean {
+    const ip = this.socketToIp.get(socket);
+    if (!ip) return false;
+
+    const now = Date.now();
+    const current = this.ipRateLimits.get(ip);
+
+    if (!current || now - current.windowStartedAt >= WS_IP_RATE_LIMIT_WINDOW_MS) {
+      this.ipRateLimits.set(ip, {
+        windowStartedAt: now,
+        count: 1,
+        blockedUntil: 0,
+      });
+      return false;
+    }
+
+    if (current.blockedUntil > now) {
+      return true;
+    }
+
+    current.count += 1;
+    if (current.count <= WS_IP_RATE_LIMIT_MAX_MESSAGES) {
+      return false;
+    }
+
+    current.blockedUntil = now + WS_IP_RATE_LIMIT_BLOCK_MS;
+    return true;
+  }
+
+  private isLoginBlocked(ip: string): boolean {
+    const state = this.loginAttempts.get(ip);
+    if (!state) return false;
+
+    const now = Date.now();
+    if (state.blockedUntil > now) return true;
+
+    // Window expired with no fresh block: forget the IP so the map stays small.
+    if (now - state.windowStartedAt >= LOGIN_ATTEMPT_WINDOW_MS) {
+      this.loginAttempts.delete(ip);
+    }
+    return false;
+  }
+
+  private recordFailedLogin(ip: string) {
+    const now = Date.now();
+    const state = this.loginAttempts.get(ip);
+
+    if (!state || now - state.windowStartedAt >= LOGIN_ATTEMPT_WINDOW_MS) {
+      this.loginAttempts.set(ip, {
+        failedCount: 1,
+        windowStartedAt: now,
+        blockedUntil: 0,
+      });
+      return;
+    }
+
+    state.failedCount += 1;
+    if (state.failedCount >= LOGIN_MAX_FAILED_ATTEMPTS) {
+      state.blockedUntil = now + LOGIN_BLOCK_MS;
+      console.warn(`Login temporarily blocked for ${ip} after ${state.failedCount} failed attempts`);
+    }
+  }
+
+  private clearLoginAttempts(ip: string) {
+    this.loginAttempts.delete(ip);
+  }
+
   handleClose(socket: WebSocket) {
+    this.releaseConnection(socket);
     this.releaseSessionForSocket(socket);
 
     const roomId = this.socketToRoom.get(socket);
@@ -956,12 +1089,12 @@ export class RoomManager {
     }
   }
 
-  private registerAccount(
+  private async registerAccount(
     socket: WebSocket,
     message: Extract<PvpClientMessage, { type: "REGISTER_ACCOUNT" }>
   ) {
     try {
-      const account = this.accounts.register({
+      const account = await this.accounts.register({
         username: message.username,
         password: message.password,
         email: message.email,
@@ -984,12 +1117,24 @@ export class RoomManager {
     }
   }
 
-  private loginAccount(
+  private async loginAccount(
     socket: WebSocket,
     message: Extract<PvpClientMessage, { type: "LOGIN_ACCOUNT" }>
   ) {
+    const ip = this.socketToIp.get(socket) ?? "unknown";
+
+    if (this.isLoginBlocked(ip)) {
+      this.sendAuthError(
+        socket,
+        message.requestId,
+        new Error("Слишком много попыток входа. Повторите позже.")
+      );
+      return;
+    }
+
     try {
-      const account = this.accounts.login(message.username, message.password);
+      const account = await this.accounts.login(message.username, message.password);
+      this.clearLoginAttempts(ip);
       const profile =
         message.mergeGuestProgress && message.guestPlayerId
           ? this.profiles.mergeGuestProgress(account.userId, message.guestPlayerId)
@@ -1003,6 +1148,7 @@ export class RoomManager {
         profile,
       });
     } catch (error) {
+      this.recordFailedLogin(ip);
       this.sendAuthError(socket, message.requestId, error);
     }
   }

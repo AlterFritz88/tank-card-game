@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+**/dist/
+*.tsbuildinfo
+
+# Secrets / environment
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Runtime databases (contain account hashes, profiles, tickets — never commit)
+server/data/*.json
+**/data/player-accounts.json
+**/data/player-profiles.json
+**/data/player-payments.json
+**/data/support-tickets.json
+
+# Archives / editor cruft
+*.zip
+.idea/workspace.xml
+
+# Logs
+*.log
+npm-debug.log*

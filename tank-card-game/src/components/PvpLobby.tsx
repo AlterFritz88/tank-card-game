@@ -5783,6 +5783,9 @@ const styles: Record<string, CSSProperties> = {
     display: "grid",
     placeItems: "center",
     padding: 22,
+    overflowY: "auto",
+    overscrollBehavior: "contain",
+    WebkitOverflowScrolling: "touch",
     background:
       "radial-gradient(circle at center, rgba(0,0,0,0.54), rgba(0,0,0,0.86) 72%)",
     backdropFilter: "blur(5px)",
@@ -5790,9 +5793,12 @@ const styles: Record<string, CSSProperties> = {
 
   supportPanel: {
     width: "min(520px, calc(100vw - 32px))",
+    maxHeight: "calc(100dvh - 44px)",
     display: "grid",
     gap: 14,
     padding: "22px 24px 24px",
+    overflowY: "auto",
+    scrollbarWidth: "none",
     color: "#f4e5bf",
     background:
       "linear-gradient(180deg, rgba(24, 25, 20, 0.96), rgba(8, 9, 7, 0.96))",

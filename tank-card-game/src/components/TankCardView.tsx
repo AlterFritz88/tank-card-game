@@ -315,11 +315,21 @@ export function TankCardView({
       {card.abilityText && <p style={styles.abilityText}>{card.abilityText}</p>}
 
       {/* Mechanics badges */}
-      {(card.onPlayEffects || card.combatAbilities?.blitz) && (
+      {(card.onPlayEffects || card.combatAbilities || card.costModifiers) && (
         <div style={styles.mechanicsLine}>
           {card.combatAbilities?.blitz && (
             <span style={styles.mechanicBadge} title="Блиц: после выхода на поле боя юнит может сразу полноценно двигаться и атаковать.">
               Блиц
+            </span>
+          )}
+          {card.combatAbilities?.lightScreen && (
+            <span style={styles.mechanicBadge} title="Экран: раз за ход первый удар по дружественному лёгкому танку перенаправляется в этот юнит.">
+              Экран
+            </span>
+          )}
+          {card.combatAbilities?.tankDefenseAura && card.combatAbilities.tankDefenseAura > 0 && (
+            <span style={styles.mechanicBadge} title="Командная машина: пока юнит в строю, ваши танки получают меньше входящего урона.">
+              Командная машина −{card.combatAbilities.tankDefenseAura}
             </span>
           )}
           {card.onPlayEffects?.draw && card.onPlayEffects.draw > 0 && (
@@ -330,6 +340,51 @@ export function TankCardView({
           {card.onPlayEffects?.hqProtection && card.onPlayEffects.hqProtection > 0 && (
             <span style={styles.mechanicBadge} title="Прикрытие: штаб получает дополнительные очки здоровья при выходе.">
               Прикрытие +{card.onPlayEffects.hqProtection}
+            </span>
+          )}
+          {card.combatAbilities?.camouflage && (
+            <span style={styles.mechanicBadge} title="Маскировка: юнит нельзя атаковать дистанционно, из САУ или штабом — только в ближнем бою.">
+              Маскировка
+            </span>
+          )}
+          {card.combatAbilities?.attackEqualsHq && (
+            <span style={styles.mechanicBadge} title="Корректировщик: огневая мощь равна огневой мощи штаба.">
+              Корректировщик
+            </span>
+          )}
+          {card.combatAbilities?.armorVsClass && (
+            <span style={styles.mechanicBadge} title={`Спецброня: −${card.combatAbilities.armorVsClass.amount} к урону от выбранного класса.`}>
+              Спецброня −{card.combatAbilities.armorVsClass.amount}
+            </span>
+          )}
+          {card.combatAbilities?.drawWhenAttacked && card.combatAbilities.drawWhenAttacked > 0 && (
+            <span style={styles.mechanicBadge} title="Дозор: при получении урона добираете карту (раз за ход).">
+              Дозор +{card.combatAbilities.drawWhenAttacked}
+            </span>
+          )}
+          {card.combatAbilities?.cornerBonus && (
+            <span style={styles.mechanicBadge} title="Огневая позиция: в угловой клетке САУ получает бонус к атаке и/или прочности.">
+              Огневая позиция
+            </span>
+          )}
+          {card.combatAbilities?.spawnDamageReduction && card.combatAbilities.spawnDamageReduction > 0 && (
+            <span style={styles.mechanicBadge} title={`Оборона плацдарма: −${card.combatAbilities.spawnDamageReduction} к урону на своём плацдарме.`}>
+              Оборона плацдарма
+            </span>
+          )}
+          {card.combatAbilities?.raidDraw && card.combatAbilities.raidDraw > 0 && (
+            <span style={styles.mechanicBadge} title="Прорыв: заход на плацдарм врага добирает карту.">
+              Прорыв +{card.combatAbilities.raidDraw}
+            </span>
+          )}
+          {card.costModifiers && (
+            <span style={styles.mechanicBadge} title={`Слаженность: дешевле на ${card.costModifiers.discount}, пока на поле есть нужный класс.`}>
+              Слаженность −{card.costModifiers.discount}
+            </span>
+          )}
+          {card.onPlayEffects?.suppressEnemyIndirect && (
+            <span style={styles.mechanicBadge} title="Контрбатарейный огонь: при выходе вражеские САУ и штаб не могут атаковать.">
+              Контрбатарея
             </span>
           )}
         </div>

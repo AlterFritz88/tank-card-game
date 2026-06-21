@@ -1,6 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
 import { resolveWritableDbPath, writeJsonFileAtomic } from "./storagePath";
+
+const scryptAsync = promisify(scrypt);
 
 type PlayerAccount = {
   userId: string;
@@ -38,6 +41,8 @@ const PASSWORD_HASH_BYTES = 64;
 const USERNAME_PATTERN = /^[A-Za-z0-9_-]{3,14}$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LEGAL_VERSION = "2026-06-20";
+// Fixed salt used only to equalize timing when a username does not exist.
+const DUMMY_SALT = "0".repeat(32);
 
 console.log(`Player accounts database path: ${ACCOUNT_DB_PATH}`);
 
@@ -113,13 +118,24 @@ function validateEmail(email: string): { email: string; key: string } {
   };
 }
 
-function hashPassword(password: string, salt: string): string {
-  return scryptSync(password, salt, PASSWORD_HASH_BYTES).toString("hex");
+async function hashPassword(password: string, salt: string): Promise<string> {
+  const derivedKey = (await scryptAsync(
+    password,
+    salt,
+    PASSWORD_HASH_BYTES
+  )) as Buffer;
+  return derivedKey.toString("hex");
 }
 
-function verifyPassword(password: string, account: PlayerAccount): boolean {
+async function verifyPassword(
+  password: string,
+  account: PlayerAccount
+): Promise<boolean> {
   const expectedHash = Buffer.from(account.passwordHash, "hex");
-  const actualHash = Buffer.from(hashPassword(password, account.salt), "hex");
+  const actualHash = Buffer.from(
+    await hashPassword(password, account.salt),
+    "hex"
+  );
 
   return (
     expectedHash.length === actualHash.length &&
@@ -128,7 +144,7 @@ function verifyPassword(password: string, account: PlayerAccount): boolean {
 }
 
 export class PlayerAccountManager {
-  register({
+  async register({
     username,
     password,
     email,
@@ -138,7 +154,7 @@ export class PlayerAccountManager {
     password: string;
     email: string;
     legalAccepted: boolean;
-  }): PlayerAccount {
+  }): Promise<PlayerAccount> {
     const validatedUsername = validateUsername(username);
     const validatedEmail = validateEmail(email);
     validatePassword(password);
@@ -163,7 +179,7 @@ export class PlayerAccountManager {
       usernameKey: validatedUsername.key,
       email: validatedEmail.email,
       emailKey: validatedEmail.key,
-      passwordHash: hashPassword(password, salt),
+      passwordHash: await hashPassword(password, salt),
       salt,
       legalAcceptedAt: now,
       legalVersion: LEGAL_VERSION,
@@ -177,12 +193,19 @@ export class PlayerAccountManager {
     return account;
   }
 
-  login(username: string, password: string): PlayerAccount {
+  async login(username: string, password: string): Promise<PlayerAccount> {
     const validatedUsername = validateUsername(username);
     const db = readDb();
     const account = db[validatedUsername.key];
 
-    if (!account || !verifyPassword(password, account)) {
+    if (!account) {
+      // Burn a comparable amount of CPU so response timing does not reveal
+      // whether the username exists (user-enumeration side-channel).
+      await hashPassword(password, DUMMY_SALT);
+      throw new Error("Неверный логин или пароль");
+    }
+
+    if (!(await verifyPassword(password, account))) {
       throw new Error("Неверный логин или пароль");
     }
 

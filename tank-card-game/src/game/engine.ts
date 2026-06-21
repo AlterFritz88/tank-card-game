@@ -12,6 +12,7 @@ import type {
   Position,
   SupportSlot,
   TankCard,
+  TankClass,
 } from "./types";
 
 const STEP_TIME_MS = 60 * 1000;
@@ -32,6 +33,14 @@ export const BOT_SPAWN_CELLS: Position[] = [
   { row: 1, col: 4 },
 ];
 
+/** The four corner cells of the 3×5 battlefield (see «Огневая позиция»). */
+export const BOARD_CORNER_CELLS: Position[] = [
+  { row: 0, col: 0 },
+  { row: 0, col: 4 },
+  { row: 2, col: 0 },
+  { row: 2, col: 4 },
+];
+
 function cloneState(state: BattleState): BattleState {
   return structuredClone(state);
 }
@@ -45,6 +54,10 @@ function isSpawnCell(playerId: PlayerId, position: Position): boolean {
     playerId === "player" ? PLAYER_SPAWN_CELLS : BOT_SPAWN_CELLS;
 
   return spawnCells.some((cell) => samePosition(cell, position));
+}
+
+function isCornerCell(position: Position): boolean {
+  return BOARD_CORNER_CELLS.some((cell) => samePosition(cell, position));
 }
 
 function isCellOccupied(state: BattleState, position: Position): boolean {
@@ -239,7 +252,22 @@ export function getEffectiveCardCost(
       ? ability.firstUnitFuelDiscount
       : 0;
 
-  return Math.max(0, card.cost - discount);
+  // «Слаженность»: cheaper while a battlefield unit of the required class is present.
+  let classDiscount = 0;
+  const costMod = card.costModifiers;
+
+  if (costMod) {
+    const hasClassOnField = state.units.some(
+      (unit) =>
+        unit.ownerId === playerId &&
+        isBattlefieldUnit(unit) &&
+        getCard(unit.cardId).class === costMod.ifClassPresent
+    );
+
+    if (hasClassOnField) classDiscount = costMod.discount;
+  }
+
+  return Math.max(0, card.cost - discount - classDiscount);
 }
 
 function isTankClassCard(card: TankCard): boolean {
@@ -606,6 +634,7 @@ function beginBattle(
     unit.moveCountThisTurn = 0;
     unit.tdAmbushUsedThisTurn = false;
     unit.coverFiredThisTurn = false;
+    unit.drawWhenAttackedUsedThisTurn = false;
   }
 
   const startingPlayerDrawnCards = drawCardsWithoutPenalty(
@@ -689,6 +718,7 @@ function startTurn(state: BattleState, playerId: PlayerId) {
   for (const unit of state.units) {
     unit.tdAmbushUsedThisTurn = false;
     unit.coverFiredThisTurn = false;
+    unit.drawWhenAttackedUsedThisTurn = false;
 
     if (unit.ownerId === playerId) {
       unit.alreadyAttacked = isSupportUnit(unit);
@@ -789,6 +819,28 @@ function playCard(
       const hq = state.headquarters[owner];
       hq.hp += effects.hqProtection;
       addLog(state, `${owner === "player" ? "Игрок" : "Бот"} укрепляет штаб на +${effects.hqProtection}.`);
+    }
+
+    // «Контрбатарейный огонь»: silence the enemy headquarters and SPGs.
+    if (effects.suppressEnemyIndirect) {
+      const opponent = getOpponent(owner);
+
+      state.headquarters[opponent].attackSuppressed = true;
+
+      for (const enemyUnit of state.units) {
+        if (
+          enemyUnit.ownerId === opponent &&
+          isBattlefieldUnit(enemyUnit) &&
+          getCard(enemyUnit.cardId).class === "spg"
+        ) {
+          enemyUnit.attackSuppressed = true;
+        }
+      }
+
+      addLog(
+        state,
+        `${card.name}: контрбатарейный огонь — САУ и штаб противника не могут атаковать.`
+      );
     }
   }
 
@@ -911,10 +963,63 @@ function getAttackValue(
   if (!attacker) return 0;
 
   if ("cardId" in attacker) {
-    return getCard(attacker.cardId).attack;
+    return getUnitAttackValue(state, attacker);
   }
 
   return getHeadquartersAttackValue(state, attacker.ownerId);
+}
+
+/**
+ * Effective firepower of a battlefield unit, accounting for «Корректировщик»
+ * (attack equals the owner's headquarters attack) and «Огневая позиция» (an SPG
+ * standing on a board corner fires harder). Support units keep their printed
+ * attack (they never strike anyway).
+ */
+function getUnitAttackValue(state: BattleState, unit: BoardUnit): number {
+  const card = getCard(unit.cardId);
+
+  let attack = card.combatAbilities?.attackEqualsHq
+    ? getHeadquartersAttackValue(state, unit.ownerId)
+    : card.attack;
+
+  if (
+    card.class === "spg" &&
+    isBattlefieldUnit(unit) &&
+    isCornerCell(unit.position)
+  ) {
+    attack += card.combatAbilities?.cornerBonus?.attack ?? 0;
+  }
+
+  return Math.max(0, attack);
+}
+
+/**
+ * «Оборона плацдарма»: a battlefield unit standing on one of its own spawn
+ * cells soaks part of every incoming strike (from units and the headquarters).
+ */
+function getSpawnDamageReduction(unit: BoardUnit): number {
+  if (!isBattlefieldUnit(unit)) return 0;
+
+  const reduction = getCard(unit.cardId).combatAbilities?.spawnDamageReduction ?? 0;
+  if (reduction <= 0) return 0;
+
+  return isSpawnCell(unit.ownerId, unit.position) ? reduction : 0;
+}
+
+/**
+ * «Спецброня»: a unit takes less damage from attackers of a specific class.
+ * The headquarters has no class, so its fire is never reduced by this.
+ */
+function getArmorVsClassReduction(
+  unit: BoardUnit,
+  attackerClass: TankClass | null
+): number {
+  if (!attackerClass) return 0;
+
+  const armor = getCard(unit.cardId).combatAbilities?.armorVsClass;
+  if (!armor) return 0;
+
+  return armor.class === attackerClass ? armor.amount : 0;
 }
 
 export function getHeadquartersAttackValue(
@@ -1010,8 +1115,14 @@ function getUnitCombatBonuses(
   state: BattleState,
   attacker: BoardUnit,
   target: BoardUnit
-) {
+): Required<UnitCombatBonuses> {
+  const attackerClass = getCard(attacker.cardId).class;
+  const targetClass = getCard(target.cardId).class;
+
   return {
+    // Effective base firepower (Корректировщик / Огневая позиция).
+    attackerAttack: getUnitAttackValue(state, attacker),
+    targetAttack: getUnitAttackValue(state, target),
     attackerAttackBonus:
       getStationaryTankAttackBonus(state, attacker) +
       getMovedTankAttackBonus(state, attacker),
@@ -1020,10 +1131,14 @@ function getUnitCombatBonuses(
       getMovedTankAttackBonus(state, target),
     attackerDefenseBonus:
       getStationaryTankDefenseBonus(state, attacker) +
-      getTankDefenseAuraBonus(state, attacker),
+      getTankDefenseAuraBonus(state, attacker) +
+      getSpawnDamageReduction(attacker) +
+      getArmorVsClassReduction(attacker, targetClass),
     targetDefenseBonus:
       getStationaryTankDefenseBonus(state, target) +
-      getTankDefenseAuraBonus(state, target),
+      getTankDefenseAuraBonus(state, target) +
+      getSpawnDamageReduction(target) +
+      getArmorVsClassReduction(target, attackerClass),
   };
 }
 
@@ -1072,6 +1187,15 @@ function canAttackTarget(
   if (!attacker || !target) return false;
   if ("cardId" in attacker && isSupportUnit(attacker)) return false;
 
+  // «Контрбатарейный огонь»: suppressed headquarters / SPG cannot attack.
+  if ("cardId" in attacker) {
+    if (getCard(attacker.cardId).class === "spg" && attacker.attackSuppressed) {
+      return false;
+    }
+  } else if (attacker.attackSuppressed) {
+    return false;
+  }
+
   if ("cardId" in target && isSupportUnit(target)) {
     if (!("cardId" in attacker)) return true;
 
@@ -1081,6 +1205,20 @@ function canAttackTarget(
       attackerCard.class === "spg" ||
       attacker.position.col === state.headquarters[target.ownerId].position.col
     );
+  }
+
+  // «Маскировка»: only an adjacent enemy unit in melee may target this unit —
+  // ranged fire, SPGs and the headquarters cannot. The cover is lost once the
+  // unit has attacked (target.revealed).
+  if (
+    "cardId" in target &&
+    isBattlefieldUnit(target) &&
+    getCard(target.cardId).combatAbilities?.camouflage &&
+    !target.revealed
+  ) {
+    if (!("cardId" in attacker)) return false;
+    if (getCard(attacker.cardId).class === "spg") return false;
+    if (!isAdjacentAnyDirection(attacker.position, target.position)) return false;
   }
 
   if (!("cardId" in attacker)) {
@@ -1112,6 +1250,10 @@ function getCombatObjectId(
 }
 
 export type UnitCombatBonuses = {
+  /** Effective base firepower of the attacker (defaults to its printed attack). */
+  attackerAttack?: number;
+  /** Effective base firepower of the target (defaults to its printed attack). */
+  targetAttack?: number;
   /** Extra damage added to the attacker's strike. */
   attackerAttackBonus?: number;
   /** Extra damage added to the target's counterattack. */
@@ -1133,13 +1275,13 @@ export function getUnitCombatPreview(
   // Dug-in tanks soak part of each incoming strike (stationaryTankHpBonus).
   const attackerDamage = Math.max(
     0,
-    attackerCard.attack +
+    (bonuses.attackerAttack ?? attackerCard.attack) +
       (bonuses.attackerAttackBonus ?? 0) -
       (bonuses.targetDefenseBonus ?? 0)
   );
   const targetDamage = Math.max(
     0,
-    targetCard.attack +
+    (bonuses.targetAttack ?? targetCard.attack) +
       (bonuses.targetAttackBonus ?? 0) -
       (bonuses.attackerDefenseBonus ?? 0)
   );
@@ -1348,16 +1490,25 @@ export function getAttackAnimationSequence(
   }
 
   const unitTarget = "cardId" in effectiveTarget ? effectiveTarget : target;
+  const spawnReduction =
+    "cardId" in unitTarget ? getSpawnDamageReduction(unitTarget) : 0;
 
   return [
     {
       sourceId,
       targetId: getCombatObjectId(unitTarget),
-      damage:
+      damage: Math.max(
+        0,
         attackValue +
-        (attackerIsHeadquarters
-          ? getHeadquartersBonusVsDamagedUnit(state, attacker.ownerId, unitTarget)
-          : 0),
+          (attackerIsHeadquarters
+            ? getHeadquartersBonusVsDamagedUnit(
+                state,
+                attacker.ownerId,
+                unitTarget
+              )
+            : 0) -
+          spawnReduction
+      ),
     },
   ];
 }
@@ -1404,6 +1555,35 @@ function destroyUnit(
     instanceId: unit.instanceId,
     cardId: unit.cardId,
   });
+}
+
+/**
+ * «Дозор»: when a battlefield unit actually takes damage, its owner draws a
+ * card (at most once per turn). May end the battle if the deck is empty.
+ */
+function handleDrawWhenAttacked(
+  state: BattleState,
+  unit: BoardUnit,
+  damageTaken: number
+) {
+  if (damageTaken <= 0) return;
+  if (!isBattlefieldUnit(unit)) return;
+
+  const draw = getCard(unit.cardId).combatAbilities?.drawWhenAttacked ?? 0;
+  if (draw <= 0 || unit.drawWhenAttackedUsedThisTurn) return;
+
+  unit.drawWhenAttackedUsedThisTurn = true;
+
+  const drawn = drawCardsWithEmptyDeckPenalty(state, unit.ownerId, draw);
+
+  if (drawn > 0) {
+    addLog(
+      state,
+      `${getCard(unit.cardId).name}: дозор — ${
+        unit.ownerId === "player" ? "игрок" : "бот"
+      } добирает карту.`
+    );
+  }
 }
 
 function attack(state: BattleState, action: AttackAction) {
@@ -1502,6 +1682,8 @@ function attack(state: BattleState, action: AttackAction) {
   if (targetIsUnit) {
     if (!targetUnit) return;
 
+    const targetHpBefore = targetUnit.currentHp;
+
     if (attackerIsUnit && attackerCard && targetCard) {
       const combatBonuses = getUnitCombatBonuses(state, attacker, targetUnit);
       const preview = getUnitCombatPreview(attacker, targetUnit, combatBonuses);
@@ -1550,7 +1732,12 @@ function attack(state: BattleState, action: AttackAction) {
         action.playerId,
         targetUnit
       );
-      const totalDamage = attackValue + damagedBonus;
+      // «Оборона плацдарма» also softens headquarters fire.
+      const spawnReduction = getSpawnDamageReduction(targetUnit);
+      const totalDamage = Math.max(
+        0,
+        attackValue + damagedBonus - spawnReduction
+      );
 
       targetUnit.currentHp -= totalDamage;
 
@@ -1566,6 +1753,13 @@ function attack(state: BattleState, action: AttackAction) {
         `${attackerName} атакует ${targetName} и наносит ${totalDamage} урона.`
       );
     }
+
+    // «Дозор»: the defender draws a card when it actually took damage.
+    handleDrawWhenAttacked(
+      state,
+      targetUnit,
+      targetHpBefore - targetUnit.currentHp
+    );
 
     if (targetUnit.currentHp <= 0) {
       destroyUnit(state, targetUnit, "уничтожен.", action.playerId);
@@ -1625,6 +1819,11 @@ function attack(state: BattleState, action: AttackAction) {
   }
 
   attacker.alreadyAttacked = true;
+
+  // «Маскировка» drops permanently once the unit opens fire.
+  if (attackerIsUnit && attackerCard?.combatAbilities?.camouflage) {
+    attacker.revealed = true;
+  }
 
   // Heavy tanks either move or attack in a turn, never both.
   if (attackerIsUnit && attackerCard?.class === "heavy") {
@@ -1694,6 +1893,29 @@ function canUnitMoveTo(
   }
 
   return straight && manhattan === 1;
+}
+
+/**
+ * «Огневая позиция»: keep an SPG's maximum-HP bonus in sync with whether it is
+ * standing on a board corner. Entering a corner grants the bonus HP; leaving
+ * removes it (never reducing current HP below 1).
+ */
+function applyCornerHpBonus(unit: BoardUnit) {
+  const card = getCard(unit.cardId);
+  const desired =
+    card.class === "spg" &&
+    isBattlefieldUnit(unit) &&
+    isCornerCell(unit.position)
+      ? card.combatAbilities?.cornerBonus?.hp ?? 0
+      : 0;
+  const applied = unit.cornerHpApplied ?? 0;
+
+  if (desired === applied) return;
+
+  const delta = desired - applied;
+  unit.currentHp =
+    delta > 0 ? unit.currentHp + delta : Math.max(1, unit.currentHp + delta);
+  unit.cornerHpApplied = desired;
 }
 
 function moveUnit(
@@ -1766,6 +1988,33 @@ function moveUnit(
     unit.alreadyAttacked = true;
   }
 
+  // «Огневая позиция»: refresh the corner HP bonus for SPGs.
+  applyCornerHpBonus(unit);
+
+  // «Прорыв»: drawing the first time this unit reaches an enemy spawn cell.
+  const raidDraw = card.combatAbilities?.raidDraw ?? 0;
+
+  if (
+    raidDraw > 0 &&
+    !unit.raidDrawUsed &&
+    isSpawnCell(getOpponent(unit.ownerId), unit.position)
+  ) {
+    unit.raidDrawUsed = true;
+
+    const drawn = drawCardsWithEmptyDeckPenalty(state, unit.ownerId, raidDraw);
+
+    if (drawn > 0) {
+      addLog(
+        state,
+        `${card.name}: прорыв на плацдарм — ${
+          unit.ownerId === "player" ? "игрок" : "бот"
+        } добирает карту.`
+      );
+    }
+
+    if (state.status !== "active") return;
+  }
+
   markSuccessfulAction(state, action.playerId);
 
   addLog(
@@ -1784,6 +2033,12 @@ function endTurn(state: BattleState, playerId: PlayerId) {
 
   state.timers[playerId].actedThisStep = true;
   state.timers[playerId].stepTimeLeftMs = STEP_TIME_MS;
+
+  // «Контрбатарейный огонь» wears off at the end of the suppressed side's turn.
+  state.headquarters[playerId].attackSuppressed = false;
+  for (const unit of state.units) {
+    if (unit.ownerId === playerId) unit.attackSuppressed = false;
+  }
 
   const nextPlayer = getOpponent(playerId);
 
