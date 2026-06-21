@@ -51,7 +51,13 @@ type AdminOverview = {
 };
 
 type AdminApiResult =
-  | ({ ok: true } & AdminOverview)
+  | ({ ok: true } & Omit<AdminOverview, "supportTickets"> & {
+      supportTickets?: SupportTicket[];
+    })
+  | { ok: false; message?: string };
+
+type AdminSupportTicketsResult =
+  | { ok: true; generatedAt: number; supportTickets: SupportTicket[] }
   | { ok: false; message?: string };
 
 type ProfileImportMeta = ImportMeta & {
@@ -198,6 +204,8 @@ export function AdminPanel() {
     );
   }, [overview]);
 
+  const supportTickets = overview?.supportTickets ?? [];
+
   const selectedPlayer = useMemo(() => {
     if (!overview || !selectedPlayerId) return null;
 
@@ -267,7 +275,9 @@ export function AdminPanel() {
         runtime: result.runtime,
         accounts: result.accounts,
         profiles: result.profiles,
-        supportTickets: result.supportTickets,
+        supportTickets: Array.isArray(result.supportTickets)
+          ? result.supportTickets
+          : [],
       });
       setToken(nextToken.trim());
       setDraftToken(nextToken.trim());
@@ -279,6 +289,47 @@ export function AdminPanel() {
       }
     } catch (reason) {
       setOverview(null);
+      setError(getErrorMessage(reason));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadSupportTickets = async (nextToken = token) => {
+    if (!nextToken.trim()) {
+      setError("Введите ADMIN_TOKEN");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `${ADMIN_HTTP_SERVER_URL}/api/admin/support-tickets`,
+        {
+          headers: {
+            Authorization: `Bearer ${nextToken.trim()}`,
+          },
+        }
+      );
+      const result = await readJsonResponse<AdminSupportTicketsResult>(response);
+
+      if (!result.ok) throw new Error(result.message ?? "Админ API вернул ошибку");
+
+      setOverview((currentOverview) =>
+        currentOverview
+          ? {
+              ...currentOverview,
+              generatedAt: result.generatedAt,
+              supportTickets: Array.isArray(result.supportTickets)
+                ? result.supportTickets
+                : [],
+            }
+          : currentOverview
+      );
+      setNotice(`Обращения обновлены: ${result.supportTickets.length}`);
+    } catch (reason) {
       setError(getErrorMessage(reason));
     } finally {
       setLoading(false);
@@ -388,11 +439,66 @@ export function AdminPanel() {
               <MetricCard label="Комнат всего" value={overview.runtime.roomsTotal} />
               <MetricCard label="Аккаунты" value={overview.accounts.length} />
               <MetricCard label="Профили" value={overview.profiles.length} />
-              <MetricCard label="Обращения" value={overview.supportTickets.length} />
+              <MetricCard label="Обращения" value={supportTickets.length} />
               <MetricCard
                 label="PVP награды"
                 value={overview.runtime.completedPvpRewardClaims}
               />
+            </section>
+
+            <section style={styles.supportTicketsPanel}>
+              <div style={styles.tableHeader}>
+                <div>
+                  <h2 style={styles.sectionTitle}>Обращения в поддержку</h2>
+                  <div style={styles.statsHint}>
+                    Последние {supportTickets.length} сообщений
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  style={styles.secondaryButton}
+                  onClick={() => void loadSupportTickets(token)}
+                  disabled={loading}
+                >
+                  Обновить обращения
+                </button>
+              </div>
+
+              {supportTickets.length > 0 ? (
+                <div style={styles.supportTicketList}>
+                  {supportTickets.map((ticket) => (
+                    <article key={ticket.id} style={styles.supportTicketCard}>
+                      <div style={styles.supportTicketHeader}>
+                        <div>
+                          <div style={styles.supportTicketTitle}>
+                            {ticket.nickname || "Игрок без ника"}
+                          </div>
+                          <div style={styles.muted}>{ticket.playerId || "playerId не указан"}</div>
+                        </div>
+                        <div style={styles.supportTicketDate}>
+                          {formatDate(ticket.createdAt)}
+                        </div>
+                      </div>
+                      {ticket.contact ? (
+                        <div style={styles.supportTicketMeta}>
+                          Контакт: <b>{ticket.contact}</b>
+                        </div>
+                      ) : null}
+                      <p style={styles.supportTicketMessage}>{ticket.message}</p>
+                      <div style={styles.supportTicketFooter}>
+                        <span>{ticket.status === "new" ? "Новое" : ticket.status}</span>
+                        {ticket.pageUrl ? (
+                          <span title={ticket.pageUrl}>{ticket.pageUrl}</span>
+                        ) : null}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div style={styles.emptyState}>
+                  Пока нет сообщений от игроков.
+                </div>
+              )}
             </section>
 
             <section style={styles.toolsGrid}>
@@ -593,51 +699,6 @@ export function AdminPanel() {
               ) : (
                 <div style={styles.statsHint}>
                   Выберите игрока в таблице ниже, чтобы увидеть его статистику по штабам.
-                </div>
-              )}
-            </section>
-
-            <section style={styles.supportTicketsPanel}>
-              <div style={styles.tableHeader}>
-                <h2 style={styles.sectionTitle}>Обращения в поддержку</h2>
-                <div style={styles.statsHint}>
-                  Последние {overview.supportTickets.length} сообщений
-                </div>
-              </div>
-
-              {overview.supportTickets.length > 0 ? (
-                <div style={styles.supportTicketList}>
-                  {overview.supportTickets.map((ticket) => (
-                    <article key={ticket.id} style={styles.supportTicketCard}>
-                      <div style={styles.supportTicketHeader}>
-                        <div>
-                          <div style={styles.supportTicketTitle}>
-                            {ticket.nickname || "Игрок без ника"}
-                          </div>
-                          <div style={styles.muted}>{ticket.playerId || "playerId не указан"}</div>
-                        </div>
-                        <div style={styles.supportTicketDate}>
-                          {formatDate(ticket.createdAt)}
-                        </div>
-                      </div>
-                      {ticket.contact ? (
-                        <div style={styles.supportTicketMeta}>
-                          Контакт: <b>{ticket.contact}</b>
-                        </div>
-                      ) : null}
-                      <p style={styles.supportTicketMessage}>{ticket.message}</p>
-                      <div style={styles.supportTicketFooter}>
-                        <span>{ticket.status === "new" ? "Новое" : ticket.status}</span>
-                        {ticket.pageUrl ? (
-                          <span title={ticket.pageUrl}>{ticket.pageUrl}</span>
-                        ) : null}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div style={styles.emptyState}>
-                  Пока нет сообщений от игроков.
                 </div>
               )}
             </section>

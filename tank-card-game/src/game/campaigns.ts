@@ -234,7 +234,7 @@ export const CAMPAIGNS: Campaign[] = [
 
   {
     id: "lavrinenko-ace",
-    title: "Танковый ас. Лавриненко",
+    title: "Танковый ас. Лавриненко",
     description:
       "Осень 1941 года. Проведи лучшего танкового аса Второй мировой и его 4-ю танковую бригаду от засад под Мценском до обороны Москвы. Доктрина одна: заманить и бить из засады.",
     playerHeadquartersId: "lavrinenko_tank_brigade",

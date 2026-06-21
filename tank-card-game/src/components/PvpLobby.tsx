@@ -2517,6 +2517,68 @@ export function PvpLobby() {
     ? getGroupedDeckCards(previewDeck.deck.cardIds)
     : [];
   const previewDeckIsCustom = Boolean(previewDeck?.deck.savedDeck);
+
+  // Standalone enlarged card preview (e.g. campaign reward cards opened via
+  // right-click) that is not part of the headquarters/deck preview flow.
+  const standaloneUnitCardPreview = createPortal(
+    <AnimatePresence>
+      {previewUnitCard && !previewHeadquarters ? (
+        <motion.div
+          style={styles.cardPreviewOverlay}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.16 }}
+          onMouseDown={() => setPreviewUnitCard(null)}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setPreviewUnitCard(null);
+          }}
+        >
+          <div
+            style={{
+              ...stageOverlayTransform,
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <motion.div
+              style={styles.unitCardPreviewPanel}
+              initial={{ opacity: 0, scale: 0.84, y: 18 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 12 }}
+              transition={{ type: "spring", stiffness: 260, damping: 24 }}
+              onMouseDown={(event) => event.stopPropagation()}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setPreviewUnitCard(null);
+              }}
+            >
+              <CardKeywordsPanel keywords={getCardKeywords(previewUnitCard)} />
+
+              <button
+                type="button"
+                style={styles.cardPreviewClose}
+                onClick={() => setPreviewUnitCard(null)}
+                aria-label="Закрыть просмотр карты"
+              >
+                ×
+              </button>
+              <HandCardView
+                card={previewUnitCard}
+                ownerId="player"
+                displayMode="preview"
+              />
+            </motion.div>
+          </div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>,
+    document.body
+  );
+
   const battleDeckOptions = headquartersList.flatMap((headquarters) => {
     const headquartersId = headquarters.id as HeadquartersId;
     const nation = HEADQUARTERS[headquartersId].nation;
@@ -2693,6 +2755,7 @@ export function PvpLobby() {
               ? () => void claimCampaignReward(reward.id)
               : undefined
           }
+          onContextMenu={(event) => openPreviewUnitCard(event, rewardCard)}
         >
           <HandCardView card={rewardCard} ownerId="player" />
         </div>
@@ -2805,6 +2868,7 @@ export function PvpLobby() {
             </button>
           </div>
         </section>
+        {standaloneUnitCardPreview}
       </main>
     );
   }
@@ -3471,6 +3535,8 @@ export function PvpLobby() {
         </AnimatePresence>,
         document.body
       )}
+
+      {standaloneUnitCardPreview}
     </main>
   );
 }

@@ -99,7 +99,7 @@ async function handleHttpRequest(
   if (method === "OPTIONS" && requestUrl.pathname.startsWith("/api/")) {
     response.writeHead(204, {
       ...corsHeaders,
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Admin-Token",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Max-Age": "86400",
     });
@@ -129,6 +129,11 @@ async function handleHttpRequest(
 
   if (requestUrl.pathname === "/api/admin/overview") {
     handleAdminOverview(request, response, corsHeaders);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/admin/support-tickets") {
+    handleAdminSupportTickets(request, response, corsHeaders);
     return;
   }
 
@@ -314,6 +319,34 @@ function handleAdminOverview(
       runtime: rooms.getAdminRuntimeStats(),
       accounts: accounts.listAccounts(),
       profiles: profiles.listProfiles(),
+      supportTickets: supportTickets.listTickets(),
+    },
+    corsHeaders
+  );
+}
+
+function handleAdminSupportTickets(
+  request: IncomingMessage,
+  response: ServerResponse,
+  corsHeaders: Record<string, string>
+) {
+  if (request.method !== "GET") {
+    response.writeHead(405, { ...corsHeaders, Allow: "GET" });
+    response.end();
+    return;
+  }
+
+  if (!isAdminAuthorized(request)) {
+    rejectAdminRequest(response, corsHeaders);
+    return;
+  }
+
+  writeJson(
+    response,
+    200,
+    {
+      ok: true,
+      generatedAt: Date.now(),
       supportTickets: supportTickets.listTickets(),
     },
     corsHeaders
