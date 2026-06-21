@@ -30,11 +30,24 @@ type AdminPlayerProfile = {
   profile: PlayerProgress;
 };
 
+type SupportTicket = {
+  id: string;
+  createdAt: number;
+  playerId: string;
+  nickname: string;
+  contact: string;
+  message: string;
+  pageUrl: string;
+  userAgent: string;
+  status: "new";
+};
+
 type AdminOverview = {
   generatedAt: number;
   runtime: AdminRuntimeStats;
   accounts: AdminPlayerAccount[];
   profiles: AdminPlayerProfile[];
+  supportTickets: SupportTicket[];
 };
 
 type AdminApiResult =
@@ -254,6 +267,7 @@ export function AdminPanel() {
         runtime: result.runtime,
         accounts: result.accounts,
         profiles: result.profiles,
+        supportTickets: result.supportTickets,
       });
       setToken(nextToken.trim());
       setDraftToken(nextToken.trim());
@@ -374,6 +388,7 @@ export function AdminPanel() {
               <MetricCard label="Комнат всего" value={overview.runtime.roomsTotal} />
               <MetricCard label="Аккаунты" value={overview.accounts.length} />
               <MetricCard label="Профили" value={overview.profiles.length} />
+              <MetricCard label="Обращения" value={overview.supportTickets.length} />
               <MetricCard
                 label="PVP награды"
                 value={overview.runtime.completedPvpRewardClaims}
@@ -578,6 +593,51 @@ export function AdminPanel() {
               ) : (
                 <div style={styles.statsHint}>
                   Выберите игрока в таблице ниже, чтобы увидеть его статистику по штабам.
+                </div>
+              )}
+            </section>
+
+            <section style={styles.supportTicketsPanel}>
+              <div style={styles.tableHeader}>
+                <h2 style={styles.sectionTitle}>Обращения в поддержку</h2>
+                <div style={styles.statsHint}>
+                  Последние {overview.supportTickets.length} сообщений
+                </div>
+              </div>
+
+              {overview.supportTickets.length > 0 ? (
+                <div style={styles.supportTicketList}>
+                  {overview.supportTickets.map((ticket) => (
+                    <article key={ticket.id} style={styles.supportTicketCard}>
+                      <div style={styles.supportTicketHeader}>
+                        <div>
+                          <div style={styles.supportTicketTitle}>
+                            {ticket.nickname || "Игрок без ника"}
+                          </div>
+                          <div style={styles.muted}>{ticket.playerId || "playerId не указан"}</div>
+                        </div>
+                        <div style={styles.supportTicketDate}>
+                          {formatDate(ticket.createdAt)}
+                        </div>
+                      </div>
+                      {ticket.contact ? (
+                        <div style={styles.supportTicketMeta}>
+                          Контакт: <b>{ticket.contact}</b>
+                        </div>
+                      ) : null}
+                      <p style={styles.supportTicketMessage}>{ticket.message}</p>
+                      <div style={styles.supportTicketFooter}>
+                        <span>{ticket.status === "new" ? "Новое" : ticket.status}</span>
+                        {ticket.pageUrl ? (
+                          <span title={ticket.pageUrl}>{ticket.pageUrl}</span>
+                        ) : null}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div style={styles.emptyState}>
+                  Пока нет сообщений от игроков.
                 </div>
               )}
             </section>
@@ -1008,6 +1068,67 @@ const styles: Record<string, CSSProperties> = {
     color: "rgba(244,229,191,0.72)",
     fontSize: 13,
     fontWeight: 700,
+  },
+  supportTicketsPanel: {
+    padding: 18,
+    marginBottom: 16,
+    background: "rgba(12,13,11,0.78)",
+    boxShadow: "inset 0 0 0 1px rgba(216,174,92,0.18)",
+  },
+  supportTicketList: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(310px, 1fr))",
+    gap: 12,
+  },
+  supportTicketCard: {
+    padding: 14,
+    background:
+      "linear-gradient(180deg, rgba(30,31,27,0.82), rgba(8,9,7,0.76))",
+    boxShadow: "inset 0 0 0 1px rgba(216,174,92,0.14)",
+  },
+  supportTicketHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "flex-start",
+  },
+  supportTicketTitle: {
+    color: "#fff1bf",
+    fontFamily: "var(--font-display)",
+    fontSize: 18,
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+  },
+  supportTicketDate: {
+    color: "rgba(244,229,191,0.58)",
+    fontSize: 12,
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+  supportTicketMeta: {
+    marginTop: 10,
+    color: "rgba(244,229,191,0.7)",
+    fontSize: 13,
+    fontWeight: 700,
+  },
+  supportTicketMessage: {
+    margin: "12px 0",
+    whiteSpace: "pre-wrap",
+    color: "rgba(255,246,221,0.92)",
+    fontSize: 14,
+    lineHeight: 1.48,
+    fontWeight: 650,
+  },
+  supportTicketFooter: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    color: "rgba(244,229,191,0.48)",
+    fontSize: 11,
+    fontWeight: 800,
+    textTransform: "uppercase",
+    overflow: "hidden",
   },
   tablePanel: {
     padding: 18,

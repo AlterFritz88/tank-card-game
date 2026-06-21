@@ -10,6 +10,10 @@ type TutorialOverlayProps = {
   visible: boolean;
   onNext?: () => void;
   nextLabel?: string;
+  /** Overrides the default instructor portrait (e.g. a campaign commander). */
+  avatarSrc?: string;
+  /** Overrides the default «Инструктор» speaker label. */
+  speakerName?: string;
 };
 
 export function TutorialOverlay({
@@ -18,6 +22,8 @@ export function TutorialOverlay({
   visible,
   onNext,
   nextLabel = "Далее",
+  avatarSrc = eduAvatarImage,
+  speakerName = "Инструктор",
 }: TutorialOverlayProps) {
   return (
     <AnimatePresence>
@@ -39,13 +45,13 @@ export function TutorialOverlay({
               transition={{ duration: 0.22, ease: "easeOut" }}
             >
               <img
-                src={eduAvatarImage}
+                src={avatarSrc}
                 alt=""
                 draggable={false}
                 style={styles.dialogueAvatar}
               />
               <div style={styles.dialogueBody}>
-                <div style={styles.speakerName}>Инструктор</div>
+                <div style={styles.speakerName}>{speakerName}</div>
                 <p style={styles.dialogueText}>{text}</p>
                 <button type="button" style={styles.nextButton} onClick={onNext}>
                   {nextLabel}

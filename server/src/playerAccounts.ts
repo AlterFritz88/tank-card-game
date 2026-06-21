@@ -197,6 +197,16 @@ export class PlayerAccountManager {
     return nextAccount;
   }
 
+  getEmailByUserId(userId: string): string | null {
+    const safeUserId = userId.trim();
+    if (!safeUserId) return null;
+
+    const account = Object.values(readDb()).find(
+      (entry) => entry.userId === safeUserId
+    );
+    return account?.email ?? null;
+  }
+
   listAccounts(): AdminPlayerAccountView[] {
     return Object.values(readDb())
       .map((account) => ({

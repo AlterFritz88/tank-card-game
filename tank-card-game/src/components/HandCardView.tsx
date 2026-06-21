@@ -340,7 +340,7 @@ export function HandCardView({
 
   const abilityText = isHeadquarters
     ? headquartersDefinition?.description ?? "Командный пункт."
-    : card!.abilityText || "Без особых свойств.";
+    : card!.abilityText || "";
   const tooltipEnabled = isPreview;
   const classTooltip = isHeadquarters
     ? "Класс: штаб. Командная карта с прочностью, атакой и приростом топлива."
@@ -596,15 +596,17 @@ export function HandCardView({
       </div>
 
       <div style={styles.descriptionPanel}>
-        <p
-          style={{
-            ...styles.abilityText,
-            fontSize: scaled(11),
-            lineHeight: 1.18,
-          }}
-        >
-          {abilityText}
-        </p>
+        {abilityText && (
+          <p
+            style={{
+              ...styles.abilityText,
+              fontSize: scaled(11),
+              lineHeight: 1.18,
+            }}
+          >
+            {abilityText}
+          </p>
+        )}
 
         {/* New mechanics badges (only for select units) */}
         {card && (card.onPlayEffects || card.combatAbilities?.blitz) && (

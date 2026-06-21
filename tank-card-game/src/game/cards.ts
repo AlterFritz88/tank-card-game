@@ -16,7 +16,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 3,
     abilityText:
-      "Средний танк. Генерирует 2 топлива. Может двигаться на диагональные клетки.",
+      "",
   },
   {
     id: "kv1",
@@ -33,7 +33,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 1,
     abilityText:
-      "Тяжелый танк. Генерирует 2 топлива. Высокая живучесть. За ход — либо движение, либо атака.",
+      "",
   },
   {
     id: "su76",
@@ -68,7 +68,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 3,
     abilityText:
-      "Первый серийный советский танк. Надёжная учебная машина с небольшим приростом топлива.",
+      "",
   },
   {
     id: "t26_1931",
@@ -85,7 +85,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 3,
     abilityText:
-      "Двухбашенный лёгкий танк поддержки пехоты. Доступный ранний резерв.",
+      "",
   },
   {
     id: "t26_1933",
@@ -102,7 +102,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 3,
     abilityText:
-      "Однобашенный Т-26 с пушечным вооружением. Простая и надёжная учебная карта.",
+      "",
   },
   {
     id: "t26_1938",
@@ -119,7 +119,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 3,
     abilityText:
-      "Поздний Т-26 с конической башней. Крепче ранних учебных машин.",
+      "",
   },
   {
     id: "bt_2",
@@ -137,7 +137,7 @@ export const cards: TankCard[] = [
     initiative: 5,
     combatAbilities: { blitz: true },
     abilityText:
-      "Ранний быстроходный танк. Быстро занимает клетки, но плохо держит удар.",
+      "",
   },
   {
     id: "bt_5",
@@ -155,7 +155,7 @@ export const cards: TankCard[] = [
     initiative: 5,
     combatAbilities: { blitz: true },
     abilityText:
-      "Быстроходный танк с пушечным вооружением. Хорош для флангового давления.",
+      "",
   },
   {
     id: "bt_7",
@@ -172,7 +172,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 5,
     abilityText:
-      "Блиц. После выхода на поле может сразу полноценно двигаться и атаковать.",
+      "",
     combatAbilities: { blitz: true },
   },
   {
@@ -190,7 +190,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 0,
     initiative: 5,
     abilityText:
-      "Очень подвижный, но хрупкий",
+      "",
     onPlayEffects: { draw: 1 },
   },
   {
@@ -208,8 +208,8 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 5,
     abilityText:
-      "Разведывательный плавающий танк",
-    onPlayEffects: { draw: 1 },
+      "",
+    onPlayEffects: { draw: 2 },
   },
   {
     id: "t40",
@@ -226,7 +226,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 5,
     abilityText:
-      "Блиц. Поздний малый разведывательный танк быстро развивает наступление.",
+      "",
     combatAbilities: { blitz: true },
   },
   {
@@ -244,7 +244,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 2,
     abilityText:
-      "Ранний серийный средний танк: крепкая броневая база и хороший прирост топлива.",
+      "",
   },
   {
     id: "t28",
@@ -261,7 +261,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 2,
     abilityText:
-      "Многобашенный средний танк",
+      "",
   },
   {
     id: "t35",
@@ -278,7 +278,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 1,
     abilityText:
-      "Тяжёлый многобашенный танк. За ход — либо движение, либо атака.",
+      "",
   },
   {
     id: "t46_1",
@@ -312,7 +312,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 0,
     initiative: 4,
     abilityText:
-      "Блиц. Опытный манёвренный средний танк: быстро входит в прорыв, но не усиливает экономику.",
+      "",
     combatAbilities: { blitz: true },
   },
   {
@@ -330,7 +330,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 1,
     abilityText:
-      "Ранняя самоходная артиллерия. Держится у края и поддерживает огнём на дистанции.",
+      "",
   },
   {
     id: "amo_f15",
@@ -353,7 +353,7 @@ export const cards: TankCard[] = [
       hqHealPerTurn: 1,
     },
     abilityText:
-      "Даёт +1 топливо и восстанавливает штабу 1 HP в начале хода.",
+      "Даёт +1 топливо и даёт штабу +1 HP в начале хода.",
   },
   {
     id: "ford_aa_ammo",
@@ -399,7 +399,7 @@ export const cards: TankCard[] = [
       hqHealPerTurn: 1,
     },
     abilityText:
-      "В начале хода лечит 2 HP повреждённому юниту и восстанавливает штабу 1 HP.",
+      "В начале хода лечит 2 HP повреждённому юниту и даёт штабу +1 HP.",
   },
   {
     id: "panzer_iv",
@@ -416,7 +416,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 3,
     abilityText:
-      "Средний танк. Генерирует 2 топлива. Сбалансированная машина.",
+      "",
   },
   {
     id: "tiger_i",
@@ -433,7 +433,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 1,
     abilityText:
-      "Тяжелый танк. Генерирует 2 топлива. Мощная атака. За ход — либо движение, либо атака.",
+      "",
   },
   {
     id: "stug_iii",
@@ -450,7 +450,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 2,
     abilityText:
-      "ПТ-САУ. Генерирует 1 топливо. Опасна на соседних клетках.",
+      "",
   },
   {
     id: "stug_iii_b",
@@ -467,7 +467,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 2,
     abilityText:
-      "ПТ-САУ. Раннее штурмовое орудие. Опасна на соседних клетках.",
+      "",
   },
   {
     id: "m4_sherman",
@@ -484,7 +484,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 3,
     initiative: 4,
     abilityText:
-      "Средний танк. Генерирует 2 топлива. Хорошая инициатива и гибкость.",
+      "",
   },
   {
     id: "m5_stuart",
@@ -501,7 +501,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 5,
     abilityText:
-      "Блиц. Лёгкий танк быстро входит в бой и после выхода может сразу полноценно действовать.",
+      "",
     combatAbilities: { blitz: true },
   },
   {
@@ -519,7 +519,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 5,
     abilityText:
-      "Ранняя кавалерийская машина США. Быстрая разведка с низкой живучестью.",
+      "",
     onPlayEffects: { draw: 1 },
   },
   {
@@ -537,7 +537,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 5,
     abilityText:
-      "Ранний лёгкий танк. Дешёвый вход на поле и высокая подвижность.",
+      "",
   },
   {
     id: "m2_medium_tank",
@@ -554,7 +554,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 3,
     abilityText:
-      "Ранний средний танк. Слабее поздних машин, но хорошо поддерживает экономику.",
+      "",
   },
   {
     id: "m3_stuart",
@@ -571,7 +571,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 5,
     abilityText:
-      "Блиц. Лёгкий танк раннего периода быстро занимает клетки и давит фланги.",
+      "",
     combatAbilities: { blitz: true },
   },
   {
@@ -589,7 +589,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 3,
     abilityText:
-      "Переходный средний танк. Мощнее учебных машин, но требует больше топлива.",
+      "",
   },
   {
     id: "m3_halftrack",
@@ -612,7 +612,7 @@ export const cards: TankCard[] = [
       drawEveryTurns: 3,
     },
     abilityText:
-      "Полугусеничный транспорт. Даёт +2 топлива и добирает дополнительную карту каждый третий ход.",
+      "Даёт +2 топлива и добирает дополнительную карту каждый третий ход.",
   },
   {
     id: "dodge_wc54",
@@ -635,7 +635,7 @@ export const cards: TankCard[] = [
       drawEveryTurns: 2,
     },
     abilityText:
-      "Санитарный автомобиль с мощной логистикой. Лечит 1 повреждённый юнит и добирает карту каждый второй ход.",
+      "Лечит 1 повреждённый юнит и добирает карту каждый второй ход.",
   },
   {
     id: "churchill",
@@ -652,7 +652,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 1,
     abilityText:
-      "Тяжелый танк. Генерирует 2 топлива. Очень крепкая броня. За ход — либо движение, либо атака.",
+      "",
   },
   {
     id: "marder_iii",
@@ -669,7 +669,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 2,
     abilityText:
-      "ПТ-САУ. Генерирует 1 топливо. Высокий урон, слабая защита.",
+      "",
   },
   {
     id: "wespe",
@@ -686,7 +686,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 1,
     abilityText:
-      "САУ. Генерирует 1 топливо. Стреляет далеко и не получает ответный урон при атаке.",
+      "",
   },
   {
     id: "su_122",
@@ -703,7 +703,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 0,
     initiative: 1,
     abilityText:
-      "САУ. Генерирует 1 топливо. Дальняя поддержка, дорогая атака.",
+      "",
   },
   {
     id: "tk_3",
@@ -719,7 +719,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 5,
-    abilityText: "Танкетка. Дешёвая разведывательная машина для быстрого развёртывания.",
+    abilityText: "",
     onPlayEffects: { hqProtection: 1 },
   },
   {
@@ -736,7 +736,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 5,
-    abilityText: "Танкетка. Манёвренная машина поддержки с низкой стоимостью действий.",
+    abilityText: "",
     onPlayEffects: { hqProtection: 1 },
   },
   {
@@ -753,7 +753,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 1,
     initiative: 4,
-    abilityText: "ПТ-танкетка. Усиленное 20-мм орудие опасно на соседних клетках.",
+    abilityText: "",
   },
   {
     id: "tkf",
@@ -769,7 +769,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 2,
     initiative: 5,
-    abilityText: "Танкетка. Улучшенный двигатель помогает снабжению передовых частей.",
+    abilityText: "",
   },
   {
     id: "tkw",
@@ -785,7 +785,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 2,
     initiative: 5,
-    abilityText: "Башенная танкетка. Сохраняет мобильность и наносит больше урона.",
+    abilityText: "",
   },
   {
     id: "tkd",
@@ -801,7 +801,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 1,
     initiative: 3,
-    abilityText: "Лёгкая САУ",
+    abilityText: "",
   },
   {
     id: "tks_d",
@@ -817,7 +817,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 1,
     initiative: 3,
-    abilityText: "Мощная, но уязвимая машина ближней противотанковой обороны.",
+    abilityText: "",
   },
   {
     id: "tp7_dwuwiezowy",
@@ -833,7 +833,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 4,
-    abilityText: "Универсальная машина польских частей",
+    abilityText: "",
   },
   {
     id: "tp7_jednowiezowy",
@@ -849,7 +849,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 2,
     initiative: 4,
-    abilityText: "Лёгкий однобашенный танк. Хорошо сбалансирован для контратак.",
+    abilityText: "",
   },
   {
     id: "tp7_wzmocniony",
@@ -865,7 +865,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 2,
     initiative: 4,
-    abilityText: "Усиленный лёгкий танк. Развитие 7TP с повышенной живучестью.",
+    abilityText: "",
   },
   {
     id: "tp9",
@@ -881,7 +881,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 2,
     initiative: 4,
-    abilityText: "Усиливает экономику и сохраняет высокий темп",
+    abilityText: "",
   },
   {
     id: "tp10",
@@ -898,7 +898,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 2,
     initiative: 4,
     combatAbilities: { blitz: true },
-    abilityText: "Крейсерский танк. Быстрая и сбалансированная машина для манёвренного боя.",
+    abilityText: "",
   },
   {
     id: "tp14",
@@ -914,7 +914,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 2,
     initiative: 3,
-    abilityText: "Средний танк. Проект усиленной машины для решающей контратаки.",
+    abilityText: "",
   },
   {
     id: "vickers_e_type_a",
@@ -930,7 +930,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 4,
-    abilityText: "Лёгкий двухбашенный танк. Надёжная машина для удержания рубежа.",
+    abilityText: "",
   },
   {
     id: "vickers_e_type_b",
@@ -946,7 +946,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 0,
     initiative: 4,
-    abilityText: "Лёгкий однобашенный танк. Улучшенное вооружение для борьбы с бронетехникой.",
+    abilityText: "",
   },
   {
     id: "renault_ft",
@@ -955,14 +955,14 @@ export const cards: TankCard[] = [
     class: "light",
     rarity: "common",
     cost: 1,
-    attack: 0,
+    attack: 1,
     armor: 1,
     hp: 2,
     range: 1,
     movement: 2,
-    fuelGeneration: 1,
+    fuelGeneration: 0,
     initiative: 2,
-    abilityText: "Устаревший, но доступный резерв оборонительных частей.",
+    abilityText: "",
     onPlayEffects: { draw: 1 },
   },
   {
@@ -979,7 +979,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 2,
-    abilityText: "Пехотный танк. Медленная, но хорошо защищённая машина поддержки.",
+    abilityText: "",
   },
   {
     id: "hotchkiss_h35",
@@ -995,7 +995,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 3,
-    abilityText: "Пехотный танк. Компактная бронированная машина для обороны важных позиций.",
+    abilityText: "",
   },
   {
     id: "pociag_pancerny_danuta",
@@ -1011,7 +1011,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 3,
     initiative: 1,
-    abilityText: "Бронепоезд. Тяжёлая огневая платформа с высокой живучестью и снабжением. За ход — либо движение, либо атака.",
+    abilityText: "Бронепоезд.",
   },
   {
     id: "pociag_pancerny_smialy",
@@ -1027,7 +1027,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 2,
     initiative: 1,
-    abilityText: "Бронепоезд. Мощная ударная платформа для последнего рубежа обороны. За ход — либо движение, либо атака.",
+    abilityText: "Бронепоезд.",
   },
 
   // === 1. Panzer-Division — ранние немецкие машины (Польша 1939) ===
@@ -1047,7 +1047,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 0,
     initiative: 4,
-    abilityText: "Ранний учебный лёгкий танк. При выходе на поле добирает карту.",
+    abilityText: "При выходе на поле добирает карту.",
     onPlayEffects: { draw: 1 },
   },
   {
@@ -1064,7 +1064,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 0,
     initiative: 4,
-    abilityText: "Лёгкий танк",
+    abilityText: "",
     onPlayEffects: { draw: 1 },
   },
   {
@@ -1081,7 +1081,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 0,
     initiative: 4,
-    abilityText: "Лёгкий танк",
+    abilityText: "",
     onPlayEffects: { hqProtection: 1 },
   },
   {
@@ -1098,7 +1098,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 0,
     initiative: 4,
-    abilityText: "Лёгкий танк",
+    abilityText: "",
     combatAbilities: { blitz: true },
   },
   {
@@ -1150,7 +1150,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 3,
-    abilityText: "Основной танк",
+    abilityText: "",
   },
   {
     id: "panzer_38t",
@@ -1166,7 +1166,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 3,
-    abilityText: "Блиц. Отличное сочетание скорости и живучести.",
+    abilityText: "",
     combatAbilities: { blitz: true },
   },
   {
@@ -1183,7 +1183,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 2,
     initiative: 4,
-    abilityText: "Улучшает снабжение передовых частей.",
+    abilityText: "",
     onPlayEffects: { draw: 1, hqProtection: 1 },
   },
 
@@ -1218,7 +1218,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 0,
     initiative: 3,
-    abilityText: "Средний танк",
+    abilityText: "",
   },
   {
     id: "pzkpfw_iii_ausf_e",
@@ -1284,7 +1284,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 0,
     initiative: 3,
-    abilityText: "Опасна в ближнем бою.",
+    abilityText: "",
   },
   
   {
@@ -1301,7 +1301,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 0,
     initiative: 3,
-    abilityText: "Опытный истребитель танков на шасси 38(t). Хорошая мобильность и огонь.",
+    abilityText: "",
   },
 
   // Самоходные орудия
@@ -1319,7 +1319,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 0,
     initiative: 2,
-    abilityText: "Мощная поддержка пехоты и укреплений",
+    abilityText: "",
   },
   {
     id: "sig_33_pzii",
@@ -1353,7 +1353,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 0,
     initiative: 2,
-    abilityText: "Тяжёлый прототип. За ход — либо движение, либо атака.",
+    abilityText: "",
   },
   {
     id: "grosstraktor",
@@ -1369,7 +1369,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 1,
     initiative: 1,
-    abilityText: "Тяжёлый прототип. За ход — либо движение, либо атака.",
+    abilityText: "",
   },
   // === Поддержка — Польша 1939 (конкретная техника, а не колонны) ===
   {
@@ -1414,7 +1414,7 @@ export const cards: TankCard[] = [
       hqAttackBonus: 1,
       hqDamageRedirect: 2,
     },
-    abilityText: "Чешская 100-мм гаубица. Сильное прикрытие штаба при обороне.",
+    abilityText: "Сильное прикрытие штаба при обороне.",
   },
   {
     id: "ciagacz_c4p",
@@ -1435,7 +1435,7 @@ export const cards: TankCard[] = [
     supportEffects: {
       fuelPerTurn: 2,
     },
-    abilityText: "Польский артиллерийский тягач. Даёт +2 топлива в ход — мощное снабжение.",
+    abilityText: "Даёт +2 топлива в ход.",
   },
   {
     id: "fiat_508_junak",
@@ -1521,7 +1521,7 @@ export const cards: TankCard[] = [
     supportEffects: {
       hqAttackBonus: 1,
     },
-    abilityText: "Лёгкая пехотная пушка: +1 к атаке штаба.",
+    abilityText: "+1 к атаке штаба.",
   },
   {
     id: "mercedes_g3a",
@@ -1605,7 +1605,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 0,
     initiative: 6,
-    abilityText: "Блиц. Танкетка-разведчик: при выходе на поле добирает карту, но почти не держит удар.",
+    abilityText: "",
     onPlayEffects: { draw: 1 },
     combatAbilities: { blitz: true },
   },
@@ -1616,14 +1616,14 @@ export const cards: TankCard[] = [
     class: "spg",
     rarity: "common",
     cost: 2,
-    attack: 2,
+    attack: 1,
     armor: 0,
     hp: 3,
     range: 2,
     movement: 1,
     fuelGeneration: 0,
     initiative: 1,
-    abilityText: "Ранняя САУ на шасси МС-1. Поддерживает огнём на дистанции.",
+    abilityText: "",
   },
   {
     id: "bt_7m",
@@ -1639,7 +1639,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 4,
-    abilityText: "Дизельный БТ: Блиц и экономичный марш.",
+    abilityText: "",
     combatAbilities: { blitz: true },
   },
   {
@@ -1656,7 +1656,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 0,
     initiative: 4,
-    abilityText: "Экспериментальная наклонная броня — предвестник Т-34. Блиц.",
+    abilityText: "",
     combatAbilities: { blitz: true },
   },
   {
@@ -1673,7 +1673,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 4,
-    abilityText: "Колёсно-гусеничный предок Т-34. Блиц.",
+    abilityText: "",
     combatAbilities: { blitz: true },
   },
   {
@@ -1690,7 +1690,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 0,
     initiative: 2,
-    abilityText: "Первый танк с противоснарядной бронёй — медленный, но крепкий.",
+    abilityText: "",
   },
   {
     id: "t29",
@@ -1706,7 +1706,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 1,
     initiative: 3,
-    abilityText: "Скоростной колёсно-гусеничный средний танк. Блиц.",
+    abilityText: "",
     combatAbilities: { blitz: true },
   },
   {
@@ -1724,7 +1724,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 0,
     initiative: 1,
     abilityText:
-      "Двухбашенный гигант Финской войны. За ход — либо движение, либо атака.",
+      "",
   },
   {
     id: "t100",
@@ -1741,7 +1741,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 1,
     abilityText:
-      "Конкурент СМК. Генерирует 1 топливо. За ход — либо движение, либо атака.",
+      "",
   },
   {
     id: "kv2",
@@ -1758,7 +1758,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 0,
     initiative: 1,
     abilityText:
-      "152-мм гаубица в башне. За ход — либо движение, либо атака.",
+      "",
   },
   {
     id: "at1",
@@ -1767,14 +1767,14 @@ export const cards: TankCard[] = [
     class: "td",
     rarity: "uncommon",
     cost: 2,
-    attack: 4,
+    attack: 2,
     armor: 0,
     hp: 3,
     range: 1,
     movement: 1,
     fuelGeneration: 0,
     initiative: 3,
-    abilityText: "«Артиллерийский танк» — первая советская САУ. Опасна вблизи.",
+    abilityText: "",
   },
   {
     id: "su14",
@@ -1790,7 +1790,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 0,
     initiative: 1,
-    abilityText: "203-мм на шасси Т-35. Дальний удар без ответного огня.",
+    abilityText: "",
   },
   {
     id: "gun_53k",
@@ -1812,7 +1812,7 @@ export const cards: TankCard[] = [
       supportLineCover: 2,
     },
     abilityText:
-      "Противотанковый заслон: встречает рейды на тыл огнём и принимает дистанционные удары на себя.",
+      "Встречает рейды на тыл огнём и принимает дистанционные удары на себя.",
   },
   {
     id: "gun_76_1927",
@@ -1875,7 +1875,7 @@ export const cards: TankCard[] = [
     supportEffects: {
       healRandomUnitPerTurn: 1,
     },
-    abilityText: "Ремонтная мастерская: в начале хода чинит 1 повреждённый юнит.",
+    abilityText: "Ремонтная мастерская",
   },
 
   // === США — ранний период и эксперименты (1931–1942) ===
@@ -1893,7 +1893,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 0,
     initiative: 4,
-    abilityText: "Предок Стюарта — сбалансированный лёгкий танк.",
+    abilityText: "",
   },
   {
     id: "christie_t3",
@@ -1909,7 +1909,7 @@ export const cards: TankCard[] = [
     movement: 3,
     fuelGeneration: 0,
     initiative: 5,
-    abilityText: "Танк Кристи — отец всех БТ. Блиц.",
+    abilityText: "",
     combatAbilities: { blitz: true },
   },
   {
@@ -1926,7 +1926,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 0,
     initiative: 4,
-    abilityText: "Экспортный малыш: при выходе на поле добирает карту.",
+    abilityText: "",
     onPlayEffects: { draw: 1 },
   },
   {
@@ -1943,7 +1943,7 @@ export const cards: TankCard[] = [
     movement: 2,
     fuelGeneration: 0,
     initiative: 3,
-    abilityText: "Амфибия морпехов: при выходе укрепляет штаб на +1.",
+    abilityText: "",
     onPlayEffects: { hqProtection: 1 },
   },
   {
@@ -1960,7 +1960,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 0,
     initiative: 3,
-    abilityText: "Переходный средний танк — дёшев и сердит.",
+    abilityText: "",
   },
   {
     id: "m6_heavy",
@@ -1977,7 +1977,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 1,
     abilityText:
-      "Единственный ранний тяжёлый США. Генерирует 1 топливо. За ход — либо движение, либо атака.",
+      "",
   },
   {
     id: "t14_assault",
@@ -1994,7 +1994,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 0,
     initiative: 1,
     abilityText:
-      "Американо-британский штурмовик. За ход — либо движение, либо атака.",
+      "",
   },
   {
     id: "m3_gmc",
@@ -2005,12 +2005,12 @@ export const cards: TankCard[] = [
     cost: 3,
     attack: 4,
     armor: 0,
-    hp: 3,
+    hp: 2,
     range: 1,
     movement: 1,
     fuelGeneration: 0,
     initiative: 3,
-    abilityText: "75-мм на полугусеничнике — герой Филиппин. Опасен вблизи.",
+    abilityText: "Опасен вблизи.",
   },
   {
     id: "m6_gmc_fargo",
@@ -2024,9 +2024,9 @@ export const cards: TankCard[] = [
     hp: 1,
     range: 1,
     movement: 1,
-    fuelGeneration: 0,
+    fuelGeneration: 1,
     initiative: 3,
-    abilityText: "37-мм на грузовике — стеклянная пушка за 1 топлива.",
+    abilityText: "",
   },
   {
     id: "t18_hmc",
@@ -2042,7 +2042,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 0,
     initiative: 2,
-    abilityText: "75-мм гаубица на шасси Стюарта. Бьёт без ответного огня.",
+    abilityText: "",
   },
   {
     id: "t19_hmc",
@@ -2058,7 +2058,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 0,
     initiative: 2,
-    abilityText: "105-мм на полугусеничнике. Бьёт без ответного огня.",
+    abilityText: "",
   },
   {
     id: "gun_37mm_m3",
@@ -2080,7 +2080,7 @@ export const cards: TankCard[] = [
       supportLineCover: 2,
     },
     abilityText:
-      "Противотанковый заслон: встречает рейды на тыл огнём и принимает дистанционные удары на себя.",
+      "Встречает рейды на тыл огнём и принимает дистанционные удары на себя.",
   },
   {
     id: "gun_75_pack",
@@ -2122,7 +2122,7 @@ export const cards: TankCard[] = [
     supportEffects: {
       hqAttackBonus: 2,
     },
-    abilityText: "Главная гаубица США: +2 к атаке штаба.",
+    abilityText: "",
   },
   {
     id: "willys_mb",
@@ -2167,7 +2167,7 @@ export const cards: TankCard[] = [
       fetchSupportCardEveryTurns: 2,
     },
     abilityText:
-      "Штабная «эмка»: каждый второй ход доставляет в руку случайную карту поддержки из колоды.",
+      "Каждый второй ход доставляет в руку случайную карту поддержки из колоды.",
   },
   {
     id: "t34_1940",
@@ -2183,7 +2183,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 1,
     initiative: 3,
-    abilityText: "Ранний Т-34 с пушкой Л-11 — ещё сырой, но уже грозный.",
+    abilityText: "",
   },
   {
     id: "kv1_1940",
@@ -2200,7 +2200,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 1,
     abilityText:
-      "Ранний КВ с пушкой Л-11. За ход — либо движение, либо атака.",
+      "",
   },
   {
     id: "horch_830r",
@@ -2311,7 +2311,7 @@ export const cards: TankCard[] = [
     supportEffects: {
       fuelPerTurn: 2,
     },
-    abilityText: "Высокоскоростной артиллерийский тягач: +2 топлива каждый ход.",
+    abilityText: "+2 топлива каждый ход.",
   },
   {
     id: "sherman_early",
@@ -2327,7 +2327,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 1,
     initiative: 3,
-    abilityText: "Первый серийный Шерман с литым корпусом.",
+    abilityText: "",
   },
 
   // === Кампания «Лавриненко» — СССР, осень 1941 ===
@@ -2352,7 +2352,7 @@ export const cards: TankCard[] = [
     combatAbilities: { blitz: true },
     onPlayEffects: { draw: 1 },
     abilityText:
-      "Машина аса. Блиц и разведка при выходе. Стоя в засаде, бьёт сокрушительно.",
+      "Машина аса Лавриненко",
   },
   {
     id: "t34_1941",
@@ -2368,7 +2368,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 2,
     initiative: 3,
-    abilityText: "Т-34 с пушкой Ф-34 — основная машина бригады под Москвой.",
+    abilityText: "",
   },
   {
     id: "t34_stz",
@@ -2376,20 +2376,20 @@ export const cards: TankCard[] = [
     nation: "ussr",
     class: "medium",
     rarity: "common",
-    cost: 3,
-    attack: 3,
+    cost: 2,
+    attack: 2,
     armor: 1,
-    hp: 5,
+    hp: 4,
     range: 1,
     movement: 1,
     fuelGeneration: 0,
     initiative: 3,
     abilityText:
-      "Упрощённый сталинградский Т-34. Дешёвый и массовый, но не даёт топлива.",
+      "",
   },
   {
     id: "bt_7_command",
-    name: "БТ-7 командирский",
+    name: "КБТ-7",
     nation: "ussr",
     class: "light",
     rarity: "uncommon",
@@ -2404,7 +2404,7 @@ export const cards: TankCard[] = [
     combatAbilities: { tankDefenseAura: 1 },
     onPlayEffects: { draw: 1 },
     abilityText:
-      "Командная машина: при выходе добирает карту, а пока в строю — все ваши танки получают +1 к защите (−1 к каждому входящему удару).",
+      "Пока в строю — все ваши танки получают −1 к каждому входящему удару.",
   },
   {
     id: "t60",
@@ -2421,7 +2421,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 5,
     combatAbilities: { blitz: true },
-    abilityText: "Массовый лёгкий танк 1941 года. Блиц — быстро занимает фланг.",
+    abilityText: "",
   },
   {
     id: "zis_30",
@@ -2438,7 +2438,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 0,
     initiative: 3,
     abilityText:
-      "57-мм ПТ-САУ на шасси «Комсомольца». Бьёт мощно из засады, но открыта и хрупка.",
+      "",
   },
   {
     id: "zis_5_ammo",
@@ -2481,7 +2481,7 @@ export const cards: TankCard[] = [
     supportEffects: {
       healRandomUnitPerTurn: 2,
     },
-    abilityText: "Передвижная мастерская: в начале хода чинит 2 HP повреждённому юниту.",
+    abilityText: "В начале хода чинит 2 HP случайному повреждённому юниту.",
   },
   {
     id: "m72_recon",
@@ -2515,12 +2515,12 @@ export const cards: TankCard[] = [
     cost: 3,
     attack: 3,
     armor: 2,
-    hp: 5,
+    hp: 4,
     range: 1,
     movement: 1,
     fuelGeneration: 1,
     initiative: 3,
-    abilityText: "Основной средний танк вермахта 1941 года.",
+    abilityText: "",
   },
   {
     id: "pzkpfw_iii_ausf_j",
@@ -2536,7 +2536,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 1,
     initiative: 3,
-    abilityText: "Поздний Pz III с усиленной бронёй и длинной 50-мм пушкой.",
+    abilityText: "",
   },
   {
     id: "pzkpfw_iv_ausf_e",
@@ -2552,7 +2552,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 1,
     initiative: 2,
-    abilityText: "Короткоствольный Pz IV — огневая поддержка штурмовых групп.",
+    abilityText: "",
   },
   {
     id: "sdkfz_251",
@@ -2578,14 +2578,14 @@ export const cards: TankCard[] = [
   },
   {
     id: "krad_bmw",
-    name: "Мотоцикл BMW R75",
+    name: "BMW R75",
     nation: "germany",
     class: "light",
     rarity: "common",
     cost: 1,
     attack: 0,
     armor: 0,
-    hp: 2,
+    hp: 1,
     range: 0,
     movement: 0,
     fuelGeneration: 0,
@@ -2617,7 +2617,7 @@ export const cards: TankCard[] = [
       supportLineCover: 2,
     },
     abilityText:
-      "Противотанковый заслон: встречает рейды на тыл огнём и принимает дистанционные удары на себя.",
+      "Встречает рейды на тыл огнём и принимает дистанционные удары на себя.",
   },
   {
     id: "pak38",
@@ -2640,7 +2640,7 @@ export const cards: TankCard[] = [
       supportLineCover: 2,
     },
     abilityText:
-      "Усиленная ПТО: +1 к атаке штаба и противотанковый заслон тыловой линии.",
+      "+1 к атаке штаба и противотанковый заслон тыловой линии.",
   },
 ];
 

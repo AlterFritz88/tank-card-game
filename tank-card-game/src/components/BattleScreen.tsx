@@ -48,7 +48,11 @@ import {
   useStageScale,
 } from "./GameStage";
 import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
-import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
+import {
+  getAvatarAssetById,
+  getHeadquartersAvatarAsset,
+} from "../assets/headquartersAvatarAssets";
+import { getCampaignMission } from "../game/campaigns";
 import { getHeadquartersImageAsset } from "../game/headquartersImages";
 import {
   playCannonShotSound,
@@ -437,6 +441,35 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const tutorialStep = tutorialActive
     ? getTutorialStep(tutorialStepIndex)
     : null;
+
+  // Campaign mission briefing/debrief delivered by the commander avatar.
+  const currentCampaignMissionId = battleStore.currentCampaignMissionId;
+  const campaignMission =
+    mode === "campaign" && currentCampaignMissionId
+      ? getCampaignMission(currentCampaignMissionId)
+      : null;
+  const campaignBriefingAvatar = campaignMission?.campaign.briefingAvatarId
+    ? getAvatarAssetById(campaignMission.campaign.briefingAvatarId) ?? undefined
+    : undefined;
+  const campaignSpeaker =
+    campaignMission?.campaign.briefingSpeaker ?? undefined;
+  const missionBriefingText = campaignMission?.mission.briefing ?? null;
+  const missionWon = battle.status === "player_won";
+  const missionDebriefText = campaignMission
+    ? missionWon
+      ? campaignMission.mission.victoryDebrief ?? null
+      : campaignMission.mission.defeatDebrief ?? null
+    : null;
+
+  // Local gating: the briefing shows once at battle start, the debrief once at
+  // battle end (before the result screen). Reset whenever the mission changes.
+  const [briefingDismissed, setBriefingDismissed] = useState(false);
+  const [debriefDismissed, setDebriefDismissed] = useState(false);
+
+  useEffect(() => {
+    setBriefingDismissed(false);
+    setDebriefDismissed(false);
+  }, [currentCampaignMissionId]);
   // Active-task hints: what to highlight; everything else gets dimmed/blocked.
   const tutorialHighlights =
     tutorialActive && battle.status === "active"
@@ -560,8 +593,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
             : styles.enemyHeadquartersAvatar),
           ...(!image ? styles.headquartersAvatarEmpty : {}),
         }}
-        initial={{ opacity: 0, y: placement === "player" ? 14 : -10 }}
-        animate={{ opacity: 1, y: 0 }}
+        // The player avatar (164px) is wider than its 150px column and the
+        // leftCommandPanel is shifted left by translateX(-22px), so it gets
+        // clipped by the page's overflow:hidden left edge. Push it back to the
+        // right via Framer's `x` (a CSS `transform` here would be overridden by
+        // Framer's own transform from the `y` animation).
+        initial={{ opacity: 0, y: placement === "player" ? 14 : -10, x: placement === "player" ? 26 : 0 }}
+        animate={{ opacity: 1, y: 0, x: placement === "player" ? 26 : 0 }}
         transition={{ duration: 0.28, ease: "easeOut" }}
       >
         {image ? (
@@ -5013,10 +5051,47 @@ function renderEnemyDeckWithTimer() {
         />
       ) : null}
 
+      {/* Campaign commander briefs the mission before the player can act. */}
+      {mode === "campaign" &&
+      missionBriefingText &&
+      battle.status === "active" &&
+      !briefingDismissed ? (
+        <TutorialOverlay
+          kind="dialogue"
+          text={missionBriefingText}
+          visible={!startRollState.visible}
+          avatarSrc={campaignBriefingAvatar}
+          speakerName={campaignSpeaker}
+          onNext={() => setBriefingDismissed(true)}
+          nextLabel="В бой"
+        />
+      ) : null}
+
+      {/* Campaign commander debriefs the outcome before the result screen. */}
+      {mode === "campaign" &&
+      missionDebriefText &&
+      (battle.status === "player_won" || battle.status === "bot_won") &&
+      !debriefDismissed ? (
+        <TutorialOverlay
+          kind="dialogue"
+          text={missionDebriefText}
+          visible
+          avatarSrc={campaignBriefingAvatar}
+          speakerName={campaignSpeaker}
+          onNext={() => setDebriefDismissed(true)}
+          nextLabel="К результатам"
+        />
+      ) : null}
+
       {(battle.status === "player_won" || battle.status === "bot_won") &&
         (!tutorialActive ||
           battle.status === "bot_won" ||
-          tutorialEpilogueSeen) && (
+          tutorialEpilogueSeen) &&
+        !(
+          mode === "campaign" &&
+          missionDebriefText &&
+          !debriefDismissed
+        ) && (
           <ResultScreen
             battle={battle}
             onRestart={handleResultRestart}
@@ -5798,6 +5873,7 @@ actionSideColumn: {
     width: 164,
     height: 226,
     marginTop: -24,
+    overflow: "visible",
   },
   enemyHeadquartersAvatar: {
     flex: "0 0 auto",

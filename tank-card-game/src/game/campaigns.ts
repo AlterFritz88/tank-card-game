@@ -5,6 +5,7 @@ export type CampaignMission = {
   id: string;
   chapter: string;
   title: string;
+  /** Short blurb shown on the mission card in the selection menu. */
   description: string;
   botHeadquartersId?: HeadquartersId;
   botDeckId?: string;
@@ -13,6 +14,16 @@ export type CampaignMission = {
   backgroundId?: BattleBackgroundId;
   illustrationId?: string;
   available?: boolean;
+  /**
+   * Pre-battle narration delivered by the campaign avatar (see
+   * `Campaign.briefingAvatarId`). Shown before the player can act, like the
+   * tutorial prologue.
+   */
+  briefing?: string;
+  /** Post-battle avatar line shown on victory, before the result screen. */
+  victoryDebrief?: string;
+  /** Post-battle avatar line shown on defeat, before the result screen. */
+  defeatDebrief?: string;
 };
 
 export type Campaign = {
@@ -22,6 +33,15 @@ export type Campaign = {
   playerHeadquartersId: HeadquartersId;
   playerDeckId: string;
   missions: CampaignMission[];
+  /** Custom artwork for the campaign card in the selection menu. */
+  menuArtUrl?: string;
+  /**
+   * Headquarters-avatar asset id used for the per-mission briefing/debrief
+   * speaker. When set, missions with `briefing`/`debrief` text show the avatar.
+   */
+  briefingAvatarId?: string;
+  /** Name shown above the briefing/debrief text. */
+  briefingSpeaker?: string;
 };
 
 export const CAMPAIGNS: Campaign[] = [
@@ -214,18 +234,26 @@ export const CAMPAIGNS: Campaign[] = [
 
   {
     id: "lavrinenko-ace",
-    title: "Лавриненко. 52 за два месяца",
+    title: "Танковый ас. Лавриненко",
     description:
       "Осень 1941 года. Проведи лучшего танкового аса Второй мировой и его 4-ю танковую бригаду от засад под Мценском до обороны Москвы. Доктрина одна: заманить и бить из засады.",
     playerHeadquartersId: "lavrinenko_tank_brigade",
     playerDeckId: "lavrinenko_brigade_campaign",
+    menuArtUrl: "/ui/menu/lavrinenko_company.webp",
+    briefingAvatarId: "lavrinenko_tank_brigade_2",
+    briefingSpeaker: "Лавриненко",
     missions: [
       {
         id: "lavrinenko-1",
         chapter: "Донбасс 1941 · Формирование",
         title: "Боевое крещение у Сталино",
-        description:
-          "Сентябрь 1941. Первый бой свежесформированной 4-й танковой бригады. Учись держать танки в засаде: стоящий Т-34 бьёт втрое сильнее тонкого Pz II. Противник: разведбат 4-й танковой дивизии.",
+        description: "Сентябрь 1941. Первый бой свежей 4-й танковой бригады под Сталино.",
+        briefing:
+          "Бригада только сформирована, экипажи ещё не нюхали пороха. Запомни главное: стоящий в засаде Т-34 бьёт втрое сильнее, чем на ходу. Поставь машины и жди — пусть немец сам подставится. Перед нами разведбат 4-й танковой дивизии.",
+        victoryDebrief:
+          "Боевое крещение пройдено. Экипажи поняли цену выдержке — теперь они держат строй и ждут команды. С таким началом и Гудериана остановим.",
+        defeatDebrief:
+          "Поспешили — и поплатились. Танк на ходу беззащитен. В следующий раз дай немцу подойти и бей из засады, иначе бригады не останется.",
         botHeadquartersId: "german_4_panzer",
         botDeckId: "german_4_panzer_campaign",
         playerDeckId: "lavrinenko_brigade_campaign",
@@ -235,8 +263,13 @@ export const CAMPAIGNS: Campaign[] = [
         id: "lavrinenko-2",
         chapter: "Мценск 1941 · Гудериан",
         title: "Первый Воин: танковая засада",
-        description:
-          "4 октября 1941, станция Первый Воин. Дебют катуковской доктрины: подпусти немецкую волну и расстреляй её с замаскированных позиций. Противник: масса Pz III/IV 4-й танковой дивизии.",
+        description: "4 октября 1941, станция Первый Воин. Дебют засадной тактики.",
+        briefing:
+          "Станция Первый Воин. Здесь мы покажем катуковскую науку: подпустим немецкую волну вплотную и расстреляем её с замаскированных позиций. Не двигайся раньше времени — терпение решает всё.",
+        victoryDebrief:
+          "Засада сработала идеально. Немцы лезли колоннами и горели один за другим. Мы переломили их разбег — о Мценске теперь заговорят в ставке.",
+        defeatDebrief:
+          "Мы открылись слишком рано, и волна нас смяла. Засада прощает одну ошибку, не больше. Перегруппируемся и ударим снова.",
         botHeadquartersId: "german_4_panzer",
         botDeckId: "german_panzer_mtsensk_campaign",
         playerDeckId: "lavrinenko_brigade_campaign",
@@ -246,8 +279,13 @@ export const CAMPAIGNS: Campaign[] = [
         id: "lavrinenko-3",
         chapter: "Мценск 1941 · Гудериан",
         title: "Бои за Мценск",
-        description:
-          "6–11 октября 1941. Подвижная оборона: отходи с контрударами, не давая 2-й танковой армии обойти бригаду. Противник: 24-й танковый корпус Гудериана со штурмовыми орудиями.",
+        description: "6–11 октября 1941. Подвижная оборона против корпуса Гудериана.",
+        briefing:
+          "Гудериан давит всем 24-м корпусом, у него штурмовые орудия. Прямого боя не выдержим — отходим с контрударами, кусаем и снова в засаду. Не дай им обойти бригаду.",
+        victoryDebrief:
+          "Мы измотали корпус Гудериана и выиграли время для Москвы. Подвижная оборона — наш козырь, и мы разыграли его сполна.",
+        defeatDebrief:
+          "Нас обошли и зажали. Стоять насмерть на месте — не наша задача; наша — бить и ускользать. Исправим.",
         botHeadquartersId: "guderian_corps",
         botDeckId: "guderian_corps_campaign",
         playerDeckId: "lavrinenko_brigade_campaign",
@@ -257,8 +295,13 @@ export const CAMPAIGNS: Campaign[] = [
         id: "lavrinenko-4",
         chapter: "Переброска",
         title: "Марш под Москву",
-        description:
-          "Октябрь 1941. Эшелоны бригады идут на Волоколамское направление. Короткий встречный бой с немецким разведдозором — успей собрать карты и навязать темп. Противник: моторизованный авангард.",
+        description: "Октябрь 1941. Эшелоны идут под Москву — короткий встречный бой.",
+        briefing:
+          "Грузимся в эшелоны на Волоколамское направление. По дороге — немецкий разведдозор. Бой будет короткий: успей собрать карты на руке и навязать свой темп, пока они не опомнились.",
+        victoryDebrief:
+          "Дозор смят, дорога открыта. Бригада идёт под Москву свежей и собранной — то, что нужно перед главным.",
+        defeatDebrief:
+          "Дали немцу перехватить темп на марше. Под Москвой такой роскоши не будет — соберись.",
         botHeadquartersId: "german_4_panzer",
         botDeckId: "german_aufklarung_campaign",
         playerDeckId: "lavrinenko_brigade_campaign",
@@ -268,8 +311,13 @@ export const CAMPAIGNS: Campaign[] = [
         id: "lavrinenko-5",
         chapter: "Волоколамск 1941",
         title: "Контрудар у Скирманово",
-        description:
-          "12–13 ноября 1941. Бригада придаёт удар рою лёгких БТ — врывайся с «Блицем» в укреплённую немцами деревню. Противник: 10-я танковая дивизия с пехотными пушками.",
+        description: "12–13 ноября 1941. Контрудар на укреплённое Скирманово.",
+        briefing:
+          "Сегодня бьём не из засады, а в атаку — нам придан рой лёгких БТ. Врывайся в Скирманово «Блицем», пока немцы не подтянули пехотные пушки. Скорость — наша броня.",
+        victoryDebrief:
+          "Скирманово взято. Даже в лобовой атаке бригада не дрогнула — лёгкие машины сделали своё дело на скорости.",
+        defeatDebrief:
+          "Лёгкие БТ сгорели у деревни. В атаке нельзя медлить — «Блиц» работает только на полном ходу. Перегруппируемся.",
         botHeadquartersId: "german_10_panzer",
         botDeckId: "german_10_panzer_campaign",
         playerHeadquartersId: "soviet_motor_rifle_division",
@@ -280,8 +328,13 @@ export const CAMPAIGNS: Campaign[] = [
         id: "lavrinenko-6",
         chapter: "Волоколамск 1941",
         title: "Одинокий Т-34",
-        description:
-          "19 ноября 1941, Гусенево. Легендарный эпизод: один экипаж аса из засады встречает немецкую колонну на марше. Мало машин — но каждая бьёт насмерть. Противник: 11-я танковая «Призрачная» дивизия.",
+        description: "19 ноября 1941, Гусенево. Один экипаж аса против колонны на марше.",
+        briefing:
+          "Машин почти не осталось — но у меня свой Т-34 и засада у Гусенево. Немецкая колонна идёт на марше, ничего не подозревая. Каждый снаряд должен бить насмерть. Это моя работа.",
+        victoryDebrief:
+          "Колонна стоит горящей, а мы целы. Один танк из засады стоит десятка на открытом месте — сегодня немцы это запомнили.",
+        defeatDebrief:
+          "Один против колонны прощает только точные выстрелы. Я промахнулся — и нас достали. Ещё раз, и без ошибок.",
         botHeadquartersId: "german_11_panzer",
         botDeckId: "german_11_panzer_campaign",
         playerDeckId: "lavrinenko_ace_campaign",
@@ -291,8 +344,13 @@ export const CAMPAIGNS: Campaign[] = [
         id: "lavrinenko-7",
         chapter: "Волоколамск 1941",
         title: "Плечом к плечу с Панфиловым",
-        description:
-          "16–20 ноября 1941. Удержи рубеж рядом с 316-й стрелковой дивизией: заслоны ПТО, мало танков, стоять насмерть. Противник: штурмовые группы 2-й танковой армии.",
+        description: "16–20 ноября 1941. Держим рубеж рядом с панфиловцами.",
+        briefing:
+          "Встаём рядом с 316-й дивизией Панфилова. Танков мало, опора — заслоны ПТО. Здесь не маневрируют, здесь стоят насмерть. Отступать некуда — за нами Москва.",
+        victoryDebrief:
+          "Рубеж выстоял. Панфиловцы дрались как львы, и мы их не подвели. Москва за спиной — в безопасности ещё на день.",
+        defeatDebrief:
+          "Рубеж не удержали. Здесь нельзя было отступить ни на шаг. Соберём всё, что есть, и встанем снова.",
         botHeadquartersId: "guderian_corps",
         botDeckId: "german_moscow_assault_campaign",
         playerHeadquartersId: "panfilov_division",
@@ -303,8 +361,13 @@ export const CAMPAIGNS: Campaign[] = [
         id: "lavrinenko-8",
         chapter: "Гвардия",
         title: "Гвардейское знамя",
-        description:
-          "22 ноября 1941, Лысцево. Бригада стала 1-й гвардейской: засадный танк теперь ещё и первым выходит с «Блицем». Противник: элитный моторизованный полк «Großdeutschland».",
+        description: "22 ноября 1941, Лысцево. Бригада стала 1-й гвардейской.",
+        briefing:
+          "Нам вручили гвардейское знамя — теперь мы 1-я гвардейская. Засадный танк бьёт ещё сильнее и первым выходит с «Блицем». Против нас элита — полк «Großdeutschland». Покажем, чего стоит гвардия.",
+        victoryDebrief:
+          "Гвардейское звание оправдано кровью. Даже «Großdeutschland» отступил перед нами. Знамя не запятнано.",
+        defeatDebrief:
+          "В первом же бою под гвардейским знаменем — неудача. Это не по-гвардейски. Возьмём себя в руки и переиграем.",
         botHeadquartersId: "grossdeutschland",
         botDeckId: "grossdeutschland_campaign",
         playerHeadquartersId: "first_guards_tank_brigade",
@@ -315,8 +378,13 @@ export const CAMPAIGNS: Campaign[] = [
         id: "lavrinenko-9",
         chapter: "Контрнаступление",
         title: "Перелом под Москвой",
-        description:
-          "6–10 декабря 1941. Теперь наступаешь ты. У немцев замёрзло горючее и встали моторы — снабжение врага резко просело. Гони их от Москвы. Противник: обескровленная зимой 4-я танковая дивизия.",
+        description: "6–10 декабря 1941. Теперь наступаем мы.",
+        briefing:
+          "Пришёл наш черёд наступать. У немцев замёрзло горючее, встали моторы, снабжение просело. Гони их от Москвы — бей, пока они не оправились от мороза и наших ударов.",
+        victoryDebrief:
+          "Немец покатился назад от Москвы. Мы переломили хребет их наступлению — впервые они бегут, а мы гоним.",
+        defeatDebrief:
+          "Даже обескровленный враг ещё огрызается. Мы потеряли темп наступления. Соберёмся и дожмём.",
         botHeadquartersId: "german_winter_panzer",
         botDeckId: "german_winter_campaign",
         playerHeadquartersId: "first_guards_tank_brigade",
@@ -327,8 +395,13 @@ export const CAMPAIGNS: Campaign[] = [
         id: "lavrinenko-10",
         chapter: "Последний бой",
         title: "Горюны, 18 декабря",
-        description:
-          "18 декабря 1941. Последний бой аса: пробей плотный заградительный заслон из противотанковых пушек и штурмовых орудий. Противник: сводный арьергард у Горюнов.",
+        description: "18 декабря 1941, Горюны. Последний бой аса.",
+        briefing:
+          "Впереди Горюны и плотный заслон — противотанковые пушки и штурмовые орудия. Их надо пробить. Я пойду первым, как всегда. Что бы ни случилось — бригада должна прорваться.",
+        victoryDebrief:
+          "Заслон пробит, путь открыт. Бригада прошла — это главное. Имя 4-й танковой уже не забудут.",
+        defeatDebrief:
+          "Заслон выстоял. Но бригада не сдаётся — соберётся и пройдёт там, где не вышло у меня.",
         botHeadquartersId: "winter_blocking_force",
         botDeckId: "winter_blocking_force_campaign",
         playerHeadquartersId: "first_guards_tank_brigade",

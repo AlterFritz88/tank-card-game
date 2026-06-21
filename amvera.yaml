@@ -11,3 +11,13 @@ run:
   command: cd server && npm run start
   containerPort: 8787
   persistenceMount: /data
+  # Переменные окружения задаются в дашборде Amvera (раздел «Переменные»).
+  # Для приёма платежей ЮKassa обязательно настроить:
+  #   YOOKASSA_SHOP_ID      — идентификатор магазина
+  #   YOOKASSA_SECRET_KEY   — секретный ключ магазина
+  #   YOOKASSA_RETURN_URL   — https://panzershrek.com/ (возврат после оплаты)
+  #   ADMIN_TOKEN           — токен админ-панели /api/admin/*
+  #   WS_ALLOWED_ORIGINS    — https://panzershrek.com
+  # База платежей по умолчанию пишется в /data (persistenceMount), отдельный
+  # PLAYER_PAYMENT_DB_PATH задавать не обязательно.
+  # Чек самозанятого включён по умолчанию; vat_code=1 (без НДС).

@@ -12,6 +12,7 @@ import { getStorageStatuses } from "./storagePath";
 import { PaymentManager } from "./payments";
 import { PlayerAccountManager } from "./playerAccounts";
 import { PlayerProfileManager } from "./playerProfiles";
+import { SupportTicketManager } from "./supportTickets";
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST;
@@ -39,6 +40,7 @@ const rooms = new RoomManager();
 const payments = new PaymentManager();
 const accounts = new PlayerAccountManager();
 const profiles = new PlayerProfileManager();
+const supportTickets = new SupportTicketManager();
 const mimeTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -117,6 +119,11 @@ async function handleHttpRequest(
 
   if (requestUrl.pathname.startsWith("/api/legal/")) {
     await handleLegalDocumentApi(requestUrl.pathname, response, corsHeaders);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/support/feedback") {
+    await handleSupportFeedback(request, response, corsHeaders);
     return;
   }
 
@@ -307,9 +314,39 @@ function handleAdminOverview(
       runtime: rooms.getAdminRuntimeStats(),
       accounts: accounts.listAccounts(),
       profiles: profiles.listProfiles(),
+      supportTickets: supportTickets.listTickets(),
     },
     corsHeaders
   );
+}
+
+async function handleSupportFeedback(
+  request: IncomingMessage,
+  response: ServerResponse,
+  corsHeaders: Record<string, string>
+) {
+  if (request.method !== "POST") {
+    response.writeHead(405, { ...corsHeaders, Allow: "POST" });
+    response.end();
+    return;
+  }
+
+  try {
+    const body = await readJsonBody(request);
+    const ticket = supportTickets.createTicket({
+      playerId: getBodyString(body, "playerId"),
+      nickname: getBodyString(body, "nickname"),
+      contact: getBodyString(body, "contact"),
+      message: getBodyString(body, "message"),
+      pageUrl: getBodyString(body, "pageUrl"),
+      userAgent: getBodyString(body, "userAgent"),
+    });
+
+    writeJson(response, 200, { ok: true, ticketId: ticket.id }, corsHeaders);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    writeJson(response, 400, { ok: false, message }, corsHeaders);
+  }
 }
 
 async function handleAdminCreditTracks(

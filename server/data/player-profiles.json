@@ -1227,11 +1227,11 @@
     "favoriteHeadquartersId": null,
     "battleStats": {
       "wins": 17,
-      "losses": 7
+      "losses": 8
     },
-    "ironTracks": 546,
+    "ironTracks": 563,
     "goldTracks": 5,
-    "freeXp": 107,
+    "freeXp": 109,
     "headquartersXp": {
       "german_artillery_division": 80,
       "training_unit": 0,
@@ -1240,7 +1240,8 @@
       "german_motorized_division": 56,
       "first_panzer_division": 70,
       "training_camp": 13,
-      "soviet_tank_brigade": 117
+      "soviet_tank_brigade": 117,
+      "lavrinenko_tank_brigade": 25
     },
     "headquartersMatchCounts": {
       "german_artillery_division": 2,
@@ -1250,7 +1251,8 @@
       "german_motorized_division": 1,
       "first_panzer_division": 1,
       "training_camp": 1,
-      "soviet_tank_brigade": 1
+      "soviet_tank_brigade": 1,
+      "lavrinenko_tank_brigade": 1
     },
     "headquartersBattleStats": {
       "german_artillery_division": {
@@ -1284,6 +1286,10 @@
       "soviet_tank_brigade": {
         "wins": 1,
         "losses": 0
+      },
+      "lavrinenko_tank_brigade": {
+        "wins": 0,
+        "losses": 1
       }
     },
     "researchedHeadquartersIds": [
@@ -1431,37 +1437,37 @@
       "t35"
     ],
     "ownedCardCopies": {
-      "ms_1_t18": 2,
-      "t26_1931": 2,
-      "bt_2": 2,
-      "t37a": 2,
-      "t24": 2,
-      "t-12": 2,
-      "t27": 2,
-      "su18": 2,
-      "gun_53k": 2,
-      "amo_f15": 1,
-      "ford_aa_ammo": 1,
-      "leichttraktor": 2,
-      "grosstraktor": 1,
-      "pzkpfw_i_ausf_a": 2,
-      "pzkpfw_i_ausf_b": 3,
-      "pzkpfw_ii_ausf_c": 3,
-      "pzkpfw_iii_ausf_a": 2,
-      "panzer_35t": 3,
-      "stug_iii_b": 2,
-      "leig_18": 2,
-      "mercedes_g3a": 1,
-      "adler_type_10_n": 2,
+      "ms_1_t18": 4,
+      "t26_1931": 4,
+      "bt_2": 4,
+      "t37a": 4,
+      "t24": 4,
+      "t-12": 4,
+      "t27": 4,
+      "su18": 4,
+      "gun_53k": 4,
+      "amo_f15": 4,
+      "ford_aa_ammo": 4,
+      "leichttraktor": 4,
+      "grosstraktor": 4,
+      "pzkpfw_i_ausf_a": 4,
+      "pzkpfw_i_ausf_b": 4,
+      "pzkpfw_ii_ausf_c": 4,
+      "pzkpfw_iii_ausf_a": 4,
+      "panzer_35t": 4,
+      "stug_iii_b": 4,
+      "leig_18": 4,
+      "mercedes_g3a": 4,
+      "adler_type_10_n": 4,
       "m2_light_tank": 4,
       "m1_combat_car": 4,
       "m2a1_medium": 4,
-      "m2_medium_tank": 3,
-      "m3_halftrack": 3,
-      "m5_hst": 1,
-      "dodge_wc54": 2,
-      "gun_37mm_m3": 1,
-      "gun_75_pack": 1,
+      "m2_medium_tank": 4,
+      "m3_halftrack": 4,
+      "m5_hst": 4,
+      "dodge_wc54": 4,
+      "gun_37mm_m3": 4,
+      "gun_75_pack": 4,
       "m3_stuart": 3,
       "m5_stuart": 2,
       "m2a4": 2,
@@ -1493,6 +1499,7 @@
     },
     "savedDecks": [],
     "claimedBattleRewardIds": [
+      "battle:soft1g",
       "battle:1ojez0a",
       "pvp:7Q6PY:player",
       "pvp:XYKC7:player",

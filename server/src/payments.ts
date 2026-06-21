@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { resolveWritableDbPath, writeJsonFileAtomic } from "./storagePath";
 import { PlayerProfileManager } from "./playerProfiles";
+import { PlayerAccountManager } from "./playerAccounts";
 
 export type GoldProductId = "gold-100" | "gold-500" | "gold-1500";
 
@@ -51,6 +52,20 @@ const PAYMENT_DB_PATH = resolveWritableDbPath(
 
 const YOOKASSA_API_BASE =
   process.env.YOOKASSA_API_BASE?.trim() || "https://api.yookassa.ru/v3";
+
+// Самозанятый (НПД) обязан выдавать чек, поэтому по умолчанию чек включён.
+// Можно отключить через YOOKASSA_RECEIPT_ENABLED=false для тестового магазина
+// без подключённой фискализации.
+const YOOKASSA_RECEIPT_ENABLED =
+  process.env.YOOKASSA_RECEIPT_ENABLED?.trim().toLowerCase() !== "false";
+
+// Код ставки НДС в чеке ЮKassa. Для самозанятого на НПД это «без НДС» — код 1.
+function getReceiptVatCode(): number {
+  const rawValue = process.env.YOOKASSA_VAT_CODE?.trim();
+  const value = rawValue ? Number(rawValue) : 1;
+
+  return Number.isInteger(value) && value >= 1 && value <= 6 ? value : 1;
+}
 
 const GOLD_PRODUCTS: Record<GoldProductId, GoldProduct> = {
   "gold-100": {
@@ -179,8 +194,48 @@ function getMetadataString(
   return typeof value === "string" ? value : null;
 }
 
+type YookassaReceipt = {
+  customer: { email: string };
+  items: Array<{
+    description: string;
+    quantity: string;
+    amount: { value: string; currency: "RUB" };
+    vat_code: number;
+    payment_subject: "service";
+    payment_mode: "full_payment";
+  }>;
+};
+
+function buildReceipt(
+  email: string,
+  product: GoldProduct,
+  amountRub: number
+): YookassaReceipt {
+  return {
+    customer: { email },
+    items: [
+      {
+        // Описание в чеке ограничено 128 символами.
+        description: `Золотые траки PanzerShrek: ${product.goldTracks} шт.`.slice(
+          0,
+          128
+        ),
+        quantity: "1.00",
+        amount: {
+          value: formatRubAmount(amountRub),
+          currency: "RUB",
+        },
+        vat_code: getReceiptVatCode(),
+        payment_subject: "service",
+        payment_mode: "full_payment",
+      },
+    ],
+  };
+}
+
 export class PaymentManager {
   private profiles = new PlayerProfileManager();
+  private accounts = new PlayerAccountManager();
 
   getGoldCatalog(): GoldProductCatalogItem[] {
     return Object.values(GOLD_PRODUCTS).map((product) => ({
@@ -211,6 +266,22 @@ export class PaymentManager {
 
     const product = getKnownProduct(productId);
     const amountRub = getProductPriceRub(product);
+
+    // Для самозанятого (НПД) ЮKassa должна сформировать чек, а для чека нужен
+    // контакт покупателя. Берём email из аккаунта; гостям без email продажа
+    // запрещена, иначе фискальный чек выдать невозможно.
+    let receipt: YookassaReceipt | undefined;
+    if (YOOKASSA_RECEIPT_ENABLED) {
+      const email = this.accounts.getEmailByUserId(safePlayerId);
+      if (!email) {
+        throw new Error(
+          "Для покупки войдите в аккаунт с подтверждённым e-mail — он нужен для отправки кассового чека"
+        );
+      }
+
+      receipt = buildReceipt(email, product, amountRub);
+    }
+
     const payment = await requestYookassaPayment("/payments", {
       method: "POST",
       headers: {
@@ -233,6 +304,7 @@ export class PaymentManager {
           productId: product.id,
           goldTracks: String(product.goldTracks),
         },
+        ...(receipt ? { receipt } : {}),
       }),
     });
 

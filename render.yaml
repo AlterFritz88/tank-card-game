@@ -17,6 +17,18 @@ services:
         value: /var/data/player-profiles.json
       - key: PLAYER_ACCOUNT_DB_PATH
         value: /var/data/player-accounts.json
+      - key: PLAYER_PAYMENT_DB_PATH
+        value: /var/data/player-payments.json
+      # Реквизиты магазина ЮKassa (значения задаются в дашборде Render).
+      - key: YOOKASSA_SHOP_ID
+        sync: false
+      - key: YOOKASSA_SECRET_KEY
+        sync: false
+      - key: YOOKASSA_RETURN_URL
+        sync: false
+      # Токен доступа к админ-панели (/api/admin/*).
+      - key: ADMIN_TOKEN
+        sync: false
       - key: PVP_RECONNECT_GRACE_MS
         value: "15000"
       - key: PVP_MATCH_WEIGHT_TOLERANCE

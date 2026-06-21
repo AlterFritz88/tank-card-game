@@ -1,0 +1,15 @@
+{
+  "tickets": [
+    {
+      "id": "support:mqng7v4f:fa72e2e3",
+      "createdAt": 1782025913679,
+      "playerId": "user:sashka",
+      "nickname": "Sashka",
+      "contact": "sashka",
+      "message": "Полный пиздец",
+      "pageUrl": "http://localhost:5173/",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+      "status": "new"
+    }
+  ]
+}

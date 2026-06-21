@@ -93,6 +93,7 @@ import {
   retryProfileConnection,
   useProfileConnection,
 } from "../network/useProfileConnection";
+import { submitSupportFeedback } from "../network/profileClient";
 import {
   getCurrentUserId,
   getCurrentUserLogin,
@@ -113,6 +114,10 @@ const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
 const MENU_CARD_SCALE = 1.08;
 const MENU_CARD_WIDTH = Math.round(HAND_CARD_BASE_WIDTH * MENU_CARD_SCALE);
 const MENU_CARD_HEIGHT = Math.round(HAND_CARD_BASE_HEIGHT * MENU_CARD_SCALE);
+// Company-selection cards are larger than the mode cards — only a couple are
+// shown at once, so there's room to make the artwork the focus.
+const CAMPAIGN_CARD_WIDTH = Math.round(MENU_CARD_WIDTH * 1.5);
+const CAMPAIGN_CARD_HEIGHT = Math.round(MENU_CARD_HEIGHT * 1.5);
 const GUEST_SESSION_READY_KEY = GUEST_SESSION_READY_STORAGE_KEY;
 
 const NATION_LABELS: Record<Nation, string> = {
@@ -141,6 +146,14 @@ type BattleDeckOption = {
 type DeckPreviewState = {
   headquartersId: HeadquartersId;
   deck: BattleDeckOption;
+};
+
+type SupportFeedbackState = {
+  contact: string;
+  message: string;
+  sending: boolean;
+  sent: boolean;
+  error: string | null;
 };
 
 type CarouselDragState = {
@@ -383,6 +396,9 @@ function ShopMenu({
   const profileConnection = useProfileConnection();
   const profileServerUnavailable = isProfileServerUnavailable(profileConnection);
   const premiumUntilText = formatPremiumUntil(progress);
+  // Гостю золото за деньги не продаём: для кассового чека самозанятого нужен
+  // e-mail, который есть только у зарегистрированного аккаунта.
+  const isGuest = !isRegisteredUserId();
 
   useEffect(() => {
     let cancelled = false;
@@ -508,12 +524,24 @@ function ShopMenu({
         <div style={styles.shopGrid}>
           <section style={styles.shopSection}>
             <h2 style={styles.shopSectionTitle}>Золотые траки</h2>
+            {isGuest ? (
+              <div style={styles.shopGuestHint}>
+                <strong>Нужен аккаунт с e-mail</strong>
+                <span>
+                  Покупка золота доступна только зарегистрированным игрокам — на
+                  e-mail аккаунта приходит кассовый чек. Войдите или
+                  зарегистрируйтесь в профиле (иконка вверху слева), чтобы
+                  покупать золотые траки.
+                </span>
+              </div>
+            ) : null}
             <div style={styles.shopOfferGrid}>
               {GOLD_TRACK_PRODUCTS.map((product) => {
                 const priceRub = goldProductPrices[product.id];
                 const priceReady =
                   typeof priceRub === "number" && Number.isFinite(priceRub);
                 const disabled =
+                  isGuest ||
                   purchasingGoldProductId !== null ||
                   profileServerUnavailable ||
                   catalogLoading ||
@@ -545,11 +573,13 @@ function ShopMenu({
                           : "Цена не задана"}
                     </span>
                     <span>
-                      {purchasingGoldProductId === product.id
-                        ? "Создание платежа..."
-                        : priceReady
-                          ? "Оплата через ЮKassa"
-                          : "Настройте цену на сервере"}
+                      {isGuest
+                        ? "Войдите в аккаунт"
+                        : purchasingGoldProductId === product.id
+                          ? "Создание платежа..."
+                          : priceReady
+                            ? "Оплата через ЮKassa"
+                            : "Настройте цену на сервере"}
                     </span>
                   </button>
                 );
@@ -1965,6 +1995,14 @@ export function PvpLobby() {
   const profileConnection = useProfileConnection();
   const profileServerUnavailable = isProfileServerUnavailable(profileConnection);
   const profileServerReady = profileConnection.status === "online";
+  const [supportOpen, setSupportOpen] = useState(false);
+  const [supportFeedback, setSupportFeedback] = useState<SupportFeedbackState>({
+    contact: "",
+    message: "",
+    sending: false,
+    sent: false,
+    error: null,
+  });
 
   useEffect(() => {
     void playMusic("main");
@@ -2059,6 +2097,70 @@ export function PvpLobby() {
     window.localStorage.setItem(LEGAL_ACCEPTED_STORAGE_KEY, "true");
     setGuestSessionReady(true);
     setProfileRevision((revision) => revision + 1);
+  }
+
+  function openSupportForm() {
+    const userLogin = getCurrentUserLogin();
+    setSupportFeedback((state) => ({
+      ...state,
+      contact: state.contact || userLogin || "",
+      sent: false,
+      error: null,
+    }));
+    setSupportOpen(true);
+  }
+
+  function closeSupportForm() {
+    if (supportFeedback.sending) return;
+    setSupportOpen(false);
+  }
+
+  async function sendSupportFeedback(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const message = supportFeedback.message.trim();
+    if (message.length < 8) {
+      setSupportFeedback((state) => ({
+        ...state,
+        error: "Опишите проблему чуть подробнее.",
+      }));
+      return;
+    }
+
+    setSupportFeedback((state) => ({
+      ...state,
+      sending: true,
+      sent: false,
+      error: null,
+    }));
+
+    try {
+      await submitSupportFeedback({
+        playerId: getCurrentUserId(),
+        nickname: getPlayerDisplayNickname(playerProgress, getCurrentUserLogin()),
+        contact: supportFeedback.contact.trim(),
+        message,
+        pageUrl: window.location.href,
+        userAgent: window.navigator.userAgent,
+      });
+
+      setSupportFeedback((state) => ({
+        ...state,
+        message: "",
+        sending: false,
+        sent: true,
+        error: null,
+      }));
+    } catch (error) {
+      setSupportFeedback((state) => ({
+        ...state,
+        sending: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Не удалось отправить обращение.",
+      }));
+    }
   }
 
   async function loginAccount(username: string, password: string) {
@@ -2491,7 +2593,9 @@ export function PvpLobby() {
           >
             <div style={styles.campaignCarouselTrack}>
               {CAMPAIGNS.map((campaign, index) => {
-                const artUrl = `/ui/menu/campaign-${index + 1}-panzer-div.webp`;
+                const artUrl =
+                  campaign.menuArtUrl ??
+                  `/ui/menu/campaign-${index + 1}-panzer-div.webp`;
 
                 return (
                   <motion.button
@@ -2873,7 +2977,104 @@ export function PvpLobby() {
           <footer style={styles.mainLegalFooter}>
             <LegalLinks />
           </footer>
+          <button
+            type="button"
+            style={styles.supportLink}
+            onClick={openSupportForm}
+          >
+            Поддержка
+          </button>
         </section>
+
+        {supportOpen ? (
+          <div style={styles.supportOverlay} onClick={closeSupportForm}>
+            <form
+              style={styles.supportPanel}
+              onSubmit={sendSupportFeedback}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div style={styles.supportHeader}>
+                <div>
+                  <div style={styles.supportKicker}>PANZERSHREK</div>
+                  <h2 style={styles.supportTitle}>Поддержка</h2>
+                </div>
+                <button
+                  type="button"
+                  style={styles.supportCloseButton}
+                  onClick={closeSupportForm}
+                  disabled={supportFeedback.sending}
+                  aria-label="Закрыть поддержку"
+                >
+                  ×
+                </button>
+              </div>
+
+              <label style={styles.supportLabel}>
+                Контакт для ответа
+                <input
+                  value={supportFeedback.contact}
+                  onChange={(event) =>
+                    setSupportFeedback((state) => ({
+                      ...state,
+                      contact: event.target.value,
+                    }))
+                  }
+                  style={styles.supportInput}
+                  placeholder="email, ник в Telegram или Discord"
+                  maxLength={160}
+                />
+              </label>
+
+              <label style={styles.supportLabel}>
+                Что случилось?
+                <textarea
+                  value={supportFeedback.message}
+                  onChange={(event) =>
+                    setSupportFeedback((state) => ({
+                      ...state,
+                      message: event.target.value,
+                      sent: false,
+                      error: null,
+                    }))
+                  }
+                  style={styles.supportTextarea}
+                  placeholder="Опишите проблему, что нажимали и что ожидали увидеть"
+                  maxLength={3000}
+                  rows={7}
+                  required
+                />
+              </label>
+
+              {supportFeedback.error ? (
+                <div style={styles.supportError}>{supportFeedback.error}</div>
+              ) : null}
+              {supportFeedback.sent ? (
+                <div style={styles.supportSuccess}>
+                  Сообщение отправлено. Ответ вы получите по e-mail, указанному
+                  при регистрации.
+                </div>
+              ) : null}
+
+              <div style={styles.supportActions}>
+                <button
+                  type="button"
+                  style={styles.supportSecondaryButton}
+                  onClick={closeSupportForm}
+                  disabled={supportFeedback.sending}
+                >
+                  Закрыть
+                </button>
+                <button
+                  type="submit"
+                  style={styles.supportPrimaryButton}
+                  disabled={supportFeedback.sending}
+                >
+                  {supportFeedback.sending ? "Отправка..." : "Отправить"}
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : null}
       </main>
     );
   }
@@ -4535,6 +4736,19 @@ const styles: Record<string, CSSProperties> = {
     filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.85))",
   },
 
+  shopGuestHint: {
+    display: "grid",
+    gap: 6,
+    marginBottom: 12,
+    padding: "12px 16px",
+    background: "rgba(46, 31, 8, 0.72)",
+    color: "rgba(255, 240, 205, 0.92)",
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1.35,
+    boxShadow: "inset 0 0 0 1px rgba(224, 190, 104, 0.32)",
+  },
+
   shopPaymentNote: {
     display: "grid",
     gap: 6,
@@ -5065,8 +5279,8 @@ const styles: Record<string, CSSProperties> = {
   campaignCardOption: {
     position: "relative",
     flex: "0 0 auto",
-    width: MENU_CARD_WIDTH + 44,
-    height: MENU_CARD_HEIGHT + 28,
+    width: CAMPAIGN_CARD_WIDTH + 44,
+    height: CAMPAIGN_CARD_HEIGHT + 28,
     padding: "10px 22px 18px",
     border: "none",
     outline: "none",
@@ -5081,8 +5295,8 @@ const styles: Record<string, CSSProperties> = {
   campaignArtCard: {
     position: "relative",
     zIndex: 2,
-    width: MENU_CARD_WIDTH,
-    height: MENU_CARD_HEIGHT,
+    width: CAMPAIGN_CARD_WIDTH,
+    height: CAMPAIGN_CARD_HEIGHT,
     margin: "0 auto",
     borderRadius: 18,
     overflow: "hidden",
@@ -5101,7 +5315,7 @@ const styles: Record<string, CSSProperties> = {
     bottom: "7.5%",
     zIndex: 2,
     color: "#f9e7b2",
-    fontSize: 21,
+    fontSize: 26,
     fontWeight: 1000,
     letterSpacing: 0.6,
     textTransform: "uppercase",
@@ -5477,6 +5691,178 @@ const styles: Record<string, CSSProperties> = {
     padding: "0 16px",
     textAlign: "center",
     textShadow: "0 2px 8px rgba(0,0,0,0.82)",
+  },
+
+  supportLink: {
+    position: "fixed",
+    right: 18,
+    bottom: 12,
+    zIndex: 9,
+    border: "none",
+    background: "transparent",
+    color: "rgba(255, 240, 189, 0.82)",
+    cursor: "pointer",
+    fontFamily: "var(--font-body)",
+    fontSize: 13,
+    fontWeight: 900,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    textShadow: "0 2px 8px rgba(0,0,0,0.86)",
+  },
+
+  supportOverlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 9200,
+    display: "grid",
+    placeItems: "center",
+    padding: 22,
+    background:
+      "radial-gradient(circle at center, rgba(0,0,0,0.54), rgba(0,0,0,0.86) 72%)",
+    backdropFilter: "blur(5px)",
+  },
+
+  supportPanel: {
+    width: "min(520px, calc(100vw - 32px))",
+    display: "grid",
+    gap: 14,
+    padding: "22px 24px 24px",
+    color: "#f4e5bf",
+    background:
+      "linear-gradient(180deg, rgba(24, 25, 20, 0.96), rgba(8, 9, 7, 0.96))",
+    boxShadow:
+      "0 24px 72px rgba(0,0,0,0.72), inset 0 0 0 1px rgba(216,174,92,0.22)",
+  },
+
+  supportHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 16,
+  },
+
+  supportKicker: {
+    color: "rgba(244,229,191,0.62)",
+    fontFamily: "var(--font-display)",
+    fontSize: 13,
+    fontWeight: 700,
+    letterSpacing: "0.16em",
+  },
+
+  supportTitle: {
+    margin: 0,
+    color: "#d6ad53",
+    fontFamily: "var(--font-display)",
+    fontSize: 34,
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    textShadow: "0 5px 14px rgba(0,0,0,0.72)",
+  },
+
+  supportCloseButton: {
+    width: 34,
+    height: 34,
+    border: "1px solid rgba(216,174,92,0.24)",
+    borderRadius: 0,
+    color: "#fff0bd",
+    background: "rgba(76,78,73,0.38)",
+    cursor: "pointer",
+    fontSize: 24,
+    lineHeight: "30px",
+  },
+
+  supportLabel: {
+    display: "grid",
+    gap: 7,
+    color: "rgba(244,229,191,0.78)",
+    fontSize: 12,
+    fontWeight: 900,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+
+  supportInput: {
+    minHeight: 40,
+    padding: "9px 11px",
+    border: "1px solid rgba(216,174,92,0.28)",
+    borderRadius: 0,
+    outline: "none",
+    color: "#fff4d7",
+    background: "rgba(5,7,6,0.72)",
+    fontFamily: "var(--font-body)",
+    fontSize: 14,
+    fontWeight: 700,
+  },
+
+  supportTextarea: {
+    minHeight: 140,
+    resize: "vertical",
+    padding: "10px 11px",
+    border: "1px solid rgba(216,174,92,0.28)",
+    borderRadius: 0,
+    outline: "none",
+    color: "#fff4d7",
+    background: "rgba(5,7,6,0.72)",
+    fontFamily: "var(--font-body)",
+    fontSize: 14,
+    fontWeight: 700,
+    lineHeight: 1.45,
+  },
+
+  supportError: {
+    padding: "10px 12px",
+    color: "#ffc3b5",
+    background: "rgba(92, 25, 19, 0.68)",
+    boxShadow: "inset 0 0 0 1px rgba(255,120,90,0.26)",
+    fontWeight: 800,
+  },
+
+  supportSuccess: {
+    padding: "10px 12px",
+    color: "#dff6b9",
+    background: "rgba(35,82,39,0.58)",
+    boxShadow: "inset 0 0 0 1px rgba(167,224,117,0.24)",
+    fontWeight: 800,
+  },
+
+  supportActions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 2,
+  },
+
+  supportPrimaryButton: {
+    minHeight: 40,
+    minWidth: 138,
+    padding: "9px 18px",
+    border: "none",
+    borderRadius: 0,
+    color: "#1b1407",
+    background: "linear-gradient(180deg, #e2c16d, #9e7427)",
+    cursor: "pointer",
+    fontFamily: "var(--font-display)",
+    fontSize: 15,
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+
+  supportSecondaryButton: {
+    minHeight: 40,
+    minWidth: 118,
+    padding: "9px 18px",
+    border: "1px solid rgba(216,174,92,0.22)",
+    borderRadius: 0,
+    color: "#fff0bd",
+    background: "rgba(76,78,73,0.48)",
+    cursor: "pointer",
+    fontFamily: "var(--font-display)",
+    fontSize: 15,
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
   },
 
   backButton: {

@@ -255,6 +255,42 @@ export type GoldProductCatalogItem = {
   amountRub: number | null;
 };
 
+export type SupportFeedbackInput = {
+  playerId: string;
+  nickname: string;
+  contact: string;
+  message: string;
+  pageUrl: string;
+  userAgent: string;
+};
+
+export async function submitSupportFeedback(
+  input: SupportFeedbackInput
+): Promise<{ ticketId: string }> {
+  const response = await fetch(`${PROFILE_HTTP_SERVER_URL}/api/support/feedback`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  const result = (await response.json()) as
+    | { ok: true; ticketId: string }
+    | { ok: false; message?: string };
+
+  if (!response.ok || !result.ok) {
+    throw new Error(
+      "message" in result && result.message
+        ? result.message
+        : "Не удалось отправить обращение"
+    );
+  }
+
+  return {
+    ticketId: result.ticketId,
+  };
+}
+
 export async function getShopCatalog(): Promise<{
   goldProducts: GoldProductCatalogItem[];
 }> {
