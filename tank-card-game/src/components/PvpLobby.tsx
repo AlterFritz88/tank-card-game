@@ -632,15 +632,6 @@ function ShopMenu({
           </section>
         </div>
 
-        <section style={styles.shopPaymentNote}>
-          <strong>Платежная схема для ЮKassa</strong>
-          <span>
-            Клиент выбирает пакет золота, сервер создает платеж и возвращает
-            ссылку подтверждения. Золото начисляется только после webhook от
-            ЮKassa со статусом успешной оплаты.
-          </span>
-        </section>
-
         {statusMessage ? (
           <div style={styles.shopStatusMessage}>{statusMessage}</div>
         ) : null}
@@ -4813,18 +4804,6 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 700,
     lineHeight: 1.35,
     boxShadow: "inset 0 0 0 1px rgba(224, 190, 104, 0.32)",
-  },
-
-  shopPaymentNote: {
-    display: "grid",
-    gap: 6,
-    padding: "12px 16px",
-    background: "rgba(8, 11, 10, 0.62)",
-    color: "rgba(244, 232, 204, 0.84)",
-    fontSize: 13,
-    fontWeight: 700,
-    lineHeight: 1.35,
-    boxShadow: "inset 0 0 0 1px rgba(224, 190, 104, 0.12)",
   },
 
   shopStatusMessage: {
