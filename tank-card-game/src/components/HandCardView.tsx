@@ -17,6 +17,7 @@ import {
   getNationVisual,
 } from "../game/cardVisuals";
 import { getTankImage } from "../game/tankImages";
+import { getCardAbilityTags } from "../game/cardKeywords";
 import prototypeTankImage from "../assets/tanks/prototype-tank.png";
 import { FitText } from "./FitText";
 import { StatBadge } from "./StatBadge";
@@ -64,6 +65,12 @@ type HandCardViewProps = {
   headquartersId?: HeadquartersId;
   artOwnerId?: PlayerId;
   currentHp?: number;
+  /**
+   * Live fuel cost for this card given the current battlefield («Слаженность»
+   * and headquarters discounts). When it is below the printed cost the badge
+   * shows the cheaper value highlighted. Defaults to the card's printed cost.
+   */
+  effectiveCost?: number;
   selected?: boolean;
   disabled?: boolean;
   displayMode?: HandCardDisplayMode;
@@ -278,6 +285,7 @@ export function HandCardView({
   headquartersId,
   artOwnerId,
   currentHp,
+  effectiveCost,
   selected = false,
   disabled = false,
   displayMode = "hand",
@@ -341,13 +349,28 @@ export function HandCardView({
   const abilityText = isHeadquarters
     ? headquartersDefinition?.description ?? "Командный пункт."
     : card!.abilityText || "";
+  // Abilities are printed as a plain-text enumeration appended to the
+  // description (with their numeric bonuses), instead of separate tag badges.
+  const abilityTags = !isHeadquarters && card ? getCardAbilityTags(card) : [];
+  const descriptionText = [abilityText, abilityTags.join(", ")]
+    .filter(Boolean)
+    .join(" ");
+  // «Слаженность» / headquarters discounts: show the live cost when it is
+  // cheaper than printed, highlighting the saving.
+  const printedCost = isHeadquarters ? 0 : card!.cost;
+  const displayCost =
+    !isHeadquarters && effectiveCost !== undefined ? effectiveCost : printedCost;
+  const isCostDiscounted = !isHeadquarters && displayCost < printedCost;
+
   const tooltipEnabled = isPreview;
   const classTooltip = isHeadquarters
     ? "Класс: штаб. Командная карта с прочностью, атакой и приростом топлива."
     : `Класс: ${unitClass!.label}. Определяет роль юнита и его боевую механику.`;
   const costTooltip = isHeadquarters
     ? `Топливо штаба: +${fuelGenerationValue} к запасу в начале вашего хода.`
-    : `Стоимость: ${card!.cost} топлива нужно, чтобы вывести карту на поле.`;
+    : isCostDiscounted
+      ? `Стоимость: ${displayCost} топлива (со скидкой; обычная ${printedCost}). Зависит от ситуации на поле боя.`
+      : `Стоимость: ${displayCost} топлива нужно, чтобы вывести карту на поле.`;
   const fuelTooltip = `Прирост топлива: +${fuelGenerationValue} к запасу в начале вашего хода.`;
   const attackTooltip = `Атака: ${attackValue}. Столько урона карта наносит при ударе.`;
   const healthTooltip = `Защита: ${hpValue}. Столько прочности осталось у карты.`;
@@ -418,11 +441,14 @@ export function HandCardView({
           <StatBadge
             type={isHeadquarters ? "fuelGeneration" : "spawnCost"}
             mode={badgeMode}
-            value={isHeadquarters ? `+${fuelGenerationValue}` : card!.cost}
+            value={isHeadquarters ? `+${fuelGenerationValue}` : displayCost}
+            valueStyle={isCostDiscounted ? styles.discountedCostValue : undefined}
             title={
               isHeadquarters
                 ? "Генерация топлива штабом"
-                : "Стоимость розыгрыша"
+                : isCostDiscounted
+                  ? "Стоимость розыгрыша (со скидкой)"
+                  : "Стоимость розыгрыша"
             }
             style={styles.fullBadge}
           />
@@ -596,7 +622,7 @@ export function HandCardView({
       </div>
 
       <div style={styles.descriptionPanel}>
-        {abilityText && (
+        {descriptionText && (
           <p
             style={{
               ...styles.abilityText,
@@ -604,140 +630,8 @@ export function HandCardView({
               lineHeight: 1.18,
             }}
           >
-            {abilityText}
+            {descriptionText}
           </p>
-        )}
-
-        {/* New mechanics badges (only for select units) */}
-        {card && (card.onPlayEffects || card.combatAbilities || card.costModifiers) && (
-          <div
-            style={{
-              ...styles.mechanicsLine,
-              ...(isPreview ? {} : styles.compactMechanicsLine),
-            }}
-          >
-            {card.combatAbilities?.blitz && (
-              <span
-                style={{
-                  ...styles.mechanicBadge,
-                  ...(isPreview ? {} : styles.compactMechanicBadge),
-                }}
-                title="Блиц: после выхода на поле боя юнит может сразу полноценно двигаться и атаковать."
-              >
-                {isPreview ? "Блиц" : "БЛИЦ"}
-              </span>
-            )}
-            {card.combatAbilities?.lightScreen && (
-              <span
-                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
-                title="Экран: раз за ход первый удар по дружественному лёгкому танку перенаправляется в этот юнит."
-              >
-                {isPreview ? "Экран" : "ЭКРАН"}
-              </span>
-            )}
-            {card.combatAbilities?.tankDefenseAura && card.combatAbilities.tankDefenseAura > 0 && (
-              <span
-                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
-                title="Командная машина: пока юнит в строю, ваши танки получают меньше входящего урона."
-              >
-                {isPreview ? "Командная машина" : "КОМ"} −{card.combatAbilities.tankDefenseAura}
-              </span>
-            )}
-            {card.onPlayEffects?.draw && card.onPlayEffects.draw > 0 && (
-              <span
-                style={{
-                  ...styles.mechanicBadge,
-                  ...(isPreview ? {} : styles.compactMechanicBadge),
-                }}
-                title="Разведка: при выходе на поле боя вы добираете карту."
-              >
-                {isPreview ? "Разведка" : "РАЗВ"} +{card.onPlayEffects.draw}
-              </span>
-            )}
-            {card.onPlayEffects?.hqProtection && card.onPlayEffects.hqProtection > 0 && (
-              <span
-                style={{
-                  ...styles.mechanicBadge,
-                  ...(isPreview ? {} : styles.compactMechanicBadge),
-                }}
-                title="Прикрытие: при выходе на поле боя ваш штаб получает дополнительные очки здоровья."
-              >
-                {isPreview ? "Прикрытие" : "ПРИКР"} +{card.onPlayEffects.hqProtection}
-              </span>
-            )}
-            {card.combatAbilities?.camouflage && (
-              <span
-                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
-                title="Маскировка: юнит нельзя атаковать дистанционно, из САУ или штабом — только в ближнем бою."
-              >
-                {isPreview ? "Маскировка" : "МАСК"}
-              </span>
-            )}
-            {card.combatAbilities?.attackEqualsHq && (
-              <span
-                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
-                title="Корректировщик: огневая мощь равна огневой мощи штаба."
-              >
-                {isPreview ? "Корректировщик" : "КОРР"}
-              </span>
-            )}
-            {card.combatAbilities?.armorVsClass && (
-              <span
-                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
-                title={`Спецброня: −${card.combatAbilities.armorVsClass.amount} к урону от выбранного класса.`}
-              >
-                {isPreview ? "Спецброня" : "БРОНЯ"} −{card.combatAbilities.armorVsClass.amount}
-              </span>
-            )}
-            {card.combatAbilities?.drawWhenAttacked && card.combatAbilities.drawWhenAttacked > 0 && (
-              <span
-                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
-                title="Дозор: при получении урона добираете карту (раз за ход)."
-              >
-                {isPreview ? "Дозор" : "ДОЗОР"} +{card.combatAbilities.drawWhenAttacked}
-              </span>
-            )}
-            {card.combatAbilities?.cornerBonus && (
-              <span
-                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
-                title="Огневая позиция: в угловой клетке САУ получает бонус к атаке и/или прочности."
-              >
-                {isPreview ? "Огневая позиция" : "УГОЛ"}
-              </span>
-            )}
-            {card.combatAbilities?.spawnDamageReduction && card.combatAbilities.spawnDamageReduction > 0 && (
-              <span
-                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
-                title={`Оборона плацдарма: −${card.combatAbilities.spawnDamageReduction} к урону на своём плацдарме.`}
-              >
-                {isPreview ? "Оборона плацдарма" : "ПЛАЦ"}
-              </span>
-            )}
-            {card.combatAbilities?.raidDraw && card.combatAbilities.raidDraw > 0 && (
-              <span
-                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
-                title="Прорыв: заход на плацдарм врага добирает карту."
-              >
-                {isPreview ? "Прорыв" : "ПРОР"} +{card.combatAbilities.raidDraw}
-              </span>
-            )}
-            {card.costModifiers && (
-              <span
-                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
-                title={`Слаженность: дешевле на ${card.costModifiers.discount}, пока на поле есть нужный класс.`}
-              >
-                {isPreview ? "Слаженность" : "СЛАЖ"} −{card.costModifiers.discount}
-              </span>
-            )}
-            {card.onPlayEffects?.suppressEnemyIndirect && (
-              <span
-                style={{ ...styles.mechanicBadge, ...(isPreview ? {} : styles.compactMechanicBadge) }}
-                title="Контрбатарейный огонь: при выходе вражеские САУ и штаб не могут атаковать."
-              >
-                {isPreview ? "Контрбатарея" : "КОНТРБ"}
-              </span>
-            )}
-          </div>
         )}
 
         {card?.supportRole && (
@@ -952,6 +846,12 @@ const styles: Record<string, React.CSSProperties> = {
     width: "100%",
     height: "100%",
     filter: "drop-shadow(0 5px 8px rgba(0,0,0,0.72))",
+  },
+
+  // «Слаженность»: a discounted live cost is shown in green to flag the saving.
+  discountedCostValue: {
+    color: "#7dff8a",
+    textShadow: "0 1px 0 rgba(0,0,0,0.95), 0 0 7px rgba(40, 200, 90, 0.85)",
   },
 
   statTooltipTarget: {

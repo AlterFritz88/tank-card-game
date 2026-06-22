@@ -42,12 +42,47 @@ type SupportTicket = {
   status: "new";
 };
 
+type GoldProductCatalogItem = {
+  id: string;
+  goldTracks: number;
+  amountRub: number | null;
+};
+
+type AdminPayment = {
+  paymentId: string;
+  playerId: string;
+  productId: string;
+  goldTracks: number;
+  amountRub: number;
+  status: "pending" | "succeeded" | "cancelled";
+  yookassaStatus: string;
+  confirmationUrlPresent: boolean;
+  createdAt: number;
+  updatedAt: number;
+  creditedAt: number | null;
+};
+
+type AdminPaymentsOverview = {
+  config: {
+    configured: boolean;
+    shopIdConfigured: boolean;
+    secretKeyConfigured: boolean;
+    receiptEnabled: boolean;
+    vatCode: number;
+    apiBase: string;
+    webhookSecretConfigured: boolean;
+    products: GoldProductCatalogItem[];
+  };
+  payments: AdminPayment[];
+};
+
 type AdminOverview = {
   generatedAt: number;
   runtime: AdminRuntimeStats;
   accounts: AdminPlayerAccount[];
   profiles: AdminPlayerProfile[];
   supportTickets: SupportTicket[];
+  payments?: AdminPaymentsOverview;
 };
 
 type AdminApiResult =
@@ -84,6 +119,25 @@ function formatDate(timestamp: number): string {
     dateStyle: "short",
     timeStyle: "short",
   }).format(timestamp);
+}
+
+function formatRub(value: number): string {
+  return new Intl.NumberFormat("ru-RU", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+  }).format(value);
+}
+
+function getPaymentStatusLabel(status: AdminPayment["status"]): string {
+  switch (status) {
+    case "succeeded":
+      return "Оплачен";
+    case "cancelled":
+      return "Отменён";
+    case "pending":
+    default:
+      return "Ожидает";
+  }
 }
 
 function getTotalMatches(profile: PlayerProgress): number {
@@ -205,6 +259,7 @@ export function AdminPanel() {
   }, [overview]);
 
   const supportTickets = overview?.supportTickets ?? [];
+  const paymentsOverview = overview?.payments ?? null;
 
   const selectedPlayer = useMemo(() => {
     if (!overview || !selectedPlayerId) return null;
@@ -278,6 +333,7 @@ export function AdminPanel() {
         supportTickets: Array.isArray(result.supportTickets)
           ? result.supportTickets
           : [],
+        payments: result.payments,
       });
       setToken(nextToken.trim());
       setDraftToken(nextToken.trim());
@@ -329,6 +385,49 @@ export function AdminPanel() {
           : currentOverview
       );
       setNotice(`Обращения обновлены: ${result.supportTickets.length}`);
+    } catch (reason) {
+      setError(getErrorMessage(reason));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteSupportTicket = async (ticketId: string) => {
+    const confirmed = window.confirm("Удалить это обращение в поддержку?");
+    if (!confirmed) return;
+
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await fetch(
+        `${ADMIN_HTTP_SERVER_URL}/api/admin/support-tickets/delete`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ticketId }),
+        }
+      );
+      const result = await readJsonResponse<AdminSupportTicketsResult>(response);
+
+      if (!result.ok) throw new Error(result.message ?? "Админ API вернул ошибку");
+
+      setOverview((currentOverview) =>
+        currentOverview
+          ? {
+              ...currentOverview,
+              generatedAt: result.generatedAt,
+              supportTickets: Array.isArray(result.supportTickets)
+                ? result.supportTickets
+                : [],
+            }
+          : currentOverview
+      );
+      setNotice("Обращение удалено");
     } catch (reason) {
       setError(getErrorMessage(reason));
     } finally {
@@ -441,10 +540,101 @@ export function AdminPanel() {
               <MetricCard label="Профили" value={overview.profiles.length} />
               <MetricCard label="Обращения" value={supportTickets.length} />
               <MetricCard
+                label="Платежи"
+                value={paymentsOverview?.payments.length ?? 0}
+              />
+              <MetricCard
                 label="PVP награды"
                 value={overview.runtime.completedPvpRewardClaims}
               />
             </section>
+
+            {paymentsOverview ? (
+              <section style={styles.paymentsPanel}>
+                <div style={styles.tableHeader}>
+                  <div>
+                    <h2 style={styles.sectionTitle}>Платежи ЮKassa</h2>
+                    <div style={styles.statsHint}>
+                      {paymentsOverview.config.configured
+                        ? "Магазин подключён"
+                        : "Не хватает YOOKASSA_SHOP_ID или YOOKASSA_SECRET_KEY"}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      ...styles.paymentConfigBadge,
+                      ...(paymentsOverview.config.configured
+                        ? styles.paymentConfigBadgeReady
+                        : styles.paymentConfigBadgeWarning),
+                    }}
+                  >
+                    {paymentsOverview.config.configured ? "Готово" : "Не настроено"}
+                  </div>
+                </div>
+
+                <div style={styles.paymentConfigGrid}>
+                  <StatTile
+                    label="Shop ID"
+                    value={paymentsOverview.config.shopIdConfigured ? "есть" : "нет"}
+                  />
+                  <StatTile
+                    label="API ключ"
+                    value={paymentsOverview.config.secretKeyConfigured ? "есть" : "нет"}
+                  />
+                  <StatTile
+                    label="Webhook secret"
+                    value={
+                      paymentsOverview.config.webhookSecretConfigured ? "есть" : "нет"
+                    }
+                  />
+                  <StatTile
+                    label="Чеки"
+                    value={paymentsOverview.config.receiptEnabled ? "вкл" : "выкл"}
+                  />
+                  <StatTile label="НДС" value={paymentsOverview.config.vatCode} />
+                </div>
+
+                <div style={styles.paymentProductsRow}>
+                  {paymentsOverview.config.products.map((product) => (
+                    <span key={product.id} style={styles.paymentProductPill}>
+                      {product.goldTracks} золота:{" "}
+                      {typeof product.amountRub === "number"
+                        ? `${formatRub(product.amountRub)} ₽`
+                        : "цена не задана"}
+                    </span>
+                  ))}
+                </div>
+
+                {paymentsOverview.payments.length > 0 ? (
+                  <div style={styles.paymentList}>
+                    {paymentsOverview.payments.map((payment) => (
+                      <article key={payment.paymentId} style={styles.paymentCard}>
+                        <div style={styles.paymentCardHeader}>
+                          <strong>{getPaymentStatusLabel(payment.status)}</strong>
+                          <span>{formatDate(payment.createdAt)}</span>
+                        </div>
+                        <div style={styles.paymentRows}>
+                          <span>Игрок: {payment.playerId}</span>
+                          <span>
+                            Товар: {payment.goldTracks} золота за{" "}
+                            {formatRub(payment.amountRub)} ₽
+                          </span>
+                          <span>ЮKassa: {payment.yookassaStatus}</span>
+                          <span>
+                            Начислено:{" "}
+                            {payment.creditedAt ? formatDate(payment.creditedAt) : "нет"}
+                          </span>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={styles.emptyState}>
+                    Платежей пока нет. После первой попытки покупки они появятся здесь.
+                  </div>
+                )}
+              </section>
+            ) : null}
 
             <section style={styles.supportTicketsPanel}>
               <div style={styles.tableHeader}>
@@ -491,6 +681,14 @@ export function AdminPanel() {
                           <span title={ticket.pageUrl}>{ticket.pageUrl}</span>
                         ) : null}
                       </div>
+                      <button
+                        type="button"
+                        style={styles.supportTicketDeleteButton}
+                        onClick={() => void deleteSupportTicket(ticket.id)}
+                        disabled={loading}
+                      >
+                        Удалить
+                      </button>
                     </article>
                   ))}
                 </div>
@@ -665,6 +863,10 @@ export function AdminPanel() {
                       label="Сохранённые колоды"
                       value={selectedPlayer.profile.savedDecks.length}
                     />
+                    <StatTile
+                      label="Последняя активность"
+                      value={formatDate(selectedPlayer.profile.lastActivityAt)}
+                    />
                   </div>
 
                   <div style={styles.headquartersStatsWrap}>
@@ -768,6 +970,9 @@ export function AdminPanel() {
                           </td>
                           <td style={styles.td}>
                             <span>{account ? "Аккаунт" : "Гость"}</span>
+                            <span>
+                              Активность: {formatDate(profile.lastActivityAt)}
+                            </span>
                             <span style={styles.muted}>
                               Вход: {formatDate(account?.lastLoginAt ?? 0)}
                             </span>
@@ -1130,6 +1335,82 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 13,
     fontWeight: 700,
   },
+  paymentsPanel: {
+    padding: 18,
+    marginBottom: 16,
+    background: "rgba(12,13,11,0.78)",
+    boxShadow: "inset 0 0 0 1px rgba(216,174,92,0.18)",
+  },
+  paymentConfigBadge: {
+    padding: "8px 12px",
+    fontFamily: "var(--font-display)",
+    fontSize: 13,
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+  paymentConfigBadgeReady: {
+    color: "#dff6b9",
+    background: "rgba(35,82,39,0.46)",
+    boxShadow: "inset 0 0 0 1px rgba(167,224,117,0.22)",
+  },
+  paymentConfigBadgeWarning: {
+    color: "#ffc3b5",
+    background: "rgba(92,25,19,0.46)",
+    boxShadow: "inset 0 0 0 1px rgba(255,120,90,0.22)",
+  },
+  paymentConfigGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+    gap: 10,
+    marginBottom: 12,
+  },
+  paymentProductsRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 12,
+  },
+  paymentProductPill: {
+    padding: "7px 10px",
+    color: "#f4d37e",
+    background: "rgba(216,174,92,0.1)",
+    boxShadow: "inset 0 0 0 1px rgba(216,174,92,0.16)",
+    fontSize: 12,
+    fontWeight: 900,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+  },
+  paymentList: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+    gap: 10,
+  },
+  paymentCard: {
+    padding: 13,
+    background:
+      "linear-gradient(180deg, rgba(30,31,27,0.82), rgba(8,9,7,0.76))",
+    boxShadow: "inset 0 0 0 1px rgba(216,174,92,0.14)",
+  },
+  paymentCardHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    color: "#fff1bf",
+    fontFamily: "var(--font-display)",
+    fontSize: 16,
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+  },
+  paymentRows: {
+    display: "grid",
+    gap: 5,
+    marginTop: 10,
+    color: "rgba(244,229,191,0.72)",
+    fontSize: 13,
+    fontWeight: 750,
+  },
   supportTicketsPanel: {
     padding: 18,
     marginBottom: 16,
@@ -1190,6 +1471,20 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     textTransform: "uppercase",
     overflow: "hidden",
+  },
+  supportTicketDeleteButton: {
+    minHeight: 32,
+    marginTop: 12,
+    padding: "7px 12px",
+    border: "1px solid rgba(255,120,90,0.26)",
+    color: "#ffc3b5",
+    background: "rgba(92,25,19,0.34)",
+    cursor: "pointer",
+    fontFamily: "var(--font-display)",
+    fontSize: 13,
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
   },
   tablePanel: {
     padding: 18,

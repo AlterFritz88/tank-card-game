@@ -324,7 +324,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
         title: "Артиллерийские штабы",
         shortTitle: "Артиллерия",
         description:
-          "Bison I, leFH 18 и PzJäger I ведут к штабу; за ним — Marder III (ранний) и Wespe. Премиум: Bison II за золотые траки.",
+          "Bison I, leFH 18 и PzJäger I ведут к штабу; за ним — Marder II и Wespe. Премиум: Bison II за золотые траки.",
         nodes: [
           // Уровень 2: самоходное орудие Bison I.
           unitNode({
@@ -380,7 +380,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
           // Уровень 5: опытный истребитель танков.
           unitNode({
             id: "de-art-marder38",
-            title: "Marder III (ранний)",
+            title: "Marder II",
             cardId: "panzerjaeger_38t_early",
             experienceCost: 560,
             purchaseCost: 4500,

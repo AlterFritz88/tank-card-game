@@ -59,7 +59,9 @@ function moveEnablesAttack(
   card: TankCard,
   cell: Position
 ): boolean {
-  if (card.class === "heavy") return false;
+  // Heavy tanks and ПТ-САУ cannot attack after moving, so a reposition never
+  // sets up a strike for them this turn.
+  if (card.class === "heavy" || card.class === "td") return false;
 
   if (canCardAttackPosition(card.id, cell, state.headquarters.player.position)) {
     return true;
@@ -89,10 +91,12 @@ function getCardAbilityValue(state: BattleState, card: TankCard): number {
       value += Math.max(0, state.headquarters.bot.attack - card.attack) * 5 + 6;
     }
     if (combat.armorVsClass) value += combat.armorVsClass.amount * 6;
+    if (combat.frontalArmor) value += combat.frontalArmor.amount * 7;
     if (combat.drawWhenAttacked) value += combat.drawWhenAttacked * 7;
     if (combat.cornerBonus) {
       value += (combat.cornerBonus.attack ?? 0) * 6 + (combat.cornerBonus.hp ?? 0) * 4;
     }
+    if (combat.hqProximityBonus) value += combat.hqProximityBonus.maxBonus * 6;
     if (combat.spawnDamageReduction) value += combat.spawnDamageReduction * 5;
     if (combat.raidDraw) value += combat.raidDraw * 6;
     if (combat.blitz) value += 6;
@@ -104,6 +108,20 @@ function getCardAbilityValue(state: BattleState, card: TankCard): number {
   if (onPlay) {
     if (onPlay.draw) value += onPlay.draw * 8;
     if (onPlay.hqProtection) value += onPlay.hqProtection * 6;
+    if (onPlay.deployDamage) {
+      const deploy = onPlay.deployDamage;
+      const enemyUnits = state.units.filter(
+        (unit) => unit.ownerId === "player" && isBattlefieldUnit(unit)
+      );
+      const hitCount =
+        deploy.scope === "classes"
+          ? enemyUnits.filter((unit) =>
+              (deploy.classes ?? []).includes(getCard(unit.cardId).class)
+            ).length
+          : Math.min(1, enemyUnits.length);
+
+      value += 4 + deploy.amount * hitCount * 6;
+    }
     if (onPlay.suppressEnemyIndirect) {
       const enemySpgs = state.units.filter(
         (unit) =>
@@ -1127,18 +1145,35 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
 
     if (card.class === "spg") {
       const cornerBonus = card.combatAbilities?.cornerBonus;
+      const proximityBonus = card.combatAbilities?.hqProximityBonus;
       const mustClearSpawn = shouldMoveSpgToClearSpawn(state, unit);
       // «Огневая позиция»: an SPG with a corner bonus actively seeks a corner.
       const wantsCorner = !!cornerBonus && !isCornerCell(unit.position);
+      // «Огневой вал»: an SPG that hits harder up close pushes toward the enemy HQ.
+      const wantsApproach = !!proximityBonus;
 
-      if (!mustClearSpawn && !wantsCorner) continue;
+      if (!mustClearSpawn && !wantsCorner && !wantsApproach) continue;
 
       const cornerValue = cornerBonus
         ? (cornerBonus.attack ?? 0) * 10 + (cornerBonus.hp ?? 0) * 6 + 16
         : 0;
+      // Reward cells closer to the enemy HQ by the firepower they would unlock.
+      const proximityValue = (cell: Position) =>
+        proximityBonus
+          ? Math.max(
+              0,
+              proximityBonus.maxBonus -
+                (getChebyshevDistance(
+                  cell,
+                  state.headquarters.player.position
+                ) -
+                  1)
+            ) * 14
+          : 0;
       const scoreCell = (cell: Position) =>
         getSpgPositionScore(state, cell) +
-        (cornerBonus && isCornerCell(cell) ? cornerValue : 0);
+        (cornerBonus && isCornerCell(cell) ? cornerValue : 0) +
+        proximityValue(cell);
 
       const bestCell = moveCells
         .filter((cell) => (mustClearSpawn ? !isBotSpawnCell(cell) : true))

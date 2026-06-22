@@ -68,6 +68,7 @@ export type PlayerProfile = {
   nickname: string;
   accountType: PlayerAccountType;
   premiumUntil: number | null;
+  lastActivityAt: number;
   tutorialCompleted: boolean;
   favoriteHeadquartersId: HeadquartersId | null;
   battleStats: PlayerBattleStats;
@@ -528,6 +529,7 @@ export function createInitialPlayerProgress(): PlayerProgress {
         ? "premium"
         : "base",
     premiumUntil: null,
+    lastActivityAt: Date.now(),
     tutorialCompleted: false,
     favoriteHeadquartersId: getValidHeadquartersId(
       readLegacyString(FAVORITE_HEADQUARTERS_STORAGE_KEY)
@@ -630,6 +632,11 @@ function normalizePlayerProgress(
         : fallback.nickname,
     accountType: premiumUntil || hasLegacyPremium ? "premium" : "base",
     premiumUntil,
+    lastActivityAt:
+      typeof progress.lastActivityAt === "number" &&
+      Number.isFinite(progress.lastActivityAt)
+        ? Math.max(0, Math.floor(progress.lastActivityAt))
+        : fallback.lastActivityAt,
     tutorialCompleted:
       typeof progress.tutorialCompleted === "boolean"
         ? progress.tutorialCompleted

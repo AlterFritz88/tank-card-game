@@ -178,6 +178,18 @@ export type TankCard = {
      * огонь»).
      */
     suppressEnemyIndirect?: boolean;
+    /**
+     * «Огневой налёт»: when this unit enters the battlefield it deals `amount`
+     * damage to enemy battlefield units. With `scope: "random"` it strikes one
+     * random enemy unit; with `scope: "classes"` it strikes every enemy unit of
+     * the listed `classes`. Camouflaged (still hidden) units are skipped — the
+     * barrage is indirect fire, not a melee attack.
+     */
+    deployDamage?: {
+      amount: number;
+      scope: "random" | "classes";
+      classes?: TankClass[];
+    };
   };
 
   combatAbilities?: {
@@ -196,9 +208,17 @@ export type TankCard = {
     tankDefenseAura?: number;
     /**
      * «Маскировка»: this unit cannot be targeted by ranged fire, by an SPG, or
-     * by an enemy headquarters — only by an adjacent enemy unit in melee.
+     * by an enemy headquarters — only by an adjacent enemy unit in melee. The
+     * cover is lost permanently as soon as the unit attacks OR moves (see
+     * BoardUnit.revealed).
      */
     camouflage?: boolean;
+    /**
+     * «Огневой вал» (SPG only): the closer this unit stands to the enemy
+     * headquarters, the harder its shot lands. Adds `maxBonus` firepower at
+     * point-blank range, falling off by 1 per cell of distance to the enemy HQ.
+     */
+    hqProximityBonus?: { maxBonus: number };
     /**
      * «Корректировщик»: this unit's effective firepower equals its owner's
      * current headquarters attack value (including support/ability bonuses)
@@ -210,6 +230,14 @@ export type TankCard = {
      * by `amount` (never below zero damage).
      */
     armorVsClass?: { class: TankClass; amount: number };
+    /**
+     * «Лобовая броня»: incoming damage is reduced by `amount` when the strike
+     * comes from the direction of the enemy headquarters — the unit's front arc
+     * (horizontally: the attacker stands on the enemy-HQ side of the unit).
+     * Flank and rear attacks deal full damage. Suits heavy tanks and heavy
+     * tank destroyers that hold the line facing the enemy.
+     */
+    frontalArmor?: { amount: number };
     /**
      * «Дозор»: when this unit takes damage, its owner draws this many cards
      * (at most once per turn).
@@ -299,8 +327,8 @@ export type BoardUnit = {
   /** Anti-tank screen already fired this turn (see supportLineCover). */
   coverFiredThisTurn?: boolean;
   /**
-   * «Маскировка» has been broken: the unit has attacked at least once and can
-   * now be targeted normally (see combatAbilities.camouflage).
+   * «Маскировка» has been broken: the unit has attacked or moved at least once
+   * and can now be targeted normally (see combatAbilities.camouflage).
    */
   revealed?: boolean;
   /** «Дозор» already drew a card this turn (see combatAbilities.drawWhenAttacked). */

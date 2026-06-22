@@ -137,6 +137,11 @@ async function handleHttpRequest(
     return;
   }
 
+  if (requestUrl.pathname === "/api/admin/support-tickets/delete") {
+    await handleAdminDeleteSupportTicket(request, response, corsHeaders);
+    return;
+  }
+
   if (requestUrl.pathname === "/api/admin/credit-tracks") {
     await handleAdminCreditTracks(request, response, corsHeaders);
     return;
@@ -272,6 +277,12 @@ function getBodyNumber(body: unknown, key: string): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function getHeaderString(request: IncomingMessage, key: string): string | null {
+  const value = request.headers[key.toLowerCase()];
+  if (Array.isArray(value)) return value[0] ?? null;
+  return typeof value === "string" ? value.trim() : null;
+}
+
 function getAdminToken(request: IncomingMessage): string {
   const authorization = request.headers.authorization;
   if (authorization?.startsWith("Bearer ")) {
@@ -329,6 +340,7 @@ function handleAdminOverview(
       accounts: accounts.listAccounts(),
       profiles: profiles.listProfiles(),
       supportTickets: supportTickets.listTickets(),
+      payments: payments.getAdminOverview(),
     },
     corsHeaders
   );
@@ -362,6 +374,43 @@ function handleAdminSupportTickets(
   );
 }
 
+async function handleAdminDeleteSupportTicket(
+  request: IncomingMessage,
+  response: ServerResponse,
+  corsHeaders: Record<string, string>
+) {
+  if (request.method !== "POST") {
+    response.writeHead(405, { ...corsHeaders, Allow: "POST" });
+    response.end();
+    return;
+  }
+
+  if (!isAdminAuthorized(request)) {
+    rejectAdminRequest(response, corsHeaders);
+    return;
+  }
+
+  try {
+    const body = await readJsonBody(request);
+    const deleted = supportTickets.deleteTicket(getBodyString(body, "ticketId"));
+
+    writeJson(
+      response,
+      200,
+      {
+        ok: true,
+        deleted,
+        generatedAt: Date.now(),
+        supportTickets: supportTickets.listTickets(),
+      },
+      corsHeaders
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    writeJson(response, 400, { ok: false, message }, corsHeaders);
+  }
+}
+
 async function handleSupportFeedback(
   request: IncomingMessage,
   response: ServerResponse,
@@ -375,14 +424,16 @@ async function handleSupportFeedback(
 
   try {
     const body = await readJsonBody(request);
+    const playerId = getBodyString(body, "playerId");
     const ticket = supportTickets.createTicket({
-      playerId: getBodyString(body, "playerId"),
+      playerId,
       nickname: getBodyString(body, "nickname"),
       contact: getBodyString(body, "contact"),
       message: getBodyString(body, "message"),
       pageUrl: getBodyString(body, "pageUrl"),
       userAgent: getBodyString(body, "userAgent"),
     });
+    profiles.touchActivity(playerId);
 
     writeJson(response, 200, { ok: true, ticketId: ticket.id }, corsHeaders);
   } catch (error) {
@@ -475,6 +526,22 @@ async function handleYookassaWebhook(
   }
 
   try {
+    const requestUrl = new URL(request.url ?? "/", "http://localhost");
+    const webhookSecret = process.env.YOOKASSA_WEBHOOK_SECRET?.trim();
+    const receivedSecret =
+      requestUrl.searchParams.get("secret")?.trim() ??
+      getHeaderString(request, "x-yookassa-webhook-secret");
+
+    if (webhookSecret && receivedSecret !== webhookSecret) {
+      writeJson(
+        response,
+        403,
+        { ok: false, message: "Invalid YooKassa webhook secret" },
+        corsHeaders
+      );
+      return;
+    }
+
     const body = await readJsonBody(request);
     const result = await payments.handleYookassaWebhook(body);
     writeJson(response, 200, { ok: true, ...result }, corsHeaders);

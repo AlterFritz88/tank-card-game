@@ -123,4 +123,22 @@ export class SupportTicketManager {
       .sort((left, right) => right.createdAt - left.createdAt)
       .slice(0, MAX_ADMIN_TICKETS);
   }
+
+  deleteTicket(ticketId: unknown): boolean {
+    const safeTicketId =
+      typeof ticketId === "string" ? ticketId.trim().slice(0, 160) : "";
+    if (!safeTicketId) {
+      throw new Error("Не указан тикет поддержки");
+    }
+
+    const db = readDb();
+    const nextTickets = db.tickets.filter((ticket) => ticket.id !== safeTicketId);
+    const deleted = nextTickets.length !== db.tickets.length;
+
+    if (deleted) {
+      writeDb({ tickets: nextTickets });
+    }
+
+    return deleted;
+  }
 }

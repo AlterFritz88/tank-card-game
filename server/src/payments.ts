@@ -35,6 +35,26 @@ type GoldPaymentRecord = {
 
 type PaymentDb = Record<string, GoldPaymentRecord>;
 
+export type GoldPaymentAdminView = Omit<GoldPaymentRecord, "confirmationUrl"> & {
+  confirmationUrlPresent: boolean;
+};
+
+export type YookassaConfigStatus = {
+  configured: boolean;
+  shopIdConfigured: boolean;
+  secretKeyConfigured: boolean;
+  receiptEnabled: boolean;
+  vatCode: number;
+  apiBase: string;
+  webhookSecretConfigured: boolean;
+  products: GoldProductCatalogItem[];
+};
+
+export type PaymentAdminOverview = {
+  config: YookassaConfigStatus;
+  payments: GoldPaymentAdminView[];
+};
+
 type YookassaPaymentResponse = {
   id?: string;
   status?: string;
@@ -42,6 +62,14 @@ type YookassaPaymentResponse = {
     confirmation_url?: string;
   };
   metadata?: Record<string, unknown>;
+};
+
+type YookassaErrorResponse = {
+  type?: string;
+  id?: string;
+  code?: string;
+  description?: string;
+  parameter?: string;
 };
 
 const PAYMENT_DB_PATH = resolveWritableDbPath(
@@ -141,6 +169,10 @@ function formatRubAmount(value: number): string {
   return value.toFixed(2);
 }
 
+function isEnvConfigured(name: string): boolean {
+  return Boolean(process.env[name]?.trim());
+}
+
 function getBasicAuthHeader(): string {
   const shopId = getRequiredEnv("YOOKASSA_SHOP_ID");
   const secretKey = getRequiredEnv("YOOKASSA_SECRET_KEY");
@@ -174,12 +206,23 @@ async function requestYookassaPayment(
 
   const responseText = await response.text();
   const parsed = responseText
-    ? (JSON.parse(responseText) as YookassaPaymentResponse)
+    ? (JSON.parse(responseText) as YookassaPaymentResponse & YookassaErrorResponse)
     : {};
 
   if (!response.ok) {
+    const details = [
+      parsed.description,
+      parsed.code ? `код: ${parsed.code}` : null,
+      parsed.parameter ? `параметр: ${parsed.parameter}` : null,
+      parsed.id ? `id: ${parsed.id}` : null,
+    ]
+      .filter(Boolean)
+      .join("; ");
+
     throw new Error(
-      `ЮKassa отклонила запрос: ${response.status} ${response.statusText}`
+      details
+        ? `ЮKassa отклонила запрос: ${details}`
+        : `ЮKassa отклонила запрос: ${response.status} ${response.statusText}`
     );
   }
 
@@ -243,6 +286,39 @@ export class PaymentManager {
       goldTracks: product.goldTracks,
       amountRub: getOptionalProductPriceRub(product),
     }));
+  }
+
+  getConfigStatus(): YookassaConfigStatus {
+    const shopIdConfigured = isEnvConfigured("YOOKASSA_SHOP_ID");
+    const secretKeyConfigured = isEnvConfigured("YOOKASSA_SECRET_KEY");
+
+    return {
+      configured: shopIdConfigured && secretKeyConfigured,
+      shopIdConfigured,
+      secretKeyConfigured,
+      receiptEnabled: YOOKASSA_RECEIPT_ENABLED,
+      vatCode: getReceiptVatCode(),
+      apiBase: YOOKASSA_API_BASE,
+      webhookSecretConfigured: isEnvConfigured("YOOKASSA_WEBHOOK_SECRET"),
+      products: this.getGoldCatalog(),
+    };
+  }
+
+  listPayments(limit = 80): GoldPaymentAdminView[] {
+    return Object.values(readPaymentDb())
+      .sort((left, right) => right.createdAt - left.createdAt)
+      .slice(0, limit)
+      .map(({ confirmationUrl, ...payment }) => ({
+        ...payment,
+        confirmationUrlPresent: Boolean(confirmationUrl),
+      }));
+  }
+
+  getAdminOverview(): PaymentAdminOverview {
+    return {
+      config: this.getConfigStatus(),
+      payments: this.listPayments(),
+    };
   }
 
   async createGoldPayment({

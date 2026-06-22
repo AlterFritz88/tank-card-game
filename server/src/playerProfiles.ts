@@ -389,6 +389,7 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
     nickname: sanitizeNickname(profile.nickname, fallback.nickname),
     accountType: premiumUntil || hasLegacyPremium ? "premium" : "base",
     premiumUntil,
+    lastActivityAt: getPositiveInteger(profile.lastActivityAt) || fallback.lastActivityAt,
     tutorialCompleted:
       typeof profile.tutorialCompleted === "boolean"
         ? profile.tutorialCompleted
@@ -994,29 +995,61 @@ function purchaseHeadquartersOnProfile(
 }
 
 export class PlayerProfileManager {
-  private persistProfile(playerId: string, profile: PlayerProgress): PlayerProgress {
+  private persistProfile(
+    playerId: string,
+    profile: PlayerProgress,
+    options: { touchActivity?: boolean } = {}
+  ): PlayerProgress {
     const safePlayerId = sanitizePlayerId(playerId);
     if (!safePlayerId) throw new Error("Некорректный playerId");
 
     const db = readDb();
-    const savedProfile = mergeWithDefaultProgress(profile);
+    const savedProfile = mergeWithDefaultProgress({
+      ...profile,
+      lastActivityAt:
+        options.touchActivity === false ? profile.lastActivityAt : Date.now(),
+    });
     db[safePlayerId] = savedProfile;
     writeDb(db);
 
     return savedProfile;
   }
 
-  getProfile(playerId: string): PlayerProgress {
+  getProfile(
+    playerId: string,
+    options: { touchActivity?: boolean } = {}
+  ): PlayerProgress {
     const safePlayerId = sanitizePlayerId(playerId);
     if (!safePlayerId) return createInitialPlayerProgress();
 
     const db = readDb();
-    const profile = mergeWithDefaultProgress(db[safePlayerId]);
+    const profile = mergeWithDefaultProgress({
+      ...db[safePlayerId],
+      lastActivityAt:
+        options.touchActivity === false
+          ? db[safePlayerId]?.lastActivityAt
+          : Date.now(),
+    });
 
     db[safePlayerId] = profile;
     writeDb(db);
 
     return profile;
+  }
+
+  touchActivity(playerId: string): PlayerProgress | null {
+    const safePlayerId = sanitizePlayerId(playerId);
+    if (!safePlayerId) return null;
+
+    const db = readDb();
+    const profile = mergeWithDefaultProgress(db[safePlayerId]);
+    db[safePlayerId] = {
+      ...profile,
+      lastActivityAt: Date.now(),
+    };
+    writeDb(db);
+
+    return db[safePlayerId];
   }
 
   listProfiles(): AdminPlayerProfileView[] {
@@ -1049,7 +1082,7 @@ export class PlayerProfileManager {
     const safePlayerId = sanitizePlayerId(playerId);
     if (!safePlayerId) throw new Error("Некорректный playerId");
 
-    const profile = this.getProfile(safePlayerId);
+    const profile = this.getProfile(safePlayerId, { touchActivity: false });
     const safeIronTracks = getPositiveInteger(ironTracks);
     const safeGoldTracks = getPositiveInteger(goldTracks);
 
@@ -1057,11 +1090,15 @@ export class PlayerProfileManager {
       throw new Error("Укажите количество траков для начисления");
     }
 
-    return this.persistProfile(safePlayerId, {
-      ...profile,
-      ironTracks: profile.ironTracks + safeIronTracks,
-      goldTracks: profile.goldTracks + safeGoldTracks,
-    });
+    return this.persistProfile(
+      safePlayerId,
+      {
+        ...profile,
+        ironTracks: profile.ironTracks + safeIronTracks,
+        goldTracks: profile.goldTracks + safeGoldTracks,
+      },
+      { touchActivity: false }
+    );
   }
 
   saveProfile(playerId: string, profile: PlayerProgress): PlayerProgress {
@@ -1359,14 +1396,18 @@ export class PlayerProfileManager {
       return profile;
     }
 
-    return this.persistProfile(playerId, {
-      ...profile,
-      goldTracks: profile.goldTracks + safeGoldTracks,
-      claimedBattleRewardIds: [
-        safeClaimKey,
-        ...profile.claimedBattleRewardIds,
-      ].slice(0, 500),
-    });
+    return this.persistProfile(
+      playerId,
+      {
+        ...profile,
+        goldTracks: profile.goldTracks + safeGoldTracks,
+        claimedBattleRewardIds: [
+          safeClaimKey,
+          ...profile.claimedBattleRewardIds,
+        ].slice(0, 500),
+      },
+      { touchActivity: false }
+    );
   }
 
   claimCampaignReward(playerId: string, rewardId: string): PlayerProgress {

@@ -731,6 +731,56 @@ function startTurn(state: BattleState, playerId: PlayerId) {
   state.headquarters[playerId].alreadyAttacked = false;
 }
 
+/**
+ * «Огневой налёт»: a freshly deployed unit shells enemy battlefield units —
+ * either one random target or every enemy unit of the listed classes. Still
+ * hidden «Маскировка» units are skipped (this is indirect fire, not melee).
+ */
+function applyDeployDamage(
+  state: BattleState,
+  ownerId: PlayerId,
+  sourceCard: TankCard,
+  deployDamage: NonNullable<
+    NonNullable<TankCard["onPlayEffects"]>["deployDamage"]
+  >
+) {
+  const opponent = getOpponent(ownerId);
+  const candidates = state.units.filter((unit) => {
+    if (unit.ownerId !== opponent || !isBattlefieldUnit(unit)) return false;
+    if (unit.currentHp <= 0) return false;
+
+    const unitCard = getCard(unit.cardId);
+    return !(unitCard.combatAbilities?.camouflage && !unit.revealed);
+  });
+
+  let targets: BoardUnit[];
+
+  if (deployDamage.scope === "classes") {
+    const classes = deployDamage.classes ?? [];
+    targets = candidates.filter((unit) =>
+      classes.includes(getCard(unit.cardId).class)
+    );
+  } else {
+    const target = candidates[Math.floor(Math.random() * candidates.length)];
+    targets = target ? [target] : [];
+  }
+
+  for (const target of targets) {
+    target.currentHp -= deployDamage.amount;
+
+    addLog(
+      state,
+      `${sourceCard.name}: огневой налёт — ${
+        getCard(target.cardId).name
+      } получает ${deployDamage.amount} урона.`
+    );
+
+    if (target.currentHp <= 0) {
+      destroyUnit(state, target, "уничтожен огневым налётом.", ownerId);
+    }
+  }
+}
+
 function playCard(
   state: BattleState,
   action: Extract<BattleAction, { type: "PLAY_CARD" }>
@@ -841,6 +891,11 @@ function playCard(
         state,
         `${card.name}: контрбатарейный огонь — САУ и штаб противника не могут атаковать.`
       );
+    }
+
+    // «Огневой налёт»: deal damage to enemy battlefield units on deploy.
+    if (effects.deployDamage && effects.deployDamage.amount > 0) {
+      applyDeployDamage(state, owner, card, effects.deployDamage);
     }
   }
 
@@ -990,7 +1045,26 @@ export function getUnitAttackValue(state: BattleState, unit: BoardUnit): number 
     attack += card.combatAbilities?.cornerBonus?.attack ?? 0;
   }
 
+  attack += getHqProximityBonus(state, unit);
+
   return Math.max(0, attack);
+}
+
+/**
+ * «Огневой вал»: an SPG fires harder the closer it stands to the enemy
+ * headquarters. The bonus is `maxBonus` at point-blank range (an adjacent cell)
+ * and drops by 1 per extra cell of distance, never below zero.
+ */
+function getHqProximityBonus(state: BattleState, unit: BoardUnit): number {
+  const proximity = getCard(unit.cardId).combatAbilities?.hqProximityBonus;
+
+  if (!proximity) return 0;
+  if (!isBattlefieldUnit(unit)) return 0;
+
+  const enemyHq = state.headquarters[getOpponent(unit.ownerId)];
+  const distance = chebyshevDistance(unit.position, enemyHq.position);
+
+  return Math.max(0, proximity.maxBonus - (distance - 1));
 }
 
 /**
@@ -1020,6 +1094,40 @@ function getArmorVsClassReduction(
   if (!armor) return 0;
 
   return armor.class === attackerClass ? armor.amount : 0;
+}
+
+/**
+ * «Лобовая броня»: a unit soaks part of a strike that comes from the single
+ * cell directly in front of it — the direction of the enemy headquarters. The
+ * player sits on the left (low columns) facing the bot's HQ on the right, so a
+ * player unit's front is toward higher columns and a bot unit's front toward
+ * lower columns. Only a straight-ahead strike (same row, in the front column
+ * direction) is soaked: diagonal-front, flank and rear strikes deal full
+ * damage. It does not help against САУ (spg) fire or headquarters («штаб»)
+ * strikes, which arc over the frontal plate.
+ */
+function getFrontalArmorReduction(
+  defender: BoardUnit,
+  attacker: NonNullable<ReturnType<typeof getAttacker>>
+): number {
+  if (!isBattlefieldUnit(defender)) return 0;
+
+  const amount = getCard(defender.cardId).combatAbilities?.frontalArmor?.amount ?? 0;
+  if (amount <= 0) return 0;
+
+  // Frontal armor only soaks direct ground fire from the front. Headquarters
+  // («штаб») fire and САУ (spg) strikes arc over the plate and ignore it.
+  if (!("cardId" in attacker)) return 0;
+  if (getCard(attacker.cardId).class === "spg") return 0;
+
+  // Only the single cell directly ahead protects — a diagonally-front attacker
+  // (different row) hits the side and bypasses the plate.
+  if (attacker.position.row !== defender.position.row) return 0;
+
+  const frontDirection = defender.ownerId === "player" ? 1 : -1;
+  const attackDirection = Math.sign(attacker.position.col - defender.position.col);
+
+  return attackDirection === frontDirection ? amount : 0;
 }
 
 export function getHeadquartersAttackValue(
@@ -1133,12 +1241,14 @@ function getUnitCombatBonuses(
       getStationaryTankDefenseBonus(state, attacker) +
       getTankDefenseAuraBonus(state, attacker) +
       getSpawnDamageReduction(attacker) +
-      getArmorVsClassReduction(attacker, targetClass),
+      getArmorVsClassReduction(attacker, targetClass) +
+      getFrontalArmorReduction(attacker, target),
     targetDefenseBonus:
       getStationaryTankDefenseBonus(state, target) +
       getTankDefenseAuraBonus(state, target) +
       getSpawnDamageReduction(target) +
-      getArmorVsClassReduction(target, attackerClass),
+      getArmorVsClassReduction(target, attackerClass) +
+      getFrontalArmorReduction(target, attacker),
   };
 }
 
@@ -1492,6 +1602,10 @@ export function getAttackAnimationSequence(
   const unitTarget = "cardId" in effectiveTarget ? effectiveTarget : target;
   const spawnReduction =
     "cardId" in unitTarget ? getSpawnDamageReduction(unitTarget) : 0;
+  const frontalReduction =
+    "cardId" in unitTarget
+      ? getFrontalArmorReduction(unitTarget, attacker)
+      : 0;
 
   return [
     {
@@ -1507,7 +1621,8 @@ export function getAttackAnimationSequence(
                 unitTarget
               )
             : 0) -
-          spawnReduction
+          spawnReduction -
+          frontalReduction
       ),
     },
   ];
@@ -1732,11 +1847,13 @@ function attack(state: BattleState, action: AttackAction) {
         action.playerId,
         targetUnit
       );
-      // «Оборона плацдарма» also softens headquarters fire.
+      // «Оборона плацдарма» softens headquarters fire (spawn-zone protection).
+      // «Лобовая броня» does NOT — HQ shells arc over the frontal plate.
       const spawnReduction = getSpawnDamageReduction(targetUnit);
+      const frontalReduction = getFrontalArmorReduction(targetUnit, attacker);
       const totalDamage = Math.max(
         0,
-        attackValue + damagedBonus - spawnReduction
+        attackValue + damagedBonus - spawnReduction - frontalReduction
       );
 
       targetUnit.currentHp -= totalDamage;
@@ -1986,6 +2103,18 @@ function moveUnit(
   // Heavy tanks either move or attack in a turn, never both.
   if (card.class === "heavy") {
     unit.alreadyAttacked = true;
+  }
+
+  // ПТ-САУ may fire and then reposition, but moving first forfeits the shot:
+  // a tank destroyer that has moved can no longer attack this turn.
+  if (card.class === "td") {
+    unit.alreadyAttacked = true;
+  }
+
+  // «Маскировка» drops permanently once the unit breaks cover by moving.
+  if (card.combatAbilities?.camouflage && !unit.revealed) {
+    unit.revealed = true;
+    addLog(state, `${card.name}: маскировка раскрыта при движении.`);
   }
 
   // «Огневая позиция»: refresh the corner HP bonus for SPGs.

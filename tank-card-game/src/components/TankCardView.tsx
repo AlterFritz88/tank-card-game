@@ -6,6 +6,7 @@ import {
   getNationVisual,
 } from "../game/cardVisuals";
 import { getTankImage } from "../game/tankImages";
+import { getCardAbilityTags } from "../game/cardKeywords";
 import { FitText } from "./FitText";
 import { StatBadge } from "./StatBadge";
 import ussrCardBackground from "../assets/cards/nation-ussr-bg.png";
@@ -41,6 +42,8 @@ type TankCardViewProps = {
   alreadyAttacked?: boolean;
   borderlessBoard?: boolean;
   suppressExhaustedDim?: boolean;
+  /** Board unit is currently hidden by «Маскировка» (cover not yet broken). */
+  camouflaged?: boolean;
   healthDamageEffect?: {
     id: number;
     amount: number;
@@ -110,6 +113,30 @@ function getCardClassIcon(card: TankCard, ownerId: PlayerId) {
   return getBoardClassIcon(card.class, ownerId);
 }
 
+/** Stroke eye glyph for the «Маскировка» marker, styled like the settings icons. */
+function EyeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+      <path
+        d="M2 12s3.6-6.8 10-6.8S22 12 22 12s-3.6 6.8-10 6.8S2 12 2 12Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle
+        cx="12"
+        cy="12"
+        r="3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
+
 export function TankCardView({
   card,
   variant,
@@ -122,6 +149,7 @@ export function TankCardView({
   alreadyAttacked = false,
   borderlessBoard = false,
   suppressExhaustedDim = false,
+  camouflaged = false,
   healthDamageEffect,
   healthGainEffect,
   attackChangeEffect,
@@ -174,6 +202,15 @@ export function TankCardView({
         />
 
         {isBoardExhausted && <div style={styles.boardExhaustedOverlay} />}
+
+        {camouflaged && (
+          <div
+            style={styles.boardCamouflageBadge}
+            title="Маскировка: юнит скрыт — его нельзя атаковать дистанционно, из САУ или штабом, только в ближнем бою. Спадает после атаки или хода."
+          >
+            <EyeIcon />
+          </div>
+        )}
 
         <div style={styles.boardTitleArea}>
           <div style={styles.boardTitleRow}>
@@ -321,83 +358,16 @@ export function TankCardView({
         <div style={styles.imageVignette} />
       </section>
 
-      {card.abilityText && <p style={styles.abilityText}>{card.abilityText}</p>}
+      {(() => {
+        const abilityTags = getCardAbilityTags(card);
+        const description = [card.abilityText, abilityTags.join(", ")]
+          .filter(Boolean)
+          .join(" ");
 
-      {/* Mechanics badges */}
-      {(card.onPlayEffects || card.combatAbilities || card.costModifiers) && (
-        <div style={styles.mechanicsLine}>
-          {card.combatAbilities?.blitz && (
-            <span style={styles.mechanicBadge} title="Блиц: после выхода на поле боя юнит может сразу полноценно двигаться и атаковать.">
-              Блиц
-            </span>
-          )}
-          {card.combatAbilities?.lightScreen && (
-            <span style={styles.mechanicBadge} title="Экран: раз за ход первый удар по дружественному лёгкому танку перенаправляется в этот юнит.">
-              Экран
-            </span>
-          )}
-          {card.combatAbilities?.tankDefenseAura && card.combatAbilities.tankDefenseAura > 0 && (
-            <span style={styles.mechanicBadge} title="Командная машина: пока юнит в строю, ваши танки получают меньше входящего урона.">
-              Командная машина −{card.combatAbilities.tankDefenseAura}
-            </span>
-          )}
-          {card.onPlayEffects?.draw && card.onPlayEffects.draw > 0 && (
-            <span style={styles.mechanicBadge} title="Разведка: при выходе добираете карту.">
-              Разведка +{card.onPlayEffects.draw}
-            </span>
-          )}
-          {card.onPlayEffects?.hqProtection && card.onPlayEffects.hqProtection > 0 && (
-            <span style={styles.mechanicBadge} title="Прикрытие: штаб получает дополнительные очки здоровья при выходе.">
-              Прикрытие +{card.onPlayEffects.hqProtection}
-            </span>
-          )}
-          {card.combatAbilities?.camouflage && (
-            <span style={styles.mechanicBadge} title="Маскировка: юнит нельзя атаковать дистанционно, из САУ или штабом — только в ближнем бою.">
-              Маскировка
-            </span>
-          )}
-          {card.combatAbilities?.attackEqualsHq && (
-            <span style={styles.mechanicBadge} title="Корректировщик: огневая мощь равна огневой мощи штаба.">
-              Корректировщик
-            </span>
-          )}
-          {card.combatAbilities?.armorVsClass && (
-            <span style={styles.mechanicBadge} title={`Спецброня: −${card.combatAbilities.armorVsClass.amount} к урону от выбранного класса.`}>
-              Спецброня −{card.combatAbilities.armorVsClass.amount}
-            </span>
-          )}
-          {card.combatAbilities?.drawWhenAttacked && card.combatAbilities.drawWhenAttacked > 0 && (
-            <span style={styles.mechanicBadge} title="Дозор: при получении урона добираете карту (раз за ход).">
-              Дозор +{card.combatAbilities.drawWhenAttacked}
-            </span>
-          )}
-          {card.combatAbilities?.cornerBonus && (
-            <span style={styles.mechanicBadge} title="Огневая позиция: в угловой клетке САУ получает бонус к атаке и/или прочности.">
-              Огневая позиция
-            </span>
-          )}
-          {card.combatAbilities?.spawnDamageReduction && card.combatAbilities.spawnDamageReduction > 0 && (
-            <span style={styles.mechanicBadge} title={`Оборона плацдарма: −${card.combatAbilities.spawnDamageReduction} к урону на своём плацдарме.`}>
-              Оборона плацдарма
-            </span>
-          )}
-          {card.combatAbilities?.raidDraw && card.combatAbilities.raidDraw > 0 && (
-            <span style={styles.mechanicBadge} title="Прорыв: заход на плацдарм врага добирает карту.">
-              Прорыв +{card.combatAbilities.raidDraw}
-            </span>
-          )}
-          {card.costModifiers && (
-            <span style={styles.mechanicBadge} title={`Слаженность: дешевле на ${card.costModifiers.discount}, пока на поле есть нужный класс.`}>
-              Слаженность −{card.costModifiers.discount}
-            </span>
-          )}
-          {card.onPlayEffects?.suppressEnemyIndirect && (
-            <span style={styles.mechanicBadge} title="Контрбатарейный огонь: при выходе вражеские САУ и штаб не могут атаковать.">
-              Контрбатарея
-            </span>
-          )}
-        </div>
-      )}
+        return description ? (
+          <p style={styles.abilityText}>{description}</p>
+        ) : null;
+      })()}
     </div>
   );
 }
@@ -645,27 +615,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: "rgba(238, 242, 243, 0.76)",
   },
 
-  mechanicsLine: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 4,
-    margin: "2px 12px 8px",
-    zIndex: 2,
-    pointerEvents: "auto",
-  },
-
-  mechanicBadge: {
-    fontSize: 11,
-    lineHeight: "1.1",
-    padding: "2px 6px",
-    borderRadius: 4,
-    background: "rgba(180, 160, 90, 0.18)",
-    color: "rgba(236, 229, 204, 0.85)",
-    border: "1px solid rgba(200, 180, 110, 0.25)",
-    whiteSpace: "nowrap",
-    cursor: "help",
-  },
-
   boardTankImage: {
     position: "absolute",
     inset: 0,
@@ -699,6 +648,20 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 0,
     background: "rgba(0, 0, 0, 0.28)",
     boxShadow: "inset 0 0 26px rgba(0,0,0,0.62)",
+    pointerEvents: "none",
+  },
+
+  boardCamouflageBadge: {
+    position: "absolute",
+    right: 3,
+    top: -1,
+    zIndex: 7,
+    display: "grid",
+    placeItems: "center",
+    width: 20,
+    height: 20,
+    color: "#f3e6c8",
+    filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.7))",
     pointerEvents: "none",
   },
 

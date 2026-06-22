@@ -1289,14 +1289,14 @@ export const cards: TankCard[] = [
   
   {
     id: "panzerjaeger_38t_early",
-    name: "Marder III (ранний)",
+    name: "Marder II",
     nation: "germany",
     class: "td",
     rarity: "rare",
     cost: 3,
     attack: 5,
     armor: 1,
-    hp: 4,
+    hp: 3,
     range: 1,
     movement: 1,
     fuelGeneration: 0,
@@ -2699,36 +2699,43 @@ const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
 
   // ===== Тяжёлые танки ===== (база: KV-1, Churchill)
   t35: { combatAbilities: { armorVsClass: { class: "light", amount: 2 } } },
-  tiger_i: { combatAbilities: { armorVsClass: { class: "medium", amount: 2 } } },
+  tiger_i: {
+    combatAbilities: {
+      armorVsClass: { class: "medium", amount: 2 },
+      frontalArmor: { amount: 1 },
+    },
+  },
   pociag_pancerny_danuta: { onPlayEffects: { suppressEnemyIndirect: true } },
   pociag_pancerny_smialy: { combatAbilities: { spawnDamageReduction: 2 } },
   neubaufahrzeug: { combatAbilities: { drawWhenAttacked: 1 } },
   grosstraktor: { combatAbilities: { attackEqualsHq: true } },
   smk: { combatAbilities: { armorVsClass: { class: "td", amount: 2 } } },
   t100: { combatAbilities: { spawnDamageReduction: 2 } },
-  kv2: { onPlayEffects: { suppressEnemyIndirect: true } },
+  kv2: { onPlayEffects: { deployDamage: { amount: 2, scope: "random" } } },
   m6_heavy: { combatAbilities: { armorVsClass: { class: "medium", amount: 2 } } },
-  t14_assault: { combatAbilities: { spawnDamageReduction: 2 } },
-  kv1_1940: { combatAbilities: { armorVsClass: { class: "td", amount: 2 } } },
+  t14_assault: { combatAbilities: { frontalArmor: { amount: 2 } } },
+  kv1_1940: { combatAbilities: { frontalArmor: { amount: 2 } } },
 
   // ===== ПТ-САУ ===== (база: StuG III B, АТ-1)
-  stug_iii: { combatAbilities: { camouflage: true } },
+  stug_iii: { combatAbilities: { frontalArmor: { amount: 2 } } },
   marder_iii: { combatAbilities: { camouflage: true } },
   tks_20mm: { combatAbilities: { drawWhenAttacked: 1 } },
   tks_d: { combatAbilities: { camouflage: true } },
-  panzerjaeger_i: { combatAbilities: { camouflage: true } },
   panzerjaeger_38t_early: { combatAbilities: { camouflage: true } },
   m3_gmc: { combatAbilities: { drawWhenAttacked: 1 } },
   m6_gmc_fargo: { combatAbilities: { camouflage: true } },
   zis_30: { combatAbilities: { camouflage: true } },
 
-  // ===== САУ ===== (база: СУ-18, TKD) — все остальные занимают огневую позицию
+  // ===== САУ ===== (база: СУ-18, TKD) — остальные занимают огневую позицию;
+  // Bison I/II бьют тем сильнее, чем ближе к штабу врага («Огневой вал»)
   su_5_2: { combatAbilities: { cornerBonus: { attack: 1 } } },
   wespe: { combatAbilities: { cornerBonus: { attack: 1 } } },
   su_122: { combatAbilities: { cornerBonus: { hp: 2 } } },
-  sig_33_pzi: { combatAbilities: { cornerBonus: { attack: 1 } } },
-  sig_33_pzii: { combatAbilities: { cornerBonus: { attack: 1 } } },
-  su14: { combatAbilities: { cornerBonus: { attack: 2 } } },
+  sig_33_pzi: { combatAbilities: { hqProximityBonus: { maxBonus: 2 } } },
+  sig_33_pzii: { combatAbilities: { hqProximityBonus: { maxBonus: 3 } } },
+  su14: {
+    onPlayEffects: { deployDamage: { amount: 1, scope: "classes", classes: ["light"] } },
+  },
   t18_hmc: { combatAbilities: { cornerBonus: { hp: 2 } } },
   t19_hmc: { combatAbilities: { cornerBonus: { attack: 1 } } },
 };

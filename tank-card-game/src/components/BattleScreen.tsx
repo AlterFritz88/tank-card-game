@@ -12,6 +12,7 @@ import {
   SUPPORT_SLOTS,
   getAttackAnimationSequence,
   getAvailableMoveCells,
+  getEffectiveCardCost,
   getFreeSupportSlots,
   getHeadquartersAttackValue,
   getTargetsInRange,
@@ -477,7 +478,11 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       ? getTutorialHighlights(tutorialStepIndex)
       : null;
 
+  // Destination cells (spawn targets / scripted moves) blink only after the
+  // actor has been picked — see isTutorialSourceSelected.
   function isTutorialCellHighlighted(position: Position): boolean {
+    if (!isTutorialSourceSelected()) return false;
+
     return Boolean(
       tutorialHighlights?.cells?.some(
         (cell) => cell.row === position.row && cell.col === position.col
@@ -497,6 +502,48 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     );
   }
 
+  // Every task step is split into two stages so exactly one hint blinks at a
+  // time: first the actor (a hand card, a unit, or the HQ), then — once that
+  // actor is picked — the destination (a cell, an enemy target, the enemy HQ).
+  // Returns true once the step's actor has been selected/picked up.
+  function isTutorialSourceSelected(): boolean {
+    if (!tutorialHighlights) return false;
+
+    if (tutorialHighlights.hqAttackSequence) {
+      return isTutorialOwnHqSelected();
+    }
+
+    const handCardIds = tutorialHighlights.handCardIds;
+    if (handCardIds && handCardIds.length > 0) {
+      // Drag-to-play has no discrete "selected" state — picking the card up is
+      // the selection, so a drag of the right card counts immediately.
+      if (dragCard && handCardIds.includes(dragCard.cardId)) return true;
+      if (!selectedCardInstanceId) return false;
+      const selected = battle.player.hand.find(
+        (item) => item.instanceId === selectedCardInstanceId
+      );
+      return Boolean(
+        selected &&
+          !isHiddenCardInstance(selected) &&
+          handCardIds.includes(selected.cardId)
+      );
+    }
+
+    const unitCardIds = tutorialHighlights.unitCardIds;
+    if (unitCardIds && unitCardIds.length > 0) {
+      if (selectedAttacker?.type !== "unit") return false;
+      const attackerId = selectedAttacker.id;
+      return battle.units.some(
+        (unit) =>
+          unit.instanceId === attackerId &&
+          unit.ownerId === "player" &&
+          unitCardIds.includes(unit.cardId)
+      );
+    }
+
+    return false;
+  }
+
   function isTutorialUnitHighlighted(unit: {
     ownerId: PlayerId;
     cardId: string;
@@ -505,7 +552,11 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     if (!tutorialHighlights) return false;
 
     if (unit.ownerId === "player") {
-      return Boolean(tutorialHighlights.unitCardIds?.includes(unit.cardId));
+      // Stage 1: the actor blinks only until it is picked.
+      return (
+        Boolean(tutorialHighlights.unitCardIds?.includes(unit.cardId)) &&
+        !isTutorialSourceSelected()
+      );
     }
 
     const isEnemyTarget =
@@ -514,9 +565,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     if (!isEnemyTarget) return false;
 
-    return tutorialHighlights.hqAttackSequence
-      ? isTutorialOwnHqSelected()
-      : true;
+    // Stage 2: the target blinks only once the actor is picked — and never while
+    // a scripted move still has to happen first (then the move cell blinks).
+    return isTutorialSourceSelected() && tutorialMoveCells.length === 0;
   }
 
   function isTutorialHqHighlighted(owner: PlayerId): boolean {
@@ -4365,6 +4416,10 @@ function renderEnemyDeckWithTimer() {
                             selected={isSelected}
                             alreadyMoved={unit.alreadyMoved}
                             alreadyAttacked={unit.alreadyAttacked}
+                            camouflaged={
+                              !!card.combatAbilities?.camouflage &&
+                              !unit.revealed
+                            }
                             healthDamageEffect={getHealthDamageEffect(
                               unit.instanceId
                             )}
@@ -4591,8 +4646,16 @@ function renderEnemyDeckWithTimer() {
                     isMoveCell(position) &&
                     (!tutorialRestrictsMove ||
                       isTutorialCellHighlighted(position));
+                  // During a scripted spawn step the tutorial allows exactly one
+                  // cell, so only that cell shows the green placement pulse — the
+                  // rest are dimmed, keeping a single blinking target on screen.
+                  const tutorialRestrictsSpawn = Boolean(
+                    tutorialHighlights?.cells?.length
+                  );
                   const canPlaceBattlefieldCard =
-                    placingBattlefieldCard && ownSpawn;
+                    placingBattlefieldCard &&
+                    ownSpawn &&
+                    (!tutorialRestrictsSpawn || isTutorialCellHighlighted(position));
 
                   return (
   <motion.button
@@ -4759,6 +4822,12 @@ function renderEnemyDeckWithTimer() {
             <AnimatePresence initial={false}>
               {localHand.map((cardInstance, index) => {
                 const card = getCard(cardInstance.cardId);
+                // Live fuel cost given the board («Слаженность» + HQ discounts).
+                const effectiveCardCost = getEffectiveCardCost(
+                  battle as BattleState,
+                  humanPlayerId,
+                  card.id
+                );
                 const selected =
                   selectedCardInstanceId === cardInstance.instanceId;
                 const isHiddenDrawnCard = hiddenDrawnCardIds.has(
@@ -4770,6 +4839,11 @@ function renderEnemyDeckWithTimer() {
                 const tutorialCardHighlighted = Boolean(
                   tutorialHighlights?.handCardIds?.includes(card.id)
                 );
+                // The right card stays interactive throughout, but it only
+                // blinks in stage 1 — once picked up the spawn cell blinks
+                // instead, so a single hint is on screen at any moment.
+                const tutorialCardPulsing =
+                  tutorialCardHighlighted && !isTutorialSourceSelected();
                 const tutorialCardBlocked = Boolean(
                   tutorialHighlights && !tutorialCardHighlighted
                 );
@@ -4794,7 +4868,7 @@ function renderEnemyDeckWithTimer() {
                     key={cardInstance.instanceId}
                     ref={setHandCardRef(humanPlayerId, cardInstance.instanceId)}
                     className={
-                      tutorialCardHighlighted
+                      tutorialCardPulsing
                         ? "tutorial-highlight-pulse"
                         : undefined
                     }
@@ -4817,7 +4891,7 @@ function renderEnemyDeckWithTimer() {
                         tutorialCardBlocked
                           ? "none"
                           : "auto",
-                      ...(tutorialCardHighlighted
+                      ...(tutorialCardPulsing
                         ? styles.tutorialHighlight
                         : {}),
                       ...(tutorialCardBlocked ? styles.tutorialDimmedBoard : {}),
@@ -4891,11 +4965,12 @@ function renderEnemyDeckWithTimer() {
                     <HandCardView
                       card={card}
                       ownerId={getVisualOwnerId(humanPlayerId)}
+                      effectiveCost={effectiveCardCost}
                       selected={selected}
                       disabled={
                         debugPaused ||
                         battle.activePlayer !== humanPlayerId ||
-                        battle[humanPlayerId].resources < card.cost
+                        battle[humanPlayerId].resources < effectiveCardCost
                       }
                     />
                   </motion.button>

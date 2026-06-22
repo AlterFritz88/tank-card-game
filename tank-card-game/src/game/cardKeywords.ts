@@ -85,7 +85,7 @@ function getVehicleTypeKeyword(card: TankCard): CardKeyword {
       return {
         id: "type",
         title: "ПТ-САУ",
-        body: "Бьёт только по соседним клеткам, но если его атакуют в ближнем бою — открывает огонь первым (засада).",
+        body: "Бьёт только по соседним клеткам и в засаде открывает огонь первым, если его атакуют в ближнем бою. Может сначала атаковать, а потом сдвинуться, но если сходит с места — атаковать в этот ход уже не сможет.",
       };
     case "spg":
       return {
@@ -133,7 +133,7 @@ function getAbilityKeywords(card: TankCard): CardKeyword[] {
     keywords.push({
       id: "camouflage",
       title: "МАСКИРОВКА",
-      body: "Этот юнит нельзя атаковать дистанционно, из САУ или штабом — только соседним юнитом в ближнем бою. Маскировка спадает навсегда, как только юнит сам атакует.",
+      body: "Этот юнит нельзя атаковать дистанционно, из САУ или штабом — только соседним юнитом в ближнем бою. Маскировка спадает навсегда, как только юнит сам атакует или сдвигается с места.",
     });
   }
 
@@ -153,6 +153,15 @@ function getAbilityKeywords(card: TankCard): CardKeyword[] {
       body: `Каждый удар по этому юниту со стороны ${getClassLabel(
         armor.class
       )} слабее на ${armor.amount}.`,
+    });
+  }
+
+  if (card.combatAbilities?.frontalArmor) {
+    const frontal = card.combatAbilities.frontalArmor;
+    keywords.push({
+      id: "frontalArmor",
+      title: "ЛОБОВАЯ БРОНЯ",
+      body: `Когда по этому юниту бьют строго спереди — из клетки прямо перед ним, со стороны вражеского штаба, — урон слабее на ${frontal.amount}. Диагональные, фланговые и тыловые удары проходят полностью. Огонь САУ и штаба лобовая броня не сдерживает.`,
     });
   }
 
@@ -180,6 +189,14 @@ function getAbilityKeywords(card: TankCard): CardKeyword[] {
       body: `Пока эта САУ стоит в угловой клетке поля, она получает ${parts.join(
         " и "
       )}.`,
+    });
+  }
+
+  if (card.combatAbilities?.hqProximityBonus) {
+    keywords.push({
+      id: "hqProximityBonus",
+      title: "ОГНЕВОЙ ВАЛ",
+      body: `Чем ближе эта САУ к штабу противника, тем сильнее её удар: до +${card.combatAbilities.hqProximityBonus.maxBonus} к огневой мощи вплотную, и на 1 меньше за каждую клетку дистанции до вражеского штаба.`,
     });
   }
 
@@ -218,6 +235,23 @@ function getAbilityKeywords(card: TankCard): CardKeyword[] {
       id: "suppressEnemyIndirect",
       title: "КОНТРБАТАРЕЙНЫЙ ОГОНЬ",
       body: "При выходе на поле боя все САУ и штаб противника не могут атаковать до конца их следующего хода.",
+    });
+  }
+
+  if (card.onPlayEffects?.deployDamage) {
+    const deploy = card.onPlayEffects.deployDamage;
+
+    keywords.push({
+      id: "deployDamage",
+      title: "ОГНЕВОЙ НАЛЁТ",
+      body:
+        deploy.scope === "classes"
+          ? `При выходе на поле боя наносит ${deploy.amount} урона всем вражеским юнитам классов: ${(
+              deploy.classes ?? []
+            )
+              .map(getClassLabel)
+              .join(", ")}.`
+          : `При выходе на поле боя наносит ${deploy.amount} урона случайному вражескому юниту на поле.`,
     });
   }
 
@@ -316,6 +350,96 @@ function getSupportEffectKeywords(card: TankCard): CardKeyword[] {
   }
 
   return keywords;
+}
+
+/**
+ * Builds a flat list of short ability labels for a unit, mirroring the keyword
+ * mechanics — each entry names the ability and, where the ability carries a
+ * numeric bonus, appends its amount (e.g. «Командная машина −1», «Разведка +1»).
+ * Used to print the abilities as plain text in the card description instead of
+ * rendering them as separate tag badges.
+ */
+export function getCardAbilityTags(card: TankCard): string[] {
+  const tags: string[] = [];
+
+  if (card.combatAbilities?.blitz) {
+    tags.push("Блиц");
+  }
+
+  if (card.combatAbilities?.lightScreen) {
+    tags.push("Экран");
+  }
+
+  if (
+    card.combatAbilities?.tankDefenseAura &&
+    card.combatAbilities.tankDefenseAura > 0
+  ) {
+    tags.push(`Командная машина −${card.combatAbilities.tankDefenseAura}`);
+  }
+
+  if (card.onPlayEffects?.draw && card.onPlayEffects.draw > 0) {
+    tags.push(`Разведка +${card.onPlayEffects.draw}`);
+  }
+
+  if (card.onPlayEffects?.hqProtection && card.onPlayEffects.hqProtection > 0) {
+    tags.push(`Прикрытие +${card.onPlayEffects.hqProtection}`);
+  }
+
+  if (card.combatAbilities?.camouflage) {
+    tags.push("Маскировка");
+  }
+
+  if (card.combatAbilities?.attackEqualsHq) {
+    tags.push("Корректировщик");
+  }
+
+  if (card.combatAbilities?.armorVsClass) {
+    tags.push(`Спецброня −${card.combatAbilities.armorVsClass.amount}`);
+  }
+
+  if (card.combatAbilities?.frontalArmor) {
+    tags.push(`Лобовая броня −${card.combatAbilities.frontalArmor.amount}`);
+  }
+
+  if (
+    card.combatAbilities?.drawWhenAttacked &&
+    card.combatAbilities.drawWhenAttacked > 0
+  ) {
+    tags.push(`Дозор +${card.combatAbilities.drawWhenAttacked}`);
+  }
+
+  if (card.combatAbilities?.cornerBonus) {
+    tags.push("Огневая позиция");
+  }
+
+  if (card.combatAbilities?.hqProximityBonus) {
+    tags.push(`Огневой вал +${card.combatAbilities.hqProximityBonus.maxBonus}`);
+  }
+
+  if (
+    card.combatAbilities?.spawnDamageReduction &&
+    card.combatAbilities.spawnDamageReduction > 0
+  ) {
+    tags.push("Оборона плацдарма");
+  }
+
+  if (card.combatAbilities?.raidDraw && card.combatAbilities.raidDraw > 0) {
+    tags.push(`Прорыв +${card.combatAbilities.raidDraw}`);
+  }
+
+  if (card.costModifiers) {
+    tags.push(`Слаженность −${card.costModifiers.discount}`);
+  }
+
+  if (card.onPlayEffects?.suppressEnemyIndirect) {
+    tags.push("Контрбатарея");
+  }
+
+  if (card.onPlayEffects?.deployDamage) {
+    tags.push(`Огневой налёт ${card.onPlayEffects.deployDamage.amount}`);
+  }
+
+  return tags;
 }
 
 /**
