@@ -15,6 +15,7 @@ import {
   getFreeSupportSlots,
   getHeadquartersAttackValue,
   getTargetsInRange,
+  getUnitAttackValue,
   isBattlefieldUnit,
   isSupportUnit,
 } from "../game/engine";
@@ -1989,13 +1990,22 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   function createAttackSnapshot(
     sourceBattle: ClientBattleState
   ): Map<string, number> {
-    return new Map([
+    const attack = new Map<string, number>([
       [
         "player_hq",
         getHeadquartersAttackValue(sourceBattle as BattleState, "player"),
       ],
       ["bot_hq", getHeadquartersAttackValue(sourceBattle as BattleState, "bot")],
     ]);
+
+    for (const unit of sourceBattle.units) {
+      attack.set(
+        unit.instanceId,
+        getUnitAttackValue(sourceBattle as BattleState, unit)
+      );
+    }
+
+    return attack;
   }
 
   function showAttackChangesFromSnapshots(
@@ -3512,6 +3522,10 @@ function renderEnemyDeckWithTimer() {
                       variant="board"
                       ownerId={getVisualOwnerId(unit.ownerId)}
                       currentHp={unit.currentHp}
+                      attackValue={getUnitAttackValue(
+                        battle as BattleState,
+                        unit
+                      )}
                       borderlessBoard
                       alreadyMoved
                       alreadyAttacked
@@ -3520,6 +3534,9 @@ function renderEnemyDeckWithTimer() {
                         unit.instanceId
                       )}
                       healthGainEffect={getHealthGainEffect(unit.instanceId)}
+                      attackChangeEffect={getAttackChangeEffect(
+                        unit.instanceId
+                      )}
                       healthPreviewValue={combatForecast.get(unit.instanceId)}
                     />
                   </motion.div>
@@ -4037,6 +4054,19 @@ function renderEnemyDeckWithTimer() {
                             variant="board"
                             ownerId={getVisualOwnerId(movementUnitEffect.owner)}
                             currentHp={movementUnitEffect.currentHp}
+                            attackValue={(() => {
+                              const movingUnit = battle.units.find(
+                                (item) =>
+                                  item.instanceId === movementUnitEffect.unitId
+                              );
+
+                              return movingUnit
+                                ? getUnitAttackValue(
+                                    battle as BattleState,
+                                    movingUnit
+                                  )
+                                : undefined;
+                            })()}
                             alreadyMoved={movementUnitEffect.alreadyMoved}
                             alreadyAttacked={movementUnitEffect.alreadyAttacked}
                           />
@@ -4328,6 +4358,10 @@ function renderEnemyDeckWithTimer() {
                             variant="board"
                             ownerId={getVisualOwnerId(unit.ownerId)}
                             currentHp={unit.currentHp}
+                            attackValue={getUnitAttackValue(
+                              battle as BattleState,
+                              unit
+                            )}
                             selected={isSelected}
                             alreadyMoved={unit.alreadyMoved}
                             alreadyAttacked={unit.alreadyAttacked}
@@ -4335,6 +4369,9 @@ function renderEnemyDeckWithTimer() {
                               unit.instanceId
                             )}
                             healthGainEffect={getHealthGainEffect(
+                              unit.instanceId
+                            )}
+                            attackChangeEffect={getAttackChangeEffect(
                               unit.instanceId
                             )}
                             healthPreviewValue={combatForecast.get(

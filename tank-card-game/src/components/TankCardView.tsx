@@ -34,6 +34,7 @@ type TankCardViewProps = {
   variant: TankCardViewVariant;
   ownerId?: PlayerId;
   currentHp?: number;
+  attackValue?: number;
   selected?: boolean;
   disabled?: boolean;
   alreadyMoved?: boolean;
@@ -45,6 +46,10 @@ type TankCardViewProps = {
     amount: number;
   };
   healthGainEffect?: {
+    id: number;
+    amount: number;
+  };
+  attackChangeEffect?: {
     id: number;
     amount: number;
   };
@@ -110,6 +115,7 @@ export function TankCardView({
   variant,
   ownerId = "player",
   currentHp,
+  attackValue,
   selected = false,
   disabled = false,
   alreadyMoved = false,
@@ -118,6 +124,7 @@ export function TankCardView({
   suppressExhaustedDim = false,
   healthDamageEffect,
   healthGainEffect,
+  attackChangeEffect,
   healthPreviewValue,
   onClick,
 }: TankCardViewProps) {
@@ -125,6 +132,7 @@ export function TankCardView({
   const unitClass = getCardClassVisual(card);
 
   const hpValue = currentHp ?? card.hp;
+  const attackDisplayValue = attackValue ?? card.attack;
   const isHand = variant === "hand";
   const isBoardExhausted =
     !isHand && alreadyMoved && alreadyAttacked && !suppressExhaustedDim;
@@ -188,9 +196,10 @@ export function TankCardView({
             type="attack"
             mode="board"
             ownerId={ownerId}
-            value={card.attack}
+            value={attackDisplayValue}
             dimmed={alreadyAttacked}
             title="Атака"
+            gainEffect={attackChangeEffect}
           />
 
           <StatBadge

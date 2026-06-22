@@ -975,7 +975,7 @@ function getAttackValue(
  * standing on a board corner fires harder). Support units keep their printed
  * attack (they never strike anyway).
  */
-function getUnitAttackValue(state: BattleState, unit: BoardUnit): number {
+export function getUnitAttackValue(state: BattleState, unit: BoardUnit): number {
   const card = getCard(unit.cardId);
 
   let attack = card.combatAbilities?.attackEqualsHq
