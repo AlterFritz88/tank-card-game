@@ -13,6 +13,7 @@ import type {
 } from "../game/types";
 import {
   getCardClassVisual,
+  getCardCombatDamage,
   getNationFlagStyle,
   getNationVisual,
 } from "../game/cardVisuals";
@@ -338,9 +339,12 @@ export function HandCardView({
     ? headquarters!.hp
     : currentHp ?? card!.hp;
 
+  // Rear units with no printed attack but a defensive answer (Pak guns,
+  // armed half-tracks) show the damage they deal to an attacker.
   const attackValue = isHeadquarters
     ? headquarters!.attack
-    : card!.attack;
+    : getCardCombatDamage(card!);
+  const isDefensiveAttack = !isHeadquarters && card!.attack === 0 && attackValue > 0;
 
   const fuelGenerationValue = isHeadquarters
     ? headquarters!.fuelGeneration
@@ -372,7 +376,9 @@ export function HandCardView({
       ? `Стоимость: ${displayCost} топлива (со скидкой; обычная ${printedCost}). Зависит от ситуации на поле боя.`
       : `Стоимость: ${displayCost} топлива нужно, чтобы вывести карту на поле.`;
   const fuelTooltip = `Прирост топлива: +${fuelGenerationValue} к запасу в начале вашего хода.`;
-  const attackTooltip = `Атака: ${attackValue}. Столько урона карта наносит при ударе.`;
+  const attackTooltip = isDefensiveAttack
+    ? `Ответный огонь: ${attackValue}. Столько урона эта машина наносит юниту, который атакует её (или штаб) в ближнем бою.`
+    : `Атака: ${attackValue}. Столько урона карта наносит при ударе.`;
   const healthTooltip = `Защита: ${hpValue}. Столько прочности осталось у карты.`;
   const showTooltip = (id: StatTooltipId) => setActiveTooltip(id);
   const hideTooltip = (id: StatTooltipId) => {

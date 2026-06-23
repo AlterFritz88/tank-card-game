@@ -169,11 +169,11 @@ export const cards: TankCard[] = [
     hp: 4,
     range: 1,
     movement: 2,
-    fuelGeneration: 1,
+    fuelGeneration: 0,
     initiative: 5,
     abilityText:
-      "",
-    combatAbilities: { blitz: true },
+      "Быстроходный кавалерийский танк: рвётся в прорыв.",
+    combatAbilities: { blitz: true, raidDraw: 1 },
   },
   {
     id: "t37a",
@@ -610,9 +610,10 @@ export const cards: TankCard[] = [
     supportEffects: {
       fuelPerTurn: 2,
       drawEveryTurns: 3,
+      returnFire: 1,
     },
     abilityText:
-      "Даёт +2 топлива и добирает дополнительную карту каждый третий ход.",
+      "Даёт +2 топлива, добирает карту каждый третий ход и отвечает огнём из крупнокалиберного пулемёта на ближние атаки.",
   },
   {
     id: "dodge_wc54",
@@ -1630,17 +1631,18 @@ export const cards: TankCard[] = [
     name: "БТ-7М",
     nation: "ussr",
     class: "light",
-    rarity: "uncommon",
-    cost: 3,
-    attack: 3,
+    rarity: "rare",
+    cost: 4,
+    attack: 4,
     armor: 1,
-    hp: 4,
+    hp: 5,
     range: 1,
     movement: 2,
     fuelGeneration: 1,
     initiative: 4,
-    abilityText: "",
-    combatAbilities: { blitz: true },
+    abilityText:
+      "Дизельный В-2: дальнобойный разведчик, добирает карту под огнём.",
+    combatAbilities: { blitz: true, drawWhenAttacked: 1 },
   },
   {
     id: "bt_sv",
@@ -2311,7 +2313,14 @@ export const cards: TankCard[] = [
     supportEffects: {
       fuelPerTurn: 2,
     },
-    abilityText: "+2 топлива каждый ход.",
+    onPlayEffects: {
+      fetchToHand: {
+        label: "артиллерия / ПТ-САУ / САУ",
+        match: { classes: ["td", "spg"], supportRoles: ["artillery"] },
+      },
+    },
+    abilityText:
+      "+2 топлива каждый ход. При выходе добавляет в руку артиллерию тыла, ПТ-САУ или САУ из колоды.",
   },
   {
     id: "sherman_early",
@@ -2349,7 +2358,7 @@ export const cards: TankCard[] = [
     movement: 1,
     fuelGeneration: 2,
     initiative: 4,
-    combatAbilities: { blitz: true },
+    combatAbilities: { blitz: true, frontalArmor: { amount: 1 } },
     onPlayEffects: { draw: 1 },
     abilityText:
       "Машина аса Лавриненко",
@@ -2385,7 +2394,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 0,
     initiative: 3,
     abilityText:
-      "",
+      "При выходе на поле боя добавляет в руку случайный Т-34 из колоды.",
   },
   {
     id: "bt_7_command",
@@ -2573,8 +2582,10 @@ export const cards: TankCard[] = [
     supportEffects: {
       fuelPerTurn: 1,
       hqAttackBonus: 1,
+      returnFire: 1,
     },
-    abilityText: "Бронетранспортёр мотопехоты: +1 топлива и +1 к атаке штаба.",
+    abilityText:
+      "Бронетранспортёр мотопехоты: +1 топлива, +1 к атаке штаба и отвечает огнём на ближние атаки.",
   },
   {
     id: "krad_bmw",
@@ -2594,8 +2605,10 @@ export const cards: TankCard[] = [
     supportRole: "transport",
     supportEffects: {
       drawEveryTurns: 2,
+      returnFire: 1,
     },
-    abilityText: "Мотодозор: добор карты каждый второй ход.",
+    abilityText:
+      "Мотодозор: добор карты каждый второй ход; пулемёт в коляске отвечает на ближние атаки.",
   },
   {
     id: "pak36",
@@ -2694,7 +2707,11 @@ const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
   m2a1_medium: { combatAbilities: { attackEqualsHq: true } },
   t34_1940: { costModifiers: { ifClassPresent: "medium", discount: 1 } },
   t34_1941: { combatAbilities: { armorVsClass: { class: "medium", amount: 1 } } },
-  t34_stz: { onPlayEffects: { draw: 1 } },
+  t34_stz: {
+    onPlayEffects: {
+      fetchToHand: { label: "Т-34", match: { namePrefixes: ["Т-34"] } },
+    },
+  },
   sherman_early: { combatAbilities: { drawWhenAttacked: 1 } },
 
   // ===== Тяжёлые танки ===== (база: KV-1, Churchill)

@@ -736,5 +736,134 @@ function makeUnit(partial: Partial<BoardUnit> & { instanceId: string; cardId: st
   );
 }
 
+// 17. Противотанковый заслон защищает штаб.
+{
+  // а) Ближний рейд на штаб встречает упреждающий огонь заслона.
+  {
+    const battle = makeBattle("training_unit", "t34_76");
+
+    battle.units.push(
+      makeUnit({
+        instanceId: "cover",
+        cardId: "gun_53k",
+        ownerId: "bot",
+        zone: "support",
+        supportSlot: 0,
+        alreadyMoved: true,
+        alreadyAttacked: true,
+      }),
+      makeUnit({
+        instanceId: "raider",
+        cardId: "panzer_iv",
+        ownerId: "player",
+        position: { row: 0, col: 3 },
+      })
+    );
+
+    const hqHpBefore = battle.headquarters.bot.hp;
+    const raidAttack = getCard("panzer_iv").attack;
+    const coverDmg = getCard("gun_53k").supportEffects?.supportLineCover ?? 0;
+
+    const next = applyAction(battle, {
+      type: "ATTACK",
+      playerId: "player",
+      attackerType: "unit",
+      attackerId: "raider",
+      targetType: "headquarters",
+      targetId: "bot_hq",
+    });
+    const raider = next.units.find((unit) => unit.instanceId === "raider");
+
+    check(
+      "Заслон: рейд по штабу — атакующий получает ответный огонь",
+      raider?.currentHp === getCard("panzer_iv").hp - coverDmg &&
+        next.headquarters.bot.hp === hqHpBefore - raidAttack,
+      `raider hp ${raider?.currentHp}, hq ${next.headquarters.bot.hp}/${hqHpBefore}`
+    );
+  }
+
+  // б) Дистанционный удар штаба по штабу частично принимает заслон.
+  {
+    const battle = makeBattle("training_unit", "t34_76");
+
+    battle.units.push(
+      makeUnit({
+        instanceId: "cover",
+        cardId: "pak38",
+        ownerId: "bot",
+        zone: "support",
+        supportSlot: 0,
+        alreadyMoved: true,
+        alreadyAttacked: true,
+      })
+    );
+
+    const hqAttack = getHeadquartersAttackValue(battle, "player");
+    const hqHpBefore = battle.headquarters.bot.hp;
+    const coverDmg = getCard("pak38").supportEffects?.supportLineCover ?? 0;
+    const soaked = Math.min(coverDmg, hqAttack);
+
+    const next = applyAction(battle, {
+      type: "ATTACK",
+      playerId: "player",
+      attackerType: "headquarters",
+      attackerId: "player_hq",
+      targetType: "headquarters",
+      targetId: "bot_hq",
+    });
+    const cover = next.units.find((unit) => unit.instanceId === "cover");
+
+    check(
+      "Заслон: дистанционный удар по штабу частично гасит заслон",
+      next.headquarters.bot.hp === hqHpBefore - (hqAttack - soaked) &&
+        cover?.currentHp === getCard("pak38").hp - soaked,
+      `hq ${next.headquarters.bot.hp}/${hqHpBefore}, cover ${cover?.currentHp}`
+    );
+  }
+}
+
+// 18. Самооборона: SdKfz 251 отвечает на прямую атаку юнита.
+{
+  const battle = makeBattle("training_unit", "t34_76");
+
+  battle.units.push(
+    makeUnit({
+      instanceId: "halftrack",
+      cardId: "sdkfz_251",
+      ownerId: "bot",
+      zone: "support",
+      supportSlot: 0,
+      alreadyMoved: true,
+      alreadyAttacked: true,
+    }),
+    makeUnit({
+      instanceId: "raider",
+      cardId: "panzer_iv",
+      ownerId: "player",
+      position: { row: 1, col: 4 },
+    })
+  );
+
+  const returnFire = getCard("sdkfz_251").supportEffects?.returnFire ?? 0;
+  const next = applyAction(battle, {
+    type: "ATTACK",
+    playerId: "player",
+    attackerType: "unit",
+    attackerId: "raider",
+    targetType: "unit",
+    targetId: "halftrack",
+  });
+  const raider = next.units.find((unit) => unit.instanceId === "raider");
+  const halftrack = next.units.find((unit) => unit.instanceId === "halftrack");
+
+  check(
+    "Самооборона: SdKfz 251 отвечает огнём по атакующему",
+    returnFire > 0 &&
+      raider?.currentHp === getCard("panzer_iv").hp - returnFire &&
+      !halftrack,
+    `raider hp ${raider?.currentHp}, halftrack ${Boolean(halftrack)}`
+  );
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

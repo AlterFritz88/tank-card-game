@@ -30,6 +30,7 @@ import { createRadarScanSoundPlayer, playMusic } from "../game/audio";
 import { calculateDeckWeight, getDefaultDeckWeight } from "../game/deckWeight";
 import {
   CAMPAIGNS,
+  getCampaignCompletionReward,
   getCampaignCompletionRewardsForCampaign,
   getEarnedCampaignCompletionRewards,
   isCampaignMissionUnlocked,
@@ -80,6 +81,10 @@ import type { HeadquartersId, Nation, TankCard } from "../game/types";
 import type { PvpConnectionState } from "../game/modes";
 import { useBattleStore } from "../store/battleStore";
 import { HandCardView } from "./HandCardView";
+import {
+  RewardCelebrationOverlay,
+  type RewardCelebrationCard,
+} from "./RewardCelebrationOverlay";
 import { CardKeywordsPanel } from "./CardKeywordsPanel";
 import {
   getCardKeywords,
@@ -1974,6 +1979,13 @@ export function PvpLobby() {
   );
   const [selectedMissionId, setSelectedMissionId] = useState("");
   const [claimingRewardId, setClaimingRewardId] = useState<string | null>(null);
+  // Triumphant card reveal played after a campaign reward is claimed, mirroring
+  // the research tree celebration. Holds the card copies to fan out.
+  const [rewardCelebration, setRewardCelebration] = useState<{
+    id: number;
+    cards: RewardCelebrationCard[];
+  } | null>(null);
+  const focusTargetRef = useRef<HTMLElement | null>(null);
   const mainMenuCarouselRef = useRef<HTMLDivElement>(null);
   const headquartersCarouselRef = useRef<HTMLDivElement>(null);
   const campaignsCarouselRef = useRef<HTMLDivElement>(null);
@@ -2051,6 +2063,20 @@ export function PvpLobby() {
 
       if (nextProgress) {
         setProfileRevision((revision) => revision + 1);
+
+        // Fan out the granted copies in the same triumphant reveal as the
+        // research tree, captioned "Награда".
+        const reward = getCampaignCompletionReward(rewardId);
+        const rewardCard = reward ? getCardOrNull(reward.cardId) : null;
+        if (reward && rewardCard) {
+          setRewardCelebration({
+            id: Date.now(),
+            cards: Array.from({ length: Math.max(1, reward.copies) }, () => ({
+              kind: "card",
+              card: rewardCard,
+            })),
+          });
+        }
       } else {
         window.alert("Награда не выдана: сервер профиля недоступен");
       }
@@ -2228,6 +2254,28 @@ export function PvpLobby() {
   const selectedMission =
     missionCampaign?.missions.find((mission) => mission.id === selectedMissionId) ??
     firstUnlockedMission;
+
+  // Campaign rewards earned within this campaign, and the first one still
+  // waiting to be claimed. The carousel focuses (and the next mission is gated
+  // on) that pending reward, so the player collects the prize before moving on.
+  const campaignRewards = missionCampaign
+    ? getCampaignCompletionRewardsForCampaign(missionCampaign)
+    : [];
+  const earnedCampaignRewardIds = new Set(
+    getEarnedCampaignCompletionRewards(completedCampaignMissionIds).map(
+      (reward) => reward.id
+    )
+  );
+  const pendingCampaignReward = campaignRewards.find(
+    (reward) =>
+      earnedCampaignRewardIds.has(reward.id) &&
+      !isCampaignRewardClaimed(playerProgress.claimedBattleRewardIds, reward.id)
+  );
+  // The carousel item centered when the missions screen opens: an unclaimed
+  // reward takes priority, otherwise the next playable mission.
+  const campaignFocusKey = pendingCampaignReward
+    ? `reward-${pendingCampaignReward.id}`
+    : firstUnlockedMission?.id ?? null;
 
   const pvpBusy =
     mode === "pvp" &&
@@ -2499,6 +2547,28 @@ export function PvpLobby() {
     return () => window.cancelAnimationFrame(frameId);
   }, [menuView, mode]);
 
+  // Center the next playable mission (or an unclaimed reward) when the missions
+  // screen opens — after a battle's result screen, or when navigating in from
+  // another screen. Also pre-selects that next mission for the selection glow.
+  useEffect(() => {
+    if (menuView !== "missions") return;
+
+    if (!pendingCampaignReward && firstUnlockedMission) {
+      setSelectedMissionId(firstUnlockedMission.id);
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      focusTargetRef.current?.scrollIntoView({
+        behavior: "smooth",
+        inline: "center",
+        block: "nearest",
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuView, campaignFocusKey]);
+
   const previewHeadquarters = previewDeck
     ? HEADQUARTERS[previewDeck.headquartersId]
     : previewHeadquartersId
@@ -2687,14 +2757,6 @@ export function PvpLobby() {
   }
 
   if (menuView === "missions" && missionCampaign) {
-    const campaignRewards =
-      getCampaignCompletionRewardsForCampaign(missionCampaign);
-    const earnedRewardIds = new Set(
-      getEarnedCampaignCompletionRewards(completedCampaignMissionIds).map(
-        (reward) => reward.id
-      )
-    );
-
     // Index of the last mission a reward depends on — the reward card is shown
     // right after that mission in the carousel.
     const getRewardGatingMissionIndex = (reward: CampaignCompletionReward) =>
@@ -2708,7 +2770,7 @@ export function PvpLobby() {
       const rewardCard = getCardOrNull(reward.cardId);
       if (!rewardCard) return null;
 
-      const rewardUnlocked = earnedRewardIds.has(reward.id);
+      const rewardUnlocked = earnedCampaignRewardIds.has(reward.id);
       const rewardClaimed = isCampaignRewardClaimed(
         playerProgress.claimedBattleRewardIds,
         reward.id
@@ -2722,6 +2784,7 @@ export function PvpLobby() {
           ? `${rewardCard.name} ×${reward.copies}`
           : rewardCard.name;
       const canClaim = rewardUnlocked && !rewardClaimed;
+      const isFocusTarget = `reward-${reward.id}` === campaignFocusKey;
       const tooltip = rewardClaimed
         ? `Награда получена: ${cardLabel}`
         : rewardUnlocked
@@ -2729,15 +2792,21 @@ export function PvpLobby() {
             ? "Выдача награды…"
             : `Нажмите, чтобы забрать: ${cardLabel}`
           : `Завершите операцию ${requiredMissionLabel}, чтобы забрать ${cardLabel}`;
+      const captionText = rewardClaimed
+        ? "Получено"
+        : canClaim
+          ? claiming
+            ? "Выдача…"
+            : "Забрать"
+          : "Закрыто";
 
       return (
-        <div
+        <motion.div
           key={`reward-${reward.id}`}
-          style={{
-            ...styles.rewardCardSlot,
-            ...(rewardUnlocked ? {} : styles.rewardCardSlotLocked),
-            ...(canClaim ? styles.rewardCardSlotClaimable : {}),
+          ref={(el) => {
+            if (isFocusTarget) focusTargetRef.current = el;
           }}
+          style={styles.rewardCardColumn}
           title={tooltip}
           aria-label={tooltip}
           role={canClaim ? "button" : undefined}
@@ -2747,9 +2816,39 @@ export function PvpLobby() {
               : undefined
           }
           onContextMenu={(event) => openPreviewUnitCard(event, rewardCard)}
+          animate={
+            canClaim
+              ? { scale: [1, 1.045, 1] }
+              : { scale: 1 }
+          }
+          transition={
+            canClaim
+              ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" }
+              : { duration: 0.2 }
+          }
         >
-          <HandCardView card={rewardCard} ownerId="player" />
-        </div>
+          <div
+            style={{
+              ...styles.rewardCardSlot,
+              ...(rewardUnlocked ? {} : styles.rewardCardSlotLocked),
+              ...(canClaim ? styles.rewardCardSlotClaimable : {}),
+            }}
+          >
+            <HandCardView card={rewardCard} ownerId="player" />
+            {reward.copies > 1 ? (
+              <span style={styles.rewardCopiesBadge}>×{reward.copies}</span>
+            ) : null}
+          </div>
+          <span
+            style={{
+              ...styles.rewardCaption,
+              ...(canClaim ? styles.rewardCaptionClaim : {}),
+              ...(rewardClaimed ? styles.rewardCaptionClaimed : {}),
+            }}
+          >
+            {captionText}
+          </span>
+        </motion.div>
       );
     };
 
@@ -2781,7 +2880,21 @@ export function PvpLobby() {
                   completedCampaignMissionIds
                 );
                 const completed = completedCampaignMissionIds.includes(mission.id);
+                // A mission is held back until the prize from the previous
+                // mission is collected: an earned-but-unclaimed reward gated on
+                // mission `index - 1` blocks entry to mission `index`.
+                const rewardLocked = campaignRewards.some(
+                  (reward) =>
+                    getRewardGatingMissionIndex(reward) === index - 1 &&
+                    earnedCampaignRewardIds.has(reward.id) &&
+                    !isCampaignRewardClaimed(
+                      playerProgress.claimedBattleRewardIds,
+                      reward.id
+                    )
+                );
+                const playable = unlocked && !rewardLocked;
                 const selected = mission.id === selectedMission?.id;
+                const isFocusTarget = mission.id === campaignFocusKey;
                 const missionIllustration =
                   getMissionIllustrationAsset(mission.illustrationId) ??
                   "/menu-background.webp";
@@ -2792,15 +2905,18 @@ export function PvpLobby() {
                 return [
                   <motion.button
                     key={mission.id}
+                    ref={(el) => {
+                      if (isFocusTarget) focusTargetRef.current = el;
+                    }}
                     type="button"
                     style={{
                       ...styles.missionCardOption,
-                      ...(unlocked ? {} : styles.missionCardOptionLocked),
+                      ...(playable ? {} : styles.missionCardOptionLocked),
                     }}
-                    disabled={!unlocked}
+                    disabled={!playable}
                     onClick={() => selectMission(mission.id)}
-                    whileHover={unlocked ? { y: -8, scale: 1.025 } : undefined}
-                    whileTap={unlocked ? { scale: 0.985 } : undefined}
+                    whileHover={playable ? { y: -8, scale: 1.025 } : undefined}
+                    whileTap={playable ? { scale: 0.985 } : undefined}
                     transition={{ type: "spring", stiffness: 360, damping: 28 }}
                     aria-pressed={selected}
                     aria-label={`Выбрать миссию ${mission.title}`}
@@ -2838,9 +2954,11 @@ export function PvpLobby() {
                             ? "Пройдено"
                             : !available
                               ? "Скоро"
-                              : unlocked
-                                ? "Доступно"
-                                : "Закрыто"}
+                              : rewardLocked
+                                ? "Заберите награду"
+                                : unlocked
+                                  ? "Доступно"
+                                  : "Закрыто"}
                         </span>
                       </div>
                     </div>
@@ -2860,6 +2978,17 @@ export function PvpLobby() {
           </div>
         </section>
         {standaloneUnitCardPreview}
+        <AnimatePresence>
+          {rewardCelebration ? (
+            <RewardCelebrationOverlay
+              key={rewardCelebration.id}
+              cards={rewardCelebration.cards}
+              label="Награда"
+              tone="reward"
+              onClose={() => setRewardCelebration(null)}
+            />
+          ) : null}
+        </AnimatePresence>
       </main>
     );
   }
@@ -5437,14 +5566,22 @@ const styles: Record<string, CSSProperties> = {
     borderBottom: "1px solid rgba(244, 209, 124, 0.24)",
   },
 
-  rewardCardSlot: {
+  rewardCardColumn: {
     flex: "0 0 auto",
     alignSelf: "center",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 8,
+    scrollSnapAlign: "center",
+  },
+
+  rewardCardSlot: {
+    position: "relative",
     width: 226,
     padding: 0,
     border: "none",
     background: "transparent",
-    scrollSnapAlign: "center",
     transition: "filter 180ms ease, transform 180ms ease",
   },
 
@@ -5455,7 +5592,37 @@ const styles: Record<string, CSSProperties> = {
 
   rewardCardSlotClaimable: {
     cursor: "pointer",
-    filter: "drop-shadow(0 0 16px rgba(243, 205, 108, 0.55))",
+    filter: "drop-shadow(0 0 22px rgba(243, 205, 108, 0.7))",
+  },
+
+  rewardCopiesBadge: {
+    position: "absolute",
+    right: 14,
+    bottom: 10,
+    zIndex: 4,
+    color: "#fff1c4",
+    fontSize: 16,
+    fontWeight: 1000,
+    textAlign: "right",
+    textShadow: "0 2px 5px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.85)",
+    pointerEvents: "none",
+  },
+
+  rewardCaption: {
+    color: "rgba(232, 218, 184, 0.6)",
+    fontSize: 13,
+    fontWeight: 1000,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    textShadow: "0 2px 3px rgba(0,0,0,0.85)",
+  },
+
+  rewardCaptionClaim: {
+    color: "#ffe09a",
+  },
+
+  rewardCaptionClaimed: {
+    color: "#a9d39a",
   },
 
   missionArtContent: {

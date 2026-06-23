@@ -389,7 +389,7 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
     nickname: sanitizeNickname(profile.nickname, fallback.nickname),
     accountType: premiumUntil || hasLegacyPremium ? "premium" : "base",
     premiumUntil,
-    lastActivityAt: getPositiveInteger(profile.lastActivityAt) || fallback.lastActivityAt,
+    lastActivityAt: getPositiveInteger(profile.lastActivityAt),
     tutorialCompleted:
       typeof profile.tutorialCompleted === "boolean"
         ? profile.tutorialCompleted

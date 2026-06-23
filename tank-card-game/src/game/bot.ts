@@ -108,6 +108,20 @@ function getCardAbilityValue(state: BattleState, card: TankCard): number {
   if (onPlay) {
     if (onPlay.draw) value += onPlay.draw * 8;
     if (onPlay.hqProtection) value += onPlay.hqProtection * 6;
+    if (onPlay.fetchToHand) {
+      // Pulling a specific card into hand is worth a draw only when the deck
+      // actually holds a match; otherwise the effect fizzles.
+      const match = onPlay.fetchToHand.match;
+      const hasMatch = state.bot.deck.some((instance) => {
+        const c = getCard(instance.cardId);
+        return (
+          match.namePrefixes?.some((p) => c.name.startsWith(p)) ||
+          (match.classes?.includes(c.class) ?? false) ||
+          (c.supportRole != null && (match.supportRoles?.includes(c.supportRole) ?? false))
+        );
+      });
+      if (hasMatch) value += 8;
+    }
     if (onPlay.deployDamage) {
       const deploy = onPlay.deployDamage;
       const enemyUnits = state.units.filter(
@@ -214,6 +228,8 @@ function getSupportUnitValue(card: TankCard): number {
     12 +
     (supportEffects?.hqAttackBonus ?? 0) * 16 +
     (supportEffects?.hqDamageRedirect ?? 0) * 10 +
+    (supportEffects?.supportLineCover ?? 0) * 9 +
+    (supportEffects?.returnFire ?? 0) * 7 +
     (supportEffects?.fuelPerTurn ?? 0) * 15 +
     (supportEffects?.drawEveryTurns
       ? Math.round(18 / supportEffects.drawEveryTurns)
@@ -363,6 +379,16 @@ function getContextualSupportCardBonus(
     score += effects.hqDamageRedirect * (enemyPressure >= 75 ? 13 : 6);
   }
 
+  // «Противотанковый заслон» / «Самооборона»: rear defense is worth more under
+  // pressure, when the enemy is likely to push the headquarters and rear line.
+  if (effects.supportLineCover) {
+    score += effects.supportLineCover * (enemyPressure >= 60 ? 12 : 5);
+  }
+
+  if (effects.returnFire) {
+    score += effects.returnFire * (enemyPressure >= 60 ? 8 : 4);
+  }
+
   if (effects.healRandomUnitPerTurn) {
     score += damagedUnitHpGap > 0
       ? effects.healRandomUnitPerTurn * Math.min(28, damagedUnitHpGap * 7)
@@ -486,6 +512,7 @@ function isDevelopmentCard(card: TankCard): boolean {
   if (card.fuelGeneration >= 2) return true;
   if ((card.onPlayEffects?.draw ?? 0) > 0) return true;
   if ((card.onPlayEffects?.hqProtection ?? 0) > 0) return true;
+  if (card.onPlayEffects?.fetchToHand) return true;
 
   return false;
 }

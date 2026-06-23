@@ -1015,11 +1015,18 @@ function StatTile({ label, value }: { label: string; value: number | string }) {
 
 const styles: Record<string, CSSProperties> = {
   page: {
+    position: "fixed",
+    inset: 0,
     minHeight: "100vh",
+    height: "100dvh",
+    overflowX: "hidden",
+    overflowY: "auto",
     color: "#f4e5bf",
     background:
       "radial-gradient(circle at 50% 10%, rgba(189, 139, 50, 0.18), transparent 34%), linear-gradient(180deg, #20231d 0%, #070907 100%)",
     fontFamily: "var(--font-body)",
+    overscrollBehavior: "contain",
+    WebkitOverflowScrolling: "touch",
   },
   backdrop: {
     position: "fixed",
@@ -1034,7 +1041,8 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 1,
     width: "min(1280px, calc(100vw - 28px))",
     margin: "0 auto",
-    padding: "24px 0 46px",
+    minHeight: "100%",
+    padding: "24px 0 max(64px, env(safe-area-inset-bottom))",
   },
   header: {
     display: "flex",

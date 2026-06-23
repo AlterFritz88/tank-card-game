@@ -54,6 +54,8 @@ const testCards: TankCard[] = [
   { ...testCardBase, id: "tc_front", name: "Лобовая броня", class: "heavy", hp: 10, combatAbilities: { frontalArmor: { amount: 2 } } },
   { ...testCardBase, id: "tc_bombard", name: "Огневой налёт", class: "spg", attack: 2, onPlayEffects: { deployDamage: { amount: 2, scope: "random" } } },
   { ...testCardBase, id: "tc_barrage", name: "Заградогонь", class: "spg", attack: 2, onPlayEffects: { deployDamage: { amount: 2, scope: "classes", classes: ["light"] } } },
+  { ...testCardBase, id: "tc_fetch", name: "Пополнение", class: "medium", onPlayEffects: { fetchToHand: { label: "САУ", match: { classes: ["spg"] } } } },
+  { ...testCardBase, id: "tc_fetch_sup", name: "Пополнение-тыл", class: "light", attack: 0, hp: 3, range: 0, movement: 0, deploymentZone: "support", supportRole: "transport", onPlayEffects: { fetchToHand: { label: "ПТ-САУ", match: { classes: ["td"] } } } },
 ];
 
 cards.push(...testCards);
@@ -570,6 +572,62 @@ function attackAction(attackerId: string, targetId: string, playerId: "player" |
   });
   const camo = battle.units.find((u) => u.instanceId === "camo");
   check("Огневой налёт: замаскированная цель не получает урон", camo?.currentHp === 6, `hp ${camo?.currentHp}`);
+}
+
+// 18. Пополнение: танк при выходе добирает карту нужного класса из колоды.
+{
+  let battle = makeBattle("su18"); // колода из САУ (spg)
+  battle.player.resources = 10;
+  const instanceId = "fetch_inst";
+  battle.player.hand.push({ instanceId, cardId: "tc_fetch" });
+  const before = battle.player.deck.filter((c) => getCard(c.cardId).class === "spg").length;
+
+  battle = applyAction(battle, {
+    type: "PLAY_CARD",
+    playerId: "player",
+    cardInstanceId: instanceId,
+    position: { row: 1, col: 0 },
+  });
+
+  const after = battle.player.deck.filter((c) => getCard(c.cardId).class === "spg").length;
+  check("Пополнение: из колоды убыла ровно одна карта нужного класса", before - after === 1, `${before} -> ${after}`);
+}
+
+// 19. Пополнение работает и для support-карты (выход через playSupportCard).
+{
+  let battle = makeBattle("tc_td"); // колода из ПТ-САУ (td)
+  battle.player.resources = 10;
+  const instanceId = "fetch_sup_inst";
+  battle.player.hand.push({ instanceId, cardId: "tc_fetch_sup" });
+  const before = battle.player.deck.filter((c) => getCard(c.cardId).class === "td").length;
+
+  battle = applyAction(battle, {
+    type: "PLAY_SUPPORT_CARD",
+    playerId: "player",
+    cardInstanceId: instanceId,
+    supportSlot: 0,
+  });
+
+  const after = battle.player.deck.filter((c) => getCard(c.cardId).class === "td").length;
+  check("Пополнение (поддержка): support-карта тоже добирает из колоды", before - after === 1, `${before} -> ${after}`);
+}
+
+// 20. Пополнение без подходящих карт в колоде — колода не трогается.
+{
+  let battle = makeBattle("t34_76"); // колода без САУ
+  battle.player.resources = 10;
+  const instanceId = "fetch_empty_inst";
+  battle.player.hand.push({ instanceId, cardId: "tc_fetch" });
+  const before = battle.player.deck.length;
+
+  battle = applyAction(battle, {
+    type: "PLAY_CARD",
+    playerId: "player",
+    cardInstanceId: instanceId,
+    position: { row: 1, col: 0 },
+  });
+
+  check("Пополнение: без подходящих карт колода неизменна", battle.player.deck.length === before, `${before} -> ${battle.player.deck.length}`);
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);

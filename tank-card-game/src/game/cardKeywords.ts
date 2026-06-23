@@ -255,6 +255,14 @@ function getAbilityKeywords(card: TankCard): CardKeyword[] {
     });
   }
 
+  if (card.onPlayEffects?.fetchToHand) {
+    keywords.push({
+      id: "fetchToHand",
+      title: "ПОПОЛНЕНИЕ",
+      body: `При выходе на поле боя вы переносите случайную карту «${card.onPlayEffects.fetchToHand.label}» из колоды в руку (если такая есть).`,
+    });
+  }
+
   const draw = card.onPlayEffects?.draw ?? 0;
   const hqProtection = card.onPlayEffects?.hqProtection ?? 0;
 
@@ -302,8 +310,16 @@ function getSupportEffectKeywords(card: TankCard): CardKeyword[] {
   if (effects.supportLineCover) {
     keywords.push({
       id: "fx-cover",
-      title: "ПРИКРЫТИЕ ТЫЛА",
-      body: `Защищает тыловую линию: удары по союзной поддержке принимает этот юнит, отвечая ${effects.supportLineCover} урона в ближнем бою (раз за ход).`,
+      title: "ПРОТИВОТАНКОВЫЙ ЗАСЛОН",
+      body: `Защищает тыл и штаб. Ближние атаки по союзной поддержке или по штабу встречает огнём на ${effects.supportLineCover} урона (раз за ход), а часть дистанционного огня по штабу принимает на себя.`,
+    });
+  }
+
+  if (effects.returnFire) {
+    keywords.push({
+      id: "fx-returnFire",
+      title: "САМООБОРОНА",
+      body: `Вооружённая машина: когда по ней бьёт вражеский юнит в ближнем бою, отвечает огнём на ${effects.returnFire} урона.`,
     });
   }
 
@@ -437,6 +453,10 @@ export function getCardAbilityTags(card: TankCard): string[] {
 
   if (card.onPlayEffects?.deployDamage) {
     tags.push(`Огневой налёт ${card.onPlayEffects.deployDamage.amount}`);
+  }
+
+  if (card.onPlayEffects?.fetchToHand) {
+    tags.push(`Пополнение (${card.onPlayEffects.fetchToHand.label})`);
   }
 
   return tags;

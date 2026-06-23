@@ -359,6 +359,31 @@ function getSupportCoverUnit(
   );
 }
 
+/**
+ * A melee attacker is an enemy unit fighting at close quarters — anything that
+ * is not the headquarters and not an SPG (whose fire is indirect/ranged). Only
+ * melee attackers provoke «Противотанковый заслон» return fire and «Самооборона».
+ */
+function isMeleeUnitAttacker(
+  attacker: NonNullable<ReturnType<typeof getAttacker>>
+): attacker is BoardUnit {
+  return "cardId" in attacker && getCard(attacker.cardId).class !== "spg";
+}
+
+/**
+ * «Самооборона»: damage an armed rear unit fires back when a melee unit strikes
+ * it directly. Ranged (SPG) and headquarters strikes draw no answer.
+ */
+function getSupportReturnFire(
+  attacker: NonNullable<ReturnType<typeof getAttacker>>,
+  target: BoardUnit
+): number {
+  if (!isSupportUnit(target)) return 0;
+  if (!isMeleeUnitAttacker(attacker)) return 0;
+
+  return getCard(target.cardId).supportEffects?.returnFire ?? 0;
+}
+
 function applySupportTurnEffects(state: BattleState, playerId: PlayerId) {
   const supportUnits = getSupportUnits(state, playerId);
   const battlefieldUnits = state.units.filter(
@@ -781,6 +806,62 @@ function applyDeployDamage(
   }
 }
 
+/**
+ * «Пополнение»: a freshly deployed unit pulls a matching card out of the
+ * owner's deck and into hand. A deck card qualifies if it satisfies any of the
+ * listed criteria (name prefix, unit class, or support role). One random match
+ * is moved; if the deck holds none, nothing happens.
+ */
+function applyFetchToHand(
+  state: BattleState,
+  ownerId: PlayerId,
+  sourceCard: TankCard,
+  fetch: NonNullable<
+    NonNullable<TankCard["onPlayEffects"]>["fetchToHand"]
+  >
+) {
+  const player = state[ownerId];
+  const { match } = fetch;
+
+  const candidates = player.deck.filter((instance) => {
+    const card = getCard(instance.cardId);
+
+    if (match.namePrefixes?.some((prefix) => card.name.startsWith(prefix))) {
+      return true;
+    }
+    if (match.classes?.includes(card.class)) return true;
+    if (
+      card.supportRole &&
+      match.supportRoles?.includes(card.supportRole)
+    ) {
+      return true;
+    }
+    return false;
+  });
+
+  if (candidates.length === 0) {
+    addLog(
+      state,
+      `${sourceCard.name}: пополнение (${fetch.label}) — подходящих карт в колоде нет.`
+    );
+    return;
+  }
+
+  const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+
+  player.deck = player.deck.filter(
+    (instance) => instance.instanceId !== chosen.instanceId
+  );
+  player.hand.push(chosen);
+
+  addLog(
+    state,
+    `${sourceCard.name}: пополнение — ${
+      getCard(chosen.cardId).name
+    } добавлен в руку.`
+  );
+}
+
 function playCard(
   state: BattleState,
   action: Extract<BattleAction, { type: "PLAY_CARD" }>
@@ -897,6 +978,11 @@ function playCard(
     if (effects.deployDamage && effects.deployDamage.amount > 0) {
       applyDeployDamage(state, owner, card, effects.deployDamage);
     }
+
+    // «Пополнение»: pull a matching card from the deck into hand.
+    if (effects.fetchToHand) {
+      applyFetchToHand(state, owner, card, effects.fetchToHand);
+    }
   }
 
   // Armored escort: the first light unit each turn reinforces the headquarters.
@@ -991,6 +1077,11 @@ function playSupportCard(
     tdAmbushUsedThisTurn: false,
   });
 
+  // «Пополнение»: support units can also fetch a card into hand on deploy.
+  if (card.onPlayEffects?.fetchToHand) {
+    applyFetchToHand(state, action.playerId, card, card.onPlayEffects.fetchToHand);
+  }
+
   markSuccessfulAction(state, action.playerId);
 }
 
@@ -1048,6 +1139,25 @@ export function getUnitAttackValue(state: BattleState, unit: BoardUnit): number 
   attack += getHqProximityBonus(state, unit);
 
   return Math.max(0, attack);
+}
+
+/**
+ * Effective firepower as shown on the battlefield: `getUnitAttackValue` plus the
+ * owner-ability self-buffs that apply regardless of the target — «Танковая
+ * засада» (stationary tank bonus) and armored momentum (moved tank bonus). These
+ * bonuses are added separately during combat (`getUnitCombatBonuses`), so this
+ * MUST be used for display only and never to compute damage, or the bonus would
+ * be counted twice.
+ */
+export function getUnitDisplayAttackValue(
+  state: BattleState,
+  unit: BoardUnit
+): number {
+  return (
+    getUnitAttackValue(state, unit) +
+    getStationaryTankAttackBonus(state, unit) +
+    getMovedTankAttackBonus(state, unit)
+  );
 }
 
 /**
@@ -1475,13 +1585,20 @@ type HeadquartersDamageDistribution = {
 function getHeadquartersDamageDistribution(
   state: BattleState,
   targetOwnerId: PlayerId,
-  incomingDamage: number
+  incomingDamage: number,
+  // «Противотанковый заслон» also throws itself in front of the HQ against
+  // ranged fire (its supportLineCover doubles as soak). Melee raids are
+  // answered with return fire instead, so they pass `false` here.
+  includeBarrierCover = false
 ): HeadquartersDamageDistribution {
   let remainingDamage = incomingDamage;
   const redirected: HeadquartersDamageDistribution["redirected"] = [];
 
   for (const unit of getSupportUnits(state, targetOwnerId)) {
-    const redirectLimit = getCard(unit.cardId).supportEffects?.hqDamageRedirect ?? 0;
+    const effects = getCard(unit.cardId).supportEffects;
+    const redirectLimit =
+      (effects?.hqDamageRedirect ?? 0) +
+      (includeBarrierCover ? effects?.supportLineCover ?? 0 : 0);
     const damage = Math.min(remainingDamage, redirectLimit, unit.currentHp);
 
     if (damage <= 0) continue;
@@ -1560,6 +1677,8 @@ export function getAttackAnimationSequence(
   }
 
   if ("cardId" in attacker && "cardId" in effectiveTarget) {
+    const returnFire = getSupportReturnFire(attacker, effectiveTarget);
+
     return [
       ...coverStrikes,
       ...getUnitCombatPreview(
@@ -1567,6 +1686,15 @@ export function getAttackAnimationSequence(
         effectiveTarget,
         getUnitCombatBonuses(state, attacker, effectiveTarget)
       ).strikes,
+      ...(returnFire > 0
+        ? [
+            {
+              sourceId: effectiveTarget.instanceId,
+              targetId: attacker.instanceId,
+              damage: returnFire,
+            },
+          ]
+        : []),
     ];
   }
 
@@ -1575,13 +1703,43 @@ export function getAttackAnimationSequence(
   const attackerIsHeadquarters = !("cardId" in attacker);
 
   if (!("cardId" in target)) {
+    const attackerIsMelee = isMeleeUnitAttacker(attacker);
+    const coverUnit = getSupportCoverUnit(state, target.ownerId);
+
+    // «Противотанковый заслон»: a melee raider on the HQ meets preemptive fire.
+    const hqCoverStrikes: AttackAnimationStrike[] = [];
+
+    if (attackerIsMelee && coverUnit && !coverUnit.coverFiredThisTurn) {
+      const coverDamage =
+        getCard(coverUnit.cardId).supportEffects?.supportLineCover ?? 0;
+
+      hqCoverStrikes.push({
+        sourceId: coverUnit.instanceId,
+        targetId: attacker.instanceId,
+        damage: coverDamage,
+      });
+
+      // The raid is cancelled if the return fire destroys the attacker.
+      if (attacker.currentHp - coverDamage <= 0) {
+        return hqCoverStrikes;
+      }
+    }
+
     const distribution =
       attackerIsHeadquarters &&
       headquartersAttackIgnoresCover(state, attacker.ownerId)
         ? { redirected: [], headquartersDamage: attackValue }
-        : getHeadquartersDamageDistribution(state, target.ownerId, attackValue);
+        : getHeadquartersDamageDistribution(
+            state,
+            target.ownerId,
+            attackValue,
+            // Ranged fire on the HQ is partly soaked by the screen; melee raids
+            // are answered by return fire above and deal full HQ damage.
+            !attackerIsMelee
+          );
 
     return [
+      ...hqCoverStrikes,
       ...distribution.redirected.map(({ unit, damage }) => ({
         sourceId,
         targetId: unit.instanceId,
@@ -1871,6 +2029,18 @@ function attack(state: BattleState, action: AttackAction) {
       );
     }
 
+    // «Самооборона»: an armed rear unit fires back at a melee raider.
+    const returnFire = getSupportReturnFire(attacker, targetUnit);
+
+    if (attackerIsUnit && returnFire > 0) {
+      attacker.currentHp -= returnFire;
+
+      addLog(
+        state,
+        `Самооборона: ${targetName} отвечает огнём по ${attackerName} (${returnFire} урона).`
+      );
+    }
+
     // «Дозор»: the defender draws a card when it actually took damage.
     handleDrawWhenAttacked(
       state,
@@ -1893,10 +2063,42 @@ function attack(state: BattleState, action: AttackAction) {
   } else {
     if (!targetHeadquarters) return;
 
+    // «Противотанковый заслон»: a melee raider striking the headquarters is met
+    // with preemptive return fire from the anti-tank screen on the rear line.
+    const attackerIsMelee = isMeleeUnitAttacker(attacker);
+    const coverUnit = getSupportCoverUnit(state, targetHeadquarters.ownerId);
+
+    if (attackerIsMelee && coverUnit && !coverUnit.coverFiredThisTurn) {
+      const coverDamage =
+        getCard(coverUnit.cardId).supportEffects?.supportLineCover ?? 0;
+
+      coverUnit.coverFiredThisTurn = true;
+      attacker.currentHp -= coverDamage;
+
+      addLog(
+        state,
+        `Противотанковый заслон: ${getCard(coverUnit.cardId).name} встречает ${attackerName} огнём (${coverDamage} урона).`
+      );
+
+      if (attacker.currentHp <= 0) {
+        destroyUnit(
+          state,
+          attacker as BoardUnit,
+          "уничтожен заслоном на подступах к штабу.",
+          targetHeadquarters.ownerId
+        );
+        markSuccessfulAction(state, action.playerId);
+        return;
+      }
+    }
+
     const normalDistribution = getHeadquartersDamageDistribution(
       state,
       targetHeadquarters.ownerId,
-      attackValue
+      attackValue,
+      // Ranged fire on the HQ is partly soaked by the anti-tank screen; melee
+      // raids are answered by return fire above, so the HQ takes full damage.
+      !attackerIsMelee
     );
     const ignoresCover =
       !attackerIsUnit &&

@@ -2,6 +2,7 @@ import type React from "react";
 import type { PlayerId, SupportRole, TankCard } from "../game/types";
 import {
   getCardClassVisual,
+  getCardCombatDamage,
   getNationFlagStyle,
   getNationVisual,
 } from "../game/cardVisuals";
@@ -160,7 +161,12 @@ export function TankCardView({
   const unitClass = getCardClassVisual(card);
 
   const hpValue = currentHp ?? card.hp;
-  const attackDisplayValue = attackValue ?? card.attack;
+  // Unarmed rear units (Pak guns, armed half-tracks) print attack 0 but can
+  // still hurt an attacker — show that defensive damage instead of a bare 0.
+  const printedCombatDamage = getCardCombatDamage(card);
+  const effectiveAttack = attackValue ?? card.attack;
+  const attackDisplayValue =
+    effectiveAttack > 0 ? effectiveAttack : printedCombatDamage;
   const isHand = variant === "hand";
   const isBoardExhausted =
     !isHand && alreadyMoved && alreadyAttacked && !suppressExhaustedDim;
@@ -342,7 +348,7 @@ export function TankCardView({
 
         <div style={styles.attackBadge}>
           <span>ATK</span>
-          <strong>{card.attack}</strong>
+          <strong>{attackDisplayValue}</strong>
         </div>
 
         <div style={styles.hpBadge}>

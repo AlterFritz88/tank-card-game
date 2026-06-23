@@ -16,6 +16,25 @@ export type ClassVisual = {
   accent: string;
 };
 
+/**
+ * Damage value shown in a card's attack badge. Combat units use their printed
+ * attack; otherwise-unarmed rear units whose printed «attack» is 0 instead show
+ * the damage they can still inflict on an attacker — «Противотанковый заслон»
+ * (supportLineCover return fire) or «Самооборона» (returnFire). Returns 0 for
+ * truly passive support cards (medics, supply trucks).
+ */
+export function getCardCombatDamage(card: TankCard): number {
+  if (card.attack > 0) return card.attack;
+
+  const effects = card.supportEffects;
+
+  return Math.max(
+    0,
+    effects?.supportLineCover ?? 0,
+    effects?.returnFire ?? 0
+  );
+}
+
 export function getNationFlagStyle(nation: NationVisual) {
   return nation.flagImage
     ? {

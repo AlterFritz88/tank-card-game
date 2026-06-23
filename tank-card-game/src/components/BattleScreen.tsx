@@ -16,7 +16,7 @@ import {
   getFreeSupportSlots,
   getHeadquartersAttackValue,
   getTargetsInRange,
-  getUnitAttackValue,
+  getUnitDisplayAttackValue,
   isBattlefieldUnit,
   isSupportUnit,
 } from "../game/engine";
@@ -467,6 +467,11 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   // battle end (before the result screen). Reset whenever the mission changes.
   const [briefingDismissed, setBriefingDismissed] = useState(false);
   const [debriefDismissed, setDebriefDismissed] = useState(false);
+
+  // The mission briefing must be read before we roll for the first turn and
+  // start the step timer. While it is pending the start-roll effect is held off.
+  const briefingPending =
+    mode === "campaign" && Boolean(missionBriefingText) && !briefingDismissed;
 
   useEffect(() => {
     setBriefingDismissed(false);
@@ -1367,6 +1372,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       return;
     }
 
+    // Hold the first-turn roll (and thus BEGIN_BATTLE / the timer) until the
+    // commander's briefing has been read.
+    if (briefingPending) return;
+
     if (startRollRunningRef.current) return;
 
     startRollRunningRef.current = true;
@@ -1417,7 +1426,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       window.clearTimeout(finishTimer);
       startRollRunningRef.current = false;
     };
-  }, [battle.status, humanPlayerId, mode, tutorialActive]);
+  }, [battle.status, humanPlayerId, mode, tutorialActive, briefingPending]);
 
   useEffect(() => {
     const owners: PlayerId[] = ["player", "bot"];
@@ -2052,7 +2061,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     for (const unit of sourceBattle.units) {
       attack.set(
         unit.instanceId,
-        getUnitAttackValue(sourceBattle as BattleState, unit)
+        getUnitDisplayAttackValue(sourceBattle as BattleState, unit)
       );
     }
 
@@ -3573,7 +3582,7 @@ function renderEnemyDeckWithTimer() {
                       variant="board"
                       ownerId={getVisualOwnerId(unit.ownerId)}
                       currentHp={unit.currentHp}
-                      attackValue={getUnitAttackValue(
+                      attackValue={getUnitDisplayAttackValue(
                         battle as BattleState,
                         unit
                       )}
@@ -4112,7 +4121,7 @@ function renderEnemyDeckWithTimer() {
                               );
 
                               return movingUnit
-                                ? getUnitAttackValue(
+                                ? getUnitDisplayAttackValue(
                                     battle as BattleState,
                                     movingUnit
                                   )
@@ -4409,7 +4418,7 @@ function renderEnemyDeckWithTimer() {
                             variant="board"
                             ownerId={getVisualOwnerId(unit.ownerId)}
                             currentHp={unit.currentHp}
-                            attackValue={getUnitAttackValue(
+                            attackValue={getUnitDisplayAttackValue(
                               battle as BattleState,
                               unit
                             )}
@@ -5163,10 +5172,12 @@ function renderEnemyDeckWithTimer() {
         />
       ) : null}
 
-      {/* Campaign commander briefs the mission before the player can act. */}
+      {/* Campaign commander briefs the mission before we roll for the first
+          turn and start the timer. Shown during the pre-battle "starting" phase
+          (and "active" as a fallback) until dismissed. */}
       {mode === "campaign" &&
       missionBriefingText &&
-      battle.status === "active" &&
+      (battle.status === "starting" || battle.status === "active") &&
       !briefingDismissed ? (
         <TutorialOverlay
           kind="dialogue"

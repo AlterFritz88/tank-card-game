@@ -12,7 +12,6 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { StageBackground, useStageOverlayTransform } from "./GameStage";
 import buttonImage from "../assets/button.webp";
-import cardBackImage from "../assets/cards/card-back.webp";
 import experienceIcon from "../assets/icons/expa.webp";
 import goldTracksIcon from "../assets/icons/gold_tracks_transparent.webp";
 import silverTracksIcon from "../assets/icons/silver-tracks.webp";
@@ -42,6 +41,10 @@ import {
   type PlayerProgress,
 } from "../game/playerProgress";
 import { HandCardView } from "./HandCardView";
+import {
+  RewardCelebrationOverlay,
+  type RewardCelebrationCard,
+} from "./RewardCelebrationOverlay";
 import { CardKeywordsPanel } from "./CardKeywordsPanel";
 import {
   getCardKeywords,
@@ -830,145 +833,30 @@ function BranchGraph({
   );
 }
 
-function ResearchCelebrationOverlay({
-  celebration,
-  onClose,
-}: {
-  celebration: ResearchCelebration;
-  onClose: () => void;
-}) {
-  const card = celebration.node.cardId
-    ? getCardOrNull(celebration.node.cardId)
-    : null;
-  const headquarters = celebration.node.headquartersId
-    ? getHeadquartersDefinition(celebration.node.headquartersId)
-    : null;
-  const purchased = celebration.label === "Куплено";
+function getCelebrationCards(node: ResearchNode): RewardCelebrationCard[] {
+  if (node.cardId) {
+    const card = getCardOrNull(node.cardId);
+    return card ? [{ kind: "card", card }] : [];
+  }
 
-  // Radial burst of sparks that fly outward from the card the moment it lands.
-  // Positions are deterministic per mount so the burst reads as a clean star.
-  const sparkles = useMemo(() => {
-    return Array.from({ length: 18 }, (_, index) => {
-      const angle = (index / 18) * Math.PI * 2 + (index % 2 ? 0.32 : 0);
-      const distance = 168 + (index % 4) * 30;
-      return {
-        id: index,
-        x: Math.cos(angle) * distance,
-        y: Math.sin(angle) * distance,
-        size: 7 + (index % 3) * 6,
-        delay: 0.14 + (index % 6) * 0.035,
-        gold: index % 3 !== 0,
-      };
-    });
-  }, []);
+  if (node.headquartersId) {
+    const headquarters = getHeadquartersDefinition(node.headquartersId);
+    return headquarters
+      ? [
+          {
+            kind: "headquarters",
+            headquartersId: headquarters.id,
+            headquarters: {
+              hp: headquarters.hp,
+              attack: headquarters.attack,
+              fuelGeneration: headquarters.fuelGeneration,
+            },
+          },
+        ]
+      : [];
+  }
 
-  return (
-    <motion.div
-      style={styles.researchCelebrationOverlay}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.18 }}
-      onMouseDown={onClose}
-    >
-      <div style={styles.celebrationStage}>
-        <motion.div
-          aria-hidden="true"
-          style={styles.celebrationRays}
-          initial={{ opacity: 0, scale: 0.6, rotate: 0 }}
-          animate={{ opacity: [0, 0.85, 0.55], scale: 1, rotate: 360 }}
-          exit={{ opacity: 0 }}
-          transition={{
-            opacity: { duration: 1.1, ease: "easeOut" },
-            scale: { duration: 0.7, ease: "easeOut" },
-            rotate: { duration: 22, ease: "linear", repeat: Infinity },
-          }}
-        />
-        <motion.div
-          aria-hidden="true"
-          style={styles.celebrationRing}
-          initial={{ opacity: 0.7, scale: 0.25 }}
-          animate={{ opacity: 0, scale: 1.5 }}
-          transition={{ duration: 0.95, ease: "easeOut" }}
-        />
-
-        {sparkles.map((sparkle) => (
-          <motion.span
-            key={sparkle.id}
-            aria-hidden="true"
-            style={{
-              ...styles.celebrationSparkle,
-              width: sparkle.size,
-              height: sparkle.size,
-              background: sparkle.gold
-                ? "radial-gradient(circle, #fff4cf 0%, #f4c053 55%, rgba(244,192,83,0) 72%)"
-                : "radial-gradient(circle, #ffffff 0%, #b9e29a 55%, rgba(185,226,154,0) 72%)",
-            }}
-            initial={{ opacity: 0, x: 0, y: 0, scale: 0 }}
-            animate={{
-              opacity: [0, 1, 0],
-              x: sparkle.x,
-              y: sparkle.y,
-              scale: [0, 1, 0.3],
-            }}
-            transition={{ duration: 1.05, delay: sparkle.delay, ease: "easeOut" }}
-          />
-        ))}
-
-        <div
-          style={styles.celebrationCardColumn}
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          <motion.div
-            style={styles.researchCelebrationCardWrap}
-            initial={{ y: 30, scale: 0.72, rotateY: -180 }}
-            animate={{
-              y: 0,
-              scale: [0.72, 1.1, 1],
-              rotateY: [-180, -34, 0],
-            }}
-            exit={{ y: -20, scale: 0.82, opacity: 0 }}
-            transition={{ duration: 0.9, ease: "easeOut" }}
-          >
-            <div
-              aria-hidden="true"
-              style={{
-                ...styles.researchCelebrationBack,
-                backgroundImage: `url(${cardBackImage})`,
-              }}
-            />
-            {card ? (
-              <HandCardView card={card} displayMode="preview" />
-            ) : headquarters ? (
-              <HandCardView
-                headquartersId={headquarters.id}
-                headquarters={{
-                  hp: headquarters.hp,
-                  attack: headquarters.attack,
-                  fuelGeneration: headquarters.fuelGeneration,
-                }}
-                displayMode="preview"
-              />
-            ) : null}
-          </motion.div>
-          <motion.div
-            style={{
-              ...styles.researchCelebrationLabel,
-              ...(purchased
-                ? styles.researchCelebrationLabelPurchase
-                : styles.researchCelebrationLabelResearch),
-            }}
-            initial={{ opacity: 0, y: 18, scale: 0.6 }}
-            animate={{ opacity: 1, y: 0, scale: [0.6, 1.22, 1], rotate: [-3, 2, 0] }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ delay: 0.4, duration: 0.5, ease: "easeOut" }}
-          >
-            {celebration.label}
-          </motion.div>
-        </div>
-      </div>
-    </motion.div>
-  );
+  return [];
 }
 
 export function ResearchMenu({ onBack }: { onBack: () => void }) {
@@ -1614,9 +1502,11 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
 
       <AnimatePresence>
         {celebration ? (
-          <ResearchCelebrationOverlay
+          <RewardCelebrationOverlay
             key={celebration.id}
-            celebration={celebration}
+            cards={getCelebrationCards(celebration.node)}
+            label={celebration.label}
+            tone={celebration.label === "Куплено" ? "purchase" : "research"}
             onClose={() => setCelebration(null)}
           />
         ) : null}
@@ -2366,117 +2256,6 @@ const styles: Record<string, CSSProperties> = {
     border: "1px solid rgba(242, 176, 82, 0.42)",
     boxShadow: "0 18px 38px rgba(0,0,0,0.58), 0 0 22px rgba(206, 88, 42, 0.18)",
     pointerEvents: "none",
-  },
-
-  researchCelebrationOverlay: {
-    position: "fixed",
-    inset: 0,
-    zIndex: 9400,
-    display: "grid",
-    placeItems: "center",
-    pointerEvents: "auto",
-    perspective: 1200,
-    background:
-      "radial-gradient(circle at center, rgba(223, 170, 61, 0.16), transparent 38%)",
-  },
-
-  celebrationStage: {
-    position: "relative",
-    display: "grid",
-    placeItems: "center",
-  },
-
-  celebrationRays: {
-    position: "absolute",
-    width: 760,
-    height: 760,
-    maxWidth: "150cqw",
-    maxHeight: "150cqh",
-    borderRadius: "50%",
-    pointerEvents: "none",
-    zIndex: 0,
-    mixBlendMode: "screen",
-    background:
-      "repeating-conic-gradient(from 0deg, rgba(255, 218, 120, 0) 0deg, rgba(255, 218, 120, 0.22) 4deg, rgba(255, 218, 120, 0) 9deg)",
-    WebkitMaskImage:
-      "radial-gradient(circle, rgba(0,0,0,0.95) 12%, rgba(0,0,0,0.5) 38%, transparent 68%)",
-    maskImage:
-      "radial-gradient(circle, rgba(0,0,0,0.95) 12%, rgba(0,0,0,0.5) 38%, transparent 68%)",
-  },
-
-  celebrationRing: {
-    position: "absolute",
-    width: 300,
-    height: 300,
-    borderRadius: "50%",
-    border: "3px solid rgba(255, 226, 150, 0.85)",
-    pointerEvents: "none",
-    zIndex: 1,
-    boxShadow:
-      "0 0 28px rgba(242, 188, 77, 0.7), inset 0 0 22px rgba(242, 188, 77, 0.45)",
-  },
-
-  celebrationSparkle: {
-    position: "absolute",
-    borderRadius: "50%",
-    pointerEvents: "none",
-    zIndex: 1,
-    filter: "drop-shadow(0 0 6px rgba(255, 222, 140, 0.8))",
-  },
-
-  researchCelebrationCardWrap: {
-    position: "relative",
-    zIndex: 2,
-    width: 390,
-    maxWidth: "min(390px, 78cqw)",
-    display: "grid",
-    placeItems: "center",
-    transformStyle: "preserve-3d",
-    filter: "drop-shadow(0 28px 54px rgba(0,0,0,0.82))",
-  },
-
-  researchCelebrationBack: {
-    position: "absolute",
-    inset: "5% 14%",
-    zIndex: -1,
-    border: "1px solid rgba(241, 213, 138, 0.36)",
-    backgroundSize: "cover",
-    backgroundPosition: "center",
-    backgroundRepeat: "no-repeat",
-    opacity: 0.92,
-    transform: "translateZ(-18px) rotateY(180deg)",
-    boxShadow: "0 18px 36px rgba(0,0,0,0.68)",
-  },
-
-  celebrationCardColumn: {
-    position: "relative",
-    zIndex: 2,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 14,
-  },
-
-  researchCelebrationLabel: {
-    zIndex: 12,
-    fontSize: 42,
-    fontWeight: 1000,
-    letterSpacing: 2.2,
-    textAlign: "center",
-    textTransform: "uppercase",
-    pointerEvents: "none",
-  },
-
-  researchCelebrationLabelResearch: {
-    color: "#ffe7a9",
-    textShadow:
-      "0 4px 0 rgba(0,0,0,0.82), 0 0 30px rgba(242, 188, 77, 0.7)",
-  },
-
-  researchCelebrationLabelPurchase: {
-    color: "#d7f3bd",
-    textShadow:
-      "0 4px 0 rgba(0,0,0,0.82), 0 0 30px rgba(130, 187, 101, 0.7)",
   },
 
   cardPreviewOverlay: {

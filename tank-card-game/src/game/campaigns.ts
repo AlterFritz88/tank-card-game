@@ -258,6 +258,7 @@ export const CAMPAIGNS: Campaign[] = [
         botDeckId: "german_4_panzer_campaign",
         playerDeckId: "lavrinenko_brigade_campaign",
         backgroundId: "base_1",
+        illustrationId: "lavrinenko_m1",
       },
       {
         id: "lavrinenko-2",
@@ -274,6 +275,7 @@ export const CAMPAIGNS: Campaign[] = [
         botDeckId: "german_panzer_mtsensk_campaign",
         playerDeckId: "lavrinenko_brigade_campaign",
         backgroundId: "russian_1",
+        illustrationId: "lavrinenko_m2",
       },
       {
         id: "lavrinenko-3",
@@ -290,6 +292,7 @@ export const CAMPAIGNS: Campaign[] = [
         botDeckId: "guderian_corps_campaign",
         playerDeckId: "lavrinenko_brigade_campaign",
         backgroundId: "russian_1",
+        illustrationId: "lavrinenko_m3",
       },
       {
         id: "lavrinenko-4",
@@ -306,6 +309,7 @@ export const CAMPAIGNS: Campaign[] = [
         botDeckId: "german_aufklarung_campaign",
         playerDeckId: "lavrinenko_brigade_campaign",
         backgroundId: "german_1",
+        illustrationId: "lavrinenko_m4",
       },
       {
         id: "lavrinenko-5",
@@ -323,6 +327,7 @@ export const CAMPAIGNS: Campaign[] = [
         playerHeadquartersId: "soviet_motor_rifle_division",
         playerDeckId: "soviet_motor_rifle_division_default",
         backgroundId: "winter_1",
+        illustrationId: "lavrinenko_m5",
       },
       {
         id: "lavrinenko-6",
@@ -339,6 +344,7 @@ export const CAMPAIGNS: Campaign[] = [
         botDeckId: "german_11_panzer_campaign",
         playerDeckId: "lavrinenko_ace_campaign",
         backgroundId: "winter_1",
+        illustrationId: "lavrinenko_m6",
       },
       {
         id: "lavrinenko-7",
@@ -356,6 +362,7 @@ export const CAMPAIGNS: Campaign[] = [
         playerHeadquartersId: "panfilov_division",
         playerDeckId: "panfilov_division_campaign",
         backgroundId: "winter_2",
+        illustrationId: "lavrinenko_m7",
       },
       {
         id: "lavrinenko-8",
@@ -373,6 +380,7 @@ export const CAMPAIGNS: Campaign[] = [
         playerHeadquartersId: "first_guards_tank_brigade",
         playerDeckId: "lavrinenko_guards_campaign",
         backgroundId: "winter_2",
+        illustrationId: "lavrinenko_m8",
       },
       {
         id: "lavrinenko-9",
@@ -390,6 +398,7 @@ export const CAMPAIGNS: Campaign[] = [
         playerHeadquartersId: "first_guards_tank_brigade",
         playerDeckId: "lavrinenko_guards_campaign",
         backgroundId: "winter_2",
+        illustrationId: "lavrinenko_m9",
       },
       {
         id: "lavrinenko-10",
@@ -407,6 +416,7 @@ export const CAMPAIGNS: Campaign[] = [
         playerHeadquartersId: "first_guards_tank_brigade",
         playerDeckId: "lavrinenko_guards_campaign",
         backgroundId: "winter_1",
+        illustrationId: "lavrinenko_m10",
       },
     ],
   },

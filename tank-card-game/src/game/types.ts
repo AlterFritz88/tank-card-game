@@ -56,12 +56,23 @@ export type SupportEffects = {
   /** Incoming headquarters damage redirected into this support unit. */
   hqDamageRedirect?: number;
   /**
-   * Anti-tank screen for the support line. Melee attacks against any friendly
-   * support unit are met with this much preemptive return fire (once per turn;
-   * the attack is cancelled if the attacker dies). Ranged attacks (SPG or
-   * enemy headquarters) against any friendly support unit hit this unit first.
+   * «Противотанковый заслон»: anti-tank screen for the rear. The gun's
+   * `supportLineCover` value is also its firepower, so:
+   *  - A melee attack against any friendly support unit OR against the
+   *    headquarters is met with this much preemptive return fire (once per
+   *    turn; the attack is cancelled if the attacker dies).
+   *  - Ranged attacks (SPG or enemy headquarters) against any friendly support
+   *    unit hit this unit first, and ranged fire aimed at the headquarters is
+   *    partly soaked by this unit (up to its cover value).
    */
   supportLineCover?: number;
+  /**
+   * «Самооборона»: armed rear units (armored half-tracks, motorcycle scouts
+   * and the like) that historically carried weapons. When this support unit is
+   * directly attacked in melee by an enemy unit, it fires back this much damage
+   * at the attacker. Ranged fire (SPG) and headquarters strikes draw no answer.
+   */
+  returnFire?: number;
   /** Additional fuel generated at the beginning of this side's turn. */
   fuelPerTurn?: number;
   /** Draw one additional card every N own turns. */
@@ -189,6 +200,21 @@ export type TankCard = {
       amount: number;
       scope: "random" | "classes";
       classes?: TankClass[];
+    };
+    /**
+     * «Пополнение»: when this unit enters play, the owner searches the deck for
+     * a random card matching `match` and moves it straight into hand. A card
+     * matches if it satisfies ANY listed criterion (name prefix, unit class, or
+     * support role). If nothing matches, the effect does nothing.
+     */
+    fetchToHand?: {
+      /** Short label naming what is fetched, shown in the battle log. */
+      label: string;
+      match: {
+        namePrefixes?: string[];
+        classes?: TankClass[];
+        supportRoles?: SupportRole[];
+      };
     };
   };
 
