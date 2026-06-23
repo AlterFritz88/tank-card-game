@@ -2,7 +2,7 @@ import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { getCard } from "../game/cards";
+import { getCard, getCardOrNull } from "../game/cards";
 import { getCardKeywords, getHeadquartersKeywords } from "../game/cardKeywords";
 import { CardKeywordsPanel } from "./CardKeywordsPanel";
 import { getNextBotAction } from "../game/bot";
@@ -54,7 +54,10 @@ import {
   getAvatarAssetById,
   getHeadquartersAvatarAsset,
 } from "../assets/headquartersAvatarAssets";
-import { getCampaignMission } from "../game/campaigns";
+import {
+  getCampaignCompletionReward,
+  getCampaignMission,
+} from "../game/campaigns";
 import { getHeadquartersImageAsset } from "../game/headquartersImages";
 import {
   playCannonShotSound,
@@ -70,10 +73,15 @@ import {
   applyTutorialBattleRewardToProgress,
   claimBattleRewardFromServer,
   claimPvpBattleRewardFromServer,
+  claimCampaignRewardFromServer,
   claimTutorialRewardFromServer,
   getLocalTutorialReward,
   loadPlayerProgress,
 } from "../game/playerProgress";
+import {
+  RewardCelebrationOverlay,
+  type RewardCelebrationCard,
+} from "./RewardCelebrationOverlay";
 import {
   getHeadquartersAbility,
   getHeadquartersDefinition,
@@ -430,6 +438,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     dispatch,
     reset,
     exitBattleToMenu,
+    completeTrailerAndExit,
     surrenderPvpMatch,
     leavePvpMatch,
   } = battleStore;
@@ -456,6 +465,18 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const campaignSpeaker =
     campaignMission?.campaign.briefingSpeaker ?? undefined;
   const missionBriefingText = campaignMission?.mission.briefing ?? null;
+  // Scripted-intro overrides: a fixed commander name and a skipped first-turn roll.
+  const missionPlayerCommanderName =
+    campaignMission?.mission.playerCommanderName ?? null;
+  const missionSkipFirstTurnRoll =
+    campaignMission?.mission.skipFirstTurnRoll ?? false;
+  const missionCenteredDialogue =
+    campaignMission?.mission.centeredDialogue ?? false;
+  const missionSkipResultScreen =
+    campaignMission?.mission.skipResultScreen ?? false;
+  const missionEndRewardId = campaignMission?.mission.endRewardId ?? null;
+  const missionMinimalBattleControls =
+    campaignMission?.mission.minimalBattleControls ?? false;
   const missionWon = battle.status === "player_won";
   const missionDebriefText = campaignMission
     ? missionWon
@@ -467,6 +488,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   // battle end (before the result screen). Reset whenever the mission changes.
   const [briefingDismissed, setBriefingDismissed] = useState(false);
   const [debriefDismissed, setDebriefDismissed] = useState(false);
+  // Scripted ending (welcome trailer): the triumphant SU-152 reveal shown after
+  // the debrief instead of the result screen. `null` until it should appear.
+  const [endRewardCards, setEndRewardCards] = useState<
+    RewardCelebrationCard[] | null
+  >(null);
+  const endRewardHandledRef = useRef(false);
 
   // The mission briefing must be read before we roll for the first turn and
   // start the step timer. While it is pending the start-roll effect is held off.
@@ -476,7 +503,38 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   useEffect(() => {
     setBriefingDismissed(false);
     setDebriefDismissed(false);
+    setEndRewardCards(null);
+    endRewardHandledRef.current = false;
   }, [currentCampaignMissionId]);
+
+  // Scripted ending: once the victory debrief is read, grant the campaign reward
+  // on the server and trigger the triumphant reveal (instead of the result
+  // screen). Runs once per mission.
+  useEffect(() => {
+    if (!missionEndRewardId) return;
+    if (battle.status !== "player_won") return;
+    if (!debriefDismissed) return;
+    if (endRewardHandledRef.current) return;
+
+    endRewardHandledRef.current = true;
+
+    const reward = getCampaignCompletionReward(missionEndRewardId);
+    const rewardCard = reward ? getCardOrNull(reward.cardId) : null;
+
+    if (reward && rewardCard) {
+      setEndRewardCards(
+        Array.from({ length: Math.max(1, reward.copies) }, () => ({
+          kind: "card",
+          card: rewardCard,
+        }))
+      );
+    }
+
+    // Grant the card server-side (idempotent); the reveal shows regardless.
+    void claimCampaignRewardFromServer(missionEndRewardId).catch(() => {
+      // Best-effort: a transient server failure shouldn't block the trailer.
+    });
+  }, [missionEndRewardId, battle.status, debriefDismissed]);
   // Active-task hints: what to highlight; everything else gets dimmed/blocked.
   const tutorialHighlights =
     tutorialActive && battle.status === "active"
@@ -1380,6 +1438,29 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     startRollRunningRef.current = true;
 
+    // Scripted intro (welcome trailer): no roll, the player always starts.
+    if (missionSkipFirstTurnRoll) {
+      dispatchBattleActionRef.current({
+        type: "BEGIN_BATTLE",
+        startingPlayer: "player",
+      });
+
+      setStartRollState({
+        visible: false,
+        winner: null,
+        finalRotation: 0,
+        resultVisible: false,
+      });
+
+      setTurnBannerText("ТВОЙ ХОД");
+      const bannerTimer = window.setTimeout(() => setTurnBannerText(null), 1300);
+
+      previousActivePlayerRef.current = "player";
+      startRollRunningRef.current = false;
+
+      return () => window.clearTimeout(bannerTimer);
+    }
+
     const winner = tutorialActive ? "player" : getRandomLocalStartingPlayer();
     const targetAngle = winner === "player" ? 135 : -45;
     const finalRotation = 360 * 8 + targetAngle;
@@ -1426,7 +1507,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       window.clearTimeout(finishTimer);
       startRollRunningRef.current = false;
     };
-  }, [battle.status, humanPlayerId, mode, tutorialActive, briefingPending]);
+  }, [
+    battle.status,
+    humanPlayerId,
+    mode,
+    tutorialActive,
+    briefingPending,
+    missionSkipFirstTurnRoll,
+  ]);
 
   useEffect(() => {
     const owners: PlayerId[] = ["player", "bot"];
@@ -3411,7 +3499,7 @@ function renderEnemyDeckWithTimer() {
       getHeadquartersIdForOwner(owner)
     ).title;
     const commanderName = isFriendly
-      ? localPlayerNickname
+      ? missionPlayerCommanderName ?? localPlayerNickname
       : mode === "pvp"
         ? pvpOpponentNickname ?? enemyHeadquartersTitle
         : enemyHeadquartersTitle;
@@ -4798,13 +4886,13 @@ function renderEnemyDeckWithTimer() {
               </button>
             ) : null}
 
-            {!tutorialActive && mode !== "pvp" ? (
+            {!tutorialActive && mode !== "pvp" && !missionMinimalBattleControls ? (
               <button style={styles.secondaryButton} onClick={reset}>
                 Новый бой
               </button>
             ) : null}
 
-            {mode !== "pvp" ? (
+            {mode !== "pvp" && !missionMinimalBattleControls ? (
               <button
                 type="button"
                 style={styles.secondaryButton}
@@ -5187,6 +5275,7 @@ function renderEnemyDeckWithTimer() {
           speakerName={campaignSpeaker}
           onNext={() => setBriefingDismissed(true)}
           nextLabel="В бой"
+          centered={missionCenteredDialogue}
         />
       ) : null}
 
@@ -5202,11 +5291,23 @@ function renderEnemyDeckWithTimer() {
           avatarSrc={campaignBriefingAvatar}
           speakerName={campaignSpeaker}
           onNext={() => setDebriefDismissed(true)}
-          nextLabel="К результатам"
+          nextLabel={missionSkipResultScreen ? "Далее" : "К результатам"}
+          centered={missionCenteredDialogue}
+        />
+      ) : null}
+
+      {/* Scripted ending: triumphant reward reveal, then back to the main menu. */}
+      {endRewardCards ? (
+        <RewardCelebrationOverlay
+          cards={endRewardCards}
+          label="Награда"
+          tone="reward"
+          onClose={completeTrailerAndExit}
         />
       ) : null}
 
       {(battle.status === "player_won" || battle.status === "bot_won") &&
+        !missionSkipResultScreen &&
         (!tutorialActive ||
           battle.status === "bot_won" ||
           tutorialEpilogueSeen) &&

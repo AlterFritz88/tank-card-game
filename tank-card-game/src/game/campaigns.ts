@@ -1,4 +1,5 @@
 import type { BattleBackgroundId } from "./battleBackgrounds";
+import type { PreplacedUnit } from "./initialState";
 import type { HeadquartersId } from "./types";
 
 export type CampaignMission = {
@@ -14,6 +15,30 @@ export type CampaignMission = {
   backgroundId?: BattleBackgroundId;
   illustrationId?: string;
   available?: boolean;
+  /** Units already on the board when the battle starts (scripted/trailer missions). */
+  playerBoardUnits?: PreplacedUnit[];
+  botBoardUnits?: PreplacedUnit[];
+  /**
+   * Auto-launch this mission once, the first time the player opens the game
+   * (the welcome trailer). Marked done via local storage so it never repeats.
+   */
+  autoLaunchOnFirstVisit?: boolean;
+  /** Skip the first-turn roll and let the player always start (scripted intros). */
+  skipFirstTurnRoll?: boolean;
+  /** Overrides the player's commander nameplate for this mission. */
+  playerCommanderName?: string;
+  /** Show the briefing/debrief dialogue centered on screen instead of at the bottom. */
+  centeredDialogue?: boolean;
+  /** Suppress the post-battle result screen (scripted endings handle their own flow). */
+  skipResultScreen?: boolean;
+  /** Trim the in-battle control buttons down to just pause (scripted intros). */
+  minimalBattleControls?: boolean;
+  /**
+   * Scripted ending: on victory, after the debrief, skip the result screen and
+   * instead grant + celebrate this campaign-completion reward, then drop the
+   * player back to the main menu. Used by the welcome trailer.
+   */
+  endRewardId?: string;
   /**
    * Pre-battle narration delivered by the campaign avatar (see
    * `Campaign.briefingAvatarId`). Shown before the player can act, like the
@@ -42,9 +67,65 @@ export type Campaign = {
   briefingAvatarId?: string;
   /** Name shown above the briefing/debrief text. */
   briefingSpeaker?: string;
+  /** Hide this campaign from the campaign-selection menu (e.g. the auto-launched trailer). */
+  hiddenFromMenu?: boolean;
 };
 
 export const CAMPAIGNS: Campaign[] = [
+  {
+    id: "welcome-kursk",
+    title: "Зверобой",
+    description:
+      "Курская дуга, июль 1943. У Понырей 9-я армия Моделя бросила в прорыв Тигры и Фердинанды. Останови клин за Центральный фронт и заслужи свою первую СУ-152.",
+    playerHeadquartersId: "soviet_central_front",
+    playerDeckId: "welcome_kursk_player",
+    briefingAvatarId: "soviet_central_front",
+    briefingSpeaker: "Штаб фронта",
+    hiddenFromMenu: true,
+    missions: [
+      {
+        id: "welcome-kursk-1",
+        chapter: "Курская дуга 1943 · Северный фас",
+        title: "Рубеж у Понырей",
+        description:
+          "13 июля 1943, станция Поныри. Подбитые Тигр и Фердинанд 9-й армии Моделя застряли перед нашим рубежом. Добей их и удержи позицию.",
+        briefing:
+          "Поныри, командир. Тигр и Фердинанд застряли перед нами. Тяжёлую технику сперва бей артиллерией и штабом, потом добивай танками. Т-34 в атаку!",
+        victoryDebrief:
+          "Зверьё догорает, рубеж за нами. За этот бой — получай в часть СУ-152, «Зверобой». Теперь их броня нам не помеха.",
+        defeatDebrief:
+          "Прорвались, гады… Но это ещё не конец. Перегруппуемся и встретим их снова.",
+        botHeadquartersId: "german_9th_army",
+        botDeckId: "german_9th_army_campaign",
+        playerDeckId: "welcome_kursk_player",
+        backgroundId: "russian_1",
+        autoLaunchOnFirstVisit: true,
+        skipFirstTurnRoll: true,
+        playerCommanderName: "Командир",
+        centeredDialogue: true,
+        skipResultScreen: true,
+        minimalBattleControls: true,
+        endRewardId: "welcome_zveroboy",
+        // Немцы уже на поле: подбитые Тигр и Фердинанд + свежий средний танк.
+        botBoardUnits: [
+          { cardId: "tiger_i", position: { row: 0, col: 2 }, hp: 6 },
+          { cardId: "ferdinand", position: { row: 1, col: 2 }, hp: 7 },
+          { cardId: "pzkpfw_iii_ausf_f", position: { row: 2, col: 3 } },
+        ],
+        // СУ-122 на задней линии, перед ней КВ-1; Т-34 на нижнем спавне.
+        // Тыл: гаубица М-30 и два «лекаря» (ГАЗ-55, ПАРМ).
+        playerBoardUnits: [
+          { cardId: "su_122", position: { row: 0, col: 0 } },
+          { cardId: "kv1", position: { row: 0, col: 1 } },
+          { cardId: "t34_76", position: { row: 2, col: 1 } },
+          { cardId: "gun_m30", zone: "support", supportSlot: 0 },
+          { cardId: "gaz_55_ambulance", zone: "support", supportSlot: 1 },
+          { cardId: "parm_workshop", zone: "support", supportSlot: 2 },
+        ],
+      },
+    ],
+  },
+
   {
     id: "training-front",
     title: "1. Panzer Div.",
@@ -442,6 +523,15 @@ export type CampaignCompletionReward = {
 };
 
 export const CAMPAIGN_COMPLETION_REWARDS: CampaignCompletionReward[] = [
+  // Миссия-трейлер: за удержание рубежа у Понырей — легендарный «Зверобой»
+  // СУ-152 и открытие штаба Центрального фронта для PvE/PvP.
+  {
+    id: "welcome_zveroboy",
+    missionIds: ["welcome-kursk-1"],
+    cardId: "su_152",
+    copies: 1,
+    unlockHeadquartersId: "soviet_central_front",
+  },
   {
     id: "first_panzer_poland",
     missionIds: [
@@ -540,6 +630,25 @@ export function getEarnedCampaignCompletionRewards(
   return CAMPAIGN_COMPLETION_REWARDS.filter((reward) =>
     reward.missionIds.every((missionId) => completed.has(missionId))
   );
+}
+
+/**
+ * The welcome-trailer mission flagged to auto-launch on the player's very first
+ * visit, if any. Returns the first such mission across all campaigns.
+ */
+export function getAutoLaunchMission(): {
+  campaign: Campaign;
+  mission: CampaignMission;
+} | null {
+  for (const campaign of CAMPAIGNS) {
+    const mission = campaign.missions.find(
+      (item) => item.autoLaunchOnFirstVisit
+    );
+
+    if (mission) return { campaign, mission };
+  }
+
+  return null;
 }
 
 export function getCampaignMission(

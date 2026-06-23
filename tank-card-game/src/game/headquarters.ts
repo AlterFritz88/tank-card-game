@@ -640,6 +640,54 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     availableInMainMenu: false,
   },
 
+  // === Миссия-трейлер «Поныри» (Курская дуга 1943, северный фас) ===
+
+  soviet_central_front: {
+    id: "soviet_central_front",
+    title: "Центральный фронт",
+    subtitle: "Центральный фронт (К. К. Рокоссовский)",
+    type: "Фронтовое управление",
+    description:
+      "Танковый таран: танк, продвинувшийся в этом ходу, наносит +1 урон — " +
+      "Т-34 бьют на острие контрудара.",
+    ability: {
+      name: "Танковый таран",
+      movedTankAttackBonus: 1,
+    },
+    faction: "Красная армия",
+    nation: "ussr",
+    hp: 23,
+    attack: 2,
+    range: 99,
+    fuelGeneration: 5,
+    level: 4,
+    defaultDeckId: "soviet_central_front_default",
+    availableInMainMenu: false,
+  },
+
+  german_9th_army: {
+    id: "german_9th_army",
+    title: "9. Armee",
+    subtitle: "9-я армия (В. Модель)",
+    type: "Армейское управление",
+    description:
+      "Стальной клин: тяжёлые танки и ПТ-САУ этого штаба получают на 1 урона " +
+      "меньше от каждого попадания.",
+    ability: {
+      name: "Стальной клин",
+      heavyArmorReduction: 1,
+    },
+    faction: "Wehrmacht",
+    nation: "germany",
+    hp: 12,
+    attack: 2,
+    range: 99,
+    fuelGeneration: 4,
+    level: 5,
+    defaultDeckId: "german_9th_army_campaign",
+    availableInMainMenu: false,
+  },
+
   winter_blocking_force: {
     id: "winter_blocking_force",
     title: "Зимний заслон",

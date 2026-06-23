@@ -112,6 +112,11 @@ const DeckBuilder = lazy(() =>
 const ResearchMenu = lazy(() =>
   import("./ResearchMenu").then((module) => ({ default: module.ResearchMenu }))
 );
+const CardCollectionMenu = lazy(() =>
+  import("./CardCollectionMenu").then((module) => ({
+    default: module.CardCollectionMenu,
+  }))
+);
 
 const HAND_CARD_BASE_WIDTH = 175;
 const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
@@ -675,7 +680,8 @@ function GuestEntryScreen({
     username: string,
     email: string,
     password: string,
-    legalAccepted: boolean
+    legalAccepted: boolean,
+    promoCode?: string
   ) => Promise<void>;
 }) {
   const [authMode, setAuthMode] = useState<"guest" | "login" | "register">(
@@ -688,6 +694,7 @@ function GuestEntryScreen({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
+  const [promoCode, setPromoCode] = useState("");
   const [legalAccepted, setLegalAccepted] = useState(
     () => window.localStorage.getItem(LEGAL_ACCEPTED_STORAGE_KEY) === "true"
   );
@@ -748,7 +755,7 @@ function GuestEntryScreen({
           throw new Error("Необходимо ознакомиться с документами и принять условия");
         }
 
-        await onRegister(username, email, password, legalAccepted);
+        await onRegister(username, email, password, legalAccepted, promoCode);
         window.localStorage.setItem(LEGAL_ACCEPTED_STORAGE_KEY, "true");
       }
     } catch (error) {
@@ -922,6 +929,19 @@ function GuestEntryScreen({
                   autoComplete="new-password"
                   {...keyboardLock}
                 />
+
+                <label style={styles.guestEntryLabel} htmlFor="account-promo-code">
+                  Промокод
+                </label>
+                <input
+                  id="account-promo-code"
+                  value={promoCode}
+                  maxLength={32}
+                  onChange={(event) => setPromoCode(event.target.value)}
+                  style={styles.guestEntryInput}
+                  autoComplete="off"
+                  {...keyboardLock}
+                />
               </>
             ) : null}
 
@@ -998,7 +1018,8 @@ function ProfileRegisterModal({
     username: string,
     email: string,
     password: string,
-    legalAccepted: boolean
+    legalAccepted: boolean,
+    promoCode?: string
   ) => Promise<void>;
 }) {
   const overlayTransform = useStageOverlayTransform();
@@ -1006,6 +1027,7 @@ function ProfileRegisterModal({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
+  const [promoCode, setPromoCode] = useState("");
   const [legalAccepted, setLegalAccepted] = useState(
     () => window.localStorage.getItem(LEGAL_ACCEPTED_STORAGE_KEY) === "true"
   );
@@ -1044,7 +1066,7 @@ function ProfileRegisterModal({
         throw new Error("Необходимо ознакомиться с документами и принять условия");
       }
 
-      await onRegister(username, email, password, legalAccepted);
+      await onRegister(username, email, password, legalAccepted, promoCode);
       window.localStorage.setItem(LEGAL_ACCEPTED_STORAGE_KEY, "true");
       onClose();
     } catch (submitError) {
@@ -1151,6 +1173,22 @@ function ProfileRegisterModal({
               onChange={(event) => setRepeatPassword(event.target.value)}
               style={styles.guestEntryInput}
               autoComplete="new-password"
+              {...keyboardLock}
+            />
+
+            <label
+              style={styles.guestEntryLabel}
+              htmlFor="profile-register-promo-code"
+            >
+              Промокод
+            </label>
+            <input
+              id="profile-register-promo-code"
+              value={promoCode}
+              maxLength={32}
+              onChange={(event) => setPromoCode(event.target.value)}
+              style={styles.guestEntryInput}
+              autoComplete="off"
               {...keyboardLock}
             />
 
@@ -1263,13 +1301,15 @@ function PlayerProfileMenu({
     username: string,
     email: string,
     password: string,
-    legalAccepted: boolean
+    legalAccepted: boolean,
+    promoCode?: string
   ) {
     const nextProgress = await registerPlayerAccount({
       username,
       email,
       password,
       legalAccepted,
+      promoCode,
       mergeGuestProgress: true,
     });
     window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
@@ -1940,6 +1980,8 @@ export function PvpLobby() {
     closeProfileMenu,
     openResearchMenu,
     closeResearchMenu,
+    openCollectionMenu,
+    closeCollectionMenu,
     openShopMenu,
     closeShopMenu,
     openCampaignMenu,
@@ -2195,13 +2237,15 @@ export function PvpLobby() {
     username: string,
     email: string,
     password: string,
-    legalAccepted: boolean
+    legalAccepted: boolean,
+    promoCode?: string
   ) {
     await registerPlayerAccount({
       username,
       email,
       password,
       legalAccepted,
+      promoCode,
       mergeGuestProgress: true,
     });
     window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
@@ -2230,9 +2274,16 @@ export function PvpLobby() {
       ),
     [playerProgress.unlockedHeadquartersIds]
   );
+  // Campaigns shown in the selection menu (the auto-launched welcome trailer is
+  // hidden from the list).
+  const visibleCampaigns = CAMPAIGNS.filter(
+    (campaign) => !campaign.hiddenFromMenu
+  );
   const missionCampaign =
-    CAMPAIGNS.find((campaign) => campaign.id === storedSelectedCampaignId) ??
-    CAMPAIGNS[0] ??
+    visibleCampaigns.find(
+      (campaign) => campaign.id === storedSelectedCampaignId
+    ) ??
+    visibleCampaigns[0] ??
     null;
   const firstUnlockedMission =
     missionCampaign?.missions.find(
@@ -2715,7 +2766,7 @@ export function PvpLobby() {
             ariaLabel="Выбор кампании"
           >
             <div style={styles.campaignCarouselTrack}>
-              {CAMPAIGNS.map((campaign, index) => {
+              {visibleCampaigns.map((campaign, index) => {
                 const artUrl =
                   campaign.menuArtUrl ??
                   `/ui/menu/campaign-${index + 1}-panzer-div.webp`;
@@ -3001,6 +3052,14 @@ export function PvpLobby() {
     );
   }
 
+  if (menuView === "collection") {
+    return (
+      <Suspense fallback={<MenuChunkLoadingScreen />}>
+        <CardCollectionMenu onBack={closeCollectionMenu} />
+      </Suspense>
+    );
+  }
+
   if (menuView === "profile") {
     return (
       <PlayerProfileMenu
@@ -3149,6 +3208,7 @@ export function PvpLobby() {
             </div>
           </CarouselTapFrame>
 
+          <div style={styles.mainSecondaryActions}>
           <button
             type="button"
             className="menu-image-button"
@@ -3157,6 +3217,17 @@ export function PvpLobby() {
           >
             Исследования
           </button>
+
+          <button
+            type="button"
+            className="menu-image-button"
+            style={styles.collectionButton}
+            onClick={openCollectionMenu}
+          >
+            Коллекция
+          </button>
+
+          </div>
 
           <footer style={styles.mainLegalFooter}>
             <LegalLinks />
@@ -5870,10 +5941,45 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: "none",
   },
 
+  mainSecondaryActions: {
+    position: "fixed",
+    left: 0,
+    right: 0,
+    bottom: 58,
+    zIndex: 8,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    margin: 0,
+    pointerEvents: "auto",
+  },
+
   researchButton: {
     display: "block",
     minWidth: 226,
-    margin: "2px auto 0",
+    margin: 0,
+    padding: "13px 26px 15px",
+    border: "none",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    backgroundImage: `url(${buttonImage})`,
+    backgroundSize: "100% 100%",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    color: "#fff0bd",
+    cursor: "pointer",
+    fontWeight: 1000,
+    letterSpacing: 1.7,
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.22)",
+    boxShadow: "none",
+  },
+
+  collectionButton: {
+    display: "block",
+    minWidth: 226,
+    margin: 0,
     padding: "13px 26px 15px",
     border: "none",
     borderRadius: 0,

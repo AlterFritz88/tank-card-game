@@ -1,5 +1,6 @@
 import type { HeadquartersId, Nation } from "./types";
 import { getHeadquartersDefinition } from "./headquarters";
+import { AVERAGE_VICTORY_XP } from "./economy";
 
 export type ResearchNation = Extract<Nation, "germany" | "ussr" | "usa">;
 
@@ -58,6 +59,32 @@ export type NationResearchTree = {
   branches: ResearchBranch[];
 };
 
+const RESEARCH_BASE_VICTORIES = 2;
+const RESEARCH_VICTORY_GROWTH = 1.62;
+const HEADQUARTERS_RESEARCH_MULTIPLIER = 1.15;
+
+function roundResearchCost(value: number): number {
+  return Math.max(10, Math.round(value / 10) * 10);
+}
+
+function getExponentialResearchCost(
+  experienceCost: number | undefined,
+  tier: number | undefined,
+  type: ResearchNode["type"]
+): number | undefined {
+  if (experienceCost === undefined) return undefined;
+  if (tier === undefined) return experienceCost;
+
+  const victories = Math.max(
+    1,
+    Math.round(RESEARCH_BASE_VICTORIES * RESEARCH_VICTORY_GROWTH ** tier)
+  );
+  const typeMultiplier =
+    type === "headquarters" ? HEADQUARTERS_RESEARCH_MULTIPLIER : 1;
+
+  return roundResearchCost(victories * AVERAGE_VICTORY_XP * typeMultiplier);
+}
+
 const headquartersNode = ({
   id,
   headquartersId,
@@ -85,7 +112,11 @@ const headquartersNode = ({
     title: headquarters.title,
     subtitle: headquarters.type,
     headquartersId,
-    experienceCost,
+    experienceCost: getExponentialResearchCost(
+      experienceCost,
+      tier,
+      "headquarters"
+    ),
     purchaseCost,
     status,
     requires,
@@ -117,7 +148,8 @@ const unitNode = ({
   type: "unit",
   title,
   cardId,
-  experienceCost,
+  experienceCost:
+    getExponentialResearchCost(experienceCost, tier, "unit") ?? experienceCost,
   purchaseCost,
   requires,
   tier,

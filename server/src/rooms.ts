@@ -114,6 +114,8 @@ const PVP_ATTACK_STRIKE_DURATION_MS = 960;
 const PVP_DESTROYED_CARD_ANIMATION_MS = 920;
 const ROOM_CLEANUP_DELAY_MS = 30_000;
 const PVP_REWARD_CLAIM_TTL_MS = 10 * 60_000;
+const DASHA_PROMO_CODE = "dasha";
+const DASHA_PROMO_GOLD_TRACKS = 700;
 const MAX_INCOMING_MESSAGE_BYTES = Number(
   process.env.WS_MAX_MESSAGE_BYTES ?? 1024 * 1024
 );
@@ -152,6 +154,10 @@ const CUSTOM_DECK_COPY_LIMIT = 4;
 const PVP_MATCH_WEIGHT_TOLERANCE = Number(
   process.env.PVP_MATCH_WEIGHT_TOLERANCE ?? 12
 );
+
+function normalizePromoCode(promoCode: string | undefined): string {
+  return promoCode?.trim().toLowerCase() ?? "";
+}
 
 function getStraightTwoCellIntermediate(
   from: { row: number; col: number },
@@ -1100,10 +1106,18 @@ export class RoomManager {
         email: message.email,
         legalAccepted: message.legalAccepted,
       });
-      const profile =
+      let profile =
         message.mergeGuestProgress && message.guestPlayerId
           ? this.profiles.mergeGuestProgress(account.userId, message.guestPlayerId)
           : this.profiles.getProfile(account.userId);
+
+      if (normalizePromoCode(message.promoCode) === DASHA_PROMO_CODE) {
+        profile = this.profiles.adminCreditTracks({
+          playerId: account.userId,
+          ironTracks: 0,
+          goldTracks: DASHA_PROMO_GOLD_TRACKS,
+        });
+      }
 
       safeSend(socket, {
         type: "AUTH_RESULT",

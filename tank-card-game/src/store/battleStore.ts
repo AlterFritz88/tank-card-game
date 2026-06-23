@@ -10,7 +10,11 @@ import {
   getTrainingHeadquartersIds,
 } from "../game/headquarters";
 import { getRandomBattleBackgroundId } from "../assets/battleBackgroundAssets";
-import { getCampaignMission, isCampaignMissionUnlocked } from "../game/campaigns";
+import {
+  getAutoLaunchMission,
+  getCampaignMission,
+  isCampaignMissionUnlocked,
+} from "../game/campaigns";
 import { calculateDeckWeight } from "../game/deckWeight";
 import { createInitialBattleState, getDeckCardIds } from "../game/initialState";
 import {
@@ -136,6 +140,8 @@ type BattleStore = {
   closeProfileMenu: () => void;
   openResearchMenu: () => void;
   closeResearchMenu: () => void;
+  openCollectionMenu: () => void;
+  closeCollectionMenu: () => void;
   openShopMenu: () => void;
   closeShopMenu: () => void;
   openCampaignMenu: () => void;
@@ -145,6 +151,10 @@ type BattleStore = {
   exitBattleToMenu: () => void;
   startAiBattle: (deckCardIds?: string[]) => void;
   startCampaignMission: (missionId: string) => void;
+  /** Auto-launch the welcome trailer mission once, on the player's first visit. */
+  autoLaunchTrailerIfNeeded: () => void;
+  /** Mark the current campaign mission complete and return to the main menu (trailer ending). */
+  completeTrailerAndExit: () => void;
   findPvpMatch: (deckCardIds?: string[]) => void;
   retryPvpMatchmaking: () => void;
   startPvpFallbackAiBattle: () => void;
@@ -181,6 +191,24 @@ type BattleStore = {
 const PVP_SERVER_URL =
   import.meta.env.VITE_PVP_SERVER_URL ?? getDefaultWebSocketUrl();
 const CAMPAIGN_PROGRESS_KEY = "tank-card-game:campaign-progress";
+/** Set once the welcome trailer has auto-launched, so it never repeats. */
+const TRAILER_SEEN_KEY = "tank-card-game:trailer-seen";
+
+function loadTrailerSeen(): boolean {
+  try {
+    return window.localStorage.getItem(TRAILER_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveTrailerSeen() {
+  try {
+    window.localStorage.setItem(TRAILER_SEEN_KEY, "1");
+  } catch {
+    // Ignore storage failures — at worst the trailer shows again next visit.
+  }
+}
 
 const emptyFirstTurnRoll: FirstTurnRollState = {
   visible: false,
@@ -419,6 +447,8 @@ function createCampaignBattle(missionId: string): BattleState | null {
       campaignMission.mission.playerDeckId ?? campaignMission.campaign.playerDeckId,
     botDeckId: campaignMission.mission.botDeckId,
     backgroundId: campaignMission.mission.backgroundId ?? getRandomBattleBackgroundId(),
+    playerBoardUnits: campaignMission.mission.playerBoardUnits,
+    botBoardUnits: campaignMission.mission.botBoardUnits,
   });
 }
 
@@ -1093,6 +1123,22 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     });
   },
 
+  openCollectionMenu: () => {
+    set({
+      menuView: "collection",
+      mode: "ai",
+      pvpError: null,
+    });
+  },
+
+  closeCollectionMenu: () => {
+    set({
+      menuView: "main",
+      mode: "ai",
+      pvpError: null,
+    });
+  },
+
   openShopMenu: () => {
     set({
       menuView: "shop",
@@ -1152,6 +1198,29 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     pvpClient.clearSession();
 
     set(getCleanMenuState());
+    pvpClient.disconnect();
+  },
+
+  completeTrailerAndExit: () => {
+    const { currentCampaignMissionId, completedCampaignMissionIds } = get();
+
+    let nextCompleted = completedCampaignMissionIds;
+    if (
+      currentCampaignMissionId &&
+      !nextCompleted.includes(currentCampaignMissionId)
+    ) {
+      nextCompleted = [...nextCompleted, currentCampaignMissionId];
+      saveCompletedCampaignMissionIds(nextCompleted);
+    }
+
+    releaseGameSession();
+    clearFirstTurnRollTimers();
+    clearReconnectTimer();
+    clearPendingPvpStart();
+    pvpClient.selectCard(null);
+    pvpClient.clearSession();
+
+    set({ ...getCleanMenuState(), completedCampaignMissionIds: nextCompleted });
     pvpClient.disconnect();
   },
 
@@ -1332,6 +1401,27 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     });
 
     pvpClient.disconnect();
+  },
+
+  autoLaunchTrailerIfNeeded: async () => {
+    const state = get();
+
+    // Never interrupt an active battle (e.g. a restored session on reload).
+    if (state.battle) return;
+    if (loadTrailerSeen()) return;
+
+    // A returning player who already has campaign progress skips the trailer.
+    if (state.completedCampaignMissionIds.length > 0) {
+      saveTrailerSeen();
+      return;
+    }
+
+    const auto = getAutoLaunchMission();
+    if (!auto) return;
+
+    // Mark seen up front so a reload during the trailer doesn't relaunch it.
+    saveTrailerSeen();
+    await get().startCampaignMission(auto.mission.id);
   },
 
   findPvpMatch: async (deckCardIds) => {

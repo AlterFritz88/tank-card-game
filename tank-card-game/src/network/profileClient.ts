@@ -111,6 +111,7 @@ type ProfileClientMessage =
       email: string;
       password: string;
       legalAccepted: boolean;
+      promoCode?: string;
       guestPlayerId?: string;
       mergeGuestProgress?: boolean;
     }
@@ -721,6 +722,7 @@ class ProfileClient {
     email: string;
     password: string;
     legalAccepted: boolean;
+    promoCode?: string;
     guestPlayerId?: string;
     mergeGuestProgress?: boolean;
   }): Promise<AuthResult> {

@@ -31,7 +31,9 @@ export type HeadquartersId =
   | "german_11_panzer"
   | "grossdeutschland"
   | "german_winter_panzer"
-  | "winter_blocking_force";
+  | "winter_blocking_force"
+  | "soviet_central_front"
+  | "german_9th_army";
 
 export type Position = {
   row: number;
@@ -132,6 +134,12 @@ export type HeadquartersAbility = {
   hqAttackIgnoresCover?: boolean;
   /** Once per battle, the first destroyed own unit returns to hand. */
   returnFirstDestroyedUnit?: boolean;
+  /**
+   * «Стальной клин»: own heavy tanks and tank destroyers (heavy/td) take this
+   * much less damage from each incoming strike (the heavy-breakthrough mirror
+   * of the dug-in tank toughness, keyed by unit class instead of standing still).
+   */
+  heavyArmorReduction?: number;
 };
 
 /** Per-player counters used by headquarters abilities. */

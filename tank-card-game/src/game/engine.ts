@@ -1240,6 +1240,20 @@ function getFrontalArmorReduction(
   return attackDirection === frontDirection ? amount : 0;
 }
 
+/**
+ * «Стальной клин»: own heavy tanks and tank destroyers soak part of each
+ * incoming strike. Keyed by unit class (heavy/td), it is the breakthrough
+ * mirror of the dug-in tank toughness and applies regardless of movement.
+ */
+function getHeavyArmorReduction(state: BattleState, unit: BoardUnit): number {
+  const reduction = getAbility(state, unit.ownerId)?.heavyArmorReduction ?? 0;
+  if (reduction <= 0) return 0;
+  if (!isBattlefieldUnit(unit)) return 0;
+
+  const unitClass = getCard(unit.cardId).class;
+  return unitClass === "heavy" || unitClass === "td" ? reduction : 0;
+}
+
 export function getHeadquartersAttackValue(
   state: BattleState,
   ownerId: PlayerId
@@ -1352,13 +1366,15 @@ function getUnitCombatBonuses(
       getTankDefenseAuraBonus(state, attacker) +
       getSpawnDamageReduction(attacker) +
       getArmorVsClassReduction(attacker, targetClass) +
-      getFrontalArmorReduction(attacker, target),
+      getFrontalArmorReduction(attacker, target) +
+      getHeavyArmorReduction(state, attacker),
     targetDefenseBonus:
       getStationaryTankDefenseBonus(state, target) +
       getTankDefenseAuraBonus(state, target) +
       getSpawnDamageReduction(target) +
       getArmorVsClassReduction(target, attackerClass) +
-      getFrontalArmorReduction(target, attacker),
+      getFrontalArmorReduction(target, attacker) +
+      getHeavyArmorReduction(state, target),
   };
 }
 
@@ -1764,6 +1780,8 @@ export function getAttackAnimationSequence(
     "cardId" in unitTarget
       ? getFrontalArmorReduction(unitTarget, attacker)
       : 0;
+  const heavyReduction =
+    "cardId" in unitTarget ? getHeavyArmorReduction(state, unitTarget) : 0;
 
   return [
     {
@@ -1780,7 +1798,8 @@ export function getAttackAnimationSequence(
               )
             : 0) -
           spawnReduction -
-          frontalReduction
+          frontalReduction -
+          heavyReduction
       ),
     },
   ];
@@ -2009,9 +2028,15 @@ function attack(state: BattleState, action: AttackAction) {
       // «Лобовая броня» does NOT — HQ shells arc over the frontal plate.
       const spawnReduction = getSpawnDamageReduction(targetUnit);
       const frontalReduction = getFrontalArmorReduction(targetUnit, attacker);
+      // «Стальной клин» soaks part of headquarters fire against heavy/td units.
+      const heavyReduction = getHeavyArmorReduction(state, targetUnit);
       const totalDamage = Math.max(
         0,
-        attackValue + damagedBonus - spawnReduction - frontalReduction
+        attackValue +
+          damagedBonus -
+          spawnReduction -
+          frontalReduction -
+          heavyReduction
       );
 
       targetUnit.currentHp -= totalDamage;

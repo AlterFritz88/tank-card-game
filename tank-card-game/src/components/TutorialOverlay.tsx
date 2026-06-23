@@ -14,6 +14,8 @@ type TutorialOverlayProps = {
   avatarSrc?: string;
   /** Overrides the default «Инструктор» speaker label. */
   speakerName?: string;
+  /** Center the dialogue on screen instead of anchoring it to the bottom. */
+  centered?: boolean;
 };
 
 export function TutorialOverlay({
@@ -24,6 +26,7 @@ export function TutorialOverlay({
   nextLabel = "Далее",
   avatarSrc = eduAvatarImage,
   speakerName = "Инструктор",
+  centered = false,
 }: TutorialOverlayProps) {
   return (
     <AnimatePresence>
@@ -31,14 +34,20 @@ export function TutorialOverlay({
         kind === "dialogue" ? (
           <motion.div
             key="tutorial-dialogue"
-            style={styles.dialogueLayer}
+            style={{
+              ...styles.dialogueLayer,
+              ...(centered ? styles.dialogueLayerCentered : null),
+            }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.22 }}
           >
             <motion.div
-              style={styles.dialoguePanel}
+              style={{
+                ...styles.dialoguePanel,
+                ...(centered ? styles.dialoguePanelCentered : null),
+              }}
               initial={{ y: 26, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 18, opacity: 0 }}
@@ -98,12 +107,21 @@ const styles: Record<string, CSSProperties> = {
     pointerEvents: "none",
   },
 
+  dialogueLayerCentered: {
+    alignItems: "center",
+    padding: "0 24px",
+  },
+
   dialoguePanel: {
     display: "flex",
     alignItems: "flex-end",
     gap: 18,
     width: "min(760px, calc(100cqw - 48px))",
     pointerEvents: "auto",
+  },
+
+  dialoguePanelCentered: {
+    alignItems: "center",
   },
 
   dialogueAvatar: {

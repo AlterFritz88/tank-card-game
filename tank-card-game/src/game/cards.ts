@@ -2375,7 +2375,7 @@ export const cards: TankCard[] = [
     hp: 5,
     range: 1,
     movement: 1,
-    fuelGeneration: 2,
+    fuelGeneration: 1,
     initiative: 3,
     abilityText: "",
   },
@@ -2655,6 +2655,58 @@ export const cards: TankCard[] = [
     abilityText:
       "+1 к атаке штаба и противотанковый заслон тыловой линии.",
   },
+
+  // === Миссия-трейлер «Зверобой. Поныри» (Курская дуга 1943) ===
+  {
+    id: "su_152",
+    name: "СУ-152",
+    nation: "ussr",
+    class: "spg",
+    rarity: "rare",
+    cost: 6,
+    attack: 7,
+    armor: 2,
+    hp: 6,
+    range: 2,
+    movement: 1,
+    fuelGeneration: 1,
+    initiative: 2,
+    abilityText:
+      "«Зверобой». Бьёт издалека без ответного огня; огневой вал усиливает выстрел у штаба врага.",
+  },
+  {
+    id: "ferdinand",
+    name: "Ferdinand",
+    nation: "germany",
+    class: "td",
+    rarity: "rare",
+    cost: 7,
+    attack: 6,
+    armor: 3,
+    hp: 10,
+    range: 1,
+    movement: 1,
+    fuelGeneration: 1,
+    initiative: 1,
+    abilityText:
+      "Лобовая броня: −2 урона при ударе со стороны вражеского штаба. Фланг и тыл пробиваются.",
+  },
+  {
+    id: "pzkpfw_iii_ausf_f",
+    name: "Panzer III F",
+    nation: "germany",
+    class: "medium",
+    rarity: "uncommon",
+    cost: 4,
+    attack: 3,
+    armor: 2,
+    hp: 3,
+    range: 1,
+    movement: 1,
+    fuelGeneration: 0,
+    initiative: 2,
+    abilityText: "",
+  },
 ];
 
 /**
@@ -2755,6 +2807,12 @@ const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
   },
   t18_hmc: { combatAbilities: { cornerBonus: { hp: 2 } } },
   t19_hmc: { combatAbilities: { cornerBonus: { attack: 1 } } },
+
+  // ===== Миссия-трейлер (Курская дуга) =====
+  // СУ-152 «Зверобой»: огневой вал — выстрел крепче у штаба врага.
+  su_152: { combatAbilities: { hqProximityBonus: { maxBonus: 1 } } },
+  // Ferdinand: непробиваемый лоб, фланг/тыл уязвимы.
+  ferdinand: { combatAbilities: { frontalArmor: { amount: 2 } } },
 };
 
 for (const [cardId, override] of Object.entries(UNIT_ABILITY_OVERRIDES)) {

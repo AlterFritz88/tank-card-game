@@ -1,4 +1,4 @@
-import { normalizeCardId } from "./cards";
+import { getCardOrNull, normalizeCardId } from "./cards";
 import {
   DEFAULT_BOT_HEADQUARTERS_ID,
   DEFAULT_PLAYER_HEADQUARTERS_ID,
@@ -8,13 +8,32 @@ import { DEFAULT_BATTLE_BACKGROUND_ID } from "./battleBackgrounds";
 import type { BattleBackgroundId } from "./battleBackgrounds";
 import type {
   BattleState,
+  BoardUnit,
   CardInstance,
   HeadquartersId,
   HeadquartersState,
   PlayerId,
   PlayerState,
   PlayerTimerState,
+  Position,
+  SupportSlot,
+  UnitZone,
 } from "./types";
+
+/**
+ * A unit placed on the board before the battle begins (scripted missions like
+ * the welcome trailer, where the enemy is already advancing). Unlike spawned
+ * units it is battle-ready: it can move and attack on its owner's first turn.
+ */
+export type PreplacedUnit = {
+  cardId: string;
+  /** Required for battlefield units. Ignored for support units (they sit on the HQ cell). */
+  position?: Position;
+  zone?: UnitZone;
+  supportSlot?: SupportSlot;
+  /** Starting HP (e.g. a battle-worn vehicle). Defaults to the card's full HP, clamped to it. */
+  hp?: number;
+};
 
 export const STEP_TIME_MS = 60 * 1000;
 const TRAINING_DECK_CARD_LIMIT = 20;
@@ -39,6 +58,9 @@ export type CreateBattleOptions = {
   backgroundId?: BattleBackgroundId;
   /** Set to false for scripted battles (tutorial) that need deterministic draws. */
   shuffleDecks?: boolean;
+  /** Units already on the board at battle start (scripted/trailer missions). */
+  playerBoardUnits?: PreplacedUnit[];
+  botBoardUnits?: PreplacedUnit[];
 };
 
 const DECK_CARD_IDS: Record<string, string[]> = {
@@ -1437,6 +1459,82 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "sanitaetskraftwagen",
   ],
 
+  // ============================================================
+  // Миссия-трейлер «Поныри» (Курская дуга 1943, северный фас)
+  // ============================================================
+
+  // Колода игрока в трейлере: в основном Т-34 (волна средних танков на острие
+  // контрудара), пара СУ-122 для дистанционного добивания и резервные
+  // снабженцы/ремонт. СУ-152 в колоде НЕТ — её игрок получает в награду.
+  welcome_kursk_player: [
+    "t34_76",
+    "t34_76",
+    "t34_76",
+    "t34_76",
+    "t34_1941",
+    "t34_1941",
+    "t34_1941",
+    "t34_1941",
+    "t34_1940",
+    "t34_1940",
+    "t34_1940",
+    "t34_stz",
+    "t34_stz",
+    "t34_stz",
+    "t34_76",
+    "t34_1941",
+    "su_122",
+    "su_122",
+    "gun_m30",
+    "gaz_55_ambulance",
+    "parm_workshop",
+    "zis_5_ammo",
+  ],
+
+  // Колода противника в трейлере: средние танки 9-й армии — Panzer III F и
+  // Panzer IV G, плюс лёгкая поддержка (колоды кампаний режутся до 4 копий
+  // карты). Тигр и Фердинанд уже на поле (подбитые) и в колоду не добираются.
+  german_9th_army_campaign: [
+    "pzkpfw_iii_ausf_f",
+    "pzkpfw_iii_ausf_f",
+    "pzkpfw_iii_ausf_f",
+    "pzkpfw_iii_ausf_f",
+    "panzer_iv",
+    "panzer_iv",
+    "panzer_iv",
+    "panzer_iv",
+    "sdkfz_251",
+    "sdkfz_251",
+    "leig_18",
+    "leig_18",
+    "sanitaetskraftwagen",
+  ],
+
+  // База штаба Центрального фронта для свободной игры после открытия
+  // (расширяется до 40). Танковый таран — упор на Т-34.
+  soviet_central_front_default: [
+    "t34_76",
+    "t34_76",
+    "t34_1941",
+    "t34_1941",
+    "t34_1940",
+    "t34_stz",
+    "kv1",
+    "kv1_1940",
+    "t28",
+    "su_122",
+    "su_122",
+    "su_5_2",
+    "at1",
+    "gun_m30",
+    "gun_76_1927",
+    "t26_1938",
+    "gaz_55_ambulance",
+    "parm_workshop",
+    "zis_5_ammo",
+    "amo_f15",
+  ],
+
   // Миссия 10: зимний заслон у Горюнов — плотная ПТО (StuG, Pak, Marder).
   winter_blocking_force_campaign: [
     "stug_iii_b",
@@ -1679,6 +1777,62 @@ function createHeadquarters(
   };
 }
 
+function createPreplacedUnits(
+  owner: PlayerId,
+  preplaced: PreplacedUnit[] | undefined,
+  hqPosition: Position
+): BoardUnit[] {
+  if (!preplaced || preplaced.length === 0) return [];
+
+  const units: BoardUnit[] = [];
+
+  preplaced.forEach((entry, index) => {
+    const resolvedCardId = normalizeCardId(entry.cardId);
+    const card = resolvedCardId ? getCardOrNull(resolvedCardId) : null;
+
+    if (!resolvedCardId || !card) {
+      console.warn(
+        `[preplaced:${owner}] ignored missing card: ${entry.cardId}`
+      );
+      return;
+    }
+
+    const zone: UnitZone = entry.zone ?? "battlefield";
+    // Support units always sit on the HQ cell (mirrors playSupportCard);
+    // battlefield units need an explicit board position.
+    const position = zone === "support" ? hqPosition : entry.position;
+
+    if (!position) {
+      console.warn(
+        `[preplaced:${owner}] battlefield unit ${resolvedCardId} has no position; skipped.`
+      );
+      return;
+    }
+
+    // A battle-worn vehicle can start damaged (clamped to its full HP).
+    const currentHp =
+      entry.hp != null ? Math.max(1, Math.min(entry.hp, card.hp)) : card.hp;
+
+    units.push({
+      instanceId: `${owner}_preplaced_${resolvedCardId}_${index}`,
+      cardId: resolvedCardId,
+      ownerId: owner,
+      position,
+      zone,
+      supportSlot: entry.supportSlot,
+      currentHp,
+      alreadyMoved: false,
+      alreadyAttacked: false,
+      // Already in the field: battle-ready, not a fresh spawn.
+      spawnedThisTurn: false,
+      moveCountThisTurn: 0,
+      tdAmbushUsedThisTurn: false,
+    });
+  });
+
+  return units;
+}
+
 export function createInitialBattleState(
   options: CreateBattleOptions = {}
 ): BattleState {
@@ -1713,7 +1867,13 @@ export function createInitialBattleState(
       bot: createHeadquarters("bot", botHeadquartersId),
     },
 
-    units: [],
+    units: [
+      ...createPreplacedUnits("player", options.playerBoardUnits, {
+        row: 2,
+        col: 0,
+      }),
+      ...createPreplacedUnits("bot", options.botBoardUnits, { row: 0, col: 4 }),
+    ],
 
     timers: {
       player: createTimerState(),

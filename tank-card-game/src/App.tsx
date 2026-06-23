@@ -62,6 +62,9 @@ export default function App() {
 function GameApp() {
   const battle = useBattleStore((state) => state.battle);
   const restorePvpSession = useBattleStore((state) => state.restorePvpSession);
+  const autoLaunchTrailerIfNeeded = useBattleStore(
+    (state) => state.autoLaunchTrailerIfNeeded
+  );
   const sessionError = useBattleStore((state) => state.sessionError);
   const clearSessionError = useBattleStore((state) => state.clearSessionError);
   const [bootReady, setBootReady] = useState(false);
@@ -69,6 +72,12 @@ function GameApp() {
   useEffect(() => {
     restorePvpSession();
   }, [restorePvpSession]);
+
+  // First visit: auto-launch the welcome trailer mission once boot is ready.
+  useEffect(() => {
+    if (!bootReady) return;
+    autoLaunchTrailerIfNeeded();
+  }, [bootReady, autoLaunchTrailerIfNeeded]);
 
   useEffect(() => {
     let cancelled = false;

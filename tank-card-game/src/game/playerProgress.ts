@@ -845,6 +845,7 @@ export async function registerPlayerAccount(input: {
   email: string;
   password: string;
   legalAccepted: boolean;
+  promoCode?: string;
   mergeGuestProgress?: boolean;
 }): Promise<PlayerProgress> {
   const profileClient = await getProfileClient();

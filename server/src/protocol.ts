@@ -148,6 +148,7 @@ export type PvpClientMessage =
       email: string;
       password: string;
       legalAccepted: boolean;
+      promoCode?: string;
       guestPlayerId?: string;
       mergeGuestProgress?: boolean;
     }

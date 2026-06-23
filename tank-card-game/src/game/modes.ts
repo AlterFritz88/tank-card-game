@@ -7,6 +7,7 @@ export type MainMenuView =
   | "missions"
   | "profile"
   | "research"
+  | "collection"
   | "shop"
   | "deckBuilder";
 
