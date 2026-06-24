@@ -21,10 +21,13 @@ const headquartersAvatarAssets = Object.entries(avatarModules).reduce(
 /**
  * Headquarters whose portrait differs from the file named after their id.
  * After the campaign rework the 4th tank brigade uses Lavrinenko's new portrait
- * both in the campaign briefings and in the player's regular battles.
+ * both in the campaign briefings and in the player's regular battles. The 1st
+ * Guards brigade is the same формирование later in the campaign, so it carries
+ * Lavrinenko's portrait too.
  */
 const AVATAR_OVERRIDES: Partial<Record<HeadquartersId, string>> = {
   lavrinenko_tank_brigade: "lavrinenko_tank_brigade_2",
+  first_guards_tank_brigade: "lavrinenko_tank_brigade_2",
 };
 
 /** Look up an avatar by its raw asset id (filename without extension). */

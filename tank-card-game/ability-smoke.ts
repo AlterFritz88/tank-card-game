@@ -4,6 +4,7 @@ import {
   applyAction,
   getEffectiveCardCost,
   getHeadquartersAttackValue,
+  getUnitDisplayAttackValue,
 } from "./src/game/engine";
 import { getNextBotAction } from "./src/game/bot";
 import { getCard } from "./src/game/cards";
@@ -862,6 +863,124 @@ function makeUnit(partial: Partial<BoardUnit> & { instanceId: string; cardId: st
       raider?.currentHp === getCard("panzer_iv").hp - returnFire &&
       !halftrack,
     `raider hp ${raider?.currentHp}, halftrack ${Boolean(halftrack)}`
+  );
+}
+
+// 4-я тбр: свежеразвёрнутый танк не получает бонус засады в ход спавна,
+// но на следующий ход (если стоит на месте) бьёт на +1.
+{
+  const battle = makeBattle("soviet_tank_brigade", "t34_76");
+  battle.player.resources = 10;
+  const card = getCard("t34_76");
+
+  const deployed = applyAction(battle, {
+    type: "PLAY_CARD",
+    playerId: "player",
+    cardInstanceId: battle.player.hand[0].instanceId,
+    position: { row: 1, col: 0 },
+  });
+  const unitId = deployed.units.find((u) => u.ownerId === "player")!.instanceId;
+  const fresh = deployed.units.find((u) => u.instanceId === unitId)!;
+
+  check(
+    "4-я тбр: свежеразвёрнутый танк без бонуса засады",
+    getUnitDisplayAttackValue(deployed, fresh) === card.attack,
+    `display ${getUnitDisplayAttackValue(deployed, fresh)}, expected ${card.attack}`
+  );
+
+  let cycled = applyAction(deployed, { type: "END_TURN", playerId: "player" });
+  cycled = applyAction(cycled, { type: "END_TURN", playerId: "bot" });
+  const settled = cycled.units.find((u) => u.instanceId === unitId)!;
+
+  check(
+    "4-я тбр: на следующий ход неподвижный танк бьёт на +1",
+    getUnitDisplayAttackValue(cycled, settled) === card.attack + 1,
+    `display ${getUnitDisplayAttackValue(cycled, settled)}, expected ${card.attack + 1}`
+  );
+}
+
+// 4-я тбр: лёгкий танк теряет бонус засады на первом перемещении, второе
+// перемещение очки атаки уже не меняет (значит, и анимации изменения нет).
+{
+  const battle = makeBattle("soviet_tank_brigade", "t26_1931");
+  const card = getCard("t26_1931");
+
+  battle.units.push(
+    makeUnit({
+      instanceId: "light",
+      cardId: "t26_1931",
+      ownerId: "player",
+      position: { row: 1, col: 1 },
+    })
+  );
+
+  const beforeUnit = battle.units.find((u) => u.instanceId === "light")!;
+  const attackBefore = getUnitDisplayAttackValue(battle, beforeUnit);
+
+  const afterFirst = applyAction(battle, {
+    type: "MOVE_UNIT",
+    playerId: "player",
+    unitId: "light",
+    position: { row: 1, col: 2 },
+  });
+  const firstUnit = afterFirst.units.find((u) => u.instanceId === "light")!;
+  const attackAfterFirst = getUnitDisplayAttackValue(afterFirst, firstUnit);
+
+  const afterSecond = applyAction(afterFirst, {
+    type: "MOVE_UNIT",
+    playerId: "player",
+    unitId: "light",
+    position: { row: 1, col: 3 },
+  });
+  const secondUnit = afterSecond.units.find((u) => u.instanceId === "light")!;
+  const attackAfterSecond = getUnitDisplayAttackValue(afterSecond, secondUnit);
+
+  check(
+    "4-я тбр: лёгкий танк до хода бьёт на +1",
+    attackBefore === card.attack + 1,
+    `display ${attackBefore}, expected ${card.attack + 1}`
+  );
+  check(
+    "4-я тбр: первое перемещение снимает бонус (−1)",
+    attackAfterFirst === card.attack,
+    `display ${attackAfterFirst}, expected ${card.attack}`
+  );
+  check(
+    "4-я тбр: второе перемещение очки атаки не меняет",
+    attackAfterSecond === attackAfterFirst,
+    `display ${attackAfterSecond}, expected ${attackAfterFirst}`
+  );
+}
+
+// 4.Panzer: бонус «острия наступления» действует только в свой ход.
+{
+  const battle = makeBattle("german_4_panzer", "panzer_iv");
+  const card = getCard("panzer_iv");
+
+  battle.units.push(
+    makeUnit({
+      instanceId: "p1",
+      cardId: "panzer_iv",
+      ownerId: "player",
+      position: { row: 1, col: 1 },
+      moveCountThisTurn: 1,
+      alreadyMoved: true,
+    })
+  );
+
+  const ownTurnUnit = battle.units.find((u) => u.instanceId === "p1")!;
+  check(
+    "4.Panzer: ходивший танк бьёт на +1 в свой ход",
+    getUnitDisplayAttackValue(battle, ownTurnUnit) === card.attack + 1,
+    `display ${getUnitDisplayAttackValue(battle, ownTurnUnit)}, expected ${card.attack + 1}`
+  );
+
+  const enemyTurn: BattleState = { ...battle, activePlayer: "bot" };
+  const enemyTurnUnit = enemyTurn.units.find((u) => u.instanceId === "p1")!;
+  check(
+    "4.Panzer: в ход противника атака возвращается к базовой",
+    getUnitDisplayAttackValue(enemyTurn, enemyTurnUnit) === card.attack,
+    `display ${getUnitDisplayAttackValue(enemyTurn, enemyTurnUnit)}, expected ${card.attack}`
   );
 }
 

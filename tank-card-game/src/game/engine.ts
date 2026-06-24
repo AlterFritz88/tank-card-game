@@ -656,22 +656,27 @@ function beginBattle(
     unit.alreadyAttacked = isSupportUnit(unit);
     unit.alreadyMoved = isSupportUnit(unit);
     unit.spawnedThisTurn = false;
+    unit.deployedThisTurn = false;
     unit.moveCountThisTurn = 0;
     unit.tdAmbushUsedThisTurn = false;
     unit.coverFiredThisTurn = false;
     unit.drawWhenAttackedUsedThisTurn = false;
   }
 
+  // Scripted missions can pin both opening hands to a fixed size (no
+  // second-player bonus); otherwise the default hand + second-player bonus apply.
+  const scriptedHandSize = state.startingHandSize;
+
   const startingPlayerDrawnCards = drawCardsWithoutPenalty(
     state,
     startingPlayer,
-    STARTING_HAND_SIZE
+    scriptedHandSize ?? STARTING_HAND_SIZE
   );
 
   const secondPlayerDrawnCards = drawCardsWithoutPenalty(
     state,
     secondPlayer,
-    STARTING_HAND_SIZE + SECOND_PLAYER_EXTRA_STARTING_CARDS
+    scriptedHandSize ?? (STARTING_HAND_SIZE + SECOND_PLAYER_EXTRA_STARTING_CARDS)
   );
 
   addLog(
@@ -749,6 +754,7 @@ function startTurn(state: BattleState, playerId: PlayerId) {
       unit.alreadyAttacked = isSupportUnit(unit);
       unit.alreadyMoved = isSupportUnit(unit);
       unit.spawnedThisTurn = false;
+      unit.deployedThisTurn = false;
       unit.moveCountThisTurn = 0;
     }
   }
@@ -919,6 +925,7 @@ function playCard(
     alreadyAttacked: !canActAfterSpawn,
     alreadyMoved: !canActAfterSpawn,
     spawnedThisTurn: isLightTank && !hasBlitz,
+    deployedThisTurn: true,
     moveCountThisTurn: 0,
     tdAmbushUsedThisTurn: false,
   };
@@ -1282,6 +1289,9 @@ function getStationaryTankAttackBonus(
   if (!ability?.stationaryTankAttackBonus) return 0;
   if (!isBattlefieldUnit(unit)) return 0;
   if (!isTankClassCard(getCard(unit.cardId))) return 0;
+  // A tank deployed this turn has not been lying in ambush yet — no bonus until
+  // its owner's next turn.
+  if (unit.deployedThisTurn) return 0;
   if (unit.moveCountThisTurn > 0) return 0;
 
   return ability.stationaryTankAttackBonus;
@@ -1307,8 +1317,9 @@ function getStationaryTankDefenseBonus(
 
 /**
  * Armored momentum: own tanks that HAVE moved this turn strike harder — the
- * aggressive mirror of the dug-in ambush bonus. Only rewards a unit attacking
- * on its own turn (a defender's move counter is reset before it counterattacks).
+ * aggressive mirror of the dug-in ambush bonus. The push only counts on the
+ * unit owner's own turn: on the opponent's turn the tank's attack drops back to
+ * its base value (it is no longer charging forward when it merely defends).
  */
 function getMovedTankAttackBonus(state: BattleState, unit: BoardUnit): number {
   const ability = getAbility(state, unit.ownerId);
@@ -1316,6 +1327,7 @@ function getMovedTankAttackBonus(state: BattleState, unit: BoardUnit): number {
   if (!ability?.movedTankAttackBonus) return 0;
   if (!isBattlefieldUnit(unit)) return 0;
   if (!isTankClassCard(getCard(unit.cardId))) return 0;
+  if (state.activePlayer !== unit.ownerId) return 0;
   if (unit.moveCountThisTurn === 0) return 0;
 
   return ability.movedTankAttackBonus;

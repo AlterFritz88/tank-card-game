@@ -357,6 +357,14 @@ export type BoardUnit = {
 
   spawnedThisTurn: boolean;
   moveCountThisTurn: number;
+  /**
+   * The unit entered the battlefield during its owner's current turn. A freshly
+   * deployed tank has not been sitting still and so does NOT earn the «Танковая
+   * засада» stationary attack bonus until its owner's next turn (the flag is
+   * cleared at the start of that turn). Unlike `spawnedThisTurn` this is set for
+   * every class, not just light tanks.
+   */
+  deployedThisTurn?: boolean;
   tdAmbushUsedThisTurn: boolean;
   /** Anti-tank screen already fired this turn (see supportLineCover). */
   coverFiredThisTurn?: boolean;
@@ -454,6 +462,13 @@ export type BattleState = {
 
   timers: Record<PlayerId, PlayerTimerState>;
   stats: BattleStats;
+
+  /**
+   * Scripted override for the opening hand size (both players draw exactly this
+   * many cards, with no second-player bonus). Absent in normal battles, where
+   * the engine's default starting hand applies.
+   */
+  startingHandSize?: number;
 
   log: string[];
 };

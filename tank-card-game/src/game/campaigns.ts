@@ -18,6 +18,8 @@ export type CampaignMission = {
   /** Units already on the board when the battle starts (scripted/trailer missions). */
   playerBoardUnits?: PreplacedUnit[];
   botBoardUnits?: PreplacedUnit[];
+  /** Scripted opening-hand size: both players draw exactly this many cards. */
+  startingHandSize?: number;
   /**
    * Auto-launch this mission once, the first time the player opens the game
    * (the welcome trailer). Marked done via local storage so it never repeats.
@@ -426,6 +428,11 @@ export const CAMPAIGNS: Campaign[] = [
         playerDeckId: "lavrinenko_ace_campaign",
         backgroundId: "winter_1",
         illustrationId: "lavrinenko_m6",
+        // Личный Т-34 аса уже в засаде на спавне; обе стороны начинают с 10 карт.
+        startingHandSize: 10,
+        playerBoardUnits: [
+          { cardId: "t34_lavrinenko", position: { row: 2, col: 1 } },
+        ],
       },
       {
         id: "lavrinenko-7",
@@ -451,9 +458,9 @@ export const CAMPAIGNS: Campaign[] = [
         title: "Гвардейское знамя",
         description: "22 ноября 1941, Лысцево. Бригада стала 1-й гвардейской.",
         briefing:
-          "Нам вручили гвардейское знамя — теперь мы 1-я гвардейская. Засадный танк бьёт ещё сильнее и первым выходит с «Блицем». Против нас элита — полк «Großdeutschland». Покажем, чего стоит гвардия.",
+          "Нам вручили гвардейское знамя — теперь мы 1-я гвардейская. Засадный танк бьёт ещё сильнее и первым выходит с «Блицем». Против нас элита — полк Großdeutschland. Покажем, чего стоит гвардия.",
         victoryDebrief:
-          "Гвардейское звание оправдано кровью. Даже «Großdeutschland» отступил перед нами. Знамя не запятнано.",
+          "Гвардейское звание оправдано кровью. Даже Großdeutschland отступил перед нами. Знамя не запятнано.",
         defeatDebrief:
           "В первом же бою под гвардейским знаменем — неудача. Это не по-гвардейски. Возьмём себя в руки и переиграем.",
         botHeadquartersId: "grossdeutschland",
@@ -498,6 +505,10 @@ export const CAMPAIGNS: Campaign[] = [
         playerDeckId: "lavrinenko_guards_campaign",
         backgroundId: "winter_1",
         illustrationId: "lavrinenko_m10",
+        // Последний бой аса: его личный Т-34 уже на спавне, как и в Гусенево.
+        playerBoardUnits: [
+          { cardId: "t34_lavrinenko", position: { row: 2, col: 1 } },
+        ],
       },
     ],
   },

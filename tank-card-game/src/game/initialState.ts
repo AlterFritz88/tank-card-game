@@ -61,6 +61,8 @@ export type CreateBattleOptions = {
   /** Units already on the board at battle start (scripted/trailer missions). */
   playerBoardUnits?: PreplacedUnit[];
   botBoardUnits?: PreplacedUnit[];
+  /** Scripted opening-hand size: both players draw exactly this many cards. */
+  startingHandSize?: number;
 };
 
 const DECK_CARD_IDS: Record<string, string[]> = {
@@ -1005,9 +1007,9 @@ const DECK_CARD_IDS: Record<string, string[]> = {
   ],
 
   // Миссия 6 «Одинокий Т-34»: мало машин, но каждая бьёт насмерть. Личный
-  // танк аса, тяжёлые Т-34/41 и КВ, дальняя поддержка, ремонт.
+  // танк аса уже стоит на спавне (см. playerBoardUnits миссии), в колоде —
+  // тяжёлые Т-34/41 и КВ, дальняя поддержка, ремонт.
   lavrinenko_ace_campaign: [
-    "t34_lavrinenko",
     "t34_1941",
     "t34_1941",
     "t34_1941",
@@ -1898,6 +1900,8 @@ export function createInitialBattleState(
         support: 0,
       },
     },
+
+    startingHandSize: options.startingHandSize,
 
     log: ["Бой готовится. Определяется первый ход."],
   };

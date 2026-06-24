@@ -192,10 +192,10 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "4-я танковая бригада",
     type: "Танковый штаб",
     description:
-      "Танковая засада: танк, не двигавшийся в этом ходу, бьёт на +2 урона и крепче держит удар (−1 к входящему урону).",
+      "Танковая засада: танк, не двигавшийся в этом ходу, бьёт на +1 урона и крепче держит удар (−1 к входящему урону).",
     ability: {
       name: "Танковая засада",
-      stationaryTankAttackBonus: 2,
+      stationaryTankAttackBonus: 1,
       stationaryTankHpBonus: 1,
     },
     faction: "Красная армия",
@@ -443,10 +443,10 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "4-я танковая бригада · экипаж Лавриненко",
     type: "Танковый штаб",
     description:
-      "Танковая засада: танк, не двигавшийся в этом ходу, бьёт на +2 урона и крепче держит удар (−1 к входящему урону).",
+      "Танковая засада: танк, не двигавшийся в этом ходу, бьёт на +1 урона и крепче держит удар (−1 к входящему урону).",
     ability: {
       name: "Танковая засада",
-      stationaryTankAttackBonus: 2,
+      stationaryTankAttackBonus: 1,
       stationaryTankHpBonus: 1,
     },
     faction: "Красная армия",
@@ -476,7 +476,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     faction: "Красная армия",
     nation: "ussr",
     hp: 24,
-    attack: 1,
+    attack: 2,
     range: 99,
     fuelGeneration: 4,
     level: 5,
@@ -598,14 +598,14 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
 
   grossdeutschland: {
     id: "grossdeutschland",
-    title: "«Großdeutschland»",
-    subtitle: "Моторизованный пехотный полк «Великая Германия»",
+    title: "Großdeutschland",
+    subtitle: "Моторизованный пехотный полк Великая Германия",
     type: "Мотопехотный штаб",
     description:
-      "Combined Arms: пока на поле есть и танк, и юнит поддержки, штаб даёт +1 топлива в ход.",
+      "Несгибаемый полк: первый уничтоженный за бой свой юнит возвращается в руку — элиту так просто не перемолоть.",
     ability: {
-      name: "Combined Arms",
-      combinedArmsFuelBonus: 1,
+      name: "Несгибаемый полк",
+      returnFirstDestroyedUnit: true,
     },
     faction: "Wehrmacht",
     nation: "germany",

@@ -449,6 +449,7 @@ function createCampaignBattle(missionId: string): BattleState | null {
     backgroundId: campaignMission.mission.backgroundId ?? getRandomBattleBackgroundId(),
     playerBoardUnits: campaignMission.mission.playerBoardUnits,
     botBoardUnits: campaignMission.mission.botBoardUnits,
+    startingHandSize: campaignMission.mission.startingHandSize,
   });
 }
 
