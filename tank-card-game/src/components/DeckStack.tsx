@@ -74,7 +74,7 @@ const styles: Record<string, React.CSSProperties> = {
   deckCountBadge: {
     position: "absolute",
     left: 9,
-    bottom: 11,
+    top: 9,
     zIndex: 10,
     display: "block",
     padding: 0,

@@ -27,6 +27,7 @@ import {
 } from "../game/customDecks";
 import { getCardLevel, getHeadquartersWeight } from "../game/deckWeight";
 import {
+  getDeckBuildingHeadquarters,
   getHeadquartersDefinition,
   type HeadquartersDefinition,
 } from "../game/headquarters";
@@ -316,6 +317,7 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
+  const previewOpenedAtRef = useRef(0);
   const viewportRef = useRef<HTMLDivElement>(null);
   const panState = useRef({
     active: false,
@@ -453,8 +455,22 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
       });
   }, [collectionItems, nationFilter, sortMode, typeFilter]);
 
+  const totalCollectionItems = useMemo(() => {
+    const uniqueCardCount = new Set(cards.map((card) => card.id)).size;
+    const uniqueHeadquartersCount = new Set(
+      getDeckBuildingHeadquarters().map((headquarters) => headquarters.id)
+    ).size;
+
+    return uniqueCardCount + uniqueHeadquartersCount;
+  }, []);
+  const ownedCollectionCount = collectionItems.length;
+  const collectionProgressPercent =
+    totalCollectionItems > 0
+      ? Math.min(100, (ownedCollectionCount / totalCollectionItems) * 100)
+      : 0;
+
   function handlePanPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.pointerType !== "mouse" || event.button !== 0) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
 
     const viewport = viewportRef.current;
     if (!viewport) return;
@@ -484,6 +500,7 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
 
     if (!pan.moved) {
       pan.moved = true;
+      clearLongPressTimer();
       try {
         viewport.setPointerCapture(pan.pointerId);
       } catch {
@@ -494,6 +511,7 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
 
     viewport.scrollLeft = pan.scrollLeft - deltaX;
     viewport.scrollTop = pan.scrollTop - deltaY;
+    event.preventDefault();
   }
 
   function endPan(event: ReactPointerEvent<HTMLDivElement>) {
@@ -526,11 +544,17 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
   function openPreview(event: ReactMouseEvent, item: CollectionItem) {
     event.preventDefault();
     event.stopPropagation();
+    previewOpenedAtRef.current = Date.now();
     setPreviewItem(item);
   }
 
   function closePreview() {
     setPreviewItem(null);
+  }
+
+  function closePreviewFromBackdrop() {
+    if (Date.now() - previewOpenedAtRef.current < 450) return;
+    closePreview();
   }
 
   function clearLongPressTimer() {
@@ -554,6 +578,7 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
         clearLongPressTimer();
         longPressTimerRef.current = window.setTimeout(() => {
           longPressTriggeredRef.current = true;
+          previewOpenedAtRef.current = Date.now();
           setPreviewItem(item);
         }, CARD_PREVIEW_LONG_PRESS_MS);
       },
@@ -598,9 +623,7 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
           ‹
         </button>
         <h1 style={styles.title}>КОЛЛЕКЦИЯ</h1>
-        <div style={styles.counter}>
-          {visibleItems.length}/{collectionItems.length}
-        </div>
+        <div />
       </header>
 
       <section style={styles.filterPanel} aria-label="Фильтры коллекции">
@@ -633,6 +656,23 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
         </div>
       </section>
 
+      <section style={styles.progressPanel} aria-label="Прогресс коллекции">
+        <div style={styles.progressLabel}>
+          <span>Прогресс коллекции</span>
+          <strong>
+            {ownedCollectionCount}/{totalCollectionItems}
+          </strong>
+        </div>
+        <div style={styles.progressTrack}>
+          <div
+            style={{
+              ...styles.progressFill,
+              width: `${collectionProgressPercent}%`,
+            }}
+          />
+        </div>
+      </section>
+
       <section
         ref={viewportRef}
         style={styles.collectionViewport}
@@ -640,6 +680,7 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
         onPointerMove={handlePanPointerMove}
         onPointerUp={endPan}
         onPointerCancel={endPan}
+        onScroll={clearLongPressTimer}
         onClickCapture={handlePanClickCapture}
         aria-label="Карты коллекции"
       >
@@ -703,10 +744,10 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.16 }}
-              onMouseDown={closePreview}
+              onMouseDown={closePreviewFromBackdrop}
               onContextMenu={(event) => {
                 event.preventDefault();
-                closePreview();
+                closePreviewFromBackdrop();
               }}
             >
               <div style={{ ...stageOverlayTransform, display: "flex" }}>
@@ -1003,10 +1044,50 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: "0 0 15px rgba(226, 180, 67, 0.22)",
   },
 
+  progressPanel: {
+    position: "relative",
+    zIndex: 3,
+    width: "min(560px, calc(100% - 88px))",
+    margin: "0 auto 8px",
+    display: "grid",
+    gap: 6,
+  },
+
+  progressLabel: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    color: "#f3d993",
+    fontFamily: "var(--font-display)",
+    fontSize: 13,
+    fontWeight: 800,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    textShadow: "0 2px 8px rgba(0,0,0,0.86)",
+  },
+
+  progressTrack: {
+    position: "relative",
+    height: 10,
+    overflow: "hidden",
+    border: "1px solid rgba(214, 174, 81, 0.32)",
+    background:
+      "linear-gradient(180deg, rgba(12, 13, 10, 0.86), rgba(30, 25, 14, 0.72))",
+    boxShadow:
+      "inset 0 1px 5px rgba(0,0,0,0.72), 0 0 14px rgba(214, 174, 81, 0.08)",
+  },
+
+  progressFill: {
+    height: "100%",
+    background:
+      "linear-gradient(90deg, rgba(110, 141, 66, 0.88), rgba(230, 194, 86, 0.92))",
+    boxShadow: "0 0 16px rgba(226, 190, 75, 0.26)",
+  },
+
   collectionViewport: {
     position: "relative",
     zIndex: 3,
-    height: "calc(100cqh - 146px)",
+    height: "calc(100cqh - 190px)",
     margin: "0 22px",
     padding: "18px 22px 58px",
     overflowX: "hidden",
@@ -1016,7 +1097,7 @@ const styles: Record<string, CSSProperties> = {
     WebkitOverflowScrolling: "touch",
     cursor: "grab",
     userSelect: "none",
-    touchAction: "pan-x pan-y",
+    touchAction: "none",
     maskImage:
       "linear-gradient(180deg, transparent 0%, #000 34px, #000 calc(100% - 34px), transparent 100%)",
     WebkitMaskImage:
@@ -1035,7 +1116,7 @@ const styles: Record<string, CSSProperties> = {
     position: "relative",
     display: "grid",
     justifyItems: "center",
-    gap: 8,
+    gap: 2,
     padding: 0,
     border: "none",
     background: "transparent",
@@ -1043,6 +1124,9 @@ const styles: Record<string, CSSProperties> = {
     cursor: "default",
     font: "inherit",
     isolation: "isolate",
+    userSelect: "none",
+    WebkitUserSelect: "none",
+    WebkitTouchCallout: "none",
   },
 
   newCardGlow: {
@@ -1063,10 +1147,13 @@ const styles: Record<string, CSSProperties> = {
 
   itemMeta: {
     display: "flex",
+    flexDirection: "row-reverse",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    width: "100%",
+    justifyContent: "space-between",
+    width: 175,
+    maxWidth: "100%",
+    boxSizing: "border-box",
+    padding: "0 17px",
     color: "#f4dda5",
     fontFamily: "var(--font-display)",
     fontSize: 15,
@@ -1076,12 +1163,19 @@ const styles: Record<string, CSSProperties> = {
   },
 
   copyBadge: {
+    flex: "0 0 auto",
     minWidth: 34,
     textAlign: "right",
   },
 
   weightBadge: {
+    flex: "1 1 auto",
+    minWidth: 0,
     color: "#d7b764",
+    overflow: "hidden",
+    textAlign: "left",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
 
   emptyState: {

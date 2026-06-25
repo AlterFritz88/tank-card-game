@@ -666,7 +666,7 @@ function scoreAttackAction(
 
 function getSpgPositionScore(state: BattleState, position: Position): number {
   const isSpawnCell = isBotSpawnCell(position);
-  const isCentralSpawnCell = position.row === 1 && position.col === 3;
+  const isCentralSpawnCell = position.row === 1 && position.col === 4;
   const backEdgeBonus = position.row === 0 ? 12 : 0;
   const flankEdgeBonus = position.col === 4 ? 4 : 0;
 

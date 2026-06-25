@@ -4,6 +4,7 @@ import {
   DEFAULT_PLAYER_HEADQUARTERS_ID,
   getHeadquartersDefinition,
 } from "./headquarters";
+import { BOT_HQ_POSITION, PLAYER_HQ_POSITION } from "./engine";
 import { DEFAULT_BATTLE_BACKGROUND_ID } from "./battleBackgrounds";
 import type { BattleBackgroundId } from "./battleBackgrounds";
 import type {
@@ -1768,7 +1769,7 @@ function createHeadquarters(
   return {
     ownerId,
     headquartersId,
-    position: isPlayer ? { row: 2, col: 0 } : { row: 0, col: 4 },
+    position: isPlayer ? PLAYER_HQ_POSITION : BOT_HQ_POSITION,
 
     hp: headquarters.hp,
     attack: headquarters.attack,

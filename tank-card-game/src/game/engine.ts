@@ -19,19 +19,35 @@ const STEP_TIME_MS = 60 * 1000;
 const STARTING_HAND_SIZE = 5;
 const SECOND_PLAYER_EXTRA_STARTING_CARDS = 1;
 
-export const SUPPORT_SLOTS: SupportSlot[] = [0, 1, 2];
+export const SUPPORT_SLOTS: SupportSlot[] = [0, 1, 2, 3];
 
+// Spawn cells are now the three battlefield cells directly in front of the
+// headquarters — the player's front column (col 0) and the bot's front column
+// (col 4). The headquarters itself sits in the rear, one cell further out (see
+// createHeadquarters / PLAYER_HQ_POSITION).
 export const PLAYER_SPAWN_CELLS: Position[] = [
+  { row: 0, col: 0 },
   { row: 1, col: 0 },
-  { row: 1, col: 1 },
-  { row: 2, col: 1 },
+  { row: 2, col: 0 },
 ];
 
 export const BOT_SPAWN_CELLS: Position[] = [
-  { row: 0, col: 3 },
-  { row: 1, col: 3 },
+  { row: 0, col: 4 },
   { row: 1, col: 4 },
+  { row: 2, col: 4 },
 ];
+
+// The headquarters lives off the battlefield in the central rear cell, one
+// column behind its own spawn column. Chebyshev distance keeps every front-row
+// spawn cell adjacent to it, so a unit that breaks through to the enemy front
+// column can still melee the enemy headquarters.
+export const PLAYER_HQ_POSITION: Position = { row: 1, col: -1 };
+export const BOT_HQ_POSITION: Position = { row: 1, col: 5 };
+
+/** The battlefield's front column for a side — the column of its spawn cells. */
+export function getFrontColumn(playerId: PlayerId): number {
+  return playerId === "player" ? 0 : 4;
+}
 
 /** The four corner cells of the 3×5 battlefield (see «Огневая позиция»). */
 export const BOARD_CORNER_CELLS: Position[] = [
@@ -1289,9 +1305,6 @@ function getStationaryTankAttackBonus(
   if (!ability?.stationaryTankAttackBonus) return 0;
   if (!isBattlefieldUnit(unit)) return 0;
   if (!isTankClassCard(getCard(unit.cardId))) return 0;
-  // A tank deployed this turn has not been lying in ambush yet — no bonus until
-  // its owner's next turn.
-  if (unit.deployedThisTurn) return 0;
   if (unit.moveCountThisTurn > 0) return 0;
 
   return ability.stationaryTankAttackBonus;
@@ -1428,7 +1441,7 @@ function canUnitAttackTarget(
 }
 
 function canAttackTarget(
-  state: BattleState,
+  _state: BattleState,
   attacker: ReturnType<typeof getAttacker>,
   target: ReturnType<typeof getTarget>
 ): boolean {
@@ -1449,15 +1462,22 @@ function canAttackTarget(
 
     const attackerCard = getCard(attacker.cardId);
 
+    // An SPG reaches the rear from anywhere; otherwise a melee raider must have
+    // broken through to the defender's front column (its spawn cells) to strike
+    // the rear units sitting behind it.
     return (
       attackerCard.class === "spg" ||
-      attacker.position.col === state.headquarters[target.ownerId].position.col
+      isSpawnCell(target.ownerId, attacker.position)
     );
   }
 
   // «Маскировка»: only an adjacent enemy unit in melee may target this unit —
   // ranged fire, SPGs and the headquarters cannot. The cover is lost once the
   // unit has attacked (target.revealed).
+  if (!("cardId" in attacker) && !("cardId" in target)) {
+    return true;
+  }
+
   if (
     "cardId" in target &&
     isBattlefieldUnit(target) &&

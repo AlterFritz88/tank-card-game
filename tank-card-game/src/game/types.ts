@@ -48,7 +48,7 @@ export type TankRarity = "common" | "uncommon" | "rare";
 
 export type UnitZone = "battlefield" | "support";
 
-export type SupportSlot = 0 | 1 | 2;
+export type SupportSlot = 0 | 1 | 2 | 3;
 
 export type SupportRole = "artillery" | "transport" | "medical";
 

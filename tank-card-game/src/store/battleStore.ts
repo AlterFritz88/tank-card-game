@@ -176,6 +176,7 @@ type BattleStore = {
   }) => void;
   applyPvpMovementIntent: (intent: PvpMovementIntent) => void;
   applyPvpAttackIntent: (intent: PvpAttackIntent) => void;
+  surrenderBattle: () => void;
   surrenderPvpMatch: () => void;
   leavePvpMatch: () => void;
   cancelMatchmaking: () => void;
@@ -1671,6 +1672,34 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
             : state.pvpAttackIntent,
       }));
     }, intent.durationMs);
+  },
+
+  surrenderBattle: () => {
+    const state = get();
+
+    if (state.mode === "pvp") {
+      pvpClient.surrender();
+      return;
+    }
+
+    if (
+      !state.battle ||
+      state.battle.status === "player_won" ||
+      state.battle.status === "bot_won"
+    ) {
+      return;
+    }
+
+    set({
+      battle: {
+        ...(state.battle as BattleState),
+        status: "bot_won",
+      },
+      selectedCardInstanceId: null,
+      opponentSelectedCardInstanceId: null,
+      selectedAttacker: null,
+      firstTurnRoll: emptyFirstTurnRoll,
+    });
   },
 
   surrenderPvpMatch: () => {

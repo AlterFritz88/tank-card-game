@@ -1,5 +1,5 @@
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { getCard, getCardOrNull } from "../game/cards";
@@ -112,6 +112,9 @@ function samePosition(a: Position, b: Position): boolean {
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
+
+/** Gap (px) between battlefield cells — must match styles.board `gap`. */
+const BOARD_CELL_GAP = 4;
 
 function isPlayerSpawn(position: Position): boolean {
   return PLAYER_SPAWN_CELLS.some((cell) => samePosition(cell, position));
@@ -439,7 +442,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     reset,
     exitBattleToMenu,
     completeTrailerAndExit,
-    surrenderPvpMatch,
+    surrenderBattle,
     leavePvpMatch,
   } = battleStore;
 
@@ -738,6 +741,66 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     );
   }
 
+  function renderDeckAvatarStack(
+    owner: PlayerId,
+    placement: "player" | "enemy"
+  ) {
+    return (
+      <div
+        style={{
+          ...styles.deckAvatarStack,
+          ...(placement === "player"
+            ? styles.playerDeckAvatarStack
+            : styles.enemyDeckAvatarStack),
+        }}
+      >
+        {renderHeadquartersAvatar(owner, placement)}
+
+        <div
+          ref={(element) => {
+            deckRefs.current[owner] = element;
+          }}
+          style={styles.deckBelowAvatar}
+        >
+          <DeckStack
+            cardCount={getDeckCount(owner)}
+            countPosition={placement === "enemy" ? "right" : undefined}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Ник командира, выводимый в боковой колонке штаба (зелёный у игрока, красный
+  // у врага). Раньше показывался в тыловой полосе у поля; теперь живёт рядом с
+  // аватаром штаба.
+  function renderCommanderNick(owner: PlayerId) {
+    const isFriendly = owner === humanPlayerId;
+    const enemyHeadquartersTitle = getHeadquartersDefinition(
+      getHeadquartersIdForOwner(owner)
+    ).title;
+    const commanderName = isFriendly
+      ? missionPlayerCommanderName ?? localPlayerNickname
+      : mode === "pvp"
+        ? pvpOpponentNickname ?? enemyHeadquartersTitle
+        : enemyHeadquartersTitle;
+
+    if (!commanderName) return null;
+
+    return (
+      <span
+        style={{
+          ...styles.columnCommanderName,
+          ...(isFriendly
+            ? styles.playerColumnCommanderName
+            : styles.enemyColumnCommanderName),
+        }}
+      >
+        {commanderName}
+      </span>
+    );
+  }
+
   function getVisibleHand(owner: PlayerId): CardInstance[] {
     const hand = battle[owner].hand as ClientCardInstance[];
 
@@ -747,7 +810,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }
 
   function getStartRollFinalRotationForViewer(winner: PlayerId): number {
-    const targetAngle = winner === humanPlayerId ? 135 : -45;
+    // The cartridge settles strictly horizontal: pointing left toward the local
+    // player when they win, right toward the enemy otherwise.
+    const targetAngle = winner === humanPlayerId ? 180 : 0;
     return 360 * 8 + targetAngle;
   }
 
@@ -803,6 +868,26 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const previousBattleStatusRef = useRef<string | null>(null);
   const previousActivePlayerRef = useRef(battle.activePlayer);
   const boardRef = useRef<HTMLDivElement | null>(null);
+  // Rear-strip cells must match the live battlefield cell size. The board is a
+  // 5-column grid with a 4px gap, so a single cell is (width - 4*gap) / 5. We
+  // measure the board's layout width (transform-independent) and keep it in
+  // sync via a ResizeObserver so the rear column always lines up with the rows.
+  const [boardCellSize, setBoardCellSize] = useState(140);
+  useLayoutEffect(() => {
+    const board = boardRef.current;
+    if (!board) return;
+
+    const measure = () => {
+      const size = (board.offsetWidth - 4 * BOARD_CELL_GAP) / 5;
+      if (size > 0) setBoardCellSize(size);
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(board);
+
+    return () => observer.disconnect();
+  }, []);
   const objectRefs = useRef<Map<string, HTMLElement>>(new Map());
   const projectileIdRef = useRef(0);
   const explosionIdRef = useRef(0);
@@ -947,7 +1032,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const dispatchBattleActionRef = useRef<
     (
       action: BattleAction,
-      options?: { skipDamageEffects?: boolean }
+      options?: { skipDamageEffects?: boolean; skipAttackEffects?: boolean }
     ) => void
   >(
     () => undefined
@@ -1169,26 +1254,53 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }
 
   function handleSurrenderClick() {
+    const confirmedByPlayer = window.confirm(
+      "\u0421\u0434\u0430\u0442\u044c\u0441\u044f \u0438 \u0437\u0430\u0441\u0447\u0438\u0442\u0430\u0442\u044c \u043f\u043e\u0440\u0430\u0436\u0435\u043d\u0438\u0435?"
+    );
+    if (!confirmedByPlayer) return;
+
+    surrenderBattle();
+    return;
+
     const confirmed = window.confirm("Сдаться и засчитать поражение?");
     if (!confirmed) return;
 
-    surrenderPvpMatch();
+    surrenderBattle();
   }
 
-  function getPlayerHandCardMarginLeft(index: number, totalCards: number) {
-    if (index === 0) return 0;
+  function getPlayerHandSafeWidth() {
+    const boardWidth = boardCellSize * 5 + BOARD_CELL_GAP * 4;
 
-    if (totalCards <= 5) {
-      return 12;
+    return Math.max(HAND_CARD_WIDTH, boardWidth - 24);
+  }
+
+  function getPlayerHandSlotStep(totalCards: number) {
+    if (totalCards <= 1) return 0;
+
+    const naturalStep = 95;
+    const safeWidth = getPlayerHandSafeWidth();
+    const maxStep = (safeWidth - HAND_CARD_WIDTH) / (totalCards - 1);
+
+    return Math.max(4, Math.min(naturalStep, maxStep));
+  }
+
+  function getEnemyHandSafeWidth() {
+    const boardWidth = boardCellSize * 5 + BOARD_CELL_GAP * 4;
+
+    return Math.max(ENEMY_HAND_CARD_WIDTH, boardWidth - 24);
+  }
+
+  function getEnemyHandSlotStep(totalCards: number) {
+    if (totalCards <= 1) return 0;
+
+    const safeWidth = getEnemyHandSafeWidth();
+    const fullWidthStep = (safeWidth - ENEMY_HAND_CARD_WIDTH) / (totalCards - 1);
+
+    if (fullWidthStep >= ENEMY_HAND_CARD_WIDTH + 8) {
+      return fullWidthStep;
     }
 
-    const cardWidth = 175;
-    const maxHandWidth = 980;
-    const neededOverlap = Math.ceil(
-      (cardWidth * totalCards - maxHandWidth) / (totalCards - 1)
-    );
-
-    return -Math.min(148, Math.max(42, neededOverlap));
+    return Math.max(4, fullWidthStep);
   }
 
   function isNewlyDrawnCard(owner: PlayerId, cardInstanceId: string) {
@@ -1462,7 +1574,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     }
 
     const winner = tutorialActive ? "player" : getRandomLocalStartingPlayer();
-    const targetAngle = winner === "player" ? 135 : -45;
+    // Cartridge settles strictly horizontal — left for the local player, right
+    // for the enemy (see getStartRollFinalRotationForViewer).
+    const targetAngle = winner === humanPlayerId ? 180 : 0;
     const finalRotation = 360 * 8 + targetAngle;
 
     setStartRollState({
@@ -2217,7 +2331,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
   function dispatchBattleAction(
     action: BattleAction,
-    options: { skipDamageEffects?: boolean } = {}
+    options: { skipDamageEffects?: boolean; skipAttackEffects?: boolean } = {}
   ) {
     const shouldShowDamage =
       action.type === "ATTACK" ||
@@ -2237,7 +2351,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     const afterBattle = useBattleStore.getState().battle;
     if (!afterBattle) return;
 
-    if (beforeAttack) {
+    if (beforeAttack && !options.skipAttackEffects) {
       showAttackChangesFromSnapshots(beforeAttack, createAttackSnapshot(afterBattle));
     }
 
@@ -2274,7 +2388,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
   function dispatchQueuedBattleAction(
     action: BattleAction,
-    options: { skipDamageEffects?: boolean } = {}
+    options: { skipDamageEffects?: boolean; skipAttackEffects?: boolean } = {}
   ) {
     const {
       selectedCardInstanceId: currentCard,
@@ -2492,7 +2606,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       ? [intermediate, action.position]
       : [action.position];
 
-    for (const position of positions) {
+    for (let index = 0; index < positions.length; index += 1) {
+      const position = positions[index];
+      const isFollowUpLightStep = index > 0;
       const currentBattle =
         (useBattleStore.getState().battle as BattleState | null) ?? state;
       const movingUnit =
@@ -2535,9 +2651,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       }
 
       if (options.preserveLaterSelection) {
-        dispatchQueuedBattleAction(stepAction);
+        dispatchQueuedBattleAction(stepAction, {
+          skipAttackEffects: isFollowUpLightStep,
+        });
       } else {
-        dispatchBattleActionRef.current(stepAction);
+        dispatchBattleActionRef.current(stepAction, {
+          skipAttackEffects: isFollowUpLightStep,
+        });
       }
       await waitForNextFrame();
       await delay(MOVE_ARROW_FOLLOW_MS);
@@ -3346,28 +3466,76 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     return headquartersFuel + unitsFuel;
   }
 
-  function renderTimerPanel(owner: PlayerId) {
-    const timer = battle.timers?.[owner];
+  function renderTurnControlPanel(placement: "board" | "column" = "board") {
+    const activeOwner =
+      mode === "pvp"
+        ? pvpTimer.activePlayer ?? battle.activePlayer
+        : battle.activePlayer;
+    const timer = battle.timers?.[activeOwner];
     const pvpTimeLeftMs =
-      pvpTimer.activePlayer === owner ? pvpTimer.remainingMs : null;
+      pvpTimer.activePlayer === activeOwner ? pvpTimer.remainingMs : null;
     const displayedTimeLeftMs =
       mode === "pvp" ? pvpTimeLeftMs : timer?.stepTimeLeftMs ?? null;
+    const isLocalPlayer = activeOwner === humanPlayerId;
 
-    if (displayedTimeLeftMs === null) {
-      return mode === "pvp" ? <div style={styles.timerPanelPlaceholder} /> : null;
-    }
-
-    const active =
-      mode === "pvp" ? pvpTimer.activePlayer === owner : battle.activePlayer === owner;
-    const isLocalPlayer = owner === humanPlayerId;
-    const showPlayerReminder = isLocalPlayer && active;
+    if (displayedTimeLeftMs === null) return null;
 
     return (
-      <BattleTimerPanel
-        active={active}
-        showPlayerReminder={showPlayerReminder}
-        timeLeftMs={displayedTimeLeftMs}
-      />
+      <div
+        style={{
+          ...(placement === "column"
+            ? styles.turnControlPanelInline
+            : {
+                ...styles.turnControlPanel,
+                left: `calc(100% + ${boardCellSize + BOARD_CELL_GAP + 12}px)`,
+                top: `calc(50% + ${2 * (boardCellSize + BOARD_CELL_GAP)}px)`,
+              }),
+        }}
+      >
+        <div
+          style={{
+            ...styles.turnControlLabel,
+            ...(isLocalPlayer
+              ? styles.turnControlLabelPlayer
+              : styles.turnControlLabelEnemy),
+          }}
+        >
+          {isLocalPlayer ? "ХОД ИГРОКА" : "ХОД ВРАГА"}
+        </div>
+
+        <BattleTimerPanel
+          active
+          showPlayerReminder={false}
+          timeLeftMs={displayedTimeLeftMs}
+        />
+
+        <button
+          type="button"
+          className={
+            tutorialHighlights?.endTurn ? "tutorial-highlight-pulse" : undefined
+          }
+          style={{
+            ...styles.endTurnButton,
+            opacity: debugPaused || !isHumanTurn ? 0.45 : 1,
+            ...(tutorialHighlights
+              ? tutorialHighlights.endTurn
+                ? styles.tutorialHighlight
+                : styles.tutorialDimmedControl
+              : {}),
+          }}
+          aria-disabled={debugPaused || !isHumanTurn}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            enqueueBattleCommand(executeQueuedEndTurn);
+          }}
+        >
+          Конец хода
+        </button>
+      </div>
     );
   }
 
@@ -3428,52 +3596,174 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 function renderEnemyDeckWithTimer() {
   return (
     <div style={styles.enemyDeckWithTimer}>
-      <div style={styles.enemyDeckRow}>
-      <div
-  ref={(element) => {
-    deckRefs.current[opponentPlayerId] = element;
-  }}
-  style={styles.enemyDeckCompact}
->
-        <DeckStack
-          cardCount={getDeckCount(opponentPlayerId)}
-          countPosition="right"
-        />
-      </div>
-      {renderHeadquartersAvatar(opponentPlayerId, "enemy")}
-      </div>
+      {renderCommanderNick(opponentPlayerId)}
 
-      <div style={styles.enemyControlStack}>
-        {renderTimerPanel(opponentPlayerId)}
+      {renderDeckAvatarStack(opponentPlayerId, "enemy")}
 
+      <div style={styles.enemyFuelOnly}>
         <FuelPanel
           ownerId={getVisualOwnerId(opponentPlayerId)}
           currentFuel={battle[opponentPlayerId].resources}
           nextTurnFuel={getNextTurnFuel(opponentPlayerId)}
         />
-
-        <button
-          className={
-            tutorialHighlights?.endTurn ? "tutorial-highlight-pulse" : undefined
-          }
-          style={{
-            ...styles.endTurnButton,
-            opacity: debugPaused || !isHumanTurn ? 0.45 : 1,
-            ...(tutorialHighlights
-              ? tutorialHighlights.endTurn
-                ? styles.tutorialHighlight
-                : styles.tutorialDimmedControl
-              : {}),
-          }}
-          disabled={debugPaused || !isHumanTurn}
-          onClick={() => enqueueBattleCommand(executeQueuedEndTurn)}
-        >
-          Конец хода
-        </button>
       </div>
+
+      {renderTurnControlPanel("column")}
     </div>
   );
 }
+
+  // The headquarters now lives in the central cell of the rear strip (off the
+  // battlefield grid). Rendered here so it lines up with the middle board row
+  // and keeps all of its attack/targeting wiring.
+  function renderRearHqCell(owner: PlayerId) {
+    const hq = battle.headquarters[owner];
+    const hqId = `${owner}_hq`;
+    const canBeTarget = isTarget("headquarters", hqId);
+    const isAttacking = attackingId === hqId;
+    const hitReaction =
+      hitReactionEffect?.targetId === hqId ? hitReactionEffect : null;
+    const isSelected =
+      selectedAttacker?.type === "headquarters" && selectedAttacker.id === hqId;
+
+    return (
+      <motion.button
+        type="button"
+        ref={setObjectRef(objectRefs, hqId)}
+        key={hqId}
+        className={
+          tutorialHighlights && isTutorialHqHighlighted(owner)
+            ? "tutorial-highlight-pulse"
+            : undefined
+        }
+        style={{
+          ...styles.cell,
+          width: boardCellSize,
+          height: boardCellSize,
+          order: 2,
+          zIndex: 6,
+          ...styles.occupiedCell,
+          ...(owner === humanPlayerId ? styles.playerUnit : styles.botUnit),
+          ...(canBeTarget ? styles.targetCell : {}),
+          ...(tutorialHighlights
+            ? isTutorialHqHighlighted(owner)
+              ? styles.tutorialHighlight
+              : styles.tutorialDimmedBoard
+            : {}),
+        }}
+        initial={{ scale: 0.88, opacity: 0 }}
+        animate={{
+          scale: 1,
+          opacity: 1,
+          x: isAttacking
+            ? [0, 10, -6, 0]
+            : hitReaction
+              ? [0, hitReaction.x, -hitReaction.x * 0.32, 0]
+              : 0,
+          y: hitReaction ? [0, hitReaction.y, -hitReaction.y * 0.32, 0] : 0,
+        }}
+        exit={{ scale: 0.75, opacity: 0 }}
+        transition={
+          hitReaction
+            ? { duration: 0.34, ease: "easeOut" }
+            : { type: "spring", stiffness: 320, damping: 26 }
+        }
+        whileHover={{ scale: 1.03 }}
+        whileTap={{ scale: 0.97 }}
+        onMouseEnter={() => {
+          if (!canBeTarget) return;
+
+          setHoveredAttackTarget({ type: "headquarters", id: hqId });
+        }}
+        onMouseLeave={() => {
+          setHoveredAttackTarget((current) =>
+            current?.id === hqId ? null : current
+          );
+        }}
+        onMouseDown={preventPersistentBattleFocus}
+        onContextMenu={(event) =>
+          openCardPreview(event, {
+            type: "headquarters",
+            ownerId: owner,
+            headquartersId: getHeadquartersIdForOwner(owner),
+            hp: hq.hp,
+            attack: getHeadquartersAttackValue(battle as BattleState, owner),
+            fuelGeneration: hq.fuelGeneration,
+          })
+        }
+        {...longPressPreviewHandlers({
+          type: "headquarters",
+          ownerId: owner,
+          headquartersId: getHeadquartersIdForOwner(owner),
+          hp: hq.hp,
+          attack: getHeadquartersAttackValue(battle as BattleState, owner),
+          fuelGeneration: hq.fuelGeneration,
+        })}
+        onClick={() => {
+          if (debugPaused) return;
+          if (battle.status !== "active") return;
+          if (battle.activePlayer !== humanPlayerId) return;
+
+          if (canBeTarget) {
+            void handleAttackTarget("headquarters", hqId);
+            return;
+          }
+
+          if (owner === humanPlayerId) {
+            if (
+              selectedAttacker?.type === "headquarters" &&
+              selectedAttacker.id === `${humanPlayerId}_hq`
+            ) {
+              selectAttacker(null);
+            } else {
+              selectAttacker({
+                type: "headquarters",
+                id: `${humanPlayerId}_hq`,
+              });
+            }
+          }
+        }}
+      >
+        <motion.div
+          style={{ ...styles.boardCardContent, ...styles.rearHqCardContent }}
+          animate={{ opacity: hiddenDestroyedObjectIds.has(hqId) ? 0 : 1 }}
+          transition={{ duration: 0.18 }}
+        >
+          <HeadquartersCardView
+            ownerId={getVisualOwnerId(owner)}
+            headquartersId={getHeadquartersIdForOwner(owner)}
+            hp={hq.hp}
+            attack={getHeadquartersAttackValue(battle as BattleState, owner)}
+            fuelGeneration={hq.fuelGeneration}
+            alreadyAttacked={hq.alreadyAttacked}
+            healthDamageEffect={getHealthDamageEffect(hqId)}
+            healthGainEffect={getHealthGainEffect(hqId)}
+            attackChangeEffect={getAttackChangeEffect(hqId)}
+            healthPreviewValue={combatForecast.get(hqId)}
+          />
+
+          <AnimatePresence>
+            {attackEffectId === hqId && (
+              <motion.span
+                style={styles.explosionEffect}
+                initial={{ opacity: 0, scale: 0.2, rotate: 0 }}
+                animate={{
+                  opacity: [0, 1, 0.85, 0],
+                  scale: [0.2, 1.1, 1.6, 2.2],
+                  rotate: [0, 12, -8, 0],
+                }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+              />
+            )}
+          </AnimatePresence>
+        </motion.div>
+
+        {isSelected && <SelectedCombatObjectGlow />}
+        {canBeTarget && <AttackTargetGlow />}
+      </motion.button>
+    );
+  }
 
   function renderSupportLine(owner: PlayerId) {
     const selectedCard = selectedCardInstanceId
@@ -3493,31 +3783,26 @@ function renderEnemyDeckWithTimer() {
       : [];
 
     const isFriendly = owner === humanPlayerId;
-    // Под своим тылом пишем ник игрока (зеленым), над тылом противника — его ник
-    // (красным) в PVP, либо название штаба в PVE.
-    const enemyHeadquartersTitle = getHeadquartersDefinition(
-      getHeadquartersIdForOwner(owner)
-    ).title;
-    const commanderName = isFriendly
-      ? missionPlayerCommanderName ?? localPlayerNickname
-      : mode === "pvp"
-        ? pvpOpponentNickname ?? enemyHeadquartersTitle
-        : enemyHeadquartersTitle;
+    // Ник командира теперь живёт в боковой колонке штаба (renderCommanderNick),
+    // а не в тыловой полосе у поля боя.
+
+    // The rear strip is a vertical column of five board-sized cells centred on
+    // the middle battlefield row. Top→bottom it reads support 0, support 1,
+    // headquarters (центр), support 2, support 3 — slots 0 and 3 sit beyond the
+    // field's top/bottom edges, the rest line up with the three rows. CSS
+    // `order` interleaves the headquarters between the mapped support cells.
+    const rearStripOffset = boardCellSize + BOARD_CELL_GAP;
 
     return (
       <div
         style={{
           ...styles.supportLine,
-          ...(isFriendly ? styles.supportLineFriendly : styles.supportLineEnemy),
+          ...(isFriendly
+            ? { left: -rearStripOffset }
+            : { right: -rearStripOffset }),
         }}
       >
-        {!isFriendly && commanderName ? (
-          <span style={{ ...styles.commanderName, ...styles.enemyCommanderName }}>
-            {commanderName}
-          </span>
-        ) : null}
-
-        <span style={styles.supportLineLabel}>ТЫЛ</span>
+        {renderRearHqCell(owner)}
 
         {SUPPORT_SLOTS.map((supportSlot) => {
           const unit = battle.units.find(
@@ -3551,6 +3836,11 @@ function renderEnemyDeckWithTimer() {
               }
               style={{
                 ...styles.supportCell,
+                width: boardCellSize,
+                height: boardCellSize,
+                // Leave order 2 for the headquarters: slots 0,1 stay above it,
+                // slots 2,3 fall below it.
+                order: supportSlot < 2 ? supportSlot : supportSlot + 1,
                 ...(unit ? styles.supportUnitCell : {}),
                 ...(canPlace ? styles.supportCellAvailable : {}),
                 ...(canBeTarget ? styles.targetCell : {}),
@@ -3695,12 +3985,6 @@ function renderEnemyDeckWithTimer() {
             </motion.button>
           );
         })}
-
-        {isFriendly && commanderName ? (
-          <span style={{ ...styles.commanderName, ...styles.playerCommanderName }}>
-            {commanderName}
-          </span>
-        ) : null}
       </div>
     );
   }
@@ -3917,7 +4201,14 @@ function renderEnemyDeckWithTimer() {
   }}
   style={styles.enemyHand}
 >
-  <div style={styles.enemyHandClip}>
+  <div
+    style={{
+      ...styles.enemyHandClip,
+      width: getEnemyHandSafeWidth(),
+      minWidth: getEnemyHandSafeWidth(),
+      maxWidth: getEnemyHandSafeWidth(),
+    }}
+  >
     <div style={styles.enemyHandCardMask}>
       <AnimatePresence initial={false}>
         {battle[opponentPlayerId].hand.map((cardInstance, index) => {
@@ -3931,8 +4222,7 @@ function renderEnemyDeckWithTimer() {
           const isPulledCard = visibleOpponentPulledCardIndex === index;
           // Same animated-`x` slot positioning as the player hand (see there for
           // why framer `layout` is avoided under the scaled stage).
-          const slotX =
-            (index - handCenter) * (ENEMY_HAND_CARD_WIDTH - 48);
+          const slotX = (index - handCenter) * getEnemyHandSlotStep(handCount);
 
           return (
             <motion.div
@@ -3986,7 +4276,21 @@ function renderEnemyDeckWithTimer() {
 
         <section style={styles.centerBattleArea}>
          <aside style={styles.leftCommandPanel}>
-  {renderTimerPanel(humanPlayerId)}
+  {!tutorialActive &&
+  battle.status !== "player_won" &&
+  battle.status !== "bot_won" &&
+  !missionMinimalBattleControls ? (
+    <button
+      type="button"
+      style={styles.surrenderButton}
+      onClick={handleSurrenderClick}
+    >
+      <span style={styles.surrenderButtonText}>
+        {"\u0421\u0434\u0430\u0442\u044c\u0441\u044f"}
+      </span>
+      Ð¡Ð´Ð°Ñ‚ÑŒÑÑ
+    </button>
+  ) : null}
 
   <FuelPanel
     ownerId={getVisualOwnerId(humanPlayerId)}
@@ -3994,18 +4298,9 @@ function renderEnemyDeckWithTimer() {
     nextTurnFuel={getNextTurnFuel(humanPlayerId)}
   />
 
-  <div style={styles.playerDeckBottom}>
-    <div
-  ref={(element) => {
-    deckRefs.current[humanPlayerId] = element;
-  }}
-  style={styles.playerDeckOnly}
->
-  <DeckStack cardCount={getDeckCount(humanPlayerId)} />
-</div>
-  </div>
+  {renderDeckAvatarStack(humanPlayerId, "player")}
 
-  {renderHeadquartersAvatar(humanPlayerId, "player")}
+  {renderCommanderNick(humanPlayerId)}
 </aside>
 
           <section style={styles.boardShell}>
@@ -4082,10 +4377,13 @@ function renderEnemyDeckWithTimer() {
   )}
 </AnimatePresence>
 
-            {renderSupportLine(humanPlayerId)}
-            {renderSupportLine(opponentPlayerId)}
-
             <motion.div ref={boardRef} style={styles.board}>
+              {/* Rear strips live inside the board so they centre on the board's
+                  own middle row (boardShell is stretched taller by the side
+                  panels, so positioning against it would offset the column). */}
+              {renderSupportLine(humanPlayerId)}
+              {renderSupportLine(opponentPlayerId)}
+
               {renderStartRollOverlay()}
 
               <AnimatePresence>
@@ -4333,16 +4631,6 @@ function renderEnemyDeckWithTimer() {
                     isBattlefieldUnit(item) && samePosition(item.position, position)
                   );
 
-                  const isPlayerHq = samePosition(
-                    battle.headquarters.player.position,
-                    position
-                  );
-
-                  const isBotHq = samePosition(
-                    battle.headquarters.bot.position,
-                    position
-                  );
-
                   const playerSpawn = isPlayerSpawn(position);
                   const botSpawn = isBotSpawn(position);
                   const ownSpawn =
@@ -4554,191 +4842,6 @@ function renderEnemyDeckWithTimer() {
                     );
                   }
 
-                  if (isPlayerHq || isBotHq) {
-                    const owner = isPlayerHq ? "player" : "bot";
-                    const hq = battle.headquarters[owner];
-                    const hqId = `${owner}_hq`;
-                    const canBeTarget = isTarget("headquarters", hqId);
-                    const isAttacking = attackingId === hqId;
-                    const hitReaction =
-                      hitReactionEffect?.targetId === hqId
-                        ? hitReactionEffect
-                        : null;
-                    const isSelected =
-                      selectedAttacker?.type === "headquarters" &&
-                      selectedAttacker.id === hqId;
-                    return (
-                      <motion.button
-                        type="button"
-                        ref={setObjectRef(objectRefs, hqId)}
-                        layout
-                        layoutId={hqId}
-                        key={hqId}
-                        className={
-                          tutorialHighlights && isTutorialHqHighlighted(owner)
-                            ? "tutorial-highlight-pulse"
-                            : undefined
-                        }
-                        style={{
-                          ...styles.cell,
-                          zIndex: 6,
-                          ...(ownSpawn ? styles.spawnCell : {}),
-                          ...(enemySpawn ? styles.botSpawnCell : {}),
-                          ...styles.occupiedCell,
-                          ...(owner === humanPlayerId
-                            ? styles.playerUnit
-                            : styles.botUnit),
-                          ...(canBeTarget ? styles.targetCell : {}),
-                          ...(tutorialHighlights
-                            ? isTutorialHqHighlighted(owner)
-                              ? styles.tutorialHighlight
-                              : styles.tutorialDimmedBoard
-                            : {}),
-                        }}
-                        initial={{ scale: 0.88, opacity: 0 }}
-                        animate={{
-                          scale: 1,
-                          opacity: 1,
-                          x: isAttacking
-                            ? [0, 10, -6, 0]
-                            : hitReaction
-                              ? [0, hitReaction.x, -hitReaction.x * 0.32, 0]
-                              : 0,
-                          y: hitReaction
-                            ? [0, hitReaction.y, -hitReaction.y * 0.32, 0]
-                            : 0,
-                        }}
-                        exit={{ scale: 0.75, opacity: 0 }}
-                        transition={
-                          hitReaction
-                            ? { duration: 0.34, ease: "easeOut" }
-                            : {
-                                type: "spring",
-                                stiffness: 320,
-                                damping: 26,
-                              }
-                        }
-                        whileHover={{ scale: 1.03 }}
-                        whileTap={{ scale: 0.97 }}
-                        onMouseEnter={() => {
-                          if (!canBeTarget) return;
-
-                          setHoveredAttackTarget({
-                            type: "headquarters",
-                            id: hqId,
-                          });
-                        }}
-                        onMouseLeave={() => {
-                          setHoveredAttackTarget((current) =>
-                            current?.id === hqId ? null : current
-                          );
-                        }}
-                        onMouseDown={preventPersistentBattleFocus}
-                        onContextMenu={(event) =>
-                          openCardPreview(event, {
-                            type: "headquarters",
-                            ownerId: owner,
-                            headquartersId: getHeadquartersIdForOwner(owner),
-                            hp: hq.hp,
-                            attack: getHeadquartersAttackValue(
-                              battle as BattleState,
-                              owner
-                            ),
-                            fuelGeneration: hq.fuelGeneration,
-                          })
-                        }
-                        {...longPressPreviewHandlers({
-                          type: "headquarters",
-                          ownerId: owner,
-                          headquartersId: getHeadquartersIdForOwner(owner),
-                          hp: hq.hp,
-                          attack: getHeadquartersAttackValue(
-                            battle as BattleState,
-                            owner
-                          ),
-                          fuelGeneration: hq.fuelGeneration,
-                        })}
-                        onClick={() => {
-                          if (debugPaused) return;
-                          if (battle.status !== "active") return;
-                          if (battle.activePlayer !== humanPlayerId) return;
-
-                          if (canBeTarget) {
-                            void handleAttackTarget("headquarters", hqId);
-                            return;
-                          }
-
-                          if (owner === humanPlayerId) {
-                            // Toggle: clicking the HQ again while it is selected clears the selection
-                            if (selectedAttacker?.type === "headquarters" &&
-                                selectedAttacker.id === `${humanPlayerId}_hq`) {
-                              selectAttacker(null);
-                            } else {
-                              selectAttacker({
-                                type: "headquarters",
-                                id: `${humanPlayerId}_hq`,
-                              });
-                            }
-                          }
-                        }}
-                      >
-                        {ownSpawn || enemySpawn ? (
-                          <span
-                            style={{
-                              ...styles.occupiedSpawnCellTint,
-                              ...(ownSpawn
-                                ? styles.occupiedFriendlySpawnCellTint
-                                : styles.occupiedEnemySpawnCellTint),
-                            }}
-                          />
-                        ) : null}
-
-                        <motion.div
-                          style={styles.boardCardContent}
-                          animate={{
-                            opacity: hiddenDestroyedObjectIds.has(hqId) ? 0 : 1,
-                          }}
-                          transition={{ duration: 0.18 }}
-                        >
-                          <HeadquartersCardView
-                            ownerId={getVisualOwnerId(owner)}
-                            headquartersId={getHeadquartersIdForOwner(owner)}
-                            hp={hq.hp}
-                            attack={getHeadquartersAttackValue(
-                              battle as BattleState,
-                              owner
-                            )}
-                            fuelGeneration={hq.fuelGeneration}
-                            alreadyAttacked={hq.alreadyAttacked}
-                            healthDamageEffect={getHealthDamageEffect(hqId)}
-                            healthGainEffect={getHealthGainEffect(hqId)}
-                            attackChangeEffect={getAttackChangeEffect(hqId)}
-                            healthPreviewValue={combatForecast.get(hqId)}
-                          />
-
-                          <AnimatePresence>
-                            {attackEffectId === hqId && (
-                              <motion.span
-                                style={styles.explosionEffect}
-                                initial={{ opacity: 0, scale: 0.2, rotate: 0 }}
-                                animate={{
-                                  opacity: [0, 1, 0.85, 0],
-                                  scale: [0.2, 1.1, 1.6, 2.2],
-                                  rotate: [0, 12, -8, 0],
-                                }}
-                                exit={{ opacity: 0 }}
-                                transition={{ duration: 0.5 }}
-                              />
-                            )}
-                          </AnimatePresence>
-                        </motion.div>
-
-                        {isSelected && <SelectedCombatObjectGlow />}
-                        {canBeTarget && <AttackTargetGlow />}
-                      </motion.button>
-                    );
-                  }
-
                   const moveCell =
                     isMoveCell(position) &&
                     (!tutorialRestrictsMove ||
@@ -4876,7 +4979,7 @@ function renderEnemyDeckWithTimer() {
               </button>
             ) : null}
 
-            {mode === "pvp" && battle.status === "active" ? (
+            {false && mode === "pvp" && battle.status === "active" ? (
               <button
                 type="button"
                 style={styles.surrenderButton}
@@ -4886,13 +4989,13 @@ function renderEnemyDeckWithTimer() {
               </button>
             ) : null}
 
-            {!tutorialActive && mode !== "pvp" && !missionMinimalBattleControls ? (
+            {false && !tutorialActive && mode !== "pvp" && !missionMinimalBattleControls ? (
               <button style={styles.secondaryButton} onClick={reset}>
                 Новый бой
               </button>
             ) : null}
 
-            {mode !== "pvp" && !missionMinimalBattleControls ? (
+            {false && mode !== "pvp" && !missionMinimalBattleControls ? (
               <button
                 type="button"
                 style={styles.secondaryButton}
@@ -4909,7 +5012,14 @@ function renderEnemyDeckWithTimer() {
         <section style={styles.playerZone}>
   
 
-          <div style={styles.playerHandViewport}>
+          <div
+            style={{
+              ...styles.playerHandViewport,
+              width: getPlayerHandSafeWidth(),
+              minWidth: getPlayerHandSafeWidth(),
+              maxWidth: getPlayerHandSafeWidth(),
+            }}
+          >
             <div
   ref={(element) => {
     handRefs.current[humanPlayerId] = element;
@@ -4955,9 +5065,7 @@ function renderEnemyDeckWithTimer() {
                 // that — framer interpolates the value directly. The slot math
                 // mirrors the previous margin layout so resting positions match.
                 const handCount = localHand.length;
-                const slotStep =
-                  HAND_CARD_WIDTH +
-                  getPlayerHandCardMarginLeft(1, handCount);
+                const slotStep = getPlayerHandSlotStep(handCount);
                 const slotX = (index - (handCount - 1) / 2) * slotStep;
 
                 return (
@@ -5418,7 +5526,11 @@ const styles: Record<string, React.CSSProperties> = {
   alignItems: "flex-start",
   overflow: "hidden",
   position: "relative",
-  transform: "translateY(-18px)",
+  // Hands are centred on the full game table, but the board sits ~74px right of
+  // that centre (asymmetric 150/300 side panels). Shift left by 74px so the hand
+  // lands centred between the rear strip's left/right protruding cells (= board
+  // centre). translateY(-18px) keeps the original vertical nudge.
+  transform: "translate(-24px, -18px)",
   zIndex: 20,
   background: "transparent",
   border: "none",
@@ -5542,29 +5654,41 @@ enemyHandCardSlot: {
   leftCommandPanel: {
   display: "flex",
   flexDirection: "column",
-  gap: 10,
+  gap: 8,
+  alignItems: "center",
   justifyContent: "flex-start",
   alignSelf: "stretch",
   minHeight: 0,
   transform: "translateX(-22px)",
+  // Колонка штаба прозрачна для кликов: аватар/колода/ник пропускают нажатия на
+  // тыловые ячейки поля, перекрываемые этой колонкой. Интерактивные кнопки
+  // (сдаться) сами включают pointerEvents:auto.
+  pointerEvents: "none",
 },
 
   rightCommandPanel: {
   display: "grid",
   gridTemplateColumns: "190px 96px",
   gap: 10,
-  alignItems: "start",
-  alignSelf: "start",
-  zIndex: 10,
+  alignItems: "stretch",
+  alignSelf: "stretch",
+  zIndex: 140,
+  // Прозрачна для кликов (как и колонка игрока): аватар/колода/топливо/ник
+  // пропускают нажатия на тыловые ячейки врага под ними. Кликаются только
+  // кнопки (конец хода, пауза), включающие pointerEvents:auto у себя.
+  pointerEvents: "none",
 },
 
 enemySideColumn: {
   display: "flex",
   flexDirection: "column",
-  alignItems: "stretch",
+  alignItems: "center",
   gap: 8,
+  height: "100%",
+  minHeight: 0,
   transform: "translate(70px, -74px)",
-  zIndex: 30,
+  zIndex: 240,
+  pointerEvents: "none",
 },
 
 actionSideColumn: {
@@ -5576,9 +5700,11 @@ actionSideColumn: {
   justifyContent: "flex-start",
   marginTop: 184,
   zIndex: 60,
+  pointerEvents: "none",
 },
   boardShell: {
     position: "relative",
+    zIndex: 20,
     padding: 0,
     maxWidth: 720,
     justifySelf: "center",
@@ -5595,6 +5721,10 @@ actionSideColumn: {
     pointerEvents: "none",
   },
 
+  // Vertical rear column, centred on the middle battlefield row so the five
+  // cells straddle the three rows symmetrically (the headquarters cell lands on
+  // the centre row). The horizontal offset is applied inline from the measured
+  // cell size. Gap matches the board's BOARD_CELL_GAP.
   supportLine: {
     position: "absolute",
     top: "50%",
@@ -5602,27 +5732,7 @@ actionSideColumn: {
     display: "flex",
     flexDirection: "column",
     gap: 4,
-    transform: "translateY(calc(-50% - 85px))",
-  },
-
-  supportLineFriendly: {
-    left: -101,
-  },
-
-  supportLineEnemy: {
-    right: -101,
-  },
-
-  supportLineLabel: {
-    alignSelf: "center",
-    color: "rgba(228, 218, 184, 0.56)",
-    fontFamily: "var(--font-display)",
-    fontSize: 9,
-    fontWeight: 700,
-    letterSpacing: 0.8,
-    lineHeight: 1,
-    textShadow: "0 1px 3px rgba(0,0,0,0.9)",
-    pointerEvents: "none",
+    transform: "translateY(-50%)",
   },
 
   // Имя командира выводится за пределами потока тыловой колонки, чтобы не
@@ -5705,6 +5815,7 @@ actionSideColumn: {
   gridTemplateColumns: "repeat(5, minmax(127px, 1fr))",
   gap: 4,
   alignItems: "stretch",
+  transform: "translate(40px, 65px)",
 },
 
   tacticalArrowWrap: {
@@ -5787,6 +5898,10 @@ actionSideColumn: {
     height: "100%",
     minHeight: 0,
     zIndex: 1,
+  },
+
+  rearHqCardContent: {
+    pointerEvents: "none",
   },
 
   supportCardContent: {
@@ -5938,8 +6053,13 @@ actionSideColumn: {
   background: "transparent",
   border: "none",
   boxShadow: "none",
-  transform: "translateY(-210px)",
+  transform: "translateY(-260px)",
   overflow: "visible",
+  // Поднятая рука игрока перекрывает своей (пустой) областью кнопку «Конец хода»
+  // снизу колонки штаба. Делаем секцию прозрачной для кликов, а сами карты руки
+  // (playerHandViewport) снова включают pointerEvents:auto — пустое место руки
+  // пропускает нажатие на кнопку под ним.
+  pointerEvents: "none",
 },
 
   timerPanelPlaceholder: {
@@ -5980,8 +6100,14 @@ actionSideColumn: {
     maxWidth: 980,
     margin: "0 auto",
     overflow: "visible",
+    pointerEvents: "auto",
     display: "flex",
     justifyContent: "center",
+    // Centre the hand between the rear strip's lower protruding cells (= board
+    // centre, ~74px left of the game-table centre), then drop it 4px. Use
+    // translate(x, y) — NOT translateX, which only takes one value: 1st value is
+    // screen-vertical (larger = lower), 2nd is screen-horizontal.
+    transform: "translate(-60px, 0px)",
   },
 
   card: {
@@ -6020,9 +6146,9 @@ actionSideColumn: {
   borderRadius: 12,
   background: "rgba(7, 9, 9, 0.62)",
   border: "1px solid rgba(255,255,255,0.08)",
-},
+  },
   playerDeckBottom: {
-    marginTop: 3,
+    marginTop: 12,
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
@@ -6041,6 +6167,7 @@ actionSideColumn: {
   },
   headquartersAvatar: {
     position: "relative",
+    zIndex: 2,
     display: "block",
     overflow: "hidden",
     pointerEvents: "none",
@@ -6096,24 +6223,77 @@ actionSideColumn: {
     alignSelf: "center",
     width: 164,
     height: 226,
-    marginTop: -24,
+    marginTop: 0,
     overflow: "visible",
   },
   enemyHeadquartersAvatar: {
     flex: "0 0 auto",
     width: 164,
     height: 226,
-    marginTop: -5,
+    marginTop: 0,
   },
   cardsLeftInfo: {
     display: "none",
   },
+  // Аватар штаба и колода теперь стоят вертикально: аватар сверху, колода под
+  // ним (а не за ним). Высота автоматическая, чтобы блок занимал ровно столько,
+  // сколько нужно аватару + колоде.
+  deckAvatarStack: {
+    position: "relative",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 0,
+    overflow: "visible",
+    isolation: "isolate",
+  },
+  playerDeckAvatarStack: {
+    marginTop: 0,
+  },
+  enemyDeckAvatarStack: {
+    marginBottom: 2,
+  },
+  // Колода прямо под аватаром штаба; небольшой отрицательный отступ заводит её
+  // под нижний (затухающий) край маски аватара, чтобы они читались единым блоком.
+  deckBelowAvatar: {
+    position: "relative",
+    marginTop: -26,
+    pointerEvents: "none",
+    filter: "drop-shadow(0 12px 18px rgba(0,0,0,0.55))",
+  },
+  // Ник командира в боковой колонке штаба (под аватаром у игрока, над аватаром
+  // у врага). Управление положением — порядком в колонке, не абсолютным.
+  columnCommanderName: {
+    fontFamily: "var(--font-display)",
+    fontSize: 15,
+    fontWeight: 800,
+    letterSpacing: 0.5,
+    lineHeight: 1.1,
+    textAlign: "center",
+    whiteSpace: "nowrap",
+    pointerEvents: "none",
+  },
+  playerColumnCommanderName: {
+    color: "#7dff8a",
+    textShadow: "0 2px 4px rgba(0,0,0,0.92), 0 0 12px rgba(125,255,138,0.45)",
+  },
+  enemyColumnCommanderName: {
+    color: "#ff6b6b",
+    textShadow: "0 2px 4px rgba(0,0,0,0.92), 0 0 12px rgba(255,107,107,0.45)",
+  },
   enemyDeckWithTimer: {
-  width: "100%",
+  position: "relative",
+  width: 164,
+  flex: 1,
+  minHeight: 0,
   display: "flex",
   flexDirection: "column",
-  alignItems: "stretch",
-  gap: 5,
+  alignItems: "center",
+  justifyContent: "flex-start",
+  gap: 8,
+  zIndex: 360,
+  pointerEvents: "none",
 },
   enemyDeckRow: {
     display: "flex",
@@ -6127,12 +6307,58 @@ actionSideColumn: {
     transform: "translateX(54px)",
 },
   enemyControlStack: {
-    display: "flex",
+    display: "none",
     flexDirection: "column",
     alignItems: "stretch",
     gap: 5,
     transform: "translateX(-78px)",
     marginTop: -85,
+  },
+  enemyFuelOnly: {
+    width: 118,
+    alignSelf: "center",
+    transform: "none",
+    zIndex: 32,
+  },
+  turnControlPanel: {
+    position: "absolute",
+    width: 118,
+    transform: "translateY(-50%)",
+    zIndex: 650,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 0,
+    pointerEvents: "auto",
+  },
+  turnControlPanelInline: {
+    position: "relative",
+    width: 118,
+    zIndex: 900,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 0,
+    // Прижимаем таймер и «Конец хода» к низу колонки штаба врага.
+    marginTop: "auto",
+    pointerEvents: "auto",
+  },
+  turnControlLabel: {
+    fontFamily: "var(--font-display)",
+    fontSize: 13,
+    fontWeight: 900,
+    letterSpacing: 1.1,
+    lineHeight: 1,
+    textAlign: "center",
+    textTransform: "uppercase",
+    textShadow: "0 2px 5px rgba(0,0,0,0.92), 0 0 12px rgba(0,0,0,0.8)",
+    whiteSpace: "nowrap",
+  },
+  turnControlLabelPlayer: {
+    color: "#89ff96",
+  },
+  turnControlLabelEnemy: {
+    color: "#ff6f68",
   },
   enemyDeckCompact: {
     minHeight: 132,
@@ -6250,6 +6476,9 @@ turnCounterValue: {
 },
 
   endTurnButton: {
+    position: "relative",
+    zIndex: 1,
+    pointerEvents: "auto",
     alignSelf: "center",
     width: 86,
     height: 86,
@@ -6270,7 +6499,7 @@ turnCounterValue: {
     lineHeight: 1.12,
     textShadow: "0 1px 0 rgba(255,235,176,0.34)",
     boxShadow: "none",
-    marginTop: 58,
+    marginTop: 0,
   },
 
   secondaryButton: {
@@ -6295,6 +6524,7 @@ turnCounterValue: {
   pauseButton: {
     width: 98,
     minHeight: 40,
+    pointerEvents: "auto",
     border: "none",
     borderRadius: 0,
     backgroundColor: "transparent",
@@ -6323,6 +6553,7 @@ turnCounterValue: {
 
   surrenderButton: {
     width: 92,
+    pointerEvents: "auto",
     border: "none",
     borderRadius: 0,
     backgroundColor: "transparent",
@@ -6333,12 +6564,18 @@ turnCounterValue: {
     backgroundBlendMode: "color, normal",
     color: "#ffd0d0",
     padding: "9px 10px 10px",
+    fontSize: 0,
     fontWeight: 900,
     cursor: "pointer",
     textTransform: "uppercase",
     letterSpacing: 0.8,
     textShadow: "0 2px 0 rgba(0,0,0,0.84)",
     boxShadow: "none",
+  },
+
+  surrenderButtonText: {
+    fontSize: 12,
+    lineHeight: 1,
   },
 
   actionHint: {
