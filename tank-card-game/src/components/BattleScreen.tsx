@@ -754,19 +754,24 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
             : styles.enemyDeckAvatarStack),
         }}
       >
-        {renderHeadquartersAvatar(owner, placement)}
-
         <div
           ref={(element) => {
             deckRefs.current[owner] = element;
           }}
-          style={styles.deckBelowAvatar}
+          style={{
+            ...styles.deckBehindAvatar,
+            ...(placement === "player"
+              ? styles.playerDeckBehindAvatar
+              : styles.enemyDeckBehindAvatar),
+          }}
         >
           <DeckStack
             cardCount={getDeckCount(owner)}
             countPosition={placement === "enemy" ? "right" : undefined}
           />
         </div>
+
+        {renderHeadquartersAvatar(owner, placement)}
       </div>
     );
   }
@@ -1016,7 +1021,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   // Where the finger first touched, so micro-jitter while holding does not abort
   // the pending peek (only a deliberate drag past the tolerance does).
   const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
-  const [debugPaused, setDebugPaused] = useState(false);
+  const [debugPaused] = useState(false);
   const [battleReward, setBattleReward] = useState<BattleReward | null>(null);
   const [rewardClaimStatus, setRewardClaimStatus] =
     useState<RewardClaimStatus>("idle");
@@ -1293,14 +1298,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   function getEnemyHandSlotStep(totalCards: number) {
     if (totalCards <= 1) return 0;
 
+    // Фиксированный «естественный» шаг (как у руки игрока): карты держатся
+    // кучно по центру своей области и только при большом числе сжимаются, а не
+    // разъезжаются по краям при добавлении новых карт.
+    const naturalStep = 52;
     const safeWidth = getEnemyHandSafeWidth();
-    const fullWidthStep = (safeWidth - ENEMY_HAND_CARD_WIDTH) / (totalCards - 1);
+    const maxStep = (safeWidth - ENEMY_HAND_CARD_WIDTH) / (totalCards - 1);
 
-    if (fullWidthStep >= ENEMY_HAND_CARD_WIDTH + 8) {
-      return fullWidthStep;
-    }
-
-    return Math.max(4, fullWidthStep);
+    return Math.max(4, Math.min(naturalStep, maxStep));
   }
 
   function isNewlyDrawnCard(owner: PlayerId, cardInstanceId: string) {
@@ -3450,17 +3455,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   function getNextTurnFuel(owner: PlayerId): number {
     const headquartersFuel = battle.headquarters[owner].fuelGeneration;
 
+    // Топливо дают только тыловые юниты и штаб (юниты на поле боя — нет).
     const unitsFuel = battle.units
       .filter((unit) => unit.ownerId === owner)
       .reduce((sum, unit) => {
-        const card = getCard(unit.cardId);
+        if (!isSupportUnit(unit)) return sum;
 
-        return (
-          sum +
-          (isSupportUnit(unit)
-            ? card.supportEffects?.fuelPerTurn ?? 0
-            : card.fuelGeneration)
-        );
+        const card = getCard(unit.cardId);
+        return sum + (card.supportEffects?.fuelPerTurn ?? 0);
       }, 0);
 
     return headquartersFuel + unitsFuel;
@@ -3644,6 +3646,11 @@ function renderEnemyDeckWithTimer() {
           zIndex: 6,
           ...styles.occupiedCell,
           ...(owner === humanPlayerId ? styles.playerUnit : styles.botUnit),
+          // Тыловые клетки без чёрной рамки/тёмной заливки — карта штаба заполняет
+          // ячейку сама, подсветка цели рисуется отдельным свечением.
+          border: "none",
+          boxShadow: "none",
+          background: "transparent",
           ...(canBeTarget ? styles.targetCell : {}),
           ...(tutorialHighlights
             ? isTutorialHqHighlighted(owner)
@@ -4045,6 +4052,19 @@ function renderEnemyDeckWithTimer() {
       />
       <div style={styles.vignette} />
 
+      {!tutorialActive &&
+      battle.status !== "player_won" &&
+      battle.status !== "bot_won" &&
+      !missionMinimalBattleControls ? (
+        <button
+          type="button"
+          style={{ ...styles.surrenderButton, ...styles.surrenderCornerPos }}
+          onClick={handleSurrenderClick}
+        >
+          <span style={styles.surrenderButtonText}>Сдаться</span>
+        </button>
+      ) : null}
+
       <AnimatePresence>
         {debugPaused && (
           <motion.div
@@ -4276,27 +4296,13 @@ function renderEnemyDeckWithTimer() {
 
         <section style={styles.centerBattleArea}>
          <aside style={styles.leftCommandPanel}>
-  {!tutorialActive &&
-  battle.status !== "player_won" &&
-  battle.status !== "bot_won" &&
-  !missionMinimalBattleControls ? (
-    <button
-      type="button"
-      style={styles.surrenderButton}
-      onClick={handleSurrenderClick}
-    >
-      <span style={styles.surrenderButtonText}>
-        {"\u0421\u0434\u0430\u0442\u044c\u0441\u044f"}
-      </span>
-      Ð¡Ð´Ð°Ñ‚ÑŒÑÑ
-    </button>
-  ) : null}
-
-  <FuelPanel
-    ownerId={getVisualOwnerId(humanPlayerId)}
-    currentFuel={battle[humanPlayerId].resources}
-    nextTurnFuel={getNextTurnFuel(humanPlayerId)}
-  />
+  <div style={styles.playerFuelNearDeck}>
+    <FuelPanel
+      ownerId={getVisualOwnerId(humanPlayerId)}
+      currentFuel={battle[humanPlayerId].resources}
+      nextTurnFuel={getNextTurnFuel(humanPlayerId)}
+    />
+  </div>
 
   {renderDeckAvatarStack(humanPlayerId, "player")}
 
@@ -4966,19 +4972,6 @@ function renderEnemyDeckWithTimer() {
   </div>
 
   <div style={styles.actionSideColumn}>
-            {!tutorialActive && mode !== "pvp" ? (
-              <button
-                type="button"
-                style={{
-                  ...styles.pauseButton,
-                  ...(debugPaused ? styles.pauseButtonActive : {}),
-                }}
-                onClick={() => setDebugPaused((current) => !current)}
-              >
-                {debugPaused ? "Продолжить" : "Пауза"}
-              </button>
-            ) : null}
-
             {false && mode === "pvp" && battle.status === "active" ? (
               <button
                 type="button"
@@ -5520,21 +5513,24 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   enemyHand: {
-  height: 96,
+  height: 196,
   display: "flex",
   justifyContent: "center",
   alignItems: "flex-start",
-  overflow: "hidden",
+  overflow: "visible",
   position: "relative",
   // Hands are centred on the full game table, but the board sits ~74px right of
   // that centre (asymmetric 150/300 side panels). Shift left by 74px so the hand
   // lands centred between the rear strip's left/right protruding cells (= board
   // centre). translateY(-18px) keeps the original vertical nudge.
-  transform: "translate(-24px, -18px)",
+  transform: "translate(-24px, 8px)",
   zIndex: 20,
   background: "transparent",
   border: "none",
   boxShadow: "none",
+  // Рука врага (рубашки карт) — некликабельна, поэтому пропускаем клики: её
+  // полоса у края экрана перекрывала правый край верхних тыловых ячеек.
+  pointerEvents: "none",
 },
 
 startRollOverlay: {
@@ -5608,8 +5604,8 @@ startRollResultBot: {
 },
 
 enemyHandClip: {
-  height: 96,
-  overflow: "hidden",
+  height: 196,
+  overflow: "visible",
   position: "relative",
   width: "min(560px, calc(100cqw - 260px))",
   minWidth: 260,
@@ -5622,7 +5618,7 @@ enemyHandCardMask: {
   display: "flex",
   justifyContent: "center",
   alignItems: "flex-start",
-  transform: "translateY(-78px)",
+  transform: "translateY(-68px)",
   paddingLeft: 58,
   paddingRight: 58,
 },
@@ -5656,10 +5652,13 @@ enemyHandCardSlot: {
   flexDirection: "column",
   gap: 8,
   alignItems: "center",
-  justifyContent: "flex-start",
+  // Аватар штаба игрока с колодой и ником опущены к низу экрана; ник оказывается
+  // у нижней границы с небольшим отступом.
+  justifyContent: "flex-end",
+  paddingBottom: 10,
   alignSelf: "stretch",
   minHeight: 0,
-  transform: "translateX(-22px)",
+  transform: "translate(-12px, 110px)",
   // Колонка штаба прозрачна для кликов: аватар/колода/ник пропускают нажатия на
   // тыловые ячейки поля, перекрываемые этой колонкой. Интерактивные кнопки
   // (сдаться) сами включают pointerEvents:auto.
@@ -5687,7 +5686,10 @@ enemySideColumn: {
   height: "100%",
   minHeight: 0,
   transform: "translate(70px, -74px)",
-  zIndex: 240,
+  // Колонка штаба врага (аватар + колода) уходит ЗА поле боя, чтобы не
+  // перекрывать верхние тыловые клетки. Доска (boardShell, z=20) рисуется
+  // поверх. Таймер/«Конец хода» висят ниже доски и остаются кликабельными.
+  zIndex: 5,
   pointerEvents: "none",
 },
 
@@ -5761,7 +5763,9 @@ actionSideColumn: {
 
   enemyCommanderName: {
     bottom: "100%",
-    marginBottom: 8,
+    marginBottom: 1,
+    marginLeft: 62,
+    transform: "translateX(calc(-50% + 62px))",
     color: "#ff6b6b",
     textShadow:
       "0 2px 4px rgba(0,0,0,0.92), 0 0 12px rgba(255,107,107,0.45)",
@@ -5803,10 +5807,11 @@ actionSideColumn: {
     inset: 0,
     zIndex: 0,
     pointerEvents: "none",
+    // Без чёрной рамки/тёмной заливки у тыловых ячеек: лёгкая заливка без
+    // обводки (свечение доступного слота даёт отдельная анимация фона).
     background:
-      "linear-gradient(135deg, rgba(50, 58, 52, 0.5), rgba(17, 21, 18, 0.42))",
-    boxShadow:
-      "inset 0 0 18px rgba(0,0,0,0.18), inset 0 0 0 1px rgba(238, 224, 184, 0.09)",
+      "linear-gradient(135deg, rgba(50, 58, 52, 0.28), rgba(17, 21, 18, 0.22))",
+    boxShadow: "none",
   },
 
  board: {
@@ -6107,7 +6112,7 @@ actionSideColumn: {
     // centre, ~74px left of the game-table centre), then drop it 4px. Use
     // translate(x, y) — NOT translateX, which only takes one value: 1st value is
     // screen-vertical (larger = lower), 2nd is screen-horizontal.
-    transform: "translate(-60px, 0px)",
+    transform: "translate(-60px, 120px)",
   },
 
   card: {
@@ -6235,16 +6240,16 @@ actionSideColumn: {
   cardsLeftInfo: {
     display: "none",
   },
-  // Аватар штаба и колода теперь стоят вертикально: аватар сверху, колода под
-  // ним (а не за ним). Высота автоматическая, чтобы блок занимал ровно столько,
-  // сколько нужно аватару + колоде.
+  // Аватар штаба и колода: колода стоит ЗА аватаром и чуть выглядывает из-за
+  // него (см. deckBehindAvatar). Аватар рисуется поверх (headquartersAvatar
+  // zIndex:2).
   deckAvatarStack: {
     position: "relative",
+    width: 164,
+    height: 226,
     display: "flex",
-    flexDirection: "column",
     alignItems: "center",
-    justifyContent: "flex-start",
-    gap: 0,
+    justifyContent: "center",
     overflow: "visible",
     isolation: "isolate",
   },
@@ -6254,13 +6259,21 @@ actionSideColumn: {
   enemyDeckAvatarStack: {
     marginBottom: 2,
   },
-  // Колода прямо под аватаром штаба; небольшой отрицательный отступ заводит её
-  // под нижний (затухающий) край маски аватара, чтобы они читались единым блоком.
-  deckBelowAvatar: {
-    position: "relative",
-    marginTop: -26,
+  deckBehindAvatar: {
+    position: "absolute",
+    zIndex: 1,
     pointerEvents: "none",
     filter: "drop-shadow(0 12px 18px rgba(0,0,0,0.55))",
+  },
+  playerDeckBehindAvatar: {
+    left: -4,
+    bottom: 38,
+    transform: "rotate(-4deg) scale(0.92)",
+  },
+  enemyDeckBehindAvatar: {
+    right: -4,
+    top: 34,
+    transform: "rotate(4deg) scale(0.92)",
   },
   // Ник командира в боковой колонке штаба (под аватаром у игрока, над аватаром
   // у врага). Управление положением — порядком в колонке, не абсолютным.
@@ -6281,6 +6294,7 @@ actionSideColumn: {
   enemyColumnCommanderName: {
     color: "#ff6b6b",
     textShadow: "0 2px 4px rgba(0,0,0,0.92), 0 0 12px rgba(255,107,107,0.45)",
+    transform: "translate(12px, 8px)",
   },
   enemyDeckWithTimer: {
   position: "relative",
@@ -6341,6 +6355,10 @@ actionSideColumn: {
     gap: 0,
     // Прижимаем таймер и «Конец хода» к низу колонки штаба врага.
     marginTop: "auto",
+    // Колонка штаба врага приподнята на 74px (translate ...,-74), а блок игрока
+    // прижат к низу с отступом 10px. Опускаем таймер+«Конец хода» на 74−10=64px,
+    // чтобы они встали у нижней границы экрана симметрично нику/аватару игрока.
+    transform: "translateY(154px)",
     pointerEvents: "auto",
   },
   turnControlLabel: {
@@ -6576,6 +6594,23 @@ turnCounterValue: {
   surrenderButtonText: {
     fontSize: 12,
     lineHeight: 1,
+  },
+
+  // «Сдаться» прижата к угловой панели управления (на весь экран + настройки),
+  // которая в бою живёт слева сверху (left:12, top:10, иконки 40px). Кнопка
+  // ставится прямо под ними.
+  surrenderCornerPos: {
+    position: "absolute",
+    top: 56,
+    left: 12,
+    zIndex: 60,
+    pointerEvents: "auto",
+  },
+
+  // Обёртка панели топлива игрока: прижимает её ближе к колоде/штабу снизу
+  // (отрицательный нижний отступ убирает зазор колонки).
+  playerFuelNearDeck: {
+    marginBottom: -35,
   },
 
   actionHint: {

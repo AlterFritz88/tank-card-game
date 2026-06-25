@@ -40,6 +40,16 @@
 
 * {
   box-sizing: border-box;
+  /* Убираем синюю подсветку тапа/выделения на мобильных (как при выделении
+     текста), мигавшую на кнопках и юнитах при нажатии. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: transparent;
+}
+::-moz-selection {
+  background: transparent;
 }
 
 html,

@@ -1558,15 +1558,15 @@ export const cards: TankCard[] = [
     hp: 4,
     range: 0,
     movement: 0,
-    fuelGeneration: 0,
+    fuelGeneration: 1,
     initiative: 1,
     deploymentZone: "support",
     supportRole: "transport",
     supportEffects: {
-      drawEveryTurns: 3,
+      fuelPerTurn: 1,
       hqAttackBonus: 1,
     },
-    abilityText: "Даёт +1 к атаке штаба и добирает карту каждый третий ход.",
+    abilityText: "Даёт +1 к атаке штаба и +1 топливо каждый ход.",
   },
   {
     id: "sanitaetskraftwagen",
@@ -2461,7 +2461,7 @@ export const cards: TankCard[] = [
     hp: 5,
     range: 0,
     movement: 0,
-    fuelGeneration: 0,
+    fuelGeneration: 2,
     initiative: 1,
     deploymentZone: "support",
     supportRole: "transport",
@@ -2469,7 +2469,7 @@ export const cards: TankCard[] = [
       fuelPerTurn: 1,
       drawEveryTurns: 3,
     },
-    abilityText: "Грузовик боепитания: +1 топлива и добор карты каждый третий ход.",
+    abilityText: "Грузовик боепитания: +1 топлива и добор карты каждый третий ход. +2 топливо",
   },
   {
     id: "parm_workshop",
@@ -2569,13 +2569,13 @@ export const cards: TankCard[] = [
     nation: "germany",
     class: "light",
     rarity: "common",
-    cost: 1,
+    cost: 3,
     attack: 0,
     armor: 0,
     hp: 5,
     range: 0,
     movement: 0,
-    fuelGeneration: 0,
+    fuelGeneration: 1,
     initiative: 1,
     deploymentZone: "support",
     supportRole: "transport",
@@ -2585,7 +2585,7 @@ export const cards: TankCard[] = [
       returnFire: 1,
     },
     abilityText:
-      "Бронетранспортёр мотопехоты: +1 топлива, +1 к атаке штаба и отвечает огнём на ближние атаки.",
+      "+1 топлива, +1 к атаке штаба и отвечает огнём на ближние атаки.",
   },
   {
     id: "krad_bmw",
@@ -2599,16 +2599,17 @@ export const cards: TankCard[] = [
     hp: 3,
     range: 0,
     movement: 0,
-    fuelGeneration: 0,
+    fuelGeneration: 1,
     initiative: 1,
     deploymentZone: "support",
     supportRole: "transport",
     supportEffects: {
+      fuelPerTurn: 1,
       drawEveryTurns: 2,
       returnFire: 1,
     },
     abilityText:
-      "Мотодозор: добор карты каждый второй ход; пулемёт в коляске отвечает на ближние атаки.",
+      "Добор карты каждый второй ход. отвечает на ближние атаки. +1 топливо",
   },
   {
     id: "pak36",
@@ -2863,3 +2864,4 @@ export function getCard(cardId: string): TankCard {
 
   return card;
 }
+

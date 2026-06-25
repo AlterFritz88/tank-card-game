@@ -37,7 +37,7 @@ export type PreplacedUnit = {
 };
 
 export const STEP_TIME_MS = 60 * 1000;
-const TRAINING_DECK_CARD_LIMIT = 20;
+const TRAINING_DECK_CARD_LIMIT = 40;
 const DEFAULT_DECK_CARD_LIMIT = 40;
 const STOCK_DECK_COPY_LIMIT = 4;
 
@@ -115,7 +115,9 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "stug_iii_b",
     "leig_18",
     "leig_18",
+    "pak36",
     "mercedes_g3a",
+    "krad_bmw",
     "adler_type_10_n",
     "adler_type_10_n",
   ],
@@ -1657,7 +1659,7 @@ export function getDeckCardIds(deckId: string): string[] {
   const normalizedCardIds = normalizeDeckCardIds(cardIds, deckId);
 
   if (TRAINING_DECK_IDS.has(deckId)) {
-    return limitCardCopies(normalizedCardIds).slice(0, TRAINING_DECK_CARD_LIMIT);
+    return expandDeckCardIds(normalizedCardIds, TRAINING_DECK_CARD_LIMIT);
   }
 
   if (isStandardDefaultDeck(deckId)) {

@@ -162,15 +162,13 @@ export function getAvailableDeckCards(
   const headquarters = HEADQUARTERS[headquartersId];
   if (!headquarters) return [];
 
-  const trainingHeadquarters = isTrainingHeadquarters(headquartersId);
-
   return cards
     .filter((card) => {
       if (progress && (progress.ownedCardCopies[card.id] ?? 0) <= 0) {
         return false;
       }
 
-      if (!trainingHeadquarters && card.nation !== headquarters.nation) {
+      if (card.nation !== headquarters.nation) {
         return false;
       }
 
@@ -216,7 +214,6 @@ export function validateDeck(
   }
 
   const headquarters = HEADQUARTERS[headquartersId];
-  const trainingHeadquarters = isTrainingHeadquarters(headquartersId);
   const copies = new Map<string, number>();
 
   for (const cardId of cardIds) {
@@ -226,7 +223,7 @@ export function validateDeck(
       return { valid: false, message: `Неизвестная карта: ${cardId}` };
     }
 
-    if (!trainingHeadquarters && card.nation !== headquarters.nation) {
+    if (card.nation !== headquarters.nation) {
       return {
         valid: false,
         message: "Для этого штаба можно использовать только карты своей нации",
@@ -452,4 +449,3 @@ export function deleteCustomDeck(deckId: string): void {
 
   window.localStorage.setItem(RECENT_DECK_STORAGE_KEY, JSON.stringify(selections));
 }
-

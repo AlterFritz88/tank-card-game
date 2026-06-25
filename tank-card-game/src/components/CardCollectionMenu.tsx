@@ -7,6 +7,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type TouchEvent as ReactTouchEvent,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
@@ -470,7 +471,7 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
       : 0;
 
   function handlePanPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (event.pointerType !== "mouse" || event.button !== 0) return;
 
     const viewport = viewportRef.current;
     if (!viewport) return;
@@ -509,8 +510,18 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
       viewport.style.cursor = "grabbing";
     }
 
-    viewport.scrollLeft = pan.scrollLeft - deltaX;
     viewport.scrollTop = pan.scrollTop - deltaY;
+    event.preventDefault();
+  }
+
+  function handleCollectionWheel(event: ReactWheelEvent<HTMLDivElement>) {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    if (event.deltaY === 0) return;
+
+    viewport.scrollTop += event.deltaY;
+    clearLongPressTimer();
     event.preventDefault();
   }
 
@@ -680,6 +691,7 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
         onPointerMove={handlePanPointerMove}
         onPointerUp={endPan}
         onPointerCancel={endPan}
+        onWheel={handleCollectionWheel}
         onScroll={clearLongPressTimer}
         onClickCapture={handlePanClickCapture}
         aria-label="Карты коллекции"
@@ -1097,7 +1109,7 @@ const styles: Record<string, CSSProperties> = {
     WebkitOverflowScrolling: "touch",
     cursor: "grab",
     userSelect: "none",
-    touchAction: "none",
+    touchAction: "pan-y",
     maskImage:
       "linear-gradient(180deg, transparent 0%, #000 34px, #000 calc(100% - 34px), transparent 100%)",
     WebkitMaskImage:

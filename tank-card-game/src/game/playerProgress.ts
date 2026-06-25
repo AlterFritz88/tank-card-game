@@ -1273,7 +1273,6 @@ function normalizeSavedDeckCardIds(
   if (rawCardIds.length !== CUSTOM_DECK_CARD_LIMIT) return null;
 
   const headquarters = HEADQUARTERS[headquartersId];
-  const trainingHeadquarters = headquarters.level === 1;
   const copies = new Map<string, number>();
   const cardIds: string[] = [];
 
@@ -1284,7 +1283,7 @@ function normalizeSavedDeckCardIds(
     const card = cardId ? getCardOrNull(cardId) : null;
     if (!card || !cardId) return null;
 
-    if (!trainingHeadquarters && card.nation !== headquarters.nation) {
+    if (card.nation !== headquarters.nation) {
       return null;
     }
 

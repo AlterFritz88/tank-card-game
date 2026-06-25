@@ -16,7 +16,7 @@ import type {
 } from "./types";
 
 const STEP_TIME_MS = 60 * 1000;
-const STARTING_HAND_SIZE = 5;
+const STARTING_HAND_SIZE = 4;
 const SECOND_PLAYER_EXTRA_STARTING_CARDS = 1;
 
 export const SUPPORT_SLOTS: SupportSlot[] = [0, 1, 2, 3];
@@ -47,6 +47,28 @@ export const BOT_HQ_POSITION: Position = { row: 1, col: 5 };
 /** The battlefield's front column for a side — the column of its spawn cells. */
 export function getFrontColumn(playerId: PlayerId): number {
   return playerId === "player" ? 0 : 4;
+}
+
+// Виртуальный ряд тыловой ячейки в «тыловой» колонке штаба (см. PLAYER/BOT_HQ_
+// POSITION). Полоса тыла читается сверху вниз: слот0, слот1, штаб (ряд 1),
+// слот2, слот3 — поэтому слоты ложатся на ряды −1, 0, 2, 3. Это даёт каждой
+// тыловой ячейке собственную позицию, чтобы атаковать тыл можно было только по
+// соседству/дальности — как обычные клетки поля боя.
+const SUPPORT_SLOT_ROW: Record<SupportSlot, number> = {
+  0: -1,
+  1: 0,
+  2: 2,
+  3: 3,
+};
+
+function getSupportSlotPosition(
+  playerId: PlayerId,
+  supportSlot: SupportSlot
+): Position {
+  const col =
+    playerId === "player" ? PLAYER_HQ_POSITION.col : BOT_HQ_POSITION.col;
+
+  return { row: SUPPORT_SLOT_ROW[supportSlot], col };
 }
 
 /** The four corner cells of the 3×5 battlefield (see «Огневая позиция»). */
@@ -299,15 +321,15 @@ function calculateFuelGeneration(
 ): number {
   const headquartersFuel = state.headquarters[playerId].fuelGeneration;
 
+  // Топливо генерируют только тыловые (support) юниты и штаб. Юниты на поле боя
+  // больше не дают топлива.
   const unitsFuel = state.units
     .filter((unit) => unit.ownerId === playerId)
     .reduce((total, unit) => {
-      const card = getCard(unit.cardId);
-      const generatedFuel = isSupportUnit(unit)
-        ? card.supportEffects?.fuelPerTurn ?? 0
-        : card.fuelGeneration;
+      if (!isSupportUnit(unit)) return total;
 
-      return total + generatedFuel;
+      const card = getCard(unit.cardId);
+      return total + (card.supportEffects?.fuelPerTurn ?? 0);
     }, 0);
 
   // Combined Arms: extra fuel while controlling both a tank and a support unit.
@@ -1458,17 +1480,22 @@ function canAttackTarget(
   }
 
   if ("cardId" in target && isSupportUnit(target)) {
-    if (!("cardId" in attacker)) return true;
+    // Тыловые ячейки атакуются по обычной логике поля боя — по дальности/
+    // соседству к собственной (виртуальной) позиции слота, а не «все сразу».
+    const targetPosition = getSupportSlotPosition(
+      target.ownerId,
+      target.supportSlot ?? 0
+    );
+
+    if (!("cardId" in attacker)) {
+      return (
+        manhattanDistance(attacker.position, targetPosition) <= attacker.range
+      );
+    }
 
     const attackerCard = getCard(attacker.cardId);
 
-    // An SPG reaches the rear from anywhere; otherwise a melee raider must have
-    // broken through to the defender's front column (its spawn cells) to strike
-    // the rear units sitting behind it.
-    return (
-      attackerCard.class === "spg" ||
-      isSpawnCell(target.ownerId, attacker.position)
-    );
+    return canUnitAttackTarget(attackerCard, attacker.position, targetPosition);
   }
 
   // «Маскировка»: only an adjacent enemy unit in melee may target this unit —
