@@ -468,6 +468,10 @@ function applySupportTurnEffects(state: BattleState, playerId: PlayerId) {
 
     if (effects.hqHealPerTurn) {
       state.headquarters[playerId].hp += effects.hqHealPerTurn;
+      addLog(
+        state,
+        `${card.name}: штаб восстанавливает +${effects.hqHealPerTurn} прочности.`
+      );
     }
 
     if (effects.healRandomUnitPerTurn) {
@@ -814,24 +818,37 @@ function applyDeployDamage(
   >
 ) {
   const opponent = getOpponent(ownerId);
-  const candidates = state.units.filter((unit) => {
-    if (unit.ownerId !== opponent || !isBattlefieldUnit(unit)) return false;
-    if (unit.currentHp <= 0) return false;
-
-    const unitCard = getCard(unit.cardId);
-    return !(unitCard.combatAbilities?.camouflage && !unit.revealed);
-  });
 
   let targets: BoardUnit[];
 
-  if (deployDamage.scope === "classes") {
-    const classes = deployDamage.classes ?? [];
-    targets = candidates.filter((unit) =>
-      classes.includes(getCard(unit.cardId).class)
+  if (deployDamage.scope === "rear") {
+    // Strike one random enemy rear-line (support) unit.
+    const rear = state.units.filter(
+      (unit) =>
+        unit.ownerId === opponent &&
+        isSupportUnit(unit) &&
+        unit.currentHp > 0
     );
-  } else {
-    const target = candidates[Math.floor(Math.random() * candidates.length)];
+    const target = rear[Math.floor(Math.random() * rear.length)];
     targets = target ? [target] : [];
+  } else {
+    const candidates = state.units.filter((unit) => {
+      if (unit.ownerId !== opponent || !isBattlefieldUnit(unit)) return false;
+      if (unit.currentHp <= 0) return false;
+
+      const unitCard = getCard(unit.cardId);
+      return !(unitCard.combatAbilities?.camouflage && !unit.revealed);
+    });
+
+    if (deployDamage.scope === "classes") {
+      const classes = deployDamage.classes ?? [];
+      targets = candidates.filter((unit) =>
+        classes.includes(getCard(unit.cardId).class)
+      );
+    } else {
+      const target = candidates[Math.floor(Math.random() * candidates.length)];
+      targets = target ? [target] : [];
+    }
   }
 
   for (const target of targets) {
@@ -949,9 +966,10 @@ function playCard(
       tracking.tanksPlayedThisTurn === 0 &&
       isTankClassCard(card)) ||
     (ability?.lightUnitsBlitz === true && isLightTank);
-  const hasBlitz = card.combatAbilities?.blitz === true || abilityBlitz;
-  const canActAfterSpawn = isLightTank || hasBlitz;
 
+  // Every freshly deployed unit may move and attack on the turn it enters,
+  // following its class rules — exactly as if its turn had just begun. «Блиц»
+  // no longer affects deployment; it grants a second move action each turn.
   const unit: BoardUnit = {
     instanceId: action.cardInstanceId,
     cardId: card.id,
@@ -960,12 +978,13 @@ function playCard(
     zone: "battlefield",
     currentHp: card.hp,
 
-    alreadyAttacked: !canActAfterSpawn,
-    alreadyMoved: !canActAfterSpawn,
-    spawnedThisTurn: isLightTank && !hasBlitz,
+    alreadyAttacked: false,
+    alreadyMoved: false,
+    spawnedThisTurn: false,
     deployedThisTurn: true,
     moveCountThisTurn: 0,
     tdAmbushUsedThisTurn: false,
+    blitzGranted: abilityBlitz,
   };
 
   state.units.push(unit);
@@ -1056,6 +1075,9 @@ function playCard(
   if (isTankClassCard(card)) tracking.tanksPlayedThisTurn += 1;
   if (isLightTank) tracking.lightUnitsPlayedThisTurn += 1;
 
+  // A new unit may have landed next to a hidden camouflaged unit (either side).
+  revealCamouflagedNearEnemies(state);
+
   markSuccessfulAction(state, action.playerId);
 
   addLog(
@@ -1125,6 +1147,11 @@ function playSupportCard(
   // «Пополнение»: support units can also fetch a card into hand on deploy.
   if (card.onPlayEffects?.fetchToHand) {
     applyFetchToHand(state, action.playerId, card, card.onPlayEffects.fetchToHand);
+  }
+
+  // «Огневой налёт»: a support gun can shell enemy units on deploy.
+  if (card.onPlayEffects?.deployDamage && card.onPlayEffects.deployDamage.amount > 0) {
+    applyDeployDamage(state, action.playerId, card, card.onPlayEffects.deployDamage);
   }
 
   markSuccessfulAction(state, action.playerId);
@@ -1328,6 +1355,8 @@ function getStationaryTankAttackBonus(
   if (!isBattlefieldUnit(unit)) return 0;
   if (!isTankClassCard(getCard(unit.cardId))) return 0;
   if (unit.moveCountThisTurn > 0) return 0;
+  // A tank that has only just deployed is not yet dug in for the ambush.
+  if (unit.deployedThisTurn) return 0;
 
   return ability.stationaryTankAttackBonus;
 }
@@ -1346,6 +1375,8 @@ function getStationaryTankDefenseBonus(
   if (!isBattlefieldUnit(unit)) return 0;
   if (!isTankClassCard(getCard(unit.cardId))) return 0;
   if (unit.moveCountThisTurn > 0) return 0;
+  // A tank that has only just deployed is not yet dug in for the ambush.
+  if (unit.deployedThisTurn) return 0;
 
   return ability.stationaryTankHpBonus;
 }
@@ -2228,8 +2259,13 @@ function attack(state: BattleState, action: AttackAction) {
     attacker.revealed = true;
   }
 
-  // Heavy tanks either move or attack in a turn, never both.
-  if (attackerIsUnit && attackerCard?.class === "heavy") {
+  // Heavy tanks either move or attack in a turn, never both — unless «Блиц» is
+  // active (deploy turn), letting them do both (two moves, one shot).
+  if (
+    attackerIsUnit &&
+    attackerCard?.class === "heavy" &&
+    !blitzActiveThisTurn(attacker)
+  ) {
     attacker.alreadyMoved = true;
   }
 
@@ -2238,18 +2274,41 @@ function attack(state: BattleState, action: AttackAction) {
   }
 }
 
-function getLightTankMoveCost(
-  from: Position,
-  to: Position,
-  isSpawnBonusMove: boolean
-): number | null {
+/**
+ * Whether a unit carries «Блиц» at all (intrinsic on the card or HQ-granted at
+ * deploy). The double move itself only fires on the deploy turn — see
+ * {@link blitzActiveThisTurn}.
+ */
+function unitHasBlitz(unit: BoardUnit): boolean {
+  return (
+    getCard(unit.cardId).combatAbilities?.blitz === true ||
+    unit.blitzGranted === true
+  );
+}
+
+/**
+ * «Блиц» only doubles movement on the turn the unit enters play (its first
+ * turn). On later turns the unit moves like any other of its class.
+ */
+function blitzActiveThisTurn(unit: BoardUnit): boolean {
+  return unit.deployedThisTurn === true && unitHasBlitz(unit);
+}
+
+/**
+ * Movement budget (in move points) a unit may spend this turn. Light tanks
+ * spend up to 2 points (a 1-cell straight move costs 1, a diagonal or 2-cell
+ * straight move costs 2); every other class spends 1 point per move. On its
+ * deploy turn a «Блиц» unit gets double the budget — two standard moves.
+ */
+function getMoveBudget(unit: BoardUnit): number {
+  const base = getCard(unit.cardId).class === "light" ? 2 : 1;
+  return blitzActiveThisTurn(unit) ? base * 2 : base;
+}
+
+function getLightTankMoveCost(from: Position, to: Position): number | null {
   const straight = isStraightMove(from, to);
   const diagonal = isDiagonalMove(from, to);
   const manhattan = manhattanDistance(from, to);
-
-  if (isSpawnBonusMove) {
-    return straight && manhattan === 1 ? 1 : null;
-  }
 
   if (diagonal) {
     return 2;
@@ -2270,8 +2329,8 @@ function canUnitMoveTo(
   card: TankCard,
   from: Position,
   to: Position,
-  isSpawnBonusMove: boolean,
-  moveCountThisTurn = 0
+  moveCountThisTurn: number,
+  moveBudget: number
 ): boolean {
   if (samePosition(from, to)) return false;
 
@@ -2279,23 +2338,53 @@ function canUnitMoveTo(
   const manhattan = manhattanDistance(from, to);
 
   if (card.class === "light") {
-    const moveCost = getLightTankMoveCost(from, to, isSpawnBonusMove);
+    const moveCost = getLightTankMoveCost(from, to);
 
     if (moveCost === null) return false;
 
-    if (isSpawnBonusMove) {
-      // Spawn bonus is only 1 cell straight
-      return straight && manhattan === 1;
-    }
-
-    return moveCountThisTurn + moveCost <= 2;
+    return moveCountThisTurn + moveCost <= moveBudget;
   }
 
   if (card.class === "medium") {
-    return isAdjacentAnyDirection(from, to);
+    if (!isAdjacentAnyDirection(from, to)) return false;
+
+    return moveCountThisTurn + 1 <= moveBudget;
   }
 
-  return straight && manhattan === 1;
+  if (!(straight && manhattan === 1)) return false;
+
+  return moveCountThisTurn + 1 <= moveBudget;
+}
+
+/**
+ * «Маскировка»: a still-hidden camouflaged unit is spotted (revealed
+ * permanently) as soon as an enemy battlefield unit stands on an adjacent cell.
+ * Movement alone never reveals it — only enemy contact or opening fire. Call
+ * this after any board change (move or deploy) that could create adjacency.
+ */
+function revealCamouflagedNearEnemies(state: BattleState) {
+  for (const unit of state.units) {
+    if (unit.revealed) continue;
+    if (!isBattlefieldUnit(unit)) continue;
+    if (unit.currentHp <= 0) continue;
+    if (!getCard(unit.cardId).combatAbilities?.camouflage) continue;
+
+    const spotted = state.units.some(
+      (other) =>
+        other.ownerId !== unit.ownerId &&
+        isBattlefieldUnit(other) &&
+        other.currentHp > 0 &&
+        isAdjacentAnyDirection(other.position, unit.position)
+    );
+
+    if (spotted) {
+      unit.revealed = true;
+      addLog(
+        state,
+        `${getCard(unit.cardId).name}: маскировка раскрыта — противник рядом.`
+      );
+    }
+  }
 }
 
 /**
@@ -2340,15 +2429,15 @@ function moveUnit(
   const fromPosition = unit.position;
   const isLightTank = card.class === "light";
   const moveCountThisTurn = unit.moveCountThisTurn ?? 0;
-  const isSpawnBonusMove = isLightTank && unit.spawnedThisTurn;
+  const moveBudget = getMoveBudget(unit);
 
   if (
     !canUnitMoveTo(
       card,
       fromPosition,
       action.position,
-      isSpawnBonusMove,
-      moveCountThisTurn
+      moveCountThisTurn,
+      moveBudget
     )
   ) {
     return;
@@ -2365,43 +2454,28 @@ function moveUnit(
 
   unit.position = action.position;
 
-  if (isLightTank) {
-    const moveCost =
-      getLightTankMoveCost(fromPosition, action.position, isSpawnBonusMove) ?? 1;
+  const moveCost = isLightTank
+    ? getLightTankMoveCost(fromPosition, action.position) ?? 1
+    : 1;
+  const nextMoveCount = moveCountThisTurn + moveCost;
 
-    if (isSpawnBonusMove) {
-      unit.moveCountThisTurn = 1;
-      unit.alreadyMoved = true;
-    } else {
-      const nextMoveCount = moveCountThisTurn + moveCost;
+  unit.moveCountThisTurn = nextMoveCount;
+  unit.alreadyMoved = nextMoveCount >= moveBudget;
+  unit.spawnedThisTurn = false;
 
-      unit.moveCountThisTurn = nextMoveCount;
-      unit.alreadyMoved = nextMoveCount >= 2;
-    }
-
-    unit.spawnedThisTurn = false;
-  } else {
-    unit.alreadyMoved = true;
-    unit.spawnedThisTurn = false;
-    unit.moveCountThisTurn = 1;
-  }
-
-  // Heavy tanks either move or attack in a turn, never both.
-  if (card.class === "heavy") {
+  // Heavy tanks and ПТ-САУ either move or attack in a turn, never both — unless
+  // «Блиц» is active (deploy turn), letting them make two moves and still fire once.
+  if (
+    (card.class === "heavy" || card.class === "td") &&
+    !blitzActiveThisTurn(unit)
+  ) {
     unit.alreadyAttacked = true;
   }
 
-  // ПТ-САУ may fire and then reposition, but moving first forfeits the shot:
-  // a tank destroyer that has moved can no longer attack this turn.
-  if (card.class === "td") {
-    unit.alreadyAttacked = true;
-  }
-
-  // «Маскировка» drops permanently once the unit breaks cover by moving.
-  if (card.combatAbilities?.camouflage && !unit.revealed) {
-    unit.revealed = true;
-    addLog(state, `${card.name}: маскировка раскрыта при движении.`);
-  }
+  // «Маскировка» is NOT lost by moving. It only drops when the unit opens fire
+  // (see attack) or when an enemy ends up on an adjacent cell — repositioning
+  // may have brought the scout next to an enemy (or an enemy next to it).
+  revealCamouflagedNearEnemies(state);
 
   // «Огневая позиция»: refresh the corner HP bonus for SPGs.
   applyCornerHpBonus(unit);
@@ -2680,8 +2754,8 @@ export function getAvailableMoveCells(
   const rows = [0, 1, 2] as const;
   const cols = [0, 1, 2, 3, 4] as const;
 
-  const isSpawnBonusMove = card.class === "light" && unit.spawnedThisTurn;
   const moveCountThisTurn = unit.moveCountThisTurn ?? 0;
+  const moveBudget = getMoveBudget(unit);
 
   for (const row of rows) {
     for (const col of cols) {
@@ -2694,8 +2768,8 @@ export function getAvailableMoveCells(
           card,
           unit.position,
           position,
-          isSpawnBonusMove,
-          moveCountThisTurn
+          moveCountThisTurn,
+          moveBudget
         )
       ) {
         continue;

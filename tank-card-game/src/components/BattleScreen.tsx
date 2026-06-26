@@ -16,6 +16,7 @@ import {
   getFreeSupportSlots,
   getHeadquartersAttackValue,
   getTargetsInRange,
+  getUnitAttackValue,
   getUnitDisplayAttackValue,
   isBattlefieldUnit,
   isSupportUnit,
@@ -333,7 +334,7 @@ function delay(ms: number): Promise<void> {
 }
 
 function getRandomBotThinkingDelay(): number {
-  return Math.floor(Math.random() * 4000);
+  return Math.floor(Math.random() * 2000);
 }
 
 function getRandomLocalStartingPlayer(): PlayerId {
@@ -2254,8 +2255,20 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     return hp;
   }
 
+  /**
+   * Snapshot of every combatant's attack for the gain/loss flash diff.
+   *
+   * The passive HQ auras «Танковая засада» (stationary) and «Танковый натиск»
+   * (moved) toggle on and off on every move and at every turn boundary. Flashing
+   * their +1/−1 each time duplicates the value already printed on the badge, so
+   * by default they are excluded (`includeAuraBonuses = false`) and only the
+   * unit's intrinsic attack is diffed. The aura is folded back in only for the
+   * move that actually triggers it (the unit's first step onto a new cell), so
+   * the buff animation still plays once, where the player expects it.
+   */
   function createAttackSnapshot(
-    sourceBattle: ClientBattleState
+    sourceBattle: ClientBattleState,
+    includeAuraBonuses = false
   ): Map<string, number> {
     const attack = new Map<string, number>([
       [
@@ -2265,11 +2278,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       ["bot_hq", getHeadquartersAttackValue(sourceBattle as BattleState, "bot")],
     ]);
 
+    const unitAttackValue = includeAuraBonuses
+      ? getUnitDisplayAttackValue
+      : getUnitAttackValue;
+
     for (const unit of sourceBattle.units) {
-      attack.set(
-        unit.instanceId,
-        getUnitDisplayAttackValue(sourceBattle as BattleState, unit)
-      );
+      attack.set(unit.instanceId, unitAttackValue(sourceBattle as BattleState, unit));
     }
 
     return attack;
@@ -2334,6 +2348,61 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     previousAttackSnapshotRef.current = currentAttackSnapshot;
   }, [battle, mode]);
 
+  /**
+   * «Огневой налёт»: visualise the deploy barrage as a cannon shot flying from
+   * the freshly placed support gun to each enemy unit it damaged. Deferred to a
+   * couple of frames so the gun's board element has mounted and registered its
+   * ref before we read its position.
+   */
+  function playDeployBarrageShot(sourceInstanceId: string, targetIds: string[]) {
+    if (targetIds.length === 0) return;
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const boardElement = boardRef.current;
+        const sourceElement = objectRefs.current.get(sourceInstanceId);
+
+        if (!boardElement || !sourceElement) return;
+
+        const from = getElementCenterRelativeToBoard(boardElement, sourceElement);
+        let firedSound = false;
+
+        for (const targetId of targetIds) {
+          const targetElement = objectRefs.current.get(targetId);
+          if (!targetElement) continue;
+
+          const to = getElementCenterRelativeToBoard(boardElement, targetElement);
+
+          if (!firedSound) {
+            playCannonShotSound();
+            firedSound = true;
+          }
+
+          projectileIdRef.current += 1;
+          const projectileId = projectileIdRef.current;
+          setProjectileEffect({ id: projectileId, from, to });
+
+          window.setTimeout(() => {
+            explosionIdRef.current += 1;
+            setExplosionEffect({ id: explosionIdRef.current, position: to });
+            setAttackEffectId(targetId);
+          }, 220);
+
+          window.setTimeout(() => {
+            setProjectileEffect((current) =>
+              current?.id === projectileId ? null : current
+            );
+          }, 260);
+
+          window.setTimeout(() => {
+            setExplosionEffect(null);
+            setAttackEffectId((current) => (current === targetId ? null : current));
+          }, 940);
+        }
+      });
+    });
+  }
+
   function dispatchBattleAction(
     action: BattleAction,
     options: { skipDamageEffects?: boolean; skipAttackEffects?: boolean } = {}
@@ -2365,6 +2434,30 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     const after = createHpSnapshot(afterBattle);
 
     showDamageEffectsFromSnapshots(before, after);
+
+    // «Огневой налёт»: if a deployed card shelled enemy units, fire a visible
+    // shot from the new gun to every unit that just lost health.
+    if (action.type === "PLAY_CARD" || action.type === "PLAY_SUPPORT_CARD") {
+      const playedInstance = beforeBattle?.[action.playerId]?.hand.find(
+        (item) => item.instanceId === action.cardInstanceId
+      );
+      const playedCard = playedInstance
+        ? getCardOrNull(playedInstance.cardId)
+        : null;
+
+      if (playedCard?.onPlayEffects?.deployDamage) {
+        const damagedIds: string[] = [];
+        for (const [id, currentHp] of after.entries()) {
+          if (id === action.cardInstanceId) continue;
+          const previousHp = before.get(id);
+          if (previousHp !== undefined && currentHp < previousHp) {
+            damagedIds.push(id);
+          }
+        }
+
+        playDeployBarrageShot(action.cardInstanceId, damagedIds);
+      }
+    }
   }
 
   function actionUsesSelection(action: BattleAction) {
@@ -2614,6 +2707,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     for (let index = 0; index < positions.length; index += 1) {
       const position = positions[index];
       const isFollowUpLightStep = index > 0;
+      const skipAttackEffects = isFollowUpLightStep;
       const currentBattle =
         (useBattleStore.getState().battle as BattleState | null) ?? state;
       const movingUnit =
@@ -2657,11 +2751,11 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
       if (options.preserveLaterSelection) {
         dispatchQueuedBattleAction(stepAction, {
-          skipAttackEffects: isFollowUpLightStep,
+          skipAttackEffects,
         });
       } else {
         dispatchBattleActionRef.current(stepAction, {
-          skipAttackEffects: isFollowUpLightStep,
+          skipAttackEffects,
         });
       }
       await waitForNextFrame();
@@ -3903,7 +3997,14 @@ function renderEnemyDeckWithTimer() {
             >
               <motion.span
                 aria-hidden="true"
-                style={styles.supportCellSurface}
+                style={{
+                  ...styles.supportCellSurface,
+                  // Тыловые ячейки красятся в тот же цвет, что и клетки спавна:
+                  // зелёный у игрока, красный у противника.
+                  background: isFriendly
+                    ? "linear-gradient(135deg, rgba(35, 66, 36, 0.24), rgba(8, 13, 8, 0.36))"
+                    : "linear-gradient(135deg, rgba(92, 32, 32, 0.22), rgba(23, 8, 8, 0.36))",
+                }}
                 animate={
                   canPlace
                     ? {
@@ -3913,16 +4014,13 @@ function renderEnemyDeckWithTimer() {
                           "linear-gradient(135deg, rgba(52, 84, 56, 0.5), rgba(17, 27, 18, 0.42))",
                         ],
                       }
-                    : {
-                        background:
-                          "linear-gradient(135deg, rgba(50, 58, 52, 0.5), rgba(17, 21, 18, 0.42))",
-                      }
+                    : undefined
                 }
-                transition={{
-                  duration: 2.5,
-                  ease: "easeInOut",
-                  repeat: canPlace ? Infinity : 0,
-                }}
+                transition={
+                  canPlace
+                    ? { duration: 2.5, ease: "easeInOut", repeat: Infinity }
+                    : undefined
+                }
               />
 
               <AnimatePresence initial={false}>
@@ -4521,6 +4619,19 @@ function renderEnemyDeckWithTimer() {
                             })()}
                             alreadyMoved={movementUnitEffect.alreadyMoved}
                             alreadyAttacked={movementUnitEffect.alreadyAttacked}
+                            camouflaged={(() => {
+                              const movingUnit = battle.units.find(
+                                (item) =>
+                                  item.instanceId === movementUnitEffect.unitId
+                              );
+
+                              return (
+                                !!getCard(movementUnitEffect.cardId)
+                                  .combatAbilities?.camouflage &&
+                                !!movingUnit &&
+                                !movingUnit.revealed
+                              );
+                            })()}
                           />
                         </div>
                       </motion.div>

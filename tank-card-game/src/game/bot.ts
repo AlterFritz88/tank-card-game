@@ -124,15 +124,23 @@ function getCardAbilityValue(state: BattleState, card: TankCard): number {
     }
     if (onPlay.deployDamage) {
       const deploy = onPlay.deployDamage;
-      const enemyUnits = state.units.filter(
+      const enemyBattlefield = state.units.filter(
         (unit) => unit.ownerId === "player" && isBattlefieldUnit(unit)
       );
-      const hitCount =
-        deploy.scope === "classes"
-          ? enemyUnits.filter((unit) =>
-              (deploy.classes ?? []).includes(getCard(unit.cardId).class)
-            ).length
-          : Math.min(1, enemyUnits.length);
+      let hitCount: number;
+
+      if (deploy.scope === "classes") {
+        hitCount = enemyBattlefield.filter((unit) =>
+          (deploy.classes ?? []).includes(getCard(unit.cardId).class)
+        ).length;
+      } else if (deploy.scope === "rear") {
+        const enemyRear = state.units.filter(
+          (unit) => unit.ownerId === "player" && unit.zone === "support"
+        );
+        hitCount = Math.min(1, enemyRear.length);
+      } else {
+        hitCount = Math.min(1, enemyBattlefield.length);
+      }
 
       value += 4 + deploy.amount * hitCount * 6;
     }

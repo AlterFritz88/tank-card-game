@@ -1,4 +1,4 @@
-import type { TankCard } from "./types";
+﻿import type { TankCard } from "./types";
 
 export const cards: TankCard[] = [
   {
@@ -236,7 +236,7 @@ export const cards: TankCard[] = [
     class: "medium",
     rarity: "common",
     cost: 3,
-    attack: 2,
+    attack: 1,
     armor: 1,
     hp: 7,
     range: 1,
@@ -633,10 +633,10 @@ export const cards: TankCard[] = [
     supportRole: "medical",
     supportEffects: {
       healRandomUnitPerTurn: 1,
-      drawEveryTurns: 2,
+      hqHealPerTurn: 1,
     },
     abilityText:
-      "Лечит 1 повреждённый юнит и добирает карту каждый второй ход.",
+      "Лечит 1 повреждённый юнит и восстанавливает +1 прочности штаба в начале каждого хода.",
   },
   {
     id: "churchill",
@@ -1144,7 +1144,7 @@ export const cards: TankCard[] = [
     class: "light",
     rarity: "uncommon",
     cost: 2,
-    attack: 3,
+    attack: 1,
     armor: 1,
     hp: 4,
     range: 1,
@@ -1607,7 +1607,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 0,
     initiative: 6,
     abilityText: "",
-    onPlayEffects: { draw: 1 },
+    onPlayEffects: { suppressEnemyIndirect: true },
     combatAbilities: { blitz: true },
   },
   {
@@ -2078,11 +2078,10 @@ export const cards: TankCard[] = [
     initiative: 1,
     deploymentZone: "support",
     supportRole: "artillery",
-    supportEffects: {
-      supportLineCover: 2,
+    onPlayEffects: {
+      deployDamage: { amount: 2, scope: "random" },
     },
-    abilityText:
-      "Встречает рейды на тыл огнём и принимает дистанционные удары на себя.",
+    abilityText: "",
   },
   {
     id: "gun_75_pack",
@@ -2501,7 +2500,7 @@ export const cards: TankCard[] = [
     cost: 1,
     attack: 0,
     armor: 0,
-    hp: 2,
+    hp: 3,
     range: 0,
     movement: 0,
     fuelGeneration: 0,

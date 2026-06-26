@@ -99,7 +99,7 @@ export type SupportEffects = {
 export type HeadquartersAbility = {
   /** Short ability name shown in logs and on the card. */
   name: string;
-  /** First tank (light/medium/heavy) played each turn enters with blitz. */
+  /** First tank (light/medium/heavy) played each turn gains blitz (two moves per turn). */
   firstTankBlitz?: boolean;
   /** Fuel discount for the first unit (any zone) played each turn. */
   firstUnitFuelDiscount?: number;
@@ -120,7 +120,7 @@ export type HeadquartersAbility = {
    * the mirror of the dug-in ambush bonus). Rewards charging on the move.
    */
   movedTankAttackBonus?: number;
-  /** Light units enter the battlefield with blitz. */
+  /** Light units gain blitz (two moves per turn). */
   lightUnitsBlitz?: boolean;
   /** Extra headquarters damage against already damaged enemy units. */
   hqAttackBonusVsDamaged?: number;
@@ -198,15 +198,16 @@ export type TankCard = {
      */
     suppressEnemyIndirect?: boolean;
     /**
-     * «Огневой налёт»: when this unit enters the battlefield it deals `amount`
-     * damage to enemy battlefield units. With `scope: "random"` it strikes one
-     * random enemy unit; with `scope: "classes"` it strikes every enemy unit of
-     * the listed `classes`. Camouflaged (still hidden) units are skipped — the
-     * barrage is indirect fire, not a melee attack.
+     * «Огневой налёт»: when this unit enters play it deals `amount` damage.
+     * With `scope: "random"` it strikes one random enemy battlefield unit; with
+     * `scope: "classes"` it strikes every enemy battlefield unit of the listed
+     * `classes`; with `scope: "rear"` it strikes one random enemy rear-line
+     * (support) unit. Camouflaged (still hidden) battlefield units are skipped —
+     * the barrage is indirect fire, not a melee attack.
      */
     deployDamage?: {
       amount: number;
-      scope: "random" | "classes";
+      scope: "random" | "classes" | "rear";
       classes?: TankClass[];
     };
     /**
@@ -227,7 +228,13 @@ export type TankCard = {
   };
 
   combatAbilities?: {
-    /** Unit enters the battlefield ready for a full move and attack. */
+    /**
+     * «Блиц»: on the turn the unit enters play it may perform two standard move
+     * actions (double its normal movement budget) while still attacking only
+     * once; on later turns it moves like any other unit of its class. For heavy
+     * tanks and tank destroyers the double-move turn also lifts the usual "move
+     * OR attack" restriction — they may move twice and still fire once.
+     */
     blitz?: boolean;
     /**
      * Once per turn the first enemy strike aimed at a friendly light tank is
@@ -365,6 +372,12 @@ export type BoardUnit = {
    * every class, not just light tanks.
    */
   deployedThisTurn?: boolean;
+  /**
+   * «Блиц» granted by a headquarters ability (firstTankBlitz / lightUnitsBlitz)
+   * at deploy time. Card-intrinsic blitz lives on the card; this flag persists
+   * the HQ-granted version so the unit keeps its double move every turn.
+   */
+  blitzGranted?: boolean;
   tdAmbushUsedThisTurn: boolean;
   /** Anti-tank screen already fired this turn (see supportLineCover). */
   coverFiredThisTurn?: boolean;
