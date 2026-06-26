@@ -45,7 +45,7 @@ import type {
 } from "../game/types";
 import { getCardKeywords, getHeadquartersKeywords } from "../game/cardKeywords";
 import { CardKeywordsPanel } from "./CardKeywordsPanel";
-import { useStageOverlayTransform } from "./GameStage";
+import { screenDeltaToStage, useStageOverlayTransform } from "./GameStage";
 import { HandCardView } from "./HandCardView";
 
 type CollectionTypeFilter = UnitTypeFilter | "headquarters";
@@ -471,7 +471,7 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
       : 0;
 
   function handlePanPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.pointerType !== "mouse" || event.button !== 0) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
 
     const viewport = viewportRef.current;
     if (!viewport) return;
@@ -510,7 +510,11 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
       viewport.style.cursor = "grabbing";
     }
 
-    viewport.scrollTop = pan.scrollTop - deltaY;
+    // Convert the screen-space finger movement into the stage's own axes so a
+    // swipe along the list's visual vertical scrolls it even when the stage is
+    // rotated 90° on a portrait phone.
+    const { y: distance } = screenDeltaToStage(deltaX, deltaY);
+    viewport.scrollTop = pan.scrollTop - distance;
     event.preventDefault();
   }
 
@@ -1109,7 +1113,7 @@ const styles: Record<string, CSSProperties> = {
     WebkitOverflowScrolling: "touch",
     cursor: "grab",
     userSelect: "none",
-    touchAction: "pan-y",
+    touchAction: "none",
     maskImage:
       "linear-gradient(180deg, transparent 0%, #000 34px, #000 calc(100% - 34px), transparent 100%)",
     WebkitMaskImage:
