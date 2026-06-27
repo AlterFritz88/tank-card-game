@@ -378,6 +378,21 @@ function SelectedCombatObjectGlow() {
   );
 }
 
+// Persistent brass command frame around the rear HQ cell so it reads as the
+// command centre instead of just another rear unit of the same size. Corner
+// brackets + a thin gold border; sits above the card art (z9) but below the
+// selection/target glow rings (z19/20), so those still overlay cleanly.
+function HqCommandFrame() {
+  return (
+    <span style={styles.hqCommandFrame} aria-hidden>
+      <span style={{ ...styles.hqFrameCorner, ...styles.hqFrameCornerTL }} />
+      <span style={{ ...styles.hqFrameCorner, ...styles.hqFrameCornerTR }} />
+      <span style={{ ...styles.hqFrameCorner, ...styles.hqFrameCornerBL }} />
+      <span style={{ ...styles.hqFrameCorner, ...styles.hqFrameCornerBR }} />
+    </span>
+  );
+}
+
 function AttackTargetGlow() {
   return (
     <motion.span
@@ -2414,11 +2429,17 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       action.type === "END_TURN" ||
       action.type === "TIMER_TICK";
 
+    // Fold the stationary/moved HQ auras into the attack diff only for the move
+    // that toggles them — the unit's own step onto a new cell. Everywhere else
+    // (turn ends, deploys, attacks) the aura is excluded so its +1/−1 is not
+    // re-flashed away from the movement that earned it.
+    const includeAuraBonuses = action.type === "MOVE_UNIT";
+
     const beforeBattle = useBattleStore.getState().battle;
     const before =
       shouldShowDamage && beforeBattle ? createHpSnapshot(beforeBattle) : null;
     const beforeAttack =
-      beforeBattle ? createAttackSnapshot(beforeBattle) : null;
+      beforeBattle ? createAttackSnapshot(beforeBattle, includeAuraBonuses) : null;
 
     dispatch(action);
 
@@ -2426,7 +2447,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     if (!afterBattle) return;
 
     if (beforeAttack && !options.skipAttackEffects) {
-      showAttackChangesFromSnapshots(beforeAttack, createAttackSnapshot(afterBattle));
+      showAttackChangesFromSnapshots(
+        beforeAttack,
+        createAttackSnapshot(afterBattle, includeAuraBonuses)
+      );
     }
 
     if (!shouldShowDamage || !before || options.skipDamageEffects) return;
@@ -3825,6 +3849,16 @@ function renderEnemyDeckWithTimer() {
           }
         }}
       >
+        <span
+          aria-hidden
+          style={{
+            ...styles.hqAura,
+            ...(owner === humanPlayerId
+              ? styles.hqAuraFriendly
+              : styles.hqAuraEnemy),
+          }}
+        />
+
         <motion.div
           style={{ ...styles.boardCardContent, ...styles.rearHqCardContent }}
           animate={{ opacity: hiddenDestroyedObjectIds.has(hqId) ? 0 : 1 }}
@@ -3859,6 +3893,8 @@ function renderEnemyDeckWithTimer() {
             )}
           </AnimatePresence>
         </motion.div>
+
+        <HqCommandFrame />
 
         {isSelected && <SelectedCombatObjectGlow />}
         {canBeTarget && <AttackTargetGlow />}
@@ -6018,6 +6054,61 @@ actionSideColumn: {
 
   rearHqCardContent: {
     pointerEvents: "none",
+  },
+
+  // Soft side-coloured halo bleeding past the HQ cell (overflow:visible) so the
+  // command centre glows green (player) / red (enemy) against the dark rear.
+  hqAura: {
+    position: "absolute",
+    inset: -11,
+    zIndex: 0,
+    borderRadius: "50%",
+    pointerEvents: "none",
+  },
+
+  hqAuraFriendly: {
+    background:
+      "radial-gradient(circle, rgba(80, 255, 130, 0.24), rgba(80, 255, 130, 0.07) 55%, transparent 72%)",
+  },
+
+  hqAuraEnemy: {
+    background:
+      "radial-gradient(circle, rgba(255, 70, 55, 0.24), rgba(255, 70, 55, 0.07) 55%, transparent 72%)",
+  },
+
+  // Brass command frame: thin gold border + L-shaped corner brackets.
+  hqCommandFrame: {
+    position: "absolute",
+    inset: 1,
+    zIndex: 9,
+    pointerEvents: "none",
+    border: "1.5px solid rgba(247, 215, 116, 0.5)",
+    boxShadow:
+      "inset 0 0 7px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(120, 90, 28, 0.45)",
+  },
+
+  hqFrameCorner: {
+    position: "absolute",
+    width: 11,
+    height: 11,
+    borderStyle: "solid",
+    borderColor: "rgba(247, 215, 116, 0.95)",
+    borderWidth: 0,
+  },
+
+  hqFrameCornerTL: { top: -1, left: -1, borderTopWidth: 2, borderLeftWidth: 2 },
+  hqFrameCornerTR: { top: -1, right: -1, borderTopWidth: 2, borderRightWidth: 2 },
+  hqFrameCornerBL: {
+    bottom: -1,
+    left: -1,
+    borderBottomWidth: 2,
+    borderLeftWidth: 2,
+  },
+  hqFrameCornerBR: {
+    bottom: -1,
+    right: -1,
+    borderBottomWidth: 2,
+    borderRightWidth: 2,
   },
 
   supportCardContent: {
