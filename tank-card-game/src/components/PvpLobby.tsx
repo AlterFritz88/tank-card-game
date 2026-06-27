@@ -59,6 +59,8 @@ import { getDeckCardIds } from "../game/initialState";
 import {
   claimCampaignRewardFromServer,
   createGoldTracksPaymentOnServer,
+  exchangeGoldForIronOnServer,
+  GOLD_TO_IRON_RATE,
   getFavoriteHeadquartersId,
   isPremiumAccountActive,
   isValidPlayerNickname,
@@ -308,7 +310,13 @@ function LegalLinks({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function PlayerResourcesPanel({ onOpenShop }: { onOpenShop?: () => void }) {
+function PlayerResourcesPanel({
+  onOpenShop,
+  onOpenExchange,
+}: {
+  onOpenShop?: () => void;
+  onOpenExchange?: () => void;
+}) {
   const progress = loadPlayerProgress();
   const resources = [
     {
@@ -320,35 +328,62 @@ function PlayerResourcesPanel({ onOpenShop }: { onOpenShop?: () => void }) {
       icon: silverTracksIcon,
       label: "Железные траки",
       value: progress.ironTracks,
+      onClick: onOpenExchange,
+      actionLabel: "Обменять золотые траки на железные",
     },
     {
       icon: goldTracksIcon,
       label: "Золотые траки",
       value: progress.goldTracks,
       iconOffsetX: -6,
+      onClick: onOpenShop,
+      actionLabel: "Открыть магазин",
     },
   ];
 
   return (
     <aside style={styles.playerResourcesPanel} aria-label="Ресурсы игрока">
-      {resources.map((resource) => (
-        <div key={resource.label} style={styles.playerResourceItem}>
-          <img
-            src={resource.icon}
-            alt=""
-            draggable={false}
+      {resources.map((resource) => {
+        const interactive = Boolean(resource.onClick);
+        const content = (
+          <>
+            <img
+              src={resource.icon}
+              alt=""
+              draggable={false}
+              style={{
+                ...styles.playerResourceIcon,
+                transform: resource.iconOffsetX
+                  ? `translateX(${resource.iconOffsetX}px)`
+                  : undefined,
+              }}
+            />
+            <span style={styles.playerResourceValue}>
+              {formatResourceValue(resource.value)}
+            </span>
+          </>
+        );
+
+        return interactive ? (
+          <button
+            key={resource.label}
+            type="button"
             style={{
-              ...styles.playerResourceIcon,
-              transform: resource.iconOffsetX
-                ? `translateX(${resource.iconOffsetX}px)`
-                : undefined,
+              ...styles.playerResourceItem,
+              ...styles.playerResourceButton,
             }}
-          />
-          <span style={styles.playerResourceValue}>
-            {formatResourceValue(resource.value)}
-          </span>
-        </div>
-      ))}
+            onClick={resource.onClick}
+            aria-label={resource.actionLabel}
+            title={resource.actionLabel}
+          >
+            {content}
+          </button>
+        ) : (
+          <div key={resource.label} style={styles.playerResourceItem}>
+            {content}
+          </div>
+        );
+      })}
       {onOpenShop ? (
         <button
           type="button"
@@ -640,6 +675,225 @@ function ShopMenu({
               })}
             </div>
           </section>
+        </div>
+
+        {statusMessage ? (
+          <div style={styles.shopStatusMessage}>{statusMessage}</div>
+        ) : null}
+      </section>
+    </main>
+  );
+}
+
+function ExchangeMenu({
+  onBack,
+  onOpenShop,
+  onProfileChanged,
+}: {
+  onBack: () => void;
+  onOpenShop: () => void;
+  onProfileChanged: () => void;
+}) {
+  const [progress, setProgress] = useState(() => loadPlayerProgress());
+  const [goldAmount, setGoldAmount] = useState(1);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [exchanging, setExchanging] = useState(false);
+  const profileConnection = useProfileConnection();
+  const profileServerUnavailable = isProfileServerUnavailable(profileConnection);
+
+  const maxGold = progress.goldTracks;
+  const clampedAmount = Math.max(0, Math.min(goldAmount, maxGold));
+  const ironGain = clampedAmount * GOLD_TO_IRON_RATE;
+  const canExchange =
+    clampedAmount > 0 && !exchanging && !profileServerUnavailable;
+  const presets = [1, 5, 10, 50];
+
+  function setAmount(next: number) {
+    setStatusMessage(null);
+    const safeNext = Number.isFinite(next) ? Math.floor(next) : 0;
+    setGoldAmount(Math.max(0, Math.min(safeNext, maxGold)));
+  }
+
+  async function runExchange() {
+    if (!canExchange) return;
+    setStatusMessage(null);
+    setExchanging(true);
+
+    try {
+      const exchangedGold = clampedAmount;
+      const nextProgress = await exchangeGoldForIronOnServer(exchangedGold);
+      setProgress(nextProgress);
+      setGoldAmount((current) => Math.min(current, nextProgress.goldTracks));
+      onProfileChanged();
+      setStatusMessage(
+        `Обмен выполнен: +${formatResourceValue(
+          exchangedGold * GOLD_TO_IRON_RATE
+        )} железных траков.`
+      );
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error ? error.message : "Не удалось выполнить обмен"
+      );
+    } finally {
+      setExchanging(false);
+    }
+  }
+
+  return (
+    <main style={styles.page}>
+      <div style={styles.backgroundShade} />
+      <PlayerAccountPanel />
+      <PlayerResourcesPanel />
+      {profileServerUnavailable ? (
+        <ProfileServerBanner
+          message={profileConnection.message}
+          onRetry={() => window.location.reload()}
+        />
+      ) : null}
+
+      <section style={{ ...styles.menuLayer, ...styles.shopLayer }}>
+        <header style={styles.shopHeader}>
+          <button type="button" style={styles.shopBackButton} onClick={onBack}>
+            Назад
+          </button>
+          <div>
+            <h1 style={styles.title}>ОБМЕН ТРАКОВ</h1>
+            <p style={styles.shopSubtitle}>
+              1 золотой трак = {GOLD_TO_IRON_RATE} железных траков
+            </p>
+          </div>
+        </header>
+
+        <div style={styles.exchangeBalanceRow}>
+          <span style={styles.exchangeBalanceCell}>
+            <img
+              src={goldTracksIcon}
+              alt=""
+              draggable={false}
+              style={styles.shopBalanceIcon}
+            />
+            {formatResourceValue(progress.goldTracks)}
+          </span>
+          <span style={styles.exchangeBalanceCell}>
+            <img
+              src={silverTracksIcon}
+              alt=""
+              draggable={false}
+              style={styles.shopBalanceIcon}
+            />
+            {formatResourceValue(progress.ironTracks)}
+          </span>
+        </div>
+
+        <div style={styles.exchangeCard}>
+          <div style={styles.exchangeFlow}>
+            <div style={styles.exchangeSide}>
+              <img
+                src={goldTracksIcon}
+                alt=""
+                draggable={false}
+                style={styles.exchangeSideIcon}
+              />
+              <span style={styles.exchangeSideValue}>
+                −{formatResourceValue(clampedAmount)}
+              </span>
+              <span style={styles.exchangeSideLabel}>Золотые траки</span>
+            </div>
+            <span style={styles.exchangeArrow}>→</span>
+            <div style={styles.exchangeSide}>
+              <img
+                src={silverTracksIcon}
+                alt=""
+                draggable={false}
+                style={styles.exchangeSideIcon}
+              />
+              <span style={styles.exchangeSideValue}>
+                +{formatResourceValue(ironGain)}
+              </span>
+              <span style={styles.exchangeSideLabel}>Железные траки</span>
+            </div>
+          </div>
+
+          <div style={styles.exchangeStepper}>
+            <button
+              type="button"
+              style={styles.exchangeStepButton}
+              onClick={() => setAmount(clampedAmount - 1)}
+              disabled={clampedAmount <= 0}
+              aria-label="Уменьшить"
+            >
+              −
+            </button>
+            <input
+              type="number"
+              min={0}
+              max={maxGold}
+              value={clampedAmount}
+              onChange={(event) => setAmount(Number(event.target.value))}
+              style={styles.exchangeInput}
+              inputMode="numeric"
+              aria-label="Количество золотых траков"
+            />
+            <button
+              type="button"
+              style={styles.exchangeStepButton}
+              onClick={() => setAmount(clampedAmount + 1)}
+              disabled={clampedAmount >= maxGold}
+              aria-label="Увеличить"
+            >
+              +
+            </button>
+          </div>
+
+          <div style={styles.exchangePresetRow}>
+            {presets.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                style={styles.exchangePresetButton}
+                disabled={maxGold < 1}
+                onClick={() => setAmount(preset)}
+              >
+                {preset}
+              </button>
+            ))}
+            <button
+              type="button"
+              style={styles.exchangePresetButton}
+              disabled={maxGold < 1}
+              onClick={() => setAmount(maxGold)}
+            >
+              Всё
+            </button>
+          </div>
+
+          <button
+            type="button"
+            style={{
+              ...styles.exchangeConfirmButton,
+              ...(canExchange ? {} : styles.shopOfferCardDisabled),
+            }}
+            disabled={!canExchange}
+            onClick={() => void runExchange()}
+          >
+            {exchanging
+              ? "Обмен..."
+              : maxGold < 1
+                ? "Нет золотых траков"
+                : clampedAmount < 1
+                  ? "Выберите количество"
+                  : `Обменять ${formatResourceValue(
+                      clampedAmount
+                    )} → ${formatResourceValue(ironGain)}`}
+          </button>
+
+          <button
+            type="button"
+            style={styles.exchangeShopLink}
+            onClick={onOpenShop}
+          >
+            Купить золотые траки в магазине
+          </button>
         </div>
 
         {statusMessage ? (
@@ -1984,6 +2238,8 @@ export function PvpLobby() {
     closeCollectionMenu,
     openShopMenu,
     closeShopMenu,
+    openExchangeMenu,
+    closeExchangeMenu,
     openCampaignMenu,
     openCampaignMissions,
     closeCampaignMissions,
@@ -2752,7 +3008,10 @@ export function PvpLobby() {
       <main style={styles.page}>
         <div style={styles.backgroundShade} />
         <PlayerAccountPanel onOpenProfile={openProfileMenu} />
-        <PlayerResourcesPanel onOpenShop={openShopMenu} />
+        <PlayerResourcesPanel
+          onOpenShop={openShopMenu}
+          onOpenExchange={openExchangeMenu}
+        />
         {renderProfileServerBanner()}
 
         <section style={{ ...styles.menuLayer, ...styles.mainMenuLayer }}>
@@ -2907,7 +3166,10 @@ export function PvpLobby() {
       <main style={styles.page}>
         <div style={styles.backgroundShade} />
         <PlayerAccountPanel onOpenProfile={openProfileMenu} />
-        <PlayerResourcesPanel onOpenShop={openShopMenu} />
+        <PlayerResourcesPanel
+          onOpenShop={openShopMenu}
+          onOpenExchange={openExchangeMenu}
+        />
         {renderProfileServerBanner()}
 
         <section style={styles.menuLayer}>
@@ -3078,6 +3340,16 @@ export function PvpLobby() {
     );
   }
 
+  if (menuView === "exchange") {
+    return (
+      <ExchangeMenu
+        onBack={closeExchangeMenu}
+        onOpenShop={openShopMenu}
+        onProfileChanged={() => setProfileRevision((revision) => revision + 1)}
+      />
+    );
+  }
+
   if (menuView === "deckBuilder") {
     return (
       <Suspense fallback={<MenuChunkLoadingScreen />}>
@@ -3098,7 +3370,10 @@ export function PvpLobby() {
       <main style={styles.page}>
         <div style={styles.backgroundShade} />
         <PlayerAccountPanel onOpenProfile={openProfileMenu} />
-        <PlayerResourcesPanel onOpenShop={openShopMenu} />
+        <PlayerResourcesPanel
+          onOpenShop={openShopMenu}
+          onOpenExchange={openExchangeMenu}
+        />
         {renderProfileServerBanner()}
 
         <section style={{ ...styles.menuLayer, ...styles.mainMenuLayer }}>
@@ -3338,7 +3613,10 @@ export function PvpLobby() {
     <main style={styles.page}>
       <div style={styles.backgroundShade} />
       <PlayerAccountPanel onOpenProfile={openProfileMenu} />
-      <PlayerResourcesPanel onOpenShop={openShopMenu} />
+      <PlayerResourcesPanel
+          onOpenShop={openShopMenu}
+          onOpenExchange={openExchangeMenu}
+        />
       {renderProfileServerBanner()}
 
       <section style={{ ...styles.menuLayer, ...styles.headquartersMenuLayer }}>
@@ -3508,7 +3786,7 @@ export function PvpLobby() {
               aria-label="Назад"
               title="Назад"
             >
-              ←
+              ‹
             </button>
           </>
         ) : null}
@@ -3954,6 +4232,19 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: 0.3,
     textShadow: "0 2px 5px rgba(0,0,0,0.9)",
     fontVariantNumeric: "tabular-nums",
+  },
+
+  playerResourceButton: {
+    appearance: "none",
+    border: "1px solid transparent",
+    borderRadius: 9,
+    background: "transparent",
+    padding: "3px 7px",
+    margin: "-3px -1px",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    pointerEvents: "auto",
+    transition: "background-color 120ms ease, border-color 120ms ease",
   },
 
   playerResourceIcon: {
@@ -5027,6 +5318,180 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: "inset 0 0 0 1px rgba(224, 190, 104, 0.2)",
   },
 
+  exchangeBalanceRow: {
+    alignSelf: "center",
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    alignItems: "center",
+    gap: 14,
+    minWidth: 360,
+    padding: "10px 22px",
+    background:
+      "linear-gradient(180deg, rgba(29, 34, 33, 0.78), rgba(10, 13, 13, 0.84))",
+    color: "#f8efd9",
+    boxShadow:
+      "0 12px 28px rgba(0,0,0,0.38), inset 0 0 0 1px rgba(214, 173, 83, 0.18)",
+    fontSize: 15,
+    fontWeight: 900,
+    letterSpacing: 0.5,
+  },
+
+  exchangeBalanceCell: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontVariantNumeric: "tabular-nums",
+  },
+
+  exchangeCard: {
+    alignSelf: "center",
+    width: "min(560px, 100%)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 18,
+    padding: 22,
+    background:
+      "linear-gradient(180deg, rgba(31, 35, 32, 0.82), rgba(9, 12, 11, 0.88))",
+    boxShadow:
+      "0 18px 40px rgba(0,0,0,0.42), inset 0 0 0 1px rgba(224, 190, 104, 0.18)",
+  },
+
+  exchangeFlow: {
+    display: "grid",
+    gridTemplateColumns: "1fr auto 1fr",
+    alignItems: "center",
+    gap: 14,
+  },
+
+  exchangeSide: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 6,
+    padding: "14px 10px",
+    border: "1px solid rgba(214, 173, 83, 0.22)",
+    background:
+      "radial-gradient(circle at center, rgba(179, 137, 53, 0.18), transparent 70%), linear-gradient(180deg, rgba(36, 38, 35, 0.9), rgba(15, 16, 15, 0.95))",
+  },
+
+  exchangeSideIcon: {
+    width: 46,
+    height: 46,
+    objectFit: "contain",
+    filter: "drop-shadow(0 4px 5px rgba(0,0,0,0.82))",
+  },
+
+  exchangeSideValue: {
+    color: "#f8efd9",
+    fontFamily: "var(--font-display)",
+    fontSize: 22,
+    fontWeight: 700,
+    letterSpacing: "0.02em",
+    fontVariantNumeric: "tabular-nums",
+    textShadow: "0 2px 0 rgba(0,0,0,0.92)",
+  },
+
+  exchangeSideLabel: {
+    color: "rgba(238, 224, 190, 0.78)",
+    fontSize: 11,
+    fontWeight: 800,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+
+  exchangeArrow: {
+    color: "var(--brass-400)",
+    fontSize: 30,
+    fontWeight: 900,
+    textShadow: "0 2px 6px rgba(0,0,0,0.8)",
+  },
+
+  exchangeStepper: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+
+  exchangeStepButton: {
+    width: 42,
+    height: 42,
+    flex: "0 0 auto",
+    border: "1px solid rgba(214, 173, 83, 0.3)",
+    background:
+      "linear-gradient(180deg, rgba(46, 48, 44, 0.95), rgba(18, 19, 18, 0.98))",
+    color: "#fff0bd",
+    fontSize: 24,
+    fontWeight: 900,
+    lineHeight: 1,
+    cursor: "pointer",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84)",
+  },
+
+  exchangeInput: {
+    width: 140,
+    height: 42,
+    textAlign: "center",
+    border: "1px solid rgba(214, 173, 83, 0.3)",
+    background: "rgba(8, 10, 9, 0.9)",
+    color: "#fce7a9",
+    fontFamily: "var(--font-display)",
+    fontSize: 22,
+    fontWeight: 700,
+    fontVariantNumeric: "tabular-nums",
+  },
+
+  exchangePresetRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 8,
+  },
+
+  exchangePresetButton: {
+    minWidth: 52,
+    padding: "8px 14px",
+    border: "1px solid rgba(214, 173, 83, 0.25)",
+    background:
+      "linear-gradient(180deg, rgba(40, 42, 39, 0.92), rgba(16, 17, 16, 0.96))",
+    color: "#fff0bd",
+    fontSize: 13,
+    fontWeight: 900,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    cursor: "pointer",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84)",
+  },
+
+  exchangeConfirmButton: {
+    minHeight: 52,
+    padding: "12px 16px",
+    border: "1px solid rgba(214, 173, 83, 0.4)",
+    background:
+      "radial-gradient(circle at center, rgba(179, 137, 53, 0.32), transparent 70%), linear-gradient(180deg, rgba(58, 47, 18, 0.96), rgba(24, 19, 8, 0.98))",
+    color: "#fff0bd",
+    fontSize: 15,
+    fontWeight: 1000,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    cursor: "pointer",
+    textShadow: "0 2px 0 rgba(0,0,0,0.84)",
+    boxShadow: "0 12px 24px rgba(0,0,0,0.3)",
+  },
+
+  exchangeShopLink: {
+    alignSelf: "center",
+    border: "none",
+    background: "transparent",
+    color: "rgba(238, 224, 190, 0.82)",
+    fontSize: 12,
+    fontWeight: 800,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    textDecoration: "underline",
+    cursor: "pointer",
+  },
+
   header: {
     textAlign: "center",
     marginBottom: 8,
@@ -5952,9 +6417,13 @@ const styles: Record<string, CSSProperties> = {
     backgroundRepeat: "no-repeat",
     color: "#fff0bd",
     cursor: "pointer",
-    fontSize: 25,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 30,
     fontWeight: 1000,
-    lineHeight: "43px",
+    lineHeight: 1,
+    paddingBottom: 4,
     textAlign: "center",
     textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.2)",
     boxShadow: "none",

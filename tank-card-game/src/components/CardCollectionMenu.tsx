@@ -15,6 +15,7 @@ import buttonImage from "../assets/button.webp";
 import { getNationFlagAsset } from "../assets/nationFlagAssets";
 import classCarIcon from "../assets/icons/classes/class-car-player.webp";
 import classArmoredCarIcon from "../assets/icons/classes/class-armored_car-player.webp";
+import classHqIcon from "../assets/icons/classes/class-hq-player.webp";
 import classHeavyIcon from "../assets/icons/classes/class-heavy-player.webp";
 import classLightIcon from "../assets/icons/classes/class-light-player.webp";
 import classMediumIcon from "../assets/icons/classes/class-medium-player.webp";
@@ -112,11 +113,22 @@ function getNationFilterIcon(value: NationFilter): string | undefined {
   return getNationFlagAsset(value as Nation) ?? undefined;
 }
 
+function getNationFlagIconStyle(
+  value: NationFilter
+): CSSProperties | undefined {
+  // США: сдвигаем видимую часть флага влево
+  if (value === "usa") return { objectPosition: "25% center" };
+  // Британия и Франция: показываем флаг целиком, сжимая по ширине до квадрата
+  if (value === "uk" || value === "france") return { objectFit: "fill" };
+  return undefined;
+}
+
 type FilterOption<T extends string> = {
   value: T;
   label: string;
   icon?: string;
   iconShape?: "contain" | "cover";
+  iconStyleOverride?: CSSProperties;
 };
 
 function FilterDropdown<T extends string>({
@@ -178,7 +190,10 @@ function FilterDropdown<T extends string>({
               src={selected.icon}
               alt=""
               aria-hidden="true"
-              style={iconStyle(selected.iconShape)}
+              style={{
+                ...iconStyle(selected.iconShape),
+                ...selected.iconStyleOverride,
+              }}
             />
           ) : null}
           <span style={styles.dropdownTriggerLabel}>
@@ -218,7 +233,10 @@ function FilterDropdown<T extends string>({
                   src={option.icon}
                   alt=""
                   aria-hidden="true"
-                  style={iconStyle(option.iconShape)}
+                  style={{
+                    ...iconStyle(option.iconShape),
+                    ...option.iconStyleOverride,
+                  }}
                 />
               ) : (
                 <span style={styles.dropdownIconPlaceholder} aria-hidden="true" />
@@ -422,6 +440,7 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
       {
         value: "headquarters",
         label: "Штабы",
+        icon: classHqIcon,
       },
       ...DECK_UNIT_TYPE_FILTERS.filter((filter) => filter.value !== "all").map(
         (filter) => ({
@@ -441,6 +460,7 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
         label: filter.value === "all" ? "Нация" : filter.label,
         icon: getNationFilterIcon(filter.value),
         iconShape: filter.value === "all" ? undefined : "cover",
+        iconStyleOverride: getNationFlagIconStyle(filter.value),
       })),
     []
   );
@@ -860,9 +880,13 @@ const styles: Record<string, CSSProperties> = {
     backgroundRepeat: "no-repeat",
     color: "#fff0bd",
     cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     fontSize: 30,
     fontWeight: 1000,
-    lineHeight: "41px",
+    lineHeight: 1,
+    paddingBottom: 4,
     textAlign: "center",
     textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.2)",
   },

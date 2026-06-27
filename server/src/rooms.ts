@@ -501,6 +501,9 @@ export class RoomManager {
       case "PURCHASE_PREMIUM_DAYS":
         this.purchasePremiumDays(socket, message);
         break;
+      case "EXCHANGE_GOLD_FOR_IRON":
+        this.exchangeGoldForIron(socket, message);
+        break;
       case "CLAIM_CAMPAIGN_REWARD":
         this.claimCampaignReward(socket, message);
         break;
@@ -1040,6 +1043,24 @@ export class RoomManager {
         profile: this.profiles.purchasePremiumDays(
           message.playerId,
           message.days
+        ),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
+  private exchangeGoldForIron(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "EXCHANGE_GOLD_FOR_IRON" }>
+  ) {
+    try {
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile: this.profiles.exchangeGoldForIron(
+          message.playerId,
+          message.goldAmount
         ),
       });
     } catch (error) {

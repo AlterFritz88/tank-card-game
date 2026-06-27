@@ -2242,16 +2242,16 @@ const rawCards: TankCard[] = [
     hp: 5,
     range: 0,
     movement: 0,
-    fuelGeneration: 0,
+    fuelGeneration: 1,
     initiative: 1,
     deploymentZone: "support",
     supportRole: "transport",
     supportEffects: {
       fuelPerTurn: 1,
-      hqDamageRedirect: 1,
+      tankScreenClasses: ["light", "medium"],
     },
     abilityText:
-      "Бронированный автотранспорт: +1 топлива в ход и перехватывает 1 урон по штабу.",
+      "+1 топлива. Перехватывает удары по лёгким и средним танкам, принимая огонь на себя.",
   },
   {
     id: "krupp_l3h163",
@@ -2454,7 +2454,7 @@ const rawCards: TankCard[] = [
   },
   {
     id: "zis_5_ammo",
-    name: "ЗИС-5 (боепитание)",
+    name: "ЗИС-5",
     nation: "ussr",
     class: "light",
     rarity: "common",
@@ -2472,7 +2472,7 @@ const rawCards: TankCard[] = [
       fuelPerTurn: 1,
       drawEveryTurns: 3,
     },
-    abilityText: "Грузовик боепитания: +1 топлива и добор карты каждый третий ход. +2 топливо",
+    abilityText: "+1 топлива и добор карты каждый третий ход",
   },
   {
     id: "parm_workshop",
@@ -2798,7 +2798,7 @@ const rawCards: TankCard[] = [
     cost: 3,
     attack: 3,
     armor: 1,
-    hp: 4,
+    hp: 2,
     range: 1,
     movement: 3,
     fuelGeneration: 0,

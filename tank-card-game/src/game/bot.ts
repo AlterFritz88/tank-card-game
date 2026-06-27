@@ -242,6 +242,7 @@ function getSupportUnitValue(card: TankCard): number {
     (supportEffects?.hqAttackBonus ?? 0) * 16 +
     (supportEffects?.hqDamageRedirect ?? 0) * 10 +
     (supportEffects?.supportLineCover ?? 0) * 9 +
+    (supportEffects?.tankScreenClasses?.length ?? 0) * 8 +
     (supportEffects?.returnFire ?? 0) * 7 +
     (supportEffects?.fuelPerTurn ?? 0) * 15 +
     (supportEffects?.drawEveryTurns
@@ -396,6 +397,16 @@ function getContextualSupportCardBonus(
   // pressure, when the enemy is likely to push the headquarters and rear line.
   if (effects.supportLineCover) {
     score += effects.supportLineCover * (enemyPressure >= 60 ? 12 : 5);
+  }
+
+  if (effects.tankScreenClasses?.length) {
+    const ownProtectedTanks = state.units.filter((unit) => {
+      if (unit.ownerId !== "bot" || !isBattlefieldUnit(unit)) return false;
+      return effects.tankScreenClasses?.includes(getCard(unit.cardId).class);
+    }).length;
+
+    score += effects.tankScreenClasses.length * 4 + ownProtectedTanks * 9;
+    score += enemyPressure >= 55 ? 8 : 0;
   }
 
   if (effects.returnFire) {
@@ -1196,7 +1207,8 @@ function getDevelopmentPlayAction(state: BattleState): BattleAction | null {
         (card.supportEffects?.drawEveryTurns ?? 0) > 0;
       const hasUsefulCombatEffect =
         (card.supportEffects?.hqAttackBonus ?? 0) > 0 ||
-        (card.supportEffects?.hqDamageRedirect ?? 0) > 0;
+        (card.supportEffects?.hqDamageRedirect ?? 0) > 0 ||
+        (card.supportEffects?.tankScreenClasses?.length ?? 0) > 0;
 
       return (
         contextualScore >= 0 ||

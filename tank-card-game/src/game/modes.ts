@@ -9,6 +9,7 @@ export type MainMenuView =
   | "research"
   | "collection"
   | "shop"
+  | "exchange"
   | "deckBuilder";
 
 export type MatchEndReason =

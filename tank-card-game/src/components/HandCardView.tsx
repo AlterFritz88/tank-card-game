@@ -563,6 +563,7 @@ export function HandCardView({
               title={isHeadquarters ? "Штаб" : unitClass!.label}
               style={{
                 ...styles.classIcon,
+                ...(ownerId === "player" ? null : styles.enemyClassIcon),
                 width: scaled(20),
                 height: scaled(29),
                 transform: "none",
@@ -643,30 +644,6 @@ export function HandCardView({
           >
             {descriptionText}
           </p>
-        )}
-
-        {card?.supportRole && (
-          <div
-            style={{
-              ...styles.mechanicsLine,
-              ...(isPreview ? {} : styles.compactMechanicsLine),
-            }}
-          >
-            <span
-              style={{
-                ...styles.mechanicBadge,
-                ...(isPreview ? {} : styles.compactMechanicBadge),
-              }}
-              title="Эта карта выходит в одну из трёх ячеек тыловой линии."
-            >
-              {isPreview ? "Тыловая линия" : "ТЫЛ"} ·{" "}
-              {card.supportRole === "artillery"
-                ? "АРТ"
-                : card.supportRole === "transport"
-                  ? "ТР"
-                  : "МЕД"}
-            </span>
-          </div>
         )}
       </div>
     </div>
@@ -1006,6 +983,12 @@ const styles: Record<string, React.CSSProperties> = {
     transform: "translate(-7px, -36px)",
     filter:
       "brightness(1.28) saturate(1.35) contrast(1.38) drop-shadow(0 2px 4px rgba(0,0,0,0.85))",
+  },
+
+  enemyClassIcon: {
+    opacity: 0.9,
+    filter:
+      "brightness(0.95) saturate(0.82) contrast(1.04) drop-shadow(0 2px 4px rgba(0,0,0,0.82))",
   },
 
   healthBadgeOffset: {

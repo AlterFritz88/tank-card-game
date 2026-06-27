@@ -600,9 +600,12 @@ function ResearchNodeCard({
   const ownedCopies = Math.min(CARD_COPY_LIMIT, node.ownedCopies ?? 0);
   const badge = NODE_BADGES[node.stage];
   // The "!" (researchable) and "₸" (purchasable) badges are intentionally
-  // hidden — the footer label already conveys those actions.
+  // hidden — the footer label already conveys those actions. Purchased unit
+  // cards show their copy stack, so the green check would duplicate the state.
   const showBadge =
-    node.stage !== "researchable" && node.stage !== "researched";
+    node.stage !== "researchable" &&
+    node.stage !== "researched" &&
+    !(node.cardId && node.stage === "owned");
 
   return (
     <motion.div
@@ -1363,7 +1366,10 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
                   src={flag}
                   alt=""
                   draggable={false}
-                  style={styles.nationFlag}
+                  style={{
+                    ...styles.nationFlag,
+                    objectPosition: nation === "usa" ? "25% center" : "center",
+                  }}
                 />
               ) : null}
               <span style={styles.nationCaption}>{NATION_LABELS[nation]}</span>
@@ -1482,7 +1488,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
         aria-label="Назад"
         title="Назад"
       >
-        ←
+        ‹
       </button>
 
       <AnimatePresence>
@@ -2230,9 +2236,13 @@ const styles: Record<string, CSSProperties> = {
     backgroundRepeat: "no-repeat",
     color: "#fff0bd",
     cursor: "pointer",
-    fontSize: 25,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 30,
     fontWeight: 1000,
-    lineHeight: "43px",
+    lineHeight: 1,
+    paddingBottom: 4,
     textAlign: "center",
     textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.2)",
     boxShadow: "none",

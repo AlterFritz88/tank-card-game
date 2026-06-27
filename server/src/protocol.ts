@@ -124,6 +124,12 @@ export type PvpClientMessage =
       days: number;
     }
   | {
+      type: "EXCHANGE_GOLD_FOR_IRON";
+      requestId: string;
+      playerId: string;
+      goldAmount: number;
+    }
+  | {
       type: "CLAIM_CAMPAIGN_REWARD";
       requestId: string;
       playerId: string;

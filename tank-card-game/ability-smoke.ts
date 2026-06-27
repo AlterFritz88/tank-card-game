@@ -162,7 +162,7 @@ function makeUnit(partial: Partial<BoardUnit> & { instanceId: string; cardId: st
   const targetCard = getCard("panzer_iv");
 
   battle.units.push(
-    makeUnit({ instanceId: "p1", cardId: "t34_76", ownerId: "player", position: { row: 1, col: 1 } }),
+    makeUnit({ instanceId: "p1", cardId: "t34_76", ownerId: "player", position: { row: 1, col: 1 }, wasStationaryLastTurn: true }),
     makeUnit({ instanceId: "b1", cardId: "panzer_iv", ownerId: "bot", position: { row: 1, col: 2 } })
   );
 
@@ -866,8 +866,9 @@ function makeUnit(partial: Partial<BoardUnit> & { instanceId: string; cardId: st
   );
 }
 
-// 4-я тбр: свежеразвёрнутый танк не получает бонус засады в ход спавна,
-// но на следующий ход (если стоит на месте) бьёт на +1.
+// 4-я тбр: бонус засады заряжается только после ПОЛНОГО хода игрока без
+// движения. Свежеразвёрнутый танк не получает его ни в ход спавна, ни сразу
+// после хода врага — лишь простояв весь следующий ход игрока.
 {
   const battle = makeBattle("soviet_tank_brigade", "t34_76");
   battle.player.resources = 10;
@@ -888,12 +889,25 @@ function makeUnit(partial: Partial<BoardUnit> & { instanceId: string; cardId: st
     `display ${getUnitDisplayAttackValue(deployed, fresh)}, expected ${card.attack}`
   );
 
+  // Один цикл: пережил только ход врага — полного хода игрока на месте ещё не
+  // было, бонуса быть не должно.
   let cycled = applyAction(deployed, { type: "END_TURN", playerId: "player" });
+  cycled = applyAction(cycled, { type: "END_TURN", playerId: "bot" });
+  const afterEnemyTurn = cycled.units.find((u) => u.instanceId === unitId)!;
+
+  check(
+    "4-я тбр: только после хода врага бонуса ещё нет",
+    getUnitDisplayAttackValue(cycled, afterEnemyTurn) === card.attack,
+    `display ${getUnitDisplayAttackValue(cycled, afterEnemyTurn)}, expected ${card.attack}`
+  );
+
+  // Второй цикл: танк простоял весь ход игрока без движения — бонус заряжен.
+  cycled = applyAction(cycled, { type: "END_TURN", playerId: "player" });
   cycled = applyAction(cycled, { type: "END_TURN", playerId: "bot" });
   const settled = cycled.units.find((u) => u.instanceId === unitId)!;
 
   check(
-    "4-я тбр: на следующий ход неподвижный танк бьёт на +1",
+    "4-я тбр: простояв ход игрока, неподвижный танк бьёт на +1",
     getUnitDisplayAttackValue(cycled, settled) === card.attack + 1,
     `display ${getUnitDisplayAttackValue(cycled, settled)}, expected ${card.attack + 1}`
   );
@@ -911,6 +925,8 @@ function makeUnit(partial: Partial<BoardUnit> & { instanceId: string; cardId: st
       cardId: "t26_1931",
       ownerId: "player",
       position: { row: 1, col: 1 },
+      // Dug in for a full player turn — the ambush bonus is armed.
+      wasStationaryLastTurn: true,
     })
   );
 
@@ -981,6 +997,86 @@ function makeUnit(partial: Partial<BoardUnit> & { instanceId: string; cardId: st
     "4.Panzer: в ход противника атака возвращается к базовой",
     getUnitDisplayAttackValue(enemyTurn, enemyTurnUnit) === card.attack,
     `display ${getUnitDisplayAttackValue(enemyTurn, enemyTurnUnit)}, expected ${card.attack}`
+  );
+}
+
+// 24.Pz.Korps «Остриё прорыва»: прорыв в тыловую половину обновляет движение.
+{
+  const battle = makeBattle("guderian_corps", "panzer_iv");
+
+  // Средний танк (бюджет 1) на нейтральной центральной колонке (col 2).
+  battle.units.push(
+    makeUnit({ instanceId: "p1", cardId: "panzer_iv", ownerId: "player", position: { row: 1, col: 2 } })
+  );
+
+  // Врывается в тыловую половину противника (col 3) — должен сразу получить
+  // повторное перемещение.
+  const afterBreak = applyAction(battle, {
+    type: "MOVE_UNIT",
+    playerId: "player",
+    unitId: "p1",
+    position: { row: 1, col: 3 },
+  });
+  const broke = afterBreak.units.find((u) => u.instanceId === "p1")!;
+
+  check(
+    "24.Pz: прорыв в тыл обновляет движение танка",
+    broke.alreadyMoved === false && broke.breakthroughMoveUsed === true && broke.moveCountThisTurn === 0,
+    `moved ${broke.alreadyMoved}, used ${broke.breakthroughMoveUsed}, count ${broke.moveCountThisTurn}`
+  );
+
+  // Повторное перемещение действительно проходит (col 3 → col 4).
+  const afterSecond = applyAction(afterBreak, {
+    type: "MOVE_UNIT",
+    playerId: "player",
+    unitId: "p1",
+    position: { row: 1, col: 4 },
+  });
+  const advanced = afterSecond.units.find((u) => u.instanceId === "p1")!;
+
+  check(
+    "24.Pz: танк использует повторное перемещение и идёт глубже",
+    advanced.position.col === 4 && advanced.alreadyMoved === true,
+    `col ${advanced.position.col}, moved ${advanced.alreadyMoved}`
+  );
+
+  // Уже глубоко в тылу противника (col 3) — движение внутри половины не даёт
+  // второго прорыва.
+  const inside = makeBattle("guderian_corps", "panzer_iv");
+  inside.units.push(
+    makeUnit({ instanceId: "p2", cardId: "panzer_iv", ownerId: "player", position: { row: 1, col: 3 } })
+  );
+  const afterInside = applyAction(inside, {
+    type: "MOVE_UNIT",
+    playerId: "player",
+    unitId: "p2",
+    position: { row: 1, col: 4 },
+  });
+  const insideUnit = afterInside.units.find((u) => u.instanceId === "p2")!;
+
+  check(
+    "24.Pz: ход внутри вражеской половины не даёт второго прорыва",
+    insideUnit.alreadyMoved === true && !insideUnit.breakthroughMoveUsed,
+    `moved ${insideUnit.alreadyMoved}, used ${insideUnit.breakthroughMoveUsed}`
+  );
+
+  // Контроль: обычный штаб не даёт повторного перемещения при том же ходе.
+  const control = makeBattle("training_unit", "panzer_iv");
+  control.units.push(
+    makeUnit({ instanceId: "c1", cardId: "panzer_iv", ownerId: "player", position: { row: 1, col: 2 } })
+  );
+  const afterControl = applyAction(control, {
+    type: "MOVE_UNIT",
+    playerId: "player",
+    unitId: "c1",
+    position: { row: 1, col: 3 },
+  });
+  const controlUnit = afterControl.units.find((u) => u.instanceId === "c1")!;
+
+  check(
+    "Контроль: обычный штаб не обновляет движение при прорыве",
+    controlUnit.alreadyMoved === true,
+    `moved ${controlUnit.alreadyMoved}`
   );
 }
 

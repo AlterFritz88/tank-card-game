@@ -230,7 +230,10 @@ export function TankCardView({
                 src={boardClassIconImage}
                 alt={unitClass.label}
                 title={unitClass.label}
-                style={styles.boardClassIconImage}
+                style={{
+                  ...styles.boardClassIconImage,
+                  ...(ownerId === "player" ? null : styles.enemyClassIconImage),
+                }}
                 draggable={false}
               />
             ) : null}
@@ -742,6 +745,12 @@ const styles: Record<string, React.CSSProperties> = {
     "brightness(1.28) saturate(1.35) contrast(1.58) drop-shadow(0 1px 3px rgba(0,0,0,0.85))",
     pointerEvents: "none",
     userSelect: "none",
+  },
+
+  enemyClassIconImage: {
+    opacity: 0.99,
+    filter:
+      "brightness(1.5) saturate(0.99) contrast(1.02) drop-shadow(0 1px 3px rgba(0,0,0,0.82))",
   },
 
   boardCombatStats: {

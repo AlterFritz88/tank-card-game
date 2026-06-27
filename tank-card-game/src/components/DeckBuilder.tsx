@@ -96,6 +96,16 @@ function getNationFilterIcon(value: NationFilter): string | undefined {
   return getNationFlagAsset(value as Nation) ?? undefined;
 }
 
+function getNationFlagIconStyle(
+  value: NationFilter
+): CSSProperties | undefined {
+  // США: сдвигаем видимую часть флага влево
+  if (value === "usa") return { objectPosition: "25% center" };
+  // Британия и Франция: показываем флаг целиком, сжимая по ширине до квадрата
+  if (value === "uk" || value === "france") return { objectFit: "fill" };
+  return undefined;
+}
+
 // Payload describing what a card button is, recorded on pointerdown so the row
 // handler knows whether a touch gesture should move a card or just scroll.
 type CardDragPayload =
@@ -198,7 +208,13 @@ function FilterDropdown<T extends string>({
   ariaLabel,
 }: {
   value: T;
-  options: { value: T; label: string; icon?: string; iconShape?: "contain" | "cover" }[];
+  options: {
+    value: T;
+    label: string;
+    icon?: string;
+    iconShape?: "contain" | "cover";
+    iconStyleOverride?: CSSProperties;
+  }[];
   onChange: (next: T) => void;
   ariaLabel: string;
 }) {
@@ -251,7 +267,10 @@ function FilterDropdown<T extends string>({
               src={selected.icon}
               alt=""
               aria-hidden="true"
-              style={iconStyle(selected.iconShape)}
+              style={{
+                ...iconStyle(selected.iconShape),
+                ...selected.iconStyleOverride,
+              }}
             />
           ) : null}
           <span style={styles.dropdownTriggerLabel}>
@@ -291,7 +310,10 @@ function FilterDropdown<T extends string>({
                   src={option.icon}
                   alt=""
                   aria-hidden="true"
-                  style={iconStyle(option.iconShape)}
+                  style={{
+                    ...iconStyle(option.iconShape),
+                    ...option.iconStyleOverride,
+                  }}
                 />
               ) : (
                 <span style={styles.dropdownIconPlaceholder} aria-hidden="true" />
@@ -407,6 +429,7 @@ export function DeckBuilder({
         label: filter.value === "all" ? "Нация" : filter.label,
         icon: getNationFilterIcon(filter.value),
         iconShape: "cover" as const,
+        iconStyleOverride: getNationFlagIconStyle(filter.value),
       })),
     []
   );
@@ -924,7 +947,7 @@ export function DeckBuilder({
 
       <header style={styles.header}>
         <button type="button" style={styles.backButton} onClick={onBack}>
-          ←
+          ‹
         </button>
         <div>
           <h1 style={styles.title}>
@@ -1456,11 +1479,14 @@ const styles: Record<string, CSSProperties> = {
     backgroundRepeat: "no-repeat",
     color: "#fff0bd",
     cursor: "pointer",
-    fontSize: 25,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 30,
     fontWeight: 1000,
     lineHeight: 1,
-    display: "grid",
-    placeItems: "center",
+    paddingBottom: 4,
+    textAlign: "center",
     textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.2)",
     boxShadow: "none",
   },

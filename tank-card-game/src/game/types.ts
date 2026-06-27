@@ -81,6 +81,11 @@ export type SupportEffects = {
    * at the attacker. Ranged fire (SPG) and headquarters strikes draw no answer.
    */
   returnFire?: number;
+  /**
+   * Rear-line screen: the first strike each turn aimed at one of these friendly
+   * tank classes is redirected into this support unit.
+   */
+  tankScreenClasses?: TankClass[];
   /** Additional fuel generated at the beginning of this side's turn. */
   fuelPerTurn?: number;
   /** Draw one additional card every N own turns. */
@@ -146,6 +151,12 @@ export type HeadquartersAbility = {
    * of the dug-in tank toughness, keyed by unit class instead of standing still).
    */
   heavyArmorReduction?: number;
+  /**
+   * «Остриё прорыва»: the first time each turn one of your battlefield units
+   * breaks into the enemy half of the board, its movement is refreshed once —
+   * the spearhead exploits the breakthrough and drives deeper on the same turn.
+   */
+  breakthroughExtraMove?: boolean;
 };
 
 /** Per-player counters used by headquarters abilities. */
@@ -386,6 +397,14 @@ export type BoardUnit = {
    */
   deployedThisTurn?: boolean;
   /**
+   * The unit spent its owner's entire previous turn without moving (and was not
+   * freshly deployed that turn). This is what arms «Танковая засада»: the ambush
+   * bonus is earned by standing still for a full player turn, not merely by
+   * surviving the enemy's turn after deployment. Recomputed at the start of each
+   * of the owner's turns from the just-finished turn's movement.
+   */
+  wasStationaryLastTurn?: boolean;
+  /**
    * «Блиц» granted by a headquarters ability (firstTankBlitz / lightUnitsBlitz)
    * at deploy time. Card-intrinsic blitz lives on the card; this flag persists
    * the HQ-granted version so the unit keeps its double move every turn.
@@ -403,6 +422,12 @@ export type BoardUnit = {
   drawWhenAttackedUsedThisTurn?: boolean;
   /** «Прорыв» already drew when this unit reached an enemy spawn cell. */
   raidDrawUsed?: boolean;
+  /**
+   * «Остриё прорыва» already refreshed this unit's movement this turn after it
+   * broke into the enemy half (HQ ability breakthroughExtraMove). Reset every
+   * owner's turn so the spearhead can break through again later.
+   */
+  breakthroughMoveUsed?: boolean;
   /** Maximum-HP bonus currently granted by «Огневая позиция» (cornerBonus.hp). */
   cornerHpApplied?: number;
   /**

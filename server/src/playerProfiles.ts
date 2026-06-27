@@ -58,6 +58,7 @@ const PROFILE_DB_PATH = resolveWritableDbPath(
   "Player profiles"
 );
 const CARD_COPY_LIMIT = 4;
+const GOLD_TO_IRON_RATE = 100;
 const PREMIUM_DAY_OFFERS: Record<number, number> = {
   1: 99,
   5: 470,
@@ -906,6 +907,27 @@ function purchasePremiumDaysOnProfile(
   );
 }
 
+function exchangeGoldForIronOnProfile(
+  progress: PlayerProgress,
+  goldAmount: number
+): PlayerProgress {
+  const safeGoldAmount = getPositiveInteger(goldAmount);
+
+  if (safeGoldAmount <= 0) {
+    throw new Error("Укажите количество золотых траков для обмена");
+  }
+
+  if (progress.goldTracks < safeGoldAmount) {
+    throw new Error("Не хватает золотых траков");
+  }
+
+  return {
+    ...progress,
+    goldTracks: progress.goldTracks - safeGoldAmount,
+    ironTracks: progress.ironTracks + safeGoldAmount * GOLD_TO_IRON_RATE,
+  };
+}
+
 function claimCampaignRewardOnProfile(
   progress: PlayerProgress,
   rewardId: string
@@ -1376,6 +1398,14 @@ export class PlayerProfileManager {
     return this.persistProfile(
       playerId,
       purchasePremiumDaysOnProfile(profile, days)
+    );
+  }
+
+  exchangeGoldForIron(playerId: string, goldAmount: number): PlayerProgress {
+    const profile = this.getProfile(playerId);
+    return this.persistProfile(
+      playerId,
+      exchangeGoldForIronOnProfile(profile, goldAmount)
     );
   }
 

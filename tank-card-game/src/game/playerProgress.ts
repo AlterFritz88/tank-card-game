@@ -1133,6 +1133,20 @@ export async function purchasePremiumDaysOnServer(
   return saveServerPlayerProgress(profile);
 }
 
+/** Сколько железных траков даёт один золотой трак при обмене в магазине. */
+export const GOLD_TO_IRON_RATE = 100;
+
+export async function exchangeGoldForIronOnServer(
+  goldAmount: number
+): Promise<PlayerProgress> {
+  const profileClient = await getProfileClient();
+  const profile = await profileClient.exchangeGoldForIron(
+    getCurrentUserId(),
+    goldAmount
+  );
+  return saveServerPlayerProgress(profile);
+}
+
 export async function createGoldTracksPaymentOnServer(
   productId: GoldProductId
 ) {

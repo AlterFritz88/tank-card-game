@@ -101,6 +101,17 @@ function isCornerCell(position: Position): boolean {
   return BOARD_CORNER_CELLS.some((cell) => samePosition(cell, position));
 }
 
+/**
+ * Whether a cell lies in the opponent's half of the 5-wide battlefield (cols
+ * 0–4). The player advances toward higher columns, so its enemy half is cols
+ * 3–4; the bot advances toward lower columns, so its enemy half is cols 0–1.
+ * The central column (2) is no-man's-land that belongs to neither side. Used by
+ * the «Остриё прорыва» headquarters ability to detect a breakthrough.
+ */
+function isEnemyHalf(playerId: PlayerId, position: Position): boolean {
+  return playerId === "player" ? position.col >= 3 : position.col <= 1;
+}
+
 function isCellOccupied(state: BattleState, position: Position): boolean {
   const unitOnCell = state.units.some((unit) =>
     isBattlefieldUnit(unit) &&
@@ -604,27 +615,44 @@ function getSupportUnits(state: BattleState, playerId: PlayerId): BoardUnit[] {
 }
 
 /**
- * Battlefield unit that screens friendly light tanks (combatAbilities
- * lightScreen): redirects the first strike per turn aimed at a friendly light
- * tank into itself. Returns null when the target is not a light tank, the
- * screen already fired this turn, or no live screen is present.
+ * Unit that screens friendly tanks: redirects the first strike per turn aimed
+ * at a protected tank into itself. Supports both battlefield screens
+ * (combatAbilities.lightScreen) and rear-line screens (supportEffects).
  */
-function findLightScreenUnit(
+function findTankScreenUnit(
   state: BattleState,
   target: BoardUnit
 ): BoardUnit | null {
-  if (getCard(target.cardId).class !== "light") return null;
-  if (getCard(target.cardId).combatAbilities?.lightScreen) return null;
+  const targetCard = getCard(target.cardId);
+  if (targetCard.combatAbilities?.lightScreen) return null;
 
   return (
     state.units.find(
-      (unit) =>
-        unit.ownerId === target.ownerId &&
-        isBattlefieldUnit(unit) &&
-        unit.instanceId !== target.instanceId &&
-        unit.currentHp > 0 &&
-        !unit.coverFiredThisTurn &&
-        getCard(unit.cardId).combatAbilities?.lightScreen === true
+      (unit) => {
+        if (
+          unit.ownerId !== target.ownerId ||
+          unit.instanceId === target.instanceId ||
+          unit.currentHp <= 0 ||
+          unit.coverFiredThisTurn
+        ) {
+          return false;
+        }
+
+        const screenCard = getCard(unit.cardId);
+
+        if (isBattlefieldUnit(unit)) {
+          return (
+            targetCard.class === "light" &&
+            screenCard.combatAbilities?.lightScreen === true
+          );
+        }
+
+        if (!isSupportUnit(unit)) return false;
+
+        return Boolean(
+          screenCard.supportEffects?.tankScreenClasses?.includes(targetCard.class)
+        );
+      }
     ) ?? null
   );
 }
@@ -950,6 +978,7 @@ function beginBattle(
     unit.tdAmbushUsedThisTurn = false;
     unit.coverFiredThisTurn = false;
     unit.drawWhenAttackedUsedThisTurn = false;
+    unit.breakthroughMoveUsed = false;
   }
 
   // Scripted missions can pin both opening hands to a fixed size (no
@@ -1040,12 +1069,19 @@ function startTurn(state: BattleState, playerId: PlayerId) {
     unit.drawWhenAttackedUsedThisTurn = false;
 
     if (unit.ownerId === playerId) {
+      // Arm «Танковая засада» only after a full player turn spent stationary:
+      // the just-finished turn had no movement and the unit was not deployed
+      // during it. Read these flags before they are reset below.
+      unit.wasStationaryLastTurn =
+        unit.moveCountThisTurn === 0 && !unit.deployedThisTurn;
+
       unit.alreadyAttacked = isSupportUnit(unit);
       unit.alreadyMoved = isSupportUnit(unit);
       unit.spawnedThisTurn = false;
       unit.deployedThisTurn = false;
       unit.moveCountThisTurn = 0;
       unit.attackCountThisTurn = 0;
+      unit.breakthroughMoveUsed = false;
     }
   }
 
@@ -1561,6 +1597,21 @@ function getFrontalArmorReduction(
 }
 
 /**
+ * Уязвимый тыл ПТ-САУ: a tank destroyer's gun sits in a fixed forward-facing
+ * casemate, so a melee attacker striking from a rear cell (the side toward the
+ * defender's own headquarters) draws no return fire. Player units face higher
+ * columns and bot units lower columns, so the rear is the side opposite the
+ * front direction; a same-column (pure flank) strike is not counted as rear.
+ */
+function isAttackFromRear(defender: BoardUnit, attacker: BoardUnit): boolean {
+  const frontDirection = defender.ownerId === "player" ? 1 : -1;
+  const attackDirection = Math.sign(
+    attacker.position.col - defender.position.col
+  );
+  return attackDirection === -frontDirection;
+}
+
+/**
  * «Стальной клин»: own heavy tanks and tank destroyers soak part of each
  * incoming strike. Keyed by unit class (heavy/td), it is the breakthrough
  * mirror of the dug-in tank toughness and applies regardless of movement.
@@ -1622,9 +1673,10 @@ function getLastStandHqAttackBonus(
 }
 
 /**
- * Tank ambush: own tanks that have not moved this turn strike harder. For the
- * defender the flag reflects its owner's previous turn, which matches the
- * "dug-in tank" flavor of the ability.
+ * Tank ambush: own tanks dug in for a full player turn strike harder. The bonus
+ * is armed only once the tank has spent its owner's previous turn stationary
+ * (`wasStationaryLastTurn`) — surviving the enemy's turn after deploy is not
+ * enough — and is lost the moment it moves again this turn.
  */
 function getStationaryTankAttackBonus(
   state: BattleState,
@@ -1635,16 +1687,17 @@ function getStationaryTankAttackBonus(
   if (!ability?.stationaryTankAttackBonus) return 0;
   if (!isBattlefieldUnit(unit)) return 0;
   if (!isTankClassCard(getCard(unit.cardId))) return 0;
+  // Must have stood still through a full player turn, and not have moved yet.
+  if (!unit.wasStationaryLastTurn) return 0;
   if (unit.moveCountThisTurn > 0) return 0;
-  // A tank that has only just deployed is not yet dug in for the ambush.
-  if (unit.deployedThisTurn) return 0;
 
   return ability.stationaryTankAttackBonus;
 }
 
 /**
- * Dug-in toughness: own tanks that have not moved this turn reduce each
- * incoming strike (the "+HP in ambush" of the tank-brigade ability).
+ * Dug-in toughness: own tanks dug in for a full player turn reduce each incoming
+ * strike (the "+HP in ambush" of the tank-brigade ability). Armed by the same
+ * `wasStationaryLastTurn` flag as the attack bonus and lost once the tank moves.
  */
 function getStationaryTankDefenseBonus(
   state: BattleState,
@@ -1655,9 +1708,9 @@ function getStationaryTankDefenseBonus(
   if (!ability?.stationaryTankHpBonus) return 0;
   if (!isBattlefieldUnit(unit)) return 0;
   if (!isTankClassCard(getCard(unit.cardId))) return 0;
+  // Must have stood still through a full player turn, and not have moved yet.
+  if (!unit.wasStationaryLastTurn) return 0;
   if (unit.moveCountThisTurn > 0) return 0;
-  // A tank that has only just deployed is not yet dug in for the ambush.
-  if (unit.deployedThisTurn) return 0;
 
   return ability.stationaryTankHpBonus;
 }
@@ -1961,12 +2014,19 @@ export function getUnitCombatPreview(
   const attackerUsesRangedAttack =
     attackerCard.class === "spg" ||
     chebyshevDistance(attacker.position, target.position) > 1;
+  // A tank destroyer struck from behind cannot fire back (neither the «Танковая
+  // засада» pre-emptive shot nor a regular counterattack).
+  const targetIsTdHitFromRear =
+    isBattlefieldUnit(target) &&
+    targetCard.class === "td" &&
+    isAttackFromRear(target, attacker);
   const targetCanUseTdAmbush =
     isBattlefieldUnit(target) &&
     targetCard.class === "td" &&
     attackerCard.class !== "td" &&
     !target.tdAmbushUsedThisTurn &&
-    !attackerUsesRangedAttack;
+    !attackerUsesRangedAttack &&
+    !targetIsTdHitFromRear;
 
   if (targetCanUseTdAmbush) {
     tdAmbushTriggered = true;
@@ -1990,6 +2050,7 @@ export function getUnitCombatPreview(
     isBattlefieldUnit(target) &&
     targetCard.class !== "spg" &&
     attackerCard.class !== "spg" &&
+    !targetIsTdHitFromRear &&
     !(
       attackerCard.class === "td" &&
       targetCard.class !== "td" &&
@@ -2098,9 +2159,9 @@ export function getAttackAnimationSequence(
     }
   }
 
-  // Light-tank screen redirect (animation mirror; flags are set in attack()).
+  // Tank-screen redirect (animation mirror; flags are set in attack()).
   if ("cardId" in effectiveTarget && isBattlefieldUnit(effectiveTarget)) {
-    const screen = findLightScreenUnit(state, effectiveTarget);
+    const screen = findTankScreenUnit(state, effectiveTarget);
 
     if (screen) {
       effectiveTarget = screen;
@@ -2360,10 +2421,10 @@ function attack(state: BattleState, action: AttackAction) {
     }
   }
 
-  // Light-tank screen: once per turn the first strike aimed at a friendly
-  // light tank is redirected into the screening unit (e.g. Porsche-823).
+  // Tank screen: once per turn the first strike aimed at a protected friendly
+  // tank is redirected into the screening unit (e.g. Porsche-823).
   if ("cardId" in target && isBattlefieldUnit(target)) {
-    const screen = findLightScreenUnit(state, target);
+    const screen = findTankScreenUnit(state, target);
 
     if (screen) {
       screen.coverFiredThisTurn = true;
@@ -2598,13 +2659,8 @@ function attack(state: BattleState, action: AttackAction) {
     attacker.revealed = true;
   }
 
-  // Heavy tanks either move or attack in a turn, never both — unless «Блиц» is
-  // active (deploy turn), letting them do both (two moves, one shot).
-  if (
-    attackerIsUnit &&
-    attackerCard?.class === "heavy" &&
-    !blitzActiveThisTurn(attacker)
-  ) {
+  // Heavy tanks choose one action mode per turn: either move or attack.
+  if (attackerIsUnit && attackerCard?.class === "heavy") {
     attacker.alreadyMoved = true;
   }
 
@@ -2875,12 +2931,30 @@ function moveUnit(
   unit.alreadyMoved = nextMoveCount >= moveBudget;
   unit.spawnedThisTurn = false;
 
-  // Heavy tanks and ПТ-САУ either move or attack in a turn, never both — unless
-  // «Блиц» is active (deploy turn), letting them make two moves and still fire once.
+  // «Остриё прорыва»: the first time each turn one of this side's units breaks
+  // into the enemy half of the board, its movement is refreshed once so the
+  // spearhead can exploit the breakthrough and drive deeper on the same turn.
+  const ownerAbility = getAbility(state, unit.ownerId);
   if (
-    (card.class === "heavy" || card.class === "td") &&
-    !blitzActiveThisTurn(unit)
+    ownerAbility?.breakthroughExtraMove === true &&
+    !unit.breakthroughMoveUsed &&
+    !isEnemyHalf(unit.ownerId, fromPosition) &&
+    isEnemyHalf(unit.ownerId, action.position)
   ) {
+    unit.breakthroughMoveUsed = true;
+    unit.moveCountThisTurn = 0;
+    unit.alreadyMoved = false;
+
+    addLog(
+      state,
+      `${card.name}: остриё прорыва — клин врывается в тыл противника и рвётся дальше.`
+    );
+  }
+
+  // Heavy tanks choose one action mode per turn: either move or attack.
+  // ПТ-САУ (td) may attack and then move, but moving first forfeits the attack:
+  // once it has rolled forward it can no longer bring its gun to bear this turn.
+  if (card.class === "heavy" || card.class === "td") {
     unit.alreadyAttacked = true;
   }
 

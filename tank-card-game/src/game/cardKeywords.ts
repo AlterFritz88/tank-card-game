@@ -318,6 +318,35 @@ function getSupportEffectKeywords(card: TankCard): CardKeyword[] {
     });
   }
 
+  if (effects.tankScreenClasses?.length) {
+    const classNames = effects.tankScreenClasses
+      .map((tankClass) => {
+        switch (tankClass) {
+          case "light":
+            return "лёгким";
+          case "medium":
+            return "средним";
+          case "heavy":
+            return "тяжёлым";
+          case "td":
+            return "ПТ-САУ";
+          case "spg":
+            return "САУ";
+          case "armored_car":
+            return "бронеавтомобилям";
+          default:
+            return "танкам";
+        }
+      })
+      .join(" и ");
+
+    keywords.push({
+      id: "fx-tank-screen",
+      title: "ЭКРАН ТАНКОВ",
+      body: `Раз за ход первый удар по дружественным ${classNames} танкам перенаправляется в этот тыловой юнит.`,
+    });
+  }
+
   if (effects.supportLineCover) {
     keywords.push({
       id: "fx-cover",
@@ -511,6 +540,14 @@ function getHeadquartersAbilityKeyword(
       id: "hq-fuelDiscount",
       title,
       body: `Первый юнит, сыгранный за ход, обходится на ${ability.firstUnitFuelDiscount} топлива дешевле.`,
+    };
+  }
+
+  if (ability.breakthroughExtraMove) {
+    return {
+      id: "hq-breakthrough",
+      title,
+      body: "Первый ваш юнит за ход, ворвавшийся в тыловую половину поля противника, тут же получает повторное перемещение — клин рвётся в глубину.",
     };
   }
 

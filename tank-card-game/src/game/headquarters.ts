@@ -536,10 +536,10 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "24-й танковый корпус (2-я ТА Гудериана)",
     type: "Танковый корпус",
     description:
-      "Снабжение по графику: каждый третий ход штаб добирает дополнительную карту.",
+      "Остриё прорыва: юнит, ворвавшийся в тыл противника, рвётся дальше.",
     ability: {
-      name: "Снабжение по графику",
-      drawEveryTurns: 3,
+      name: "Остриё прорыва",
+      breakthroughExtraMove: true,
     },
     faction: "Wehrmacht",
     nation: "germany",

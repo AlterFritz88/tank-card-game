@@ -87,6 +87,12 @@ type ProfileClientMessage =
       days: number;
     }
   | {
+      type: "EXCHANGE_GOLD_FOR_IRON";
+      requestId: string;
+      playerId: string;
+      goldAmount: number;
+    }
+  | {
       type: "CLAIM_CAMPAIGN_REWARD";
       requestId: string;
       playerId: string;
@@ -614,6 +620,20 @@ class ProfileClient {
       requestId: createRequestId(),
       playerId,
       days,
+    });
+
+    return response.profile;
+  }
+
+  async exchangeGoldForIron(
+    playerId: string,
+    goldAmount: number
+  ): Promise<PlayerProgress> {
+    const response = await this.requestProfileUpdate({
+      type: "EXCHANGE_GOLD_FOR_IRON",
+      requestId: createRequestId(),
+      playerId,
+      goldAmount,
     });
 
     return response.profile;
