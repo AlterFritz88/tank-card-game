@@ -12,8 +12,8 @@ import type {
   BattleAction,
   BattleState,
   BoardUnit,
-  PlayerId,
   Position,
+  SupportSlot,
 } from "./types";
 
 export const TUTORIAL_PLAYER_HEADQUARTERS_ID = "training_unit" as const;
@@ -25,7 +25,7 @@ export const TUTORIAL_BOT_HEADQUARTERS_ID = "trainingslager" as const;
  * is 5 cards bigger than the bot's, so it never runs dry first.
  */
 export const TUTORIAL_PLAYER_DECK: string[] = [
-  "t24", // средний танк для первого розыгрыша
+  "t-12", // первый танк для учебного розыгрыша
   "bt_7", // БТ с блицем
   "su_5_2", // САУ против ПТ-САУ
   "t26_1931",
@@ -72,12 +72,14 @@ export const TUTORIAL_REWARD: BattleReward = {
   fullyResearchedConversion: false,
 };
 
-/** Верхняя клетка переднего столбца спавна — сюда обучение просит выставить Т-24. */
-export const MEDIUM_SPAWN_CELL: Position = { row: 0, col: 0 };
+/** Центральная клетка переднего столбца спавна — сюда обучение просит выставить Т-12. */
+export const MEDIUM_SPAWN_CELL: Position = { row: 1, col: 0 };
+/** Первое короткое перемещение Т-12 вперёд после выхода на плацдарм. */
+export const T12_FIRST_MOVE_CELL: Position = { row: 1, col: 1 };
 /** Нижняя клетка спавна — отсюда БТ-7 гарантированно доходит до линии штаба. */
 export const BT_SPAWN_CELL: Position = { row: 2, col: 0 };
-/** Центральная клетка переднего столбца — сюда обучение просит выставить СУ-5-2. */
-export const SPG_SPAWN_CELL: Position = { row: 1, col: 0 };
+/** Верхняя клетка переднего столбца — сюда обучение просит выставить СУ-5-2. */
+export const SPG_SPAWN_CELL: Position = { row: 0, col: 0 };
 /**
  * Первый ход БТ-7: со спавна {2,0} он проходит ровно две клетки вправо до {2,2}.
  * Только эта клетка подсвечивается, и только сюда обучение разрешает ход.
@@ -101,18 +103,6 @@ export type TutorialStep = {
   /** Additional player actions tolerated while the task is active. */
   allows?: (action: BattleAction, battle: BattleState) => boolean;
 };
-
-function getHandCardClass(
-  battle: BattleState,
-  playerId: PlayerId,
-  cardInstanceId: string
-): string | null {
-  const cardInstance = battle[playerId].hand.find(
-    (item) => item.instanceId === cardInstanceId
-  );
-
-  return cardInstance ? getCard(cardInstance.cardId).class : null;
-}
 
 function getUnit(battle: BattleState, unitId: string): BoardUnit | null {
   return battle.units.find((unit) => unit.instanceId === unitId) ?? null;
@@ -164,10 +154,9 @@ function isBtAdvanceTowardCell(
 }
 
 /**
- * The single cell the tutorial highlights (and the only one it lets the player
- * move to) for the БТ-7's scripted advance in the current step: the furthest
- * cell along the БТ's row, up to the step's target column, that is reachable
- * right now. Null when no BT advance is active or the БТ can't move.
+ * The single destination cell the tutorial highlights for a scripted move.
+ * Intermediate route cells are intentionally not highlighted: the player sees
+ * only the final cell of the current movement command.
  */
 export function getTutorialMoveTargetCell(
   stepIndex: number,
@@ -177,33 +166,35 @@ export function getTutorialMoveTargetCell(
   if (!step || step.kind !== "task") return null;
 
   let target: Position | null = null;
-  if (step.id === "move-bt") target = BT_FIRST_MOVE_CELL;
+  let cardId = "bt_7";
+  if (step.id === "move-t12") {
+    target = T12_FIRST_MOVE_CELL;
+    cardId = "t-12";
+  } else if (step.id === "move-bt") target = BT_FIRST_MOVE_CELL;
+  else if (step.id === "raid-bt") target = BT_FRONT_LINE_CELL;
   else if (step.id === "kill-artillery") target = BT_FRONT_LINE_CELL;
   if (!target) return null;
 
   const unit = battle.units.find(
     (item) =>
       item.ownerId === "player" &&
-      item.cardId === "bt_7" &&
+      item.cardId === cardId &&
       isBattlefieldUnit(item)
   );
   if (!unit) return null;
 
-  const reachableForward = getAvailableMoveCells(
+  const targetIsReachable = getAvailableMoveCells(
     battle,
     "player",
     unit.instanceId
-  ).filter(
+  ).some(
     (cell) =>
       cell.row === target.row &&
-      cell.col > unit.position.col &&
-      cell.col <= target.col
+      cell.col === target.col &&
+      cell.col > unit.position.col
   );
-  if (reachableForward.length === 0) return null;
 
-  return reachableForward.reduce((best, cell) =>
-    cell.col > best.col ? cell : best
-  );
+  return targetIsReachable ? target : null;
 }
 
 /**
@@ -319,20 +310,35 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: "hand-fuel",
     kind: "dialogue",
     text:
-      "Отлично! Внизу — твоя рука с картами. Штаб и техника генерируют топливо каждый ход. " +
+      "Отлично! Внизу — твоя рука с картами. Топливо каждый ход генерируют штаб и тыловые юниты снабжения. " +
       "За топливо ты разыгрываешь новые юниты на клетки спавна рядом со штабом.",
   },
   {
     id: "play-medium",
     kind: "task",
-    text: "Разыграй средний танк Т-24 на верхнюю правую клетку спавна (подсвечена).",
+    text: "Разыграй танк Т-12 на среднюю клетку плацдарма (подсвечена).",
     completes: (action, battle) =>
       action.type === "PLAY_CARD" &&
       action.playerId === "player" &&
-      getHandCardClass(battle, "player", action.cardInstanceId) === "medium" &&
+      battle.player.hand.some(
+        (item) =>
+          item.instanceId === action.cardInstanceId && item.cardId === "t-12"
+      ) &&
       action.position.row === MEDIUM_SPAWN_CELL.row &&
       action.position.col === MEDIUM_SPAWN_CELL.col &&
       isValidPlayerPlay(action, battle),
+  },
+  {
+    id: "move-t12",
+    kind: "task",
+    text:
+      "Т-12 занял плацдарм. Выбери его и сделай первое перемещение вперёд на подсвеченную клетку.",
+    completes: (action, battle) =>
+      action.type === "MOVE_UNIT" &&
+      getUnit(battle, action.unitId)?.cardId === "t-12" &&
+      action.position.row === T12_FIRST_MOVE_CELL.row &&
+      action.position.col === T12_FIRST_MOVE_CELL.col &&
+      isValidPlayerUnitMove(action, battle),
   },
   {
     id: "unit-types",
@@ -340,7 +346,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     text:
       "В армии пять типов техники. Лёгкие танки быстры и могут действовать сразу после выхода. " +
       "Средние — универсалы. Тяжёлые — мощные, но за ход либо движутся, либо стреляют. " +
-      "ПТ-САУ опасны в ближнем бою, а САУ бьют издалека без ответного огня.",
+      "ПТ-САУ опасны в ближнем бою, САУ бьют издалека без ответного огня, а бронеавтомобили делают ставку на скорость и манёвр. " +
+      "Подробнее о способностях юнита можно узнать правой кнопкой мыши или долгим тапом по карте.",
   },
   {
     id: "end-turn-1",
@@ -362,9 +369,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: "bt-blitz",
     kind: "dialogue",
     text:
-      "Твой Т-24 повреждён, но держится. Усилим натиск! Любой юнит может двигаться и " +
+      "Твой Т-12 повреждён, но держится. Усилим натиск! Любой юнит может двигаться и " +
       "атаковать в тот же ход, когда выходит на поле. А у быстрых БТ есть ещё и «Блиц» — " +
-      "в ход выхода они успевают сделать два перемещения.",
+      "в ход выхода они успевают сделать два перемещения. Попробуем рейд по тылам: БТ может дойти до линии тыла врага за две команды перемещения.",
   },
   {
     id: "play-bt",
@@ -384,7 +391,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "move-bt",
     kind: "task",
-    text: "БТ-7 готов действовать сразу. Продвинь его на две клетки вперёд, к противнику (подсвечено).",
+    text: "БТ-7 готов действовать сразу. Сделай первую команду перемещения: продвинь его к противнику на подсвеченную клетку.",
     // Завершаем шаг только когда БТ доходит до конечной клетки. Промежуточную
     // клетку двухклеточного хода пропускаем через allows, иначе шаг сменился бы
     // после первой клетки и второй ход движка был бы заблокирован.
@@ -398,20 +405,26 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       isBtAdvanceTowardCell(action, battle, BT_FIRST_MOVE_CELL),
   },
   {
-    id: "play-spg",
+    id: "raid-bt",
+    kind: "task",
+    text: "Теперь используй вторую команду Блиц: доведи БТ-7 до линии тыла врага на подсвеченную клетку.",
+    completes: (action, battle) =>
+      action.type === "MOVE_UNIT" &&
+      getUnit(battle, action.unitId)?.cardId === "bt_7" &&
+      action.position.row === BT_FRONT_LINE_CELL.row &&
+      action.position.col === BT_FRONT_LINE_CELL.col &&
+      isValidPlayerUnitMove(action, battle),
+    allows: (action, battle) =>
+      isBtAdvanceTowardCell(action, battle, BT_FRONT_LINE_CELL),
+  },
+  {
+    id: "kill-artillery",
     kind: "task",
     text:
-      "Топлива хватает ещё на одну карту! Разыграй САУ СУ-5-2 на крайнюю левую клетку спавна (подсвечена).",
-    completes: (action, battle) =>
-      action.type === "PLAY_CARD" &&
-      action.playerId === "player" &&
-      battle.player.hand.some(
-        (item) =>
-          item.instanceId === action.cardInstanceId && item.cardId === "su_5_2"
-      ) &&
-      action.position.row === SPG_SPAWN_CELL.row &&
-      action.position.col === SPG_SPAWN_CELL.col &&
-      isValidPlayerPlay(action, battle),
+      "БТ-7 прорвался к спавну врага. Выбери его и ударь по артиллерии leIG 18 на тыловой линии.",
+    completes: isAttackOnSupport,
+    allows: (action, battle) =>
+      isBtAdvanceTowardCell(action, battle, BT_FRONT_LINE_CELL),
   },
   {
     id: "end-turn-2",
@@ -424,18 +437,23 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: "medium-lost",
     kind: "dialogue",
     text:
-      "Противник вывел лёгкий танк и добил твой Т-24. Пора отплатить той же монетой: " +
-      "артиллерия поддержки усиливает вражеский штаб — уничтожь её!",
+      "Противник вывел лёгкий танк и добил твой Т-12. Теперь покажем другой способ контроля поля: дальнобойная САУ может уничтожать опасные цели без ответного огня.",
   },
   {
-    id: "kill-artillery",
+    id: "play-spg",
     kind: "task",
     text:
-      "Доведи БТ-7 до переднего столбца врага (крайняя колонка, подсвечена) и атакуй артиллерию поддержки. " +
-      "Если хода не хватает — заверши ход и продолжай в следующем.",
-    completes: isAttackOnSupport,
-    allows: (action, battle) =>
-      isBtAdvanceTowardCell(action, battle, BT_FRONT_LINE_CELL),
+      "Начался следующий ход, и топлива хватает на СУ-5-2. Разыграй САУ на верхнюю клетку спавна (подсвечена).",
+    completes: (action, battle) =>
+      action.type === "PLAY_CARD" &&
+      action.playerId === "player" &&
+      battle.player.hand.some(
+        (item) =>
+          item.instanceId === action.cardInstanceId && item.cardId === "su_5_2"
+      ) &&
+      action.position.row === SPG_SPAWN_CELL.row &&
+      action.position.col === SPG_SPAWN_CELL.col &&
+      isValidPlayerPlay(action, battle),
   },
   {
     id: "hq-finish-light",
@@ -524,7 +542,9 @@ export function getTutorialHighlights(
     case "shoot-hq":
       return { playerHq: true, enemyHq: true, hqAttackSequence: true };
     case "play-medium":
-      return { handCardIds: ["t24"], cells: [MEDIUM_SPAWN_CELL] };
+      return { handCardIds: ["t-12"], cells: [MEDIUM_SPAWN_CELL] };
+    case "move-t12":
+      return { unitCardIds: ["t-12"] };
     case "end-turn-1":
     case "end-turn-2":
     case "end-turn-3":
@@ -532,6 +552,8 @@ export function getTutorialHighlights(
     case "play-bt":
       return { handCardIds: ["bt_7"], cells: [BT_SPAWN_CELL] };
     case "move-bt":
+      return { unitCardIds: ["bt_7"] };
+    case "raid-bt":
       return { unitCardIds: ["bt_7"] };
     case "play-spg":
       return { handCardIds: ["su_5_2"], cells: [SPG_SPAWN_CELL] };
@@ -672,7 +694,8 @@ function botPlayCard(battle: BattleState, cardId: string): BattleAction | null {
 
 function botPlaySupportCard(
   battle: BattleState,
-  cardId: string
+  cardId: string,
+  preferredSlot?: SupportSlot
 ): BattleAction | null {
   const cardInstance = findBotHandCard(battle, cardId);
 
@@ -680,12 +703,16 @@ function botPlaySupportCard(
 
   const freeSlots = getFreeSupportSlots(battle, "bot");
   if (freeSlots.length === 0) return null;
+  const supportSlot =
+    preferredSlot !== undefined && freeSlots.includes(preferredSlot)
+      ? preferredSlot
+      : freeSlots[0];
 
   return {
     type: "PLAY_SUPPORT_CARD",
     playerId: "bot",
     cardInstanceId: cardInstance.instanceId,
-    supportSlot: freeSlots[0],
+    supportSlot,
   };
 }
 
@@ -766,7 +793,7 @@ export function getTutorialBotAction(battle: BattleState): BattleAction | null {
 
   if (turn === 1) {
     // Сначала артиллерия на линию поддержки, и только потом обстрел юнита игрока.
-    const playArtillery = botPlaySupportCard(battle, "leig_18");
+    const playArtillery = botPlaySupportCard(battle, "leig_18", 2);
     if (playArtillery) return playArtillery;
 
     const mediumTank = findPlayerUnitByClass(battle, "medium");

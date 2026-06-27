@@ -38,6 +38,7 @@ const STAT_ROWS: { key: TrophyStatKey; label: string }[] = [
   { key: "heavy", label: "Тяжелые танки" },
   { key: "td", label: "ПТ-САУ" },
   { key: "spg", label: "САУ" },
+  { key: "armored_car", label: "Бронеавтомобили" },
   { key: "support", label: "Тыловые войска" },
 ];
 
@@ -47,6 +48,7 @@ const emptyStats: BattleKillStats = {
   heavy: 0,
   td: 0,
   spg: 0,
+  armored_car: 0,
   support: 0,
 };
 

@@ -1,6 +1,6 @@
 ﻿import type { TankCard } from "./types";
 
-export const cards: TankCard[] = [
+const rawCards: TankCard[] = [
   {
     id: "t34_76",
     name: "T-34/76",
@@ -164,7 +164,7 @@ export const cards: TankCard[] = [
     class: "light",
     rarity: "uncommon",
     cost: 2,
-    attack: 3,
+    attack: 2,
     armor: 1,
     hp: 4,
     range: 1,
@@ -2078,10 +2078,14 @@ export const cards: TankCard[] = [
     initiative: 1,
     deploymentZone: "support",
     supportRole: "artillery",
+    supportEffects: {
+      supportLineCover: 1,
+    },
     onPlayEffects: {
       deployDamage: { amount: 2, scope: "random" },
     },
-    abilityText: "",
+    abilityText:
+      "",
   },
   {
     id: "gun_75_pack",
@@ -2672,7 +2676,7 @@ export const cards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 2,
     abilityText:
-      "«Зверобой». Бьёт издалека без ответного огня; огневой вал усиливает выстрел у штаба врага.",
+      "",
   },
   {
     id: "ferdinand",
@@ -2707,7 +2711,409 @@ export const cards: TankCard[] = [
     initiative: 2,
     abilityText: "",
   },
+
+  // === Бронеавтомобили (ранние образцы, до 1942) — высокомобильные
+  // слабобронированные рейдеры ===
+  // Класс «armored_car»: за ход проходит до 3 клеток по прямой или 2 раза по
+  // диагонали; может атаковать дважды за ход, если бьёт по тылу или штабу; по
+  // обычным юнитам урон −1 с фронта и +1 с фланга/тыла (по САУ и другим
+  // бронеавтомобилям — стандартный). Слабая броня — берут манёвром, не лобовой.
+  // Пушечные машины несут «Контрбатарею»: глушат вражеские САУ и штаб.
+
+  // --- СССР ---
+  {
+    id: "d8",
+    name: "Д-8", // 1932, малый пулемётный
+    nation: "ussr",
+    class: "armored_car",
+    rarity: "common",
+    cost: 1,
+    attack: 1,
+    armor: 0,
+    hp: 2,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 1,
+    initiative: 6,
+    onPlayEffects: { draw: 1 },
+    abilityText: "",
+  },
+  {
+    id: "fai",
+    name: "ФАИ", // 1933
+    nation: "ussr",
+    class: "armored_car",
+    rarity: "common",
+    cost: 1,
+    attack: 1,
+    armor: 0,
+    hp: 2,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 1,
+    initiative: 6,
+    onPlayEffects: { draw: 1 },
+    abilityText: "",
+  },
+  {
+    id: "ba_20_ac",
+    name: "БА-20", // 1936
+    nation: "ussr",
+    class: "armored_car",
+    rarity: "common",
+    cost: 2,
+    attack: 2,
+    armor: 1,
+    hp: 3,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 1,
+    initiative: 6,
+    combatAbilities: { raidDraw: 1 },
+    abilityText: "",
+  },
+  {
+    id: "ba_6_ac",
+    name: "БА-6", // 1936
+    nation: "ussr",
+    class: "armored_car",
+    rarity: "uncommon",
+    cost: 3,
+    attack: 3,
+    armor: 1,
+    hp: 4,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 0,
+    initiative: 5,
+    combatAbilities: { drawWhenAttacked: 1 },
+    abilityText: "",
+  },
+  {
+    id: "ba_10_ac",
+    name: "БА-10", // 1938, 45-мм пушка
+    nation: "ussr",
+    class: "armored_car",
+    rarity: "uncommon",
+    cost: 3,
+    attack: 3,
+    armor: 1,
+    hp: 4,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 0,
+    initiative: 5,
+    onPlayEffects: { suppressEnemyIndirect: true },
+    abilityText:
+      "",
+  },
+  {
+    id: "ba_11_ac",
+    name: "БА-11", // 1940
+    nation: "ussr",
+    class: "armored_car",
+    rarity: "rare",
+    cost: 4,
+    attack: 3,
+    armor: 2,
+    hp: 5,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 0,
+    initiative: 4,
+    combatAbilities: { armorVsClass: { class: "light", amount: 1 } },
+    abilityText: "",
+  },
+
+  // --- Германия ---
+  {
+    id: "kfz_13",
+    name: "Kfz. 13 Adler", // 1932
+    nation: "germany",
+    class: "armored_car",
+    rarity: "common",
+    cost: 1,
+    attack: 1,
+    armor: 0,
+    hp: 2,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 1,
+    initiative: 6,
+    onPlayEffects: { draw: 1 },
+    abilityText: "",
+  },
+  {
+    id: "adgz",
+    name: "ADGZ", // Steyr ADGZ, 1934 (тяжёлый колёсный)
+    nation: "germany",
+    class: "armored_car",
+    rarity: "common",
+    cost: 2,
+    attack: 2,
+    armor: 1,
+    hp: 4,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 1,
+    initiative: 5,
+    abilityText: "",
+  },
+  {
+    id: "sdkfz_221",
+    name: "Sd.Kfz. 221", // 1935
+    nation: "germany",
+    class: "armored_car",
+    rarity: "common",
+    cost: 2,
+    attack: 2,
+    armor: 1,
+    hp: 3,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 1,
+    initiative: 6,
+    combatAbilities: { raidDraw: 1 },
+    abilityText: "",
+  },
+  {
+    id: "sdkfz_222",
+    name: "Sd.Kfz. 222", // 1936, 2-см автопушка
+    nation: "germany",
+    class: "armored_car",
+    rarity: "uncommon",
+    cost: 3,
+    attack: 3,
+    armor: 1,
+    hp: 4,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 0,
+    initiative: 5,
+    combatAbilities: { drawWhenAttacked: 1 },
+    abilityText: "",
+  },
+  {
+    id: "sdkfz_231",
+    name: "Sd.Kfz. 231 (6-Rad)", // 1936, тяжёлый разведбронеавтомобиль
+    nation: "germany",
+    class: "armored_car",
+    rarity: "uncommon",
+    cost: 3,
+    attack: 3,
+    armor: 1,
+    hp: 4,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 0,
+    initiative: 5,
+    onPlayEffects: { suppressEnemyIndirect: true },
+    abilityText:
+      "",
+  },
+  {
+    id: "sdkfz_263",
+    name: "Sd.Kfz. 263 Funk", // 1938, командно-радийная
+    nation: "germany",
+    class: "armored_car",
+    rarity: "rare",
+    cost: 4,
+    attack: 2,
+    armor: 1,
+    hp: 4,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 1,
+    initiative: 5,
+    combatAbilities: { tankDefenseAura: 1 },
+    abilityText:
+      "Пока в строю, каждый ваш танк получает −1 к входящему урону.",
+  },
+
+  // --- США ---
+  {
+    id: "m1_armored_car",
+    name: "M1 Armored Car", // 1931 (Cunningham)
+    nation: "usa",
+    class: "armored_car",
+    rarity: "common",
+    cost: 1,
+    attack: 1,
+    armor: 0,
+    hp: 3,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 1,
+    initiative: 6,
+    onPlayEffects: { draw: 1 },
+    abilityText: "",
+  },
+  {
+    id: "m2_scout_car",
+    name: "M2 Scout Car", // 1935
+    nation: "usa",
+    class: "armored_car",
+    rarity: "common",
+    cost: 2,
+    attack: 1,
+    armor: 1,
+    hp: 3,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 1,
+    initiative: 6,
+    combatAbilities: { raidDraw: 1 },
+    abilityText: "",
+  },
+  {
+    id: "m3_scout_car",
+    name: "M3 Scout Car", // 1939 (White)
+    nation: "usa",
+    class: "armored_car",
+    rarity: "uncommon",
+    cost: 3,
+    attack: 3,
+    armor: 1,
+    hp: 4,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 0,
+    initiative: 5,
+    combatAbilities: { drawWhenAttacked: 1 },
+    abilityText: "",
+  },
+  {
+    id: "m3a1_scout_car",
+    name: "M3A1 Scout Car", // 1940
+    nation: "usa",
+    class: "armored_car",
+    rarity: "uncommon",
+    cost: 3,
+    attack: 2,
+    armor: 1,
+    hp: 4,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 1,
+    initiative: 5,
+    onPlayEffects: { hqProtection: 1 },
+    abilityText: "",
+  },
+  {
+    id: "t13_armored_car",
+    name: "T13 Armored Car", // 1941 (прототип)
+    nation: "usa",
+    class: "armored_car",
+    rarity: "rare",
+    cost: 4,
+    attack: 3,
+    armor: 2,
+    hp: 5,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 0,
+    initiative: 4,
+    combatAbilities: { armorVsClass: { class: "light", amount: 1 } },
+    abilityText: "",
+  },
+
+  // --- Польша ---
+  {
+    id: "wz28",
+    name: "wz. 28", // 1928, полугусеничный
+    nation: "poland",
+    class: "armored_car",
+    rarity: "common",
+    cost: 1,
+    attack: 1,
+    armor: 0,
+    hp: 2,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 1,
+    initiative: 6,
+    onPlayEffects: { draw: 1 },
+    abilityText: "",
+  },
+  {
+    id: "wz34",
+    name: "wz. 34", // 1934
+    nation: "poland",
+    class: "armored_car",
+    rarity: "common",
+    cost: 2,
+    attack: 2,
+    armor: 0,
+    hp: 3,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 0,
+    initiative: 6,
+    combatAbilities: { raidDraw: 1 },
+    abilityText: "",
+  },
+  {
+    id: "wz34_ii",
+    name: "wz. 34-II", // 1934, 37-мм пушка
+    nation: "poland",
+    class: "armored_car",
+    rarity: "uncommon",
+    cost: 3,
+    attack: 3,
+    armor: 1,
+    hp: 4,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 0,
+    initiative: 5,
+    combatAbilities: { drawWhenAttacked: 1 },
+    abilityText: "",
+  },
+  {
+    id: "wz29_ursus",
+    name: "wz. 29 Ursus", // 1929, 37-мм пушка
+    nation: "poland",
+    class: "armored_car",
+    rarity: "uncommon",
+    cost: 3,
+    attack: 3,
+    armor: 1,
+    hp: 4,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 0,
+    initiative: 5,
+    onPlayEffects: { suppressEnemyIndirect: true },
+    abilityText:
+      "",
+  },
+  {
+    id: "wz29_dow",
+    name: "wz. 29 dowódczy", // ~1931, командная
+    nation: "poland",
+    class: "armored_car",
+    rarity: "rare",
+    cost: 4,
+    attack: 2,
+    armor: 1,
+    hp: 4,
+    range: 1,
+    movement: 3,
+    fuelGeneration: 1,
+    initiative: 5,
+    combatAbilities: { tankDefenseAura: 1 },
+    abilityText:
+      "Командная машина: пока в строю, каждый ваш танк получает −1 к входящему урону.",
+  },
 ];
+
+// Топливо на поле боя генерируют только тыловые (support) юниты и штаб
+// (см. calculateFuelGeneration). У полевых юнитов прирост топлива обнуляется,
+// чтобы значения не вводили в заблуждение бота/веса колод и на карте не
+// рисовалась лишняя канистра «+N FUEL».
+export const cards: TankCard[] = rawCards.map((card) =>
+  card.deploymentZone === "support" ? card : { ...card, fuelGeneration: 0 }
+);
 
 /**
  * Special abilities layered onto existing cards. Kept as one readable table so

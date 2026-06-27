@@ -2859,23 +2859,33 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     });
   }
 
-  function getStraightTwoCellIntermediate(
+  // Every cell strictly between two positions on a straight horizontal/vertical
+  // line. Used to break a multi-cell straight move into per-cell animation steps
+  // (light tanks sweep up to 2 cells, armored cars up to 3) so the unit visibly
+  // rolls cell by cell instead of teleporting to the destination. Diagonal or
+  // single-cell moves have no intermediates.
+  function getStraightLineIntermediates(
     fromPosition: Position,
     targetPosition: Position
-  ): Position | null {
+  ): Position[] {
     const rowDistance = Math.abs(fromPosition.row - targetPosition.row);
     const colDistance = Math.abs(fromPosition.col - targetPosition.col);
+    const manhattan = rowDistance + colDistance;
 
-    if (rowDistance + colDistance !== 2) return null;
-    if (rowDistance > 0 && colDistance > 0) return null;
+    if (manhattan < 2) return [];
+    if (rowDistance > 0 && colDistance > 0) return [];
 
     const dRow = Math.sign(targetPosition.row - fromPosition.row);
     const dCol = Math.sign(targetPosition.col - fromPosition.col);
 
-    return {
-      row: fromPosition.row + dRow,
-      col: fromPosition.col + dCol,
-    };
+    const intermediates: Position[] = [];
+    for (let step = 1; step < manhattan; step += 1) {
+      intermediates.push({
+        row: fromPosition.row + dRow * step,
+        col: fromPosition.col + dCol * step,
+      });
+    }
+    return intermediates;
   }
 
   async function playAndDispatchLocalMovement(
@@ -2884,18 +2894,17 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     options: { preserveLaterSelection?: boolean } = {}
   ): Promise<void> {
     const unit = state.units.find((item) => item.instanceId === action.unitId);
-    const intermediate =
-      unit && getCard(unit.cardId).class === "light"
-        ? getStraightTwoCellIntermediate(unit.position, action.position)
-        : null;
-    const positions = intermediate
-      ? [intermediate, action.position]
-      : [action.position];
+    const unitClass = unit ? getCard(unit.cardId).class : null;
+    const intermediates =
+      unit && (unitClass === "light" || unitClass === "armored_car")
+        ? getStraightLineIntermediates(unit.position, action.position)
+        : [];
+    const positions = [...intermediates, action.position];
 
     for (let index = 0; index < positions.length; index += 1) {
       const position = positions[index];
-      const isFollowUpLightStep = index > 0;
-      const skipAttackEffects = isFollowUpLightStep;
+      const isFollowUpStep = index > 0;
+      const skipAttackEffects = isFollowUpStep;
       const currentBattle =
         (useBattleStore.getState().battle as BattleState | null) ?? state;
       const movingUnit =
@@ -5703,6 +5712,7 @@ function renderEnemyDeckWithTimer() {
           text={tutorialStep.text}
           visible={battle.activePlayer === "player" && !startRollState.visible}
           onNext={advanceTutorialStep}
+          centered
         />
       ) : null}
 
@@ -5715,6 +5725,7 @@ function renderEnemyDeckWithTimer() {
           visible
           onNext={completeTutorialEpilogue}
           nextLabel="К наградам"
+          centered
         />
       ) : null}
 
@@ -6028,7 +6039,11 @@ enemyHandCardSlot: {
   gap: 10,
   alignItems: "stretch",
   alignSelf: "stretch",
-  zIndex: 140,
+  // Без собственного z-index: иначе панель создаёт единый слой над доской и
+  // затягивает наверх колонку штаба (enemySideColumn, z5), из-за чего аватар
+  // штаба врага налезает на тыловые юниты. Без него дети раскладываются в
+  // контексте centerBattleArea: enemySideColumn (z5) уходит ПОД доску
+  // (boardShell, z20), а actionSideColumn (z60) остаётся над ней.
   // Прозрачна для кликов (как и колонка игрока): аватар/колода/топливо/ник
   // пропускают нажатия на тыловые ячейки врага под ними. Кликаются только
   // кнопки (конец хода, пауза), включающие pointerEvents:auto у себя.

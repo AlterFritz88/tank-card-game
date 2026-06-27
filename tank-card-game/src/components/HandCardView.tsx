@@ -38,6 +38,8 @@ import classArtPlayerIcon from "../assets/icons/classes/class-art-player.webp";
 import classArtEnemyIcon from "../assets/icons/classes/class-art-enemy.webp";
 import classCarPlayerIcon from "../assets/icons/classes/class-car-player.webp";
 import classCarEnemyIcon from "../assets/icons/classes/class-car-enemy.webp";
+import classArmoredCarPlayerIcon from "../assets/icons/classes/class-armored_car-player.webp";
+import classArmoredCarEnemyIcon from "../assets/icons/classes/class-armored_car-enemy.webp";
 import classMedicPlayerIcon from "../assets/icons/classes/class-medic-player.webp";
 import classMedicEnemyIcon from "../assets/icons/classes/class-medic-enemy.webp";
 
@@ -174,6 +176,9 @@ function getBoardClassIcon(cardClass: TankCard["class"], ownerId: PlayerId) {
 
     case "spg":
       return isPlayer ? classSpgPlayerIcon : classSpgEnemyIcon;
+
+    case "armored_car":
+      return isPlayer ? classArmoredCarPlayerIcon : classArmoredCarEnemyIcon;
 
     default:
       return isPlayer ? classMediumPlayerIcon : classMediumEnemyIcon;

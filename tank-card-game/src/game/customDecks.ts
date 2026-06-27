@@ -43,6 +43,7 @@ export const UNIT_TYPE_FILTERS: { value: UnitTypeFilter; label: string }[] = [
   { value: "heavy", label: "Тяжёлые" },
   { value: "td", label: "ПТ-САУ" },
   { value: "spg", label: "САУ" },
+  { value: "armored_car", label: "Бронеавто" },
   { value: "support", label: "Тыл" },
 ];
 

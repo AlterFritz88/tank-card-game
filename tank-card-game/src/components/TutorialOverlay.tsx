@@ -72,9 +72,9 @@ export function TutorialOverlay({
           <motion.div
             key="tutorial-task"
             style={styles.taskBanner}
-            initial={{ opacity: 0, x: "-50%", y: -10 }}
-            animate={{ opacity: 1, x: "-50%", y: 0 }}
-            exit={{ opacity: 0, x: "-50%", y: -8 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
             <img
@@ -116,7 +116,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "flex-end",
     gap: 18,
-    width: "min(760px, calc(100cqw - 48px))",
+    width: "min(860px, calc(100cqw - 48px))",
     pointerEvents: "auto",
   },
 
@@ -161,8 +161,8 @@ const styles: Record<string, CSSProperties> = {
 
   dialogueText: {
     margin: 0,
-    fontSize: 15,
-    lineHeight: 1.45,
+    fontSize: 18,
+    lineHeight: 1.5,
   },
 
   nextButton: {
@@ -190,12 +190,13 @@ const styles: Record<string, CSSProperties> = {
     position: "fixed",
     left: "50%",
     top: 14,
+    transform: "translateX(-50%)",
     zIndex: 2500,
     display: "flex",
     alignItems: "center",
     gap: 12,
-    maxWidth: "min(640px, calc(100cqw - 200px))",
-    padding: "8px 16px 8px 8px",
+    maxWidth: "min(820px, calc(100cqw - 112px))",
+    padding: "12px 20px 12px 12px",
     border: "1px solid rgba(213, 178, 102, 0.45)",
     background:
       "linear-gradient(180deg, rgba(26, 28, 23, 0.96), rgba(10, 12, 10, 0.96))",
@@ -206,16 +207,17 @@ const styles: Record<string, CSSProperties> = {
   },
 
   taskAvatar: {
-    width: 46,
-    height: 46,
+    width: 58,
+    height: 58,
     flex: "0 0 auto",
     objectFit: "cover",
     objectPosition: "center top",
   },
 
   taskText: {
-    fontSize: 13,
+    fontSize: 18,
     fontWeight: 700,
-    lineHeight: 1.35,
+    lineHeight: 1.4,
+    textAlign: "center",
   },
 };

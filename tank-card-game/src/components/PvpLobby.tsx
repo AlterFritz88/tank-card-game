@@ -3101,8 +3101,8 @@ export function PvpLobby() {
         <PlayerResourcesPanel onOpenShop={openShopMenu} />
         {renderProfileServerBanner()}
 
-        <section style={styles.menuLayer}>
-          <header style={styles.header}>
+        <section style={{ ...styles.menuLayer, ...styles.mainMenuLayer }}>
+          <header style={{ ...styles.header, ...styles.mainMenuHeader }}>
             <h1 style={styles.title}>ВЫБЕРИ РЕЖИМ БОЯ</h1>
           </header>
 
@@ -3974,9 +3974,9 @@ const styles: Record<string, CSSProperties> = {
   playerShopButton: {
     position: "absolute",
     left: "calc(100% + 8px)",
-    top: 5,
-    width: 104,
-    height: 30,
+    top: 3,
+    width: 118,
+    height: 34,
     border: "none",
     borderRadius: 0,
     backgroundColor: "transparent",
@@ -3986,9 +3986,9 @@ const styles: Record<string, CSSProperties> = {
     backgroundRepeat: "no-repeat",
     color: "#fff0bd",
     cursor: "pointer",
-    fontSize: 10,
+    fontSize: 13,
     fontWeight: 1000,
-    letterSpacing: 0.8,
+    letterSpacing: 1.05,
     textTransform: "uppercase",
     textShadow: "0 2px 0 rgba(0,0,0,0.84)",
     pointerEvents: "auto",
@@ -4819,13 +4819,21 @@ const styles: Record<string, CSSProperties> = {
 
   headquartersMenuLayer: {
     justifyContent: "flex-start",
-    padding: "2px 24px 4px",
+    padding: "8px 24px 4px",
     overflowY: "auto",
     scrollbarWidth: "none",
   },
 
   mainMenuLayer: {
-    paddingBottom: 44,
+    height: "100%",
+    justifyContent: "flex-start",
+    padding: "94px 24px 44px",
+    overflow: "visible",
+  },
+
+  mainMenuHeader: {
+    marginBottom: 0,
+    transform: "none",
   },
 
   shopLayer: {
@@ -5022,12 +5030,17 @@ const styles: Record<string, CSSProperties> = {
   header: {
     textAlign: "center",
     marginBottom: 8,
+    transform: "translateY(-20px)",
     textShadow: "0 2px 12px rgba(0,0,0,0.86)",
   },
 
   headquartersHeader: {
+    minHeight: 4,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 0,
-    transform: "translateY(20px)",
+    transform: "none",
   },
 
   kicker: {
@@ -5833,6 +5846,7 @@ const styles: Record<string, CSSProperties> = {
   },
 
   singleMenuAction: {
+    position: "relative",
     width: "min(260px, calc(100cqw - 48px))",
     margin: "0 auto 4px",
   },
@@ -5859,12 +5873,17 @@ const styles: Record<string, CSSProperties> = {
   },
 
   deckNationFilterRow: {
+    position: "fixed",
+    left: "50%",
+    bottom: 32,
+    zIndex: 8,
+    width: "min(max-content, calc(100cqw - 160px))",
+    transform: "translateX(-50%)",
     display: "flex",
     flexWrap: "wrap",
     justifyContent: "center",
     alignItems: "center",
     gap: 8,
-    marginTop: 22,
   },
 
   deckNationFilterButton: {
@@ -5945,7 +5964,7 @@ const styles: Record<string, CSSProperties> = {
     position: "fixed",
     left: 0,
     right: 0,
-    bottom: 58,
+    bottom: 100,
     zIndex: 8,
     display: "flex",
     alignItems: "center",
@@ -5957,9 +5976,9 @@ const styles: Record<string, CSSProperties> = {
 
   researchButton: {
     display: "block",
-    minWidth: 226,
+    minWidth: 246,
     margin: 0,
-    padding: "13px 26px 15px",
+    padding: "15px 30px 17px",
     border: "none",
     borderRadius: 0,
     backgroundColor: "transparent",
@@ -5969,8 +5988,9 @@ const styles: Record<string, CSSProperties> = {
     backgroundRepeat: "no-repeat",
     color: "#fff0bd",
     cursor: "pointer",
+    fontSize: 18,
     fontWeight: 1000,
-    letterSpacing: 1.7,
+    letterSpacing: 1.9,
     textTransform: "uppercase",
     textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.22)",
     boxShadow: "none",
@@ -5978,9 +5998,9 @@ const styles: Record<string, CSSProperties> = {
 
   collectionButton: {
     display: "block",
-    minWidth: 226,
+    minWidth: 246,
     margin: 0,
-    padding: "13px 26px 15px",
+    padding: "15px 30px 17px",
     border: "none",
     borderRadius: 0,
     backgroundColor: "transparent",
@@ -5990,8 +6010,9 @@ const styles: Record<string, CSSProperties> = {
     backgroundRepeat: "no-repeat",
     color: "#fff0bd",
     cursor: "pointer",
+    fontSize: 18,
     fontWeight: 1000,
-    letterSpacing: 1.7,
+    letterSpacing: 1.9,
     textTransform: "uppercase",
     textShadow: "0 2px 0 rgba(0,0,0,0.84), 0 0 10px rgba(255,236,178,0.22)",
     boxShadow: "none",

@@ -14,6 +14,8 @@ function getClassLabel(unitClass: TankClass): string {
       return "ПТ-САУ";
     case "spg":
       return "САУ";
+    case "armored_car":
+      return "бронеавтомобилей";
     default:
       return "юнитов";
   }
@@ -93,6 +95,12 @@ function getVehicleTypeKeyword(card: TankCard): CardKeyword {
         id: "type",
         title: "САУ",
         body: "Стреляет по любой цели независимо от расстояния и не получает ответного удара, но уязвима вблизи.",
+      };
+    case "armored_car":
+      return {
+        id: "type",
+        title: "БРОНЕАВТОМОБИЛЬ",
+        body: "Высокомобильная, но слабозащищённая машина: за ход проходит до трёх клеток по прямой или дважды по диагонали. Может атаковать дважды за ход, если бьёт по тылу или штабу. По обычным юнитам с фронта наносит на 1 меньше урона, с фланга или тыла — на 1 больше; по САУ и другим бронеавтомобилям — стандартный урон.",
       };
     default:
       return {

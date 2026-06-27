@@ -173,6 +173,13 @@ export function getClassVisual(vehicleClass: TankCard["class"]): ClassVisual {
         accent: "#c084fc",
       };
 
+    case "armored_car":
+      return {
+        label: "Бронеавтомобиль",
+        icon: "🚗",
+        accent: "#9be3c4",
+      };
+
     default:
       return {
         label: "Юнит",

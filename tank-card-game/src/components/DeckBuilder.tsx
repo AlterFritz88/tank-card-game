@@ -49,6 +49,7 @@ import classHeavyIcon from "../assets/icons/classes/class-heavy-player.webp";
 import classTdIcon from "../assets/icons/classes/class-td-player.webp";
 import classSpgIcon from "../assets/icons/classes/class-spg-player.webp";
 import classCarIcon from "../assets/icons/classes/class-car-player.webp";
+import classArmoredCarIcon from "../assets/icons/classes/class-armored_car-player.webp";
 import { HandCardView } from "./HandCardView";
 import { CardKeywordsPanel } from "./CardKeywordsPanel";
 import {
@@ -86,6 +87,7 @@ const UNIT_TYPE_FILTER_ICONS: Partial<Record<UnitTypeFilter, string>> = {
   heavy: classHeavyIcon,
   td: classTdIcon,
   spg: classSpgIcon,
+  armored_car: classArmoredCarIcon,
   support: classCarIcon,
 };
 

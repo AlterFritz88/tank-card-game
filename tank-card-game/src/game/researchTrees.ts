@@ -295,18 +295,10 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
         title: "Мотопехотные штабы",
         shortTitle: "Мотопехота",
         description:
-          "Лёгкие Panzer II и быстрый Panzer 38(t) ведут к штабу; за ним — штурмовое орудие StuG III G.",
+          "Panzer II и разведбронеавтомобили Sd.Kfz. 231/221 ведут через Panzer 38(t) к штабу; за ним — штурмовое орудие StuG III G.",
         nodes: [
-          // Уровень 2: два лёгких танка Panzer II.
-          unitNode({
-            id: "de-motor-pz2f",
-            title: "Panzer II F",
-            cardId: "pzkpfw_ii_ausf_f",
-            experienceCost: 200,
-            purchaseCost: 1400,
-            tier: 0,
-            slot: 0,
-          }),
+          // Уровень 2: лёгкий Panzer II D и разведбронеавтомобиль
+          // Sd.Kfz. 231 (6-Rad) рядом с ним.
           unitNode({
             id: "de-motor-pz2d",
             title: "Panzer II D",
@@ -314,39 +306,70 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             experienceCost: 220,
             purchaseCost: 1600,
             tier: 0,
+            slot: 0,
+          }),
+          unitNode({
+            id: "de-motor-sdkfz231",
+            title: "Sd.Kfz. 231 (6-Rad)",
+            cardId: "sdkfz_231",
+            experienceCost: 240,
+            purchaseCost: 1700,
+            tier: 0,
             slot: 1,
           }),
-          // Уровень 3: быстрый Panzer 38(t).
+          // Уровень 3: Panzer II F (после Panzer II D) и Sd.Kfz. 221
+          // (после Sd.Kfz. 231).
           unitNode({
-            id: "de-motor-pz38",
-            title: "Panzer 38(t)",
-            cardId: "panzer_38t",
-            experienceCost: 340,
-            purchaseCost: 2500,
-            requires: ["de-motor-pz2f", "de-motor-pz2d"],
+            id: "de-motor-pz2f",
+            title: "Panzer II F",
+            cardId: "pzkpfw_ii_ausf_f",
+            experienceCost: 300,
+            purchaseCost: 2100,
+            requires: ["de-motor-pz2d"],
             tier: 1,
             slot: 0,
           }),
-          // Уровень 4: штаб.
+          unitNode({
+            id: "de-motor-sdkfz221",
+            title: "Sd.Kfz. 221",
+            cardId: "sdkfz_221",
+            experienceCost: 300,
+            purchaseCost: 2100,
+            requires: ["de-motor-sdkfz231"],
+            tier: 1,
+            slot: 1,
+          }),
+          // Уровень 4: штаб сводит обе линии.
           headquartersNode({
             id: "de-motor-hq",
             headquartersId: "german_motorized_division",
             experienceCost: 900,
             purchaseCost: 6800,
             status: "locked",
-            requires: ["de-motor-pz38"],
+            requires: ["de-motor-pz2f", "de-motor-sdkfz221"],
             tier: 2,
             slot: 0,
           }),
-          // Уровень 5: штурмовое орудие.
+          // Уровень 5: быстрый Panzer 38(t) за штабом.
+          unitNode({
+            id: "de-motor-pz38",
+            title: "Panzer 38(t)",
+            cardId: "panzer_38t",
+            experienceCost: 420,
+            purchaseCost: 3200,
+            requires: ["de-motor-hq"],
+            tier: 3,
+            slot: 0,
+          }),
+          // Уровень 6: штурмовое орудие.
           unitNode({
             id: "de-motor-stug",
             title: "StuG III G",
             cardId: "stug_iii",
             experienceCost: 560,
             purchaseCost: 4500,
-            requires: ["de-motor-hq"],
-            tier: 3,
+            requires: ["de-motor-pz38"],
+            tier: 4,
             slot: 0,
           }),
         ],
@@ -842,18 +865,9 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
         title: "Тыловые штабы",
         shortTitle: "Тыловые",
         description:
-          "Штабные машины ГАЗ и ремонтная летучка ведут к 389-му автобату — ветка снабжения и ремонта.",
+          "Штабная машина ГАЗ-М1 и разведбронеавтомобиль ФАИ ведут через ГАЗ-55 и летучку к 389-му автобату; за штабом — бронеавтомобиль БА-20.",
         nodes: [
-          // Уровень 2: санитарная и штабная машины.
-          unitNode({
-            id: "ussr-rear-gaz55",
-            title: "ГАЗ-55",
-            cardId: "gaz_55_ambulance",
-            experienceCost: 130,
-            purchaseCost: 950,
-            tier: 0,
-            slot: 0,
-          }),
+          // Уровень 2: штабная машина ГАЗ-М1 и разведбронеавтомобиль ФАИ рядом.
           unitNode({
             id: "ussr-rear-gaz-m1",
             title: "ГАЗ-М1",
@@ -861,18 +875,37 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             experienceCost: 150,
             purchaseCost: 1100,
             tier: 0,
+            slot: 0,
+          }),
+          unitNode({
+            id: "ussr-rear-fai",
+            title: "ФАИ",
+            cardId: "fai",
+            experienceCost: 130,
+            purchaseCost: 950,
+            tier: 0,
             slot: 1,
           }),
-          // Уровень 3: ремонтная летучка сводит обе линии.
+          // Уровень 3: ГАЗ-55 (после ФАИ) и ремонтная летучка (после ГАЗ-М1).
+          unitNode({
+            id: "ussr-rear-gaz55",
+            title: "ГАЗ-55",
+            cardId: "gaz_55_ambulance",
+            experienceCost: 280,
+            purchaseCost: 2000,
+            requires: ["ussr-rear-fai"],
+            tier: 1,
+            slot: 0,
+          }),
           unitNode({
             id: "ussr-rear-letuchka",
             title: "Летучка тип «А»",
             cardId: "repair_letuchka",
             experienceCost: 280,
             purchaseCost: 2000,
-            requires: ["ussr-rear-gaz55", "ussr-rear-gaz-m1"],
+            requires: ["ussr-rear-gaz-m1"],
             tier: 1,
-            slot: 0,
+            slot: 1,
           }),
           // Уровень 4: штаб.
           headquartersNode({
@@ -881,8 +914,19 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             experienceCost: 900,
             purchaseCost: 6800,
             status: "locked",
-            requires: ["ussr-rear-letuchka"],
+            requires: ["ussr-rear-gaz55", "ussr-rear-letuchka"],
             tier: 2,
+            slot: 0,
+          }),
+          // Уровень 5: бронеавтомобиль БА-20 — после штаба.
+          unitNode({
+            id: "ussr-rear-ba20",
+            title: "БА-20",
+            cardId: "ba_20_ac",
+            experienceCost: 520,
+            purchaseCost: 4200,
+            requires: ["ussr-rear-hq"],
+            tier: 3,
             slot: 0,
           }),
         ],
@@ -957,7 +1001,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             tier: 2,
             slot: 0,
           }),
-          // Уровень 5: поздний лёгкий танк.
+          // Уровень 5: поздний лёгкий танк и бронеавтомобиль-прототип T13.
           unitNode({
             id: "usa-motor-m5stuart",
             title: "M5 Stuart",
@@ -968,14 +1012,24 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             tier: 3,
             slot: 0,
           }),
+          unitNode({
+            id: "usa-motor-t13",
+            title: "T13 Armored Car",
+            cardId: "t13_armored_car",
+            experienceCost: 520,
+            purchaseCost: 4200,
+            requires: ["usa-motor-hq"],
+            tier: 3,
+            slot: 1,
+          }),
           // Премиум: Christie T3 покупается напрямую за золотые траки.
           premiumNode({
             id: "usa-motor-t3",
             title: "Christie T3",
             cardId: "christie_t3",
             goldCost: 500,
-            tier: 3,
-            slot: 1,
+            tier: 4,
+            slot: 0,
           }),
         ],
       },
@@ -1078,16 +1132,27 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             tier: 0,
             slot: 1,
           }),
-          // Уровень 3: 105-мм самоходка сводит обе линии.
+          // Уровень 3: 105-мм самоходка сводит обе линии, рядом — буксируемая
+          // гаубица 105-мм M2A1.
           unitNode({
             id: "usa-art-t19",
             title: "T19 HMC",
             cardId: "t19_hmc",
             experienceCost: 360,
             purchaseCost: 2700,
-            requires: ["usa-art-t18", "usa-art-fargo"],
+            requires: ["usa-art-t18"],
             tier: 1,
             slot: 0,
+          }),
+          unitNode({
+            id: "usa-art-105",
+            title: "105-мм M2A1",
+            cardId: "gun_105_m2a1",
+            experienceCost: 360,
+            purchaseCost: 2700,
+            requires: ["usa-art-t18"],
+            tier: 1,
+            slot: 1,
           }),
           // Уровень 4: штаб.
           headquartersNode({
@@ -1107,13 +1172,13 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
         title: "Тыловые штабы",
         shortTitle: "Тыловые",
         description:
-          "Гаубица 105-мм и связной Bantam ведут через M3 GMC и амфибию Ford GPA к штабу.",
+          "Разведмашина M3 Scout Car и связной Bantam ведут через M3 GMC и амфибию Ford GPA к штабу.",
         nodes: [
-          // Уровень 2: дивизионная гаубица и связной джип.
+          // Уровень 2: разведбронеавтомобиль и связной джип.
           unitNode({
-            id: "usa-rear-105",
-            title: "105-мм M2A1",
-            cardId: "gun_105_m2a1",
+            id: "usa-rear-m3scout",
+            title: "M3 Scout Car",
+            cardId: "m3_scout_car",
             experienceCost: 160,
             purchaseCost: 1100,
             tier: 0,
@@ -1135,7 +1200,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             cardId: "m3_gmc",
             experienceCost: 320,
             purchaseCost: 2300,
-            requires: ["usa-rear-105"],
+            requires: ["usa-rear-m3scout"],
             tier: 1,
             slot: 0,
           }),
@@ -1186,6 +1251,9 @@ export const GERMAN_STOCK_CARD_IDS: readonly string[] = [
   "leig_18",
   "mercedes_g3a",
   "adler_type_10_n",
+  // Базовые бронеавтомобили
+  "kfz_13",
+  "adgz",
 ];
 
 /**
@@ -1204,4 +1272,7 @@ export const USA_STOCK_CARD_IDS: readonly string[] = [
   "m3_halftrack",
   "dodge_wc54",
   "m5_hst",
+  // Базовые бронеавтомобили
+  "m1_armored_car",
+  "m2_scout_car",
 ];

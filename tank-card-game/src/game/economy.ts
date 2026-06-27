@@ -104,6 +104,7 @@ const CLASS_HP_ESTIMATE: BattleKillStats = {
   heavy: 7,
   td: 4,
   spg: 4,
+  armored_car: 3,
   support: 3,
 };
 

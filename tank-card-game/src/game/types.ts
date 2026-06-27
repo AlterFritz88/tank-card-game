@@ -40,7 +40,13 @@ export type Position = {
   col: number;
 };
 
-export type TankClass = "light" | "medium" | "heavy" | "td" | "spg";
+export type TankClass =
+  | "light"
+  | "medium"
+  | "heavy"
+  | "td"
+  | "spg"
+  | "armored_car";
 
 export type Nation = "ussr" | "germany" | "usa" | "uk" | "poland" | "france";
 
@@ -361,6 +367,13 @@ export type BoardUnit = {
 
   alreadyMoved: boolean;
   alreadyAttacked: boolean;
+  /**
+   * Number of attacks this unit has already made this turn. Armored cars
+   * («бронеавтомобиль») may attack twice per turn (their bonus second strike is
+   * restricted to the enemy rear line or headquarters — see the engine). Every
+   * other unit caps at a single attack via {@link alreadyAttacked}.
+   */
+  attackCountThisTurn?: number;
 
   spawnedThisTurn: boolean;
   moveCountThisTurn: number;
@@ -519,6 +532,7 @@ export type BattleKillStats = {
   heavy: number;
   td: number;
   spg: number;
+  armored_car: number;
   support: number;
 };
 

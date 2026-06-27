@@ -14,6 +14,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import buttonImage from "../assets/button.webp";
 import { getNationFlagAsset } from "../assets/nationFlagAssets";
 import classCarIcon from "../assets/icons/classes/class-car-player.webp";
+import classArmoredCarIcon from "../assets/icons/classes/class-armored_car-player.webp";
 import classHeavyIcon from "../assets/icons/classes/class-heavy-player.webp";
 import classLightIcon from "../assets/icons/classes/class-light-player.webp";
 import classMediumIcon from "../assets/icons/classes/class-medium-player.webp";
@@ -87,6 +88,7 @@ const UNIT_TYPE_FILTER_ICONS: Partial<Record<UnitTypeFilter, string>> = {
   heavy: classHeavyIcon,
   td: classTdIcon,
   spg: classSpgIcon,
+  armored_car: classArmoredCarIcon,
   support: classCarIcon,
 };
 

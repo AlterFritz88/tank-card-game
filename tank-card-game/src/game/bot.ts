@@ -9,9 +9,14 @@ import {
   getEffectiveCardCost,
   getFreeSpawnCells,
   getFreeSupportSlots,
+  getFrontColumn,
+  getNationalAbilityForPlayer,
   getTargetsInRange,
   isBattlefieldUnit,
+  isSupportUnit,
+  SUPPORT_SLOTS,
 } from "./engine";
+import type { NationalAbility } from "./nationalAbilities";
 import type {
   AttackAction,
   BattleAction,
@@ -455,6 +460,7 @@ function scoreCardForCurrentBattle(state: BattleState, cardId: string): number {
     return (
       scoreCardForBot(cardId) +
       getContextualSupportCardBonus(state, card) +
+      getSystemSupportBonus(state, getBotNationalAbility(state)) +
       (getEffectiveCardCost(state, "bot", cardId) <= state.bot.resources
         ? 3
         : 0)
@@ -993,6 +999,113 @@ function getKillUnitAttackAction(state: BattleState): BattleAction | null {
   return candidates[0]?.action ?? null;
 }
 
+/** The national ability the bot's headquarters carries, if any. */
+function getBotNationalAbility(state: BattleState): NationalAbility | null {
+  return getNationalAbilityForPlayer(state, "bot");
+}
+
+function getBotBattlefieldUnits(
+  state: BattleState,
+  excludeId: string | null
+): BoardUnit[] {
+  return state.units.filter(
+    (unit) =>
+      unit.ownerId === "bot" &&
+      isBattlefieldUnit(unit) &&
+      unit.currentHp > 0 &&
+      unit.instanceId !== excludeId
+  );
+}
+
+/**
+ * Marginal value to the bot of a battlefield unit ending its turn on `cell`,
+ * measured by how much it advances the bot's national formation. Lets the bot
+ * actively assemble «Сплочение» columns and «Линия снабжения» rows, and hold its
+ * spawn for «Глухая оборона», instead of treating those passives as invisible.
+ * `movingUnitId` is the unit being repositioned (excluded from the count) or
+ * null for a fresh spawn.
+ */
+function getNationalFormationCellValue(
+  state: BattleState,
+  ability: NationalAbility | null,
+  movingUnitId: string | null,
+  cell: Position
+): number {
+  if (!ability) return 0;
+
+  const others = getBotBattlefieldUnits(state, movingUnitId);
+
+  // «Сплочение» (СССР): three own units sharing one fully-occupied column gain
+  // defence — reward stacking the column (the bot's spawn column is a free one).
+  if (ability.id === "cohesion") {
+    const inColumn = others.filter((u) => u.position.col === cell.col).length;
+    const afterPlacement = inColumn + 1;
+
+    if (afterPlacement >= 3) return 24;
+    if (afterPlacement === 2) return 8;
+    return 0;
+  }
+
+  // «Линия снабжения» (США): three own units in a row, the run anchored on the
+  // front column, while a support unit feeds it from the rear.
+  if (ability.id === "supply_line") {
+    const hasSupplySource = state.units.some(
+      (u) => u.ownerId === "bot" && isSupportUnit(u) && u.currentHp > 0
+    );
+    if (!hasSupplySource) return 0;
+
+    const frontColumn = getFrontColumn("bot");
+    const rearRun = [frontColumn - 2, frontColumn - 1, frontColumn];
+    if (!rearRun.includes(cell.col)) return 0;
+
+    const occupiedCols = new Set(
+      others
+        .filter(
+          (u) => u.position.row === cell.row && rearRun.includes(u.position.col)
+        )
+        .map((u) => u.position.col)
+    );
+    occupiedCols.add(cell.col);
+
+    if (occupiedCols.size >= 3) return 22;
+    if (occupiedCols.size === 2) return 7;
+    return 0;
+  }
+
+  // «Глухая оборона» (Польша): holding all three spawn cells grants the HQ +2
+  // attack — reward keeping the front line manned.
+  if (ability.id === "last_stand") {
+    if (!isBotSpawnCell(cell)) return 0;
+
+    const spawnHeld = others.filter((u) => isBotSpawnCell(u.position)).length;
+    const afterPlacement = spawnHeld + 1;
+
+    if (afterPlacement >= 3) return 20;
+    if (afterPlacement === 2) return 6;
+    return 0;
+  }
+
+  return 0;
+}
+
+/**
+ * «Система» (Германия): filling all four support slots yields +1 fuel/turn, so a
+ * support card that completes — or builds toward — the full rear is worth extra.
+ */
+function getSystemSupportBonus(
+  state: BattleState,
+  ability: NationalAbility | null
+): number {
+  if (ability?.id !== "system") return 0;
+
+  const occupiedSlots = SUPPORT_SLOTS.length - getFreeSupportSlots(state, "bot").length;
+  const afterPlacement = occupiedSlots + 1;
+
+  if (afterPlacement >= SUPPORT_SLOTS.length) return 28;
+  if (afterPlacement === SUPPORT_SLOTS.length - 1) return 10;
+  return 4;
+}
+
 function getPlayActionForCandidate(
   state: BattleState,
   bestCard: PlayableCardCandidate
@@ -1017,6 +1130,7 @@ function getPlayActionForCandidate(
   const playerHq = state.headquarters.player.position;
   const botHq = state.headquarters.bot.position;
   const mostDangerousEnemy = getMostDangerousEnemyUnit(state);
+  const nationalAbility = getBotNationalAbility(state);
 
   const bestSpawnCell = freeSpawnCells
     .map((cell) => {
@@ -1036,13 +1150,21 @@ function getPlayActionForCandidate(
         card,
         cell
       );
+      // A fresh unit can complete a «Сплочение» column / «Линия снабжения» row or
+      // help man the spawn for «Глухая оборона» — value the spot accordingly.
+      const formationBonus = getNationalFormationCellValue(
+        state,
+        nationalAbility,
+        null,
+        cell
+      );
       const positionScore =
-        card.class === "spg"
+        (card.class === "spg"
           ? getSpgPositionScore(state, cell)
           : offensiveBonus +
             defensiveBonus +
             economyCardBonus +
-            spgProtectionBonus;
+            spgProtectionBonus) + formationBonus;
 
       return {
         cell,
@@ -1159,6 +1281,7 @@ function getNormalAttackAction(state: BattleState): BattleAction | null {
 
 function getStrategicMoveAction(state: BattleState): BattleAction | null {
   const mostDangerousEnemy = getMostDangerousEnemyUnit(state);
+  const nationalAbility = getBotNationalAbility(state);
 
   const botUnits = state.units.filter(
     (unit) =>
@@ -1260,6 +1383,14 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
     const raidDraw = unit.raidDrawUsed
       ? 0
       : card.combatAbilities?.raidDraw ?? 0;
+    // How much the national formation is worth from where the unit stands now —
+    // moving away from a completed «Сплочение»/«Глухая оборона» line costs it.
+    const currentFormationValue = getNationalFormationCellValue(
+      state,
+      nationalAbility,
+      unit.instanceId,
+      unit.position
+    );
 
     const bestCell = moveCells
       .map((cell) => {
@@ -1277,6 +1408,13 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
         );
         const raidBonus =
           raidDraw > 0 && isEnemySpawnCell(cell) ? raidDraw * 12 + 10 : 0;
+        const formationDelta =
+          getNationalFormationCellValue(
+            state,
+            nationalAbility,
+            unit.instanceId,
+            cell
+          ) - currentFormationValue;
 
         return {
           cell,
@@ -1288,7 +1426,8 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
             threatDistanceGain * (enemyPressure > 0 ? 7 : 2) +
             (enablesAttack ? 12 : 0) +
             spgProtectionBonus +
-            raidBonus,
+            raidBonus +
+            formationDelta,
         };
       })
       .sort((a, b) => b.score - a.score)[0];

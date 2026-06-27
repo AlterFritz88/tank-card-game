@@ -207,6 +207,7 @@ function ensureBattleStats(state: BattleState) {
       heavy: 0,
       td: 0,
       spg: 0,
+      armored_car: 0,
       support: 0,
     },
     destroyedByBot: {
@@ -215,12 +216,15 @@ function ensureBattleStats(state: BattleState) {
       heavy: 0,
       td: 0,
       spg: 0,
+      armored_car: 0,
       support: 0,
     },
   };
 
   state.stats.destroyedByPlayer.support ??= 0;
   state.stats.destroyedByBot.support ??= 0;
+  state.stats.destroyedByPlayer.armored_car ??= 0;
+  state.stats.destroyedByBot.armored_car ??= 0;
 }
 
 function recordDestroyedUnit(
@@ -257,7 +261,7 @@ function getPlayerNation(state: BattleState, playerId: PlayerId): Nation {
 }
 
 /** National ability (общая для всех штабов нации) for a side, if any. */
-function getNationalAbilityForPlayer(
+export function getNationalAbilityForPlayer(
   state: BattleState,
   playerId: PlayerId
 ): NationalAbility | null {
@@ -334,6 +338,10 @@ export function getSupplyLineUnitIds(
 
   if (!hasSupplySource) return ids;
 
+  // The line must reach back to the rear: its rear-most cell sits in the side's
+  // front (spawn) column, so supply can flow from the rear into the formation.
+  const frontColumn = getFrontColumn(playerId);
+
   for (const row of [0, 1, 2]) {
     const rowUnits = state.units.filter(
       (unit) =>
@@ -347,9 +355,14 @@ export function getSupplyLineUnitIds(
 
     const occupiedCols = new Set(rowUnits.map((unit) => unit.position.col));
 
-    // Find any run of three consecutive occupied columns in this row.
+    // Find a run of three consecutive occupied columns that abuts the front
+    // column — the only run whose rear edge is fed by the rear/spawn area.
     for (let startCol = 0; startCol <= 2; startCol += 1) {
+      const touchesRear =
+        startCol <= frontColumn && frontColumn <= startCol + 2;
+
       if (
+        touchesRear &&
         occupiedCols.has(startCol) &&
         occupiedCols.has(startCol + 1) &&
         occupiedCols.has(startCol + 2)
@@ -529,6 +542,11 @@ function isTankClassCard(card: TankCard): boolean {
     card.deploymentZone !== "support" &&
     (card.class === "light" || card.class === "medium" || card.class === "heavy")
   );
+}
+
+/** A battlefield unit of the armored-car class («бронеавтомобиль»). */
+function isArmoredCarUnit(unit: BoardUnit): boolean {
+  return isBattlefieldUnit(unit) && getCard(unit.cardId).class === "armored_car";
 }
 
 export function calculateFuelGeneration(
@@ -928,6 +946,7 @@ function beginBattle(
     unit.spawnedThisTurn = false;
     unit.deployedThisTurn = false;
     unit.moveCountThisTurn = 0;
+    unit.attackCountThisTurn = 0;
     unit.tdAmbushUsedThisTurn = false;
     unit.coverFiredThisTurn = false;
     unit.drawWhenAttackedUsedThisTurn = false;
@@ -1026,6 +1045,7 @@ function startTurn(state: BattleState, playerId: PlayerId) {
       unit.spawnedThisTurn = false;
       unit.deployedThisTurn = false;
       unit.moveCountThisTurn = 0;
+      unit.attackCountThisTurn = 0;
     }
   }
 
@@ -1682,6 +1702,35 @@ function getTankDefenseAuraBonus(state: BattleState, unit: BoardUnit): number {
   return bestAura;
 }
 
+/**
+ * Бронеавтомобиль flanking modifier. A fast armored car is a raider, not a
+ * line-breaker: against an ordinary battlefield unit (light/medium/heavy/td) its
+ * shot lands for −1 when fired from the target's front (straight ahead, from the
+ * enemy-HQ side — exactly the «Лобовая броня» front arc) and for +1 from a flank
+ * or the rear. САУ (spg) and other armored cars are hit for the printed value,
+ * and rear (support) units / the headquarters take standard damage (the armored
+ * car's double-strike already rewards raiding them).
+ */
+function getArmoredCarFlankingBonus(
+  attacker: NonNullable<ReturnType<typeof getAttacker>>,
+  target: NonNullable<ReturnType<typeof getAttacker>>
+): number {
+  if (!("cardId" in attacker) || !isArmoredCarUnit(attacker)) return 0;
+  if (!("cardId" in target) || !isBattlefieldUnit(target)) return 0;
+
+  const targetClass = getCard(target.cardId).class;
+  if (targetClass === "spg" || targetClass === "armored_car") return 0;
+
+  // The target's front faces its own enemy HQ: a player unit faces higher
+  // columns (toward the bot HQ), a bot unit faces lower columns.
+  const frontDirection = target.ownerId === "player" ? 1 : -1;
+  const attackDirection = Math.sign(attacker.position.col - target.position.col);
+  const sameRow = attacker.position.row === target.position.row;
+
+  // Straight-ahead, front-side hit = frontal (−1); everything else = +1.
+  return sameRow && attackDirection === frontDirection ? -1 : 1;
+}
+
 function getUnitCombatBonuses(
   state: BattleState,
   attacker: BoardUnit,
@@ -1696,10 +1745,12 @@ function getUnitCombatBonuses(
     targetAttack: getUnitAttackValue(state, target),
     attackerAttackBonus:
       getStationaryTankAttackBonus(state, attacker) +
-      getMovedTankAttackBonus(state, attacker),
+      getMovedTankAttackBonus(state, attacker) +
+      getArmoredCarFlankingBonus(attacker, target),
     targetAttackBonus:
       getStationaryTankAttackBonus(state, target) +
-      getMovedTankAttackBonus(state, target),
+      getMovedTankAttackBonus(state, target) +
+      getArmoredCarFlankingBonus(target, attacker),
     attackerDefenseBonus:
       getStationaryTankDefenseBonus(state, attacker) +
       getTankDefenseAuraBonus(state, attacker) +
@@ -1771,6 +1822,17 @@ function canAttackTarget(
     }
   } else if (attacker.attackSuppressed) {
     return false;
+  }
+
+  // Бронеавтомобиль: after its first strike this turn it may attack a second
+  // time, but only the enemy rear line (support) or headquarters.
+  if (
+    "cardId" in attacker &&
+    isArmoredCarUnit(attacker) &&
+    (attacker.attackCountThisTurn ?? 0) >= 1
+  ) {
+    const targetIsRearOrHq = !("cardId" in target) || isSupportUnit(target);
+    if (!targetIsRearOrHq) return false;
   }
 
   if ("cardId" in target && isSupportUnit(target)) {
@@ -2521,7 +2583,15 @@ function attack(state: BattleState, action: AttackAction) {
     }
   }
 
-  attacker.alreadyAttacked = true;
+  // Бронеавтомобиль may strike twice per turn; every other attacker is spent
+  // after a single attack. The second armored-car strike is gated to the rear /
+  // headquarters by canAttackTarget.
+  if (attackerIsUnit && isArmoredCarUnit(attacker)) {
+    attacker.attackCountThisTurn = (attacker.attackCountThisTurn ?? 0) + 1;
+    attacker.alreadyAttacked = attacker.attackCountThisTurn >= 2;
+  } else {
+    attacker.alreadyAttacked = true;
+  }
 
   // «Маскировка» drops permanently once the unit opens fire.
   if (attackerIsUnit && attackerCard?.combatAbilities?.camouflage) {
@@ -2570,8 +2640,59 @@ function blitzActiveThisTurn(unit: BoardUnit): boolean {
  * deploy turn a «Блиц» unit gets double the budget — two standard moves.
  */
 function getMoveBudget(unit: BoardUnit): number {
-  const base = getCard(unit.cardId).class === "light" ? 2 : 1;
+  const unitClass = getCard(unit.cardId).class;
+  // Armored cars are highly mobile (budget 6: three straight cells at 2 each, or
+  // two diagonal steps at 3 each); light tanks get 2; everyone else 1.
+  const base = unitClass === "light" ? 2 : unitClass === "armored_car" ? 6 : 1;
   return blitzActiveThisTurn(unit) ? base * 2 : base;
+}
+
+/**
+ * Move-point cost of a single armored-car move action (budget 6 per turn). A
+ * straight horizontal/vertical step costs 2 per cell, so the car can sweep up to
+ * three cells in a line; a single diagonal step costs 3, so it can make two
+ * diagonal moves. Anything else (e.g. a multi-cell diagonal in one action) is
+ * illegal and returns null.
+ */
+function getArmoredCarMoveCost(from: Position, to: Position): number | null {
+  const manhattan = manhattanDistance(from, to);
+
+  if (isStraightMove(from, to) && manhattan >= 1 && manhattan <= 3) {
+    return manhattan * 2;
+  }
+
+  if (isDiagonalMove(from, to)) {
+    return 3;
+  }
+
+  return null;
+}
+
+/**
+ * Whether every cell strictly between two cells on a straight horizontal or
+ * vertical line is empty — armored cars (and light tanks) cannot jump over any
+ * unit on a multi-cell straight move.
+ */
+function isStraightLineClear(
+  state: BattleState,
+  from: Position,
+  to: Position
+): boolean {
+  if (!isStraightMove(from, to)) return true;
+
+  const dRow = Math.sign(to.row - from.row);
+  const dCol = Math.sign(to.col - from.col);
+
+  let row = from.row + dRow;
+  let col = from.col + dCol;
+
+  while (!(row === to.row && col === to.col)) {
+    if (isCellOccupied(state, { row, col })) return false;
+    row += dRow;
+    col += dCol;
+  }
+
+  return true;
 }
 
 function getLightTankMoveCost(from: Position, to: Position): number | null {
@@ -2608,6 +2729,14 @@ function canUnitMoveTo(
 
   if (card.class === "light") {
     const moveCost = getLightTankMoveCost(from, to);
+
+    if (moveCost === null) return false;
+
+    return moveCountThisTurn + moveCost <= moveBudget;
+  }
+
+  if (card.class === "armored_car") {
+    const moveCost = getArmoredCarMoveCost(from, to);
 
     if (moveCost === null) return false;
 
@@ -2697,6 +2826,7 @@ function moveUnit(
   const card = getCard(unit.cardId);
   const fromPosition = unit.position;
   const isLightTank = card.class === "light";
+  const isArmoredCar = card.class === "armored_car";
   const moveCountThisTurn = unit.moveCountThisTurn ?? 0;
   const moveBudget = getMoveBudget(unit);
 
@@ -2721,11 +2851,24 @@ function moveUnit(
     }
   }
 
+  // Armored cars sweep up to three cells along a straight line and cannot jump
+  // over any unit on the way.
+  if (
+    isArmoredCar &&
+    isStraightMove(fromPosition, action.position) &&
+    manhattanDistance(fromPosition, action.position) >= 2 &&
+    !isStraightLineClear(state, fromPosition, action.position)
+  ) {
+    return;
+  }
+
   unit.position = action.position;
 
   const moveCost = isLightTank
     ? getLightTankMoveCost(fromPosition, action.position) ?? 1
-    : 1;
+    : isArmoredCar
+      ? getArmoredCarMoveCost(fromPosition, action.position) ?? 1
+      : 1;
   const nextMoveCount = moveCountThisTurn + moveCost;
 
   unit.moveCountThisTurn = nextMoveCount;
@@ -3054,6 +3197,16 @@ export function getAvailableMoveCells(
         if (!isPathClear(state, unit.position, position)) {
           continue;
         }
+      }
+
+      // Armored cars cannot sweep through an occupied cell on a straight move.
+      if (
+        card.class === "armored_car" &&
+        manh >= 2 &&
+        isStraightMove(unit.position, position) &&
+        !isStraightLineClear(state, unit.position, position)
+      ) {
+        continue;
       }
 
       result.push(position);

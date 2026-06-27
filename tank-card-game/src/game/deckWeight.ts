@@ -133,6 +133,24 @@ const CLASS_STRENGTH_PROFILES: Record<TankClass, ClassStrengthProfile> = {
     excessArmorPenalty: 0.58,
     excessFuelPenalty: 0.18,
   },
+  armored_car: {
+    // Fast, lightly-armored raider: prizes mobility, soft on hp/armor.
+    attackWeight: 0.52,
+    hpWeight: 0.5,
+    armorWeight: 0.6,
+    fuelWeight: 0.72,
+    movementWeight: 0.85,
+    rangeWeight: 0.35,
+    costWeight: 0.52,
+    expectedAttack: 2,
+    expectedHp: 3,
+    expectedArmor: 0,
+    expectedFuel: 1,
+    excessAttackPenalty: 0.2,
+    excessHpPenalty: 0.26,
+    excessArmorPenalty: 0.4,
+    excessFuelPenalty: 0.1,
+  },
 };
 
 const SUPPORT_ROLE_BONUS: Record<SupportRole, number> = {
