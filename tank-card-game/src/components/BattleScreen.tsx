@@ -12,9 +12,12 @@ import {
   SUPPORT_SLOTS,
   getAttackAnimationSequence,
   getAvailableMoveCells,
+  calculateFuelGeneration,
+  getActiveCombinations,
   getEffectiveCardCost,
   getFreeSupportSlots,
   getHeadquartersAttackValue,
+  getNationalDefenseBonus,
   getTargetsInRange,
   getUnitAttackValue,
   getUnitDisplayAttackValue,
@@ -179,6 +182,14 @@ type HealthGainEffect = {
 };
 
 type AttackChangeEffect = {
+  id: number;
+  amount: number;
+  targetId: string;
+};
+
+// Floating «защита» indicator for the USSR «Сплочение» national ability — shown
+// when a unit joins/leaves a vertical cohesion line (no defence stat badge).
+type DefenseChangeEffect = {
   id: number;
   amount: number;
   targetId: string;
@@ -420,6 +431,51 @@ function AttackTargetGlow() {
         ease: "easeInOut",
         repeat: Infinity,
       }}
+    />
+  );
+}
+
+// Soft shimmering ribbon painted over the units of an active national-ability
+// combination (СССР «Сплочение» vertical line, США «Линия снабжения» horizontal
+// line). Dark green for the local player's combinations, dark red for the
+// enemy's — subtle, a slow band of colour sliding along the line so the player
+// reads the units as linked without it being garish.
+function NationalComboGlow({
+  orientation,
+  isAllied,
+}: {
+  orientation: "vertical" | "horizontal";
+  isAllied: boolean;
+}) {
+  const rgb = isAllied ? "44, 150, 74" : "168, 40, 32";
+  const angle = orientation === "vertical" ? "180deg" : "90deg";
+  const sizeAlongLine =
+    orientation === "vertical" ? "100% 240%" : "240% 100%";
+  const slide: string[] =
+    orientation === "vertical"
+      ? ["50% 0%", "50% 100%", "50% 0%"]
+      : ["0% 50%", "100% 50%", "0% 50%"];
+
+  return (
+    <motion.span
+      aria-hidden
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 5,
+        pointerEvents: "none",
+        mixBlendMode: "screen",
+        background: `linear-gradient(${angle}, rgba(${rgb}, 0) 0%, rgba(${rgb}, 0.5) 50%, rgba(${rgb}, 0) 100%)`,
+        backgroundSize: sizeAlongLine,
+        boxShadow: `inset 0 0 16px rgba(${rgb}, 0.35)`,
+      }}
+      initial={{ opacity: 0 }}
+      animate={{
+        opacity: [0.4, 0.7, 0.4],
+        backgroundPosition: slide,
+      }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 3.4, ease: "easeInOut", repeat: Infinity }}
     />
   );
 }
@@ -875,6 +931,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const [attackChangeEffects, setAttackChangeEffects] = useState<
     AttackChangeEffect[]
   >([]);
+  const [defenseChangeEffects, setDefenseChangeEffects] = useState<
+    DefenseChangeEffect[]
+  >([]);
   const [hoveredAttackTarget, setHoveredAttackTarget] =
     useState<HoveredAttackTarget>(null);
   const [turnBannerText, setTurnBannerText] = useState<string | null>(null);
@@ -916,8 +975,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const damageTextIdRef = useRef(0);
   const healthGainEffectIdRef = useRef(0);
   const attackChangeEffectIdRef = useRef(0);
+  const defenseChangeEffectIdRef = useRef(0);
   const previousHpSnapshotRef = useRef<Map<string, number> | null>(null);
   const previousAttackSnapshotRef = useRef<Map<string, number> | null>(null);
+  // National-ability buff diffs (all modes): supply-line +HP and cohesion +defence.
+  const previousSupplyAppliedRef = useRef<Map<string, number> | null>(null);
+  const previousCohesionDefenseRef = useRef<Map<string, number> | null>(null);
   const suppressNextRemoteDamageEffectsRef = useRef(false);
   const lastPvpAttackIntentIdRef = useRef<string | null>(null);
   const botTurnRunningRef = useRef(false);
@@ -2002,6 +2065,22 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const visualCols: readonly number[] =
     humanPlayerId === "player" ? cols : [...cols].reverse();
 
+  // Units currently part of an active national-ability combination, so their
+  // board cells can show the shimmering link (green = local player, red = enemy).
+  const combinationByUnitId = new Map<
+    string,
+    { orientation: "vertical" | "horizontal"; isAllied: boolean }
+  >();
+  for (const combination of getActiveCombinations(battle as BattleState)) {
+    const isAllied = combination.ownerId === humanPlayerId;
+    for (const unitId of combination.unitIds) {
+      combinationByUnitId.set(unitId, {
+        orientation: combination.orientation,
+        isAllied,
+      });
+    }
+  }
+
   const selectedTargets =
     selectedAttacker &&
     battle.status === "active" &&
@@ -2120,6 +2199,36 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         current.filter((item) => item.id !== effect.id)
       );
     }, 920);
+  }
+
+  function getDefenseChangeEffect(targetId: string) {
+    for (let index = defenseChangeEffects.length - 1; index >= 0; index -= 1) {
+      const effect = defenseChangeEffects[index];
+
+      if (effect.targetId === targetId) {
+        return effect;
+      }
+    }
+
+    return undefined;
+  }
+
+  function showDefenseChangeEffect(targetId: string, amount: number) {
+    defenseChangeEffectIdRef.current += 1;
+
+    const effect: DefenseChangeEffect = {
+      id: defenseChangeEffectIdRef.current,
+      targetId,
+      amount,
+    };
+
+    setDefenseChangeEffects((current) => [...current, effect]);
+
+    window.setTimeout(() => {
+      setDefenseChangeEffects((current) =>
+        current.filter((item) => item.id !== effect.id)
+      );
+    }, 1080);
   }
 
   function getCombatObjectOwner(targetId: string): PlayerId | null {
@@ -2257,11 +2366,21 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
   const combatForecast = getCombatForecast();
 
-  function createHpSnapshot(sourceBattle: ClientBattleState): Map<string, number> {
+  // `baseHp` strips the «Линия снабжения» bonus buffer so the damage diff sees
+  // only real combat damage/healing — joining or leaving the supply line moves
+  // current HP without it counting as a hit (that change is flashed separately by
+  // the national-buff effect).
+  function createHpSnapshot(
+    sourceBattle: ClientBattleState,
+    options: { baseHp?: boolean } = {}
+  ): Map<string, number> {
     const hp = new Map<string, number>();
 
     for (const unit of sourceBattle.units) {
-      hp.set(unit.instanceId, unit.currentHp);
+      const value = options.baseHp
+        ? unit.currentHp - (unit.supplyHpApplied ?? 0)
+        : unit.currentHp;
+      hp.set(unit.instanceId, value);
     }
 
     hp.set("player_hq", sourceBattle.headquarters.player.hp);
@@ -2339,7 +2458,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }
 
   useEffect(() => {
-    const currentSnapshot = createHpSnapshot(battle);
+    const currentSnapshot = createHpSnapshot(battle, { baseHp: true });
     const previousSnapshot = previousHpSnapshotRef.current;
     const currentAttackSnapshot = createAttackSnapshot(battle);
     const previousAttackSnapshot = previousAttackSnapshotRef.current;
@@ -2362,6 +2481,48 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     previousHpSnapshotRef.current = currentSnapshot;
     previousAttackSnapshotRef.current = currentAttackSnapshot;
   }, [battle, mode]);
+
+  // National-ability stat-change animations (all modes, including bot turns):
+  // flash the health badge when a unit joins/leaves the «Линия снабжения» line
+  // (+2 HP) and a shield indicator when it joins/leaves a «Сплочение» line
+  // (+2 defence). Diffed off the live state so it fires regardless of which
+  // side acted.
+  useEffect(() => {
+    const nextSupply = new Map<string, number>();
+    const nextDefense = new Map<string, number>();
+
+    for (const unit of battle.units) {
+      nextSupply.set(unit.instanceId, unit.supplyHpApplied ?? 0);
+      nextDefense.set(
+        unit.instanceId,
+        getNationalDefenseBonus(battle as BattleState, unit)
+      );
+    }
+
+    const previousSupply = previousSupplyAppliedRef.current;
+    const previousDefense = previousCohesionDefenseRef.current;
+
+    if (previousSupply) {
+      for (const [id, current] of nextSupply.entries()) {
+        const previous = previousSupply.get(id);
+        if (previous !== undefined && current !== previous) {
+          showHealthGainEffect(id, current - previous);
+        }
+      }
+    }
+
+    if (previousDefense) {
+      for (const [id, current] of nextDefense.entries()) {
+        const previous = previousDefense.get(id);
+        if (previous !== undefined && current !== previous) {
+          showDefenseChangeEffect(id, current - previous);
+        }
+      }
+    }
+
+    previousSupplyAppliedRef.current = nextSupply;
+    previousCohesionDefenseRef.current = nextDefense;
+  }, [battle]);
 
   /**
    * «Огневой налёт»: visualise the deploy barrage as a cannon shot flying from
@@ -2437,7 +2598,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     const beforeBattle = useBattleStore.getState().battle;
     const before =
-      shouldShowDamage && beforeBattle ? createHpSnapshot(beforeBattle) : null;
+      shouldShowDamage && beforeBattle
+        ? createHpSnapshot(beforeBattle, { baseHp: true })
+        : null;
     const beforeAttack =
       beforeBattle ? createAttackSnapshot(beforeBattle, includeAuraBonuses) : null;
 
@@ -2455,7 +2618,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     if (!shouldShowDamage || !before || options.skipDamageEffects) return;
 
-    const after = createHpSnapshot(afterBattle);
+    const after = createHpSnapshot(afterBattle, { baseHp: true });
 
     showDamageEffectsFromSnapshots(before, after);
 
@@ -2465,9 +2628,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       const playedInstance = beforeBattle?.[action.playerId]?.hand.find(
         (item) => item.instanceId === action.cardInstanceId
       );
-      const playedCard = playedInstance
-        ? getCardOrNull(playedInstance.cardId)
-        : null;
+      const playedCard =
+        playedInstance && !isHiddenCardInstance(playedInstance)
+          ? getCardOrNull(playedInstance.cardId)
+          : null;
 
       if (playedCard?.onPlayEffects?.deployDamage) {
         const damagedIds: string[] = [];
@@ -3571,19 +3735,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
 
   function getNextTurnFuel(owner: PlayerId): number {
-    const headquartersFuel = battle.headquarters[owner].fuelGeneration;
-
-    // Топливо дают только тыловые юниты и штаб (юниты на поле боя — нет).
-    const unitsFuel = battle.units
-      .filter((unit) => unit.ownerId === owner)
-      .reduce((sum, unit) => {
-        if (!isSupportUnit(unit)) return sum;
-
-        const card = getCard(unit.cardId);
-        return sum + (card.supportEffects?.fuelPerTurn ?? 0);
-      }, 0);
-
-    return headquartersFuel + unitsFuel;
+    // Reuse the engine's calculation so the projected income matches exactly
+    // what the next turn will generate — including HQ-ability fuel (Combined
+    // Arms) and national-ability fuel (Германия «Система»: full rear line → +1).
+    return calculateFuelGeneration(battle as BattleState, owner);
   }
 
   function renderTurnControlPanel(placement: "board" | "column" = "board") {
@@ -4794,6 +4949,10 @@ function renderEnemyDeckWithTimer() {
                   if (unit) {
                     const card = getCard(unit.cardId);
                     const canBeTarget = isTarget("unit", unit.instanceId);
+                    const combo = combinationByUnitId.get(unit.instanceId);
+                    const defenseChange = getDefenseChangeEffect(
+                      unit.instanceId
+                    );
                     const isAttacking = attackingId === unit.instanceId;
                     const hitReaction =
                       hitReactionEffect?.targetId === unit.instanceId
@@ -4988,6 +5147,55 @@ function renderEnemyDeckWithTimer() {
                             )}
                           </AnimatePresence>
                         </motion.div>
+
+                        {combo && (
+                          <NationalComboGlow
+                            orientation={combo.orientation}
+                            isAllied={combo.isAllied}
+                          />
+                        )}
+
+                        <AnimatePresence>
+                          {defenseChange && (
+                            <motion.span
+                              key={defenseChange.id}
+                              style={{
+                                ...styles.defenseChangeIndicator,
+                                color:
+                                  defenseChange.amount > 0
+                                    ? "#79f09b"
+                                    : "#ff8079",
+                              }}
+                              initial={{ opacity: 0, y: 4, scale: 0.7 }}
+                              animate={{
+                                opacity: [0, 1, 1, 0],
+                                y: [4, -3, -10, -18],
+                                scale: [0.7, 1.12, 1, 0.92],
+                              }}
+                              exit={{ opacity: 0 }}
+                              transition={{ duration: 1.02, ease: "easeOut" }}
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                width="13"
+                                height="13"
+                                aria-hidden="true"
+                                style={{ flex: "0 0 auto" }}
+                              >
+                                <path
+                                  d="M12 2 4 5v6c0 4.4 3.1 8.2 8 9 4.9-.8 8-4.6 8-9V5l-8-3Z"
+                                  fill="rgba(120, 235, 150, 0.22)"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                              {defenseChange.amount > 0
+                                ? `+${defenseChange.amount}`
+                                : defenseChange.amount}
+                            </motion.span>
+                          )}
+                        </AnimatePresence>
 
                         {isSelected && <SelectedCombatObjectGlow />}
                         {canBeTarget && <AttackTargetGlow />}
@@ -5442,7 +5650,9 @@ function renderEnemyDeckWithTimer() {
                       cardPreview.type === "unit"
                         ? getCardKeywords(getCard(cardPreview.cardId))
                         : getHeadquartersKeywords(
-                            getHeadquartersAbility(cardPreview.headquartersId)
+                            getHeadquartersAbility(cardPreview.headquartersId),
+                            getHeadquartersDefinition(cardPreview.headquartersId)
+                              .nation
                           )
                     }
                   />
@@ -6958,6 +7168,26 @@ destroyedCardEffect: {
     boxShadow: "0 0 28px 12px rgba(251, 86, 7, 0.8)",
     zIndex: 10,
     pointerEvents: "none",
+  },
+
+  // Floating «защита» indicator (СССР «Сплочение») — a shield + signed amount,
+  // anchored top-centre of the unit cell, drifting up like the stat-gain flashes.
+  defenseChangeIndicator: {
+    position: "absolute",
+    left: "50%",
+    top: 2,
+    transform: "translateX(-50%)",
+    zIndex: 22,
+    display: "flex",
+    alignItems: "center",
+    gap: 2,
+    fontFamily: "var(--font-digit)",
+    fontSize: 14,
+    fontWeight: 800,
+    lineHeight: 1,
+    pointerEvents: "none",
+    textShadow: "0 1px 0 rgba(0,0,0,0.96), 0 0 7px rgba(0,0,0,0.85)",
+    filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.7))",
   },
 
   cardPreviewOverlay: {

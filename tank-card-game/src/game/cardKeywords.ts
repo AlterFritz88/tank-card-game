@@ -1,4 +1,5 @@
-import type { HeadquartersAbility, TankClass, TankCard } from "./types";
+import type { HeadquartersAbility, Nation, TankClass, TankCard } from "./types";
+import { getNationalAbility } from "./nationalAbilities";
 
 /** Genitive-plural label of a unit class for ability descriptions. */
 function getClassLabel(unitClass: TankClass): string {
@@ -596,7 +597,8 @@ function getHeadquartersAbilityKeyword(
  * intro about what a headquarters is, followed by its special ability.
  */
 export function getHeadquartersKeywords(
-  ability: HeadquartersAbility | null | undefined
+  ability: HeadquartersAbility | null | undefined,
+  nation?: Nation
 ): CardKeyword[] {
   const keywords: CardKeyword[] = [
     {
@@ -611,6 +613,15 @@ export function getHeadquartersKeywords(
     if (abilityKeyword) {
       keywords.push(abilityKeyword);
     }
+  }
+
+  const nationalAbility = getNationalAbility(nation);
+  if (nationalAbility) {
+    keywords.push({
+      id: `hq-national-${nationalAbility.id}`,
+      title: `НАЦИЯ · ${nationalAbility.name.toUpperCase()}`,
+      body: nationalAbility.description,
+    });
   }
 
   return keywords;

@@ -1,5 +1,7 @@
 import { getCard } from "./cards";
-import { getHeadquartersAbility } from "./headquarters";
+import { getHeadquartersAbility, getHeadquartersDefinition } from "./headquarters";
+import { getNationalAbility } from "./nationalAbilities";
+import type { NationalAbility } from "./nationalAbilities";
 import type {
   AttackAction,
   BattleAction,
@@ -8,6 +10,7 @@ import type {
   HeadquartersAbility,
   HeadquartersAbilityTracking,
   HeadquartersState,
+  Nation,
   PlayerId,
   Position,
   SupportSlot,
@@ -245,6 +248,219 @@ function getAbility(
   return getHeadquartersAbility(state[playerId].headquartersId);
 }
 
+/** Nation of a side, taken from its headquarters definition. */
+function getPlayerNation(state: BattleState, playerId: PlayerId): Nation {
+  const headquartersId =
+    state.headquarters[playerId]?.headquartersId ?? state[playerId].headquartersId;
+
+  return getHeadquartersDefinition(headquartersId).nation;
+}
+
+/** National ability (общая для всех штабов нации) for a side, if any. */
+function getNationalAbilityForPlayer(
+  state: BattleState,
+  playerId: PlayerId
+): NationalAbility | null {
+  return getNationalAbility(getPlayerNation(state, playerId));
+}
+
+const BOARD_COLUMNS = [0, 1, 2, 3, 4] as const;
+
+/**
+ * «Сплочение» (СССР): instanceIds of a side's battlefield units that share a
+ * fully-occupied vertical line — a column holding all three of the side's units
+ * (rows 0–2). Each such unit gains the national defensive bonus.
+ */
+export function getCohesionUnitIds(
+  state: BattleState,
+  playerId: PlayerId
+): Set<string> {
+  const ids = new Set<string>();
+
+  if (getNationalAbilityForPlayer(state, playerId)?.id !== "cohesion") {
+    return ids;
+  }
+
+  for (const col of BOARD_COLUMNS) {
+    const columnUnits = state.units.filter(
+      (unit) =>
+        unit.ownerId === playerId &&
+        isBattlefieldUnit(unit) &&
+        unit.currentHp > 0 &&
+        unit.position.col === col
+    );
+
+    if (columnUnits.length >= 3) {
+      for (const unit of columnUnits) ids.add(unit.instanceId);
+    }
+  }
+
+  return ids;
+}
+
+/** «Сплочение» defensive bonus (−урон) currently applied to a unit. */
+function getCohesionDefenseBonus(state: BattleState, unit: BoardUnit): number {
+  const ability = getNationalAbilityForPlayer(state, unit.ownerId);
+
+  if (ability?.id !== "cohesion") return 0;
+  if (!isBattlefieldUnit(unit)) return 0;
+
+  return getCohesionUnitIds(state, unit.ownerId).has(unit.instanceId)
+    ? ability.bonus
+    : 0;
+}
+
+/**
+ * «Линия снабжения» (США): instanceIds of a side's battlefield units forming a
+ * horizontal line of three in consecutive columns of one row, provided the side
+ * also holds at least one rear support unit (the supply source feeding the line).
+ * Each such unit gains the national health bonus.
+ */
+export function getSupplyLineUnitIds(
+  state: BattleState,
+  playerId: PlayerId
+): Set<string> {
+  const ids = new Set<string>();
+
+  if (getNationalAbilityForPlayer(state, playerId)?.id !== "supply_line") {
+    return ids;
+  }
+
+  // The supply source: a unit in the rear (support) line at the start of the line.
+  const hasSupplySource = state.units.some(
+    (unit) =>
+      unit.ownerId === playerId && isSupportUnit(unit) && unit.currentHp > 0
+  );
+
+  if (!hasSupplySource) return ids;
+
+  for (const row of [0, 1, 2]) {
+    const rowUnits = state.units.filter(
+      (unit) =>
+        unit.ownerId === playerId &&
+        isBattlefieldUnit(unit) &&
+        unit.currentHp > 0 &&
+        unit.position.row === row
+    );
+
+    if (rowUnits.length < 3) continue;
+
+    const occupiedCols = new Set(rowUnits.map((unit) => unit.position.col));
+
+    // Find any run of three consecutive occupied columns in this row.
+    for (let startCol = 0; startCol <= 2; startCol += 1) {
+      if (
+        occupiedCols.has(startCol) &&
+        occupiedCols.has(startCol + 1) &&
+        occupiedCols.has(startCol + 2)
+      ) {
+        for (const unit of rowUnits) {
+          if (
+            unit.position.col >= startCol &&
+            unit.position.col <= startCol + 2
+          ) {
+            ids.add(unit.instanceId);
+          }
+        }
+      }
+    }
+  }
+
+  return ids;
+}
+
+/**
+ * Keeps every unit's «Линия снабжения» health bonus in sync with the live
+ * formation, mirroring {@link applyCornerHpBonus}: entering the line raises the
+ * unit's current (and effective max) HP by the national bonus, leaving it lowers
+ * the HP again, never below 1. Idempotent — safe to call after any board change.
+ */
+function syncSupplyLineHpBonus(state: BattleState) {
+  const buffedByOwner: Record<PlayerId, Set<string>> = {
+    player: getSupplyLineUnitIds(state, "player"),
+    bot: getSupplyLineUnitIds(state, "bot"),
+  };
+  const bonusByOwner: Record<PlayerId, number> = {
+    player: getNationalAbilityForPlayer(state, "player")?.bonus ?? 0,
+    bot: getNationalAbilityForPlayer(state, "bot")?.bonus ?? 0,
+  };
+
+  for (const unit of state.units) {
+    if (!isBattlefieldUnit(unit)) continue;
+
+    const desired = buffedByOwner[unit.ownerId].has(unit.instanceId)
+      ? bonusByOwner[unit.ownerId]
+      : 0;
+    const applied = unit.supplyHpApplied ?? 0;
+
+    if (desired === applied) continue;
+
+    const delta = desired - applied;
+    unit.currentHp =
+      delta > 0 ? unit.currentHp + delta : Math.max(1, unit.currentHp + delta);
+    unit.supplyHpApplied = desired;
+  }
+}
+
+export type NationalCombination = {
+  ownerId: PlayerId;
+  abilityId: NationalAbility["id"];
+  orientation: "vertical" | "horizontal";
+  unitIds: string[];
+};
+
+/**
+ * Active battlefield formations that currently trigger a national ability — used
+ * by the UI to paint the shimmering link between the units in a combination.
+ */
+export function getActiveCombinations(
+  state: BattleState
+): NationalCombination[] {
+  const combinations: NationalCombination[] = [];
+
+  for (const ownerId of ["player", "bot"] as const) {
+    const ability = getNationalAbilityForPlayer(state, ownerId);
+    if (!ability) continue;
+
+    if (ability.id === "cohesion") {
+      const ids = getCohesionUnitIds(state, ownerId);
+      if (ids.size > 0) {
+        combinations.push({
+          ownerId,
+          abilityId: ability.id,
+          orientation: "vertical",
+          unitIds: [...ids],
+        });
+      }
+    }
+
+    if (ability.id === "supply_line") {
+      const ids = getSupplyLineUnitIds(state, ownerId);
+      if (ids.size > 0) {
+        combinations.push({
+          ownerId,
+          abilityId: ability.id,
+          orientation: "horizontal",
+          unitIds: [...ids],
+        });
+      }
+    }
+  }
+
+  return combinations;
+}
+
+/**
+ * «Сплочение» defensive reduction exposed for the UI's stat-change animation
+ * (the diff that flashes the shield indicator when a unit joins/leaves a line).
+ */
+export function getNationalDefenseBonus(
+  state: BattleState,
+  unit: BoardUnit
+): number {
+  return getCohesionDefenseBonus(state, unit);
+}
+
 function getAbilityTracking(
   state: BattleState,
   playerId: PlayerId
@@ -315,7 +531,7 @@ function isTankClassCard(card: TankCard): boolean {
   );
 }
 
-function calculateFuelGeneration(
+export function calculateFuelGeneration(
   state: BattleState,
   playerId: PlayerId
 ): number {
@@ -348,7 +564,19 @@ function calculateFuelGeneration(
     }
   }
 
-  return headquartersFuel + unitsFuel + abilityFuel;
+  // «Система» (Германия): full rear line (all four support slots) feeds the HQ.
+  let nationalFuel = 0;
+  const nationalAbility = getNationalAbilityForPlayer(state, playerId);
+
+  if (nationalAbility?.id === "system") {
+    const allRearSlotsOccupied = SUPPORT_SLOTS.every((slot) =>
+      isSupportSlotOccupied(state, playerId, slot)
+    );
+
+    if (allRearSlotsOccupied) nationalFuel = nationalAbility.bonus;
+  }
+
+  return headquartersFuel + unitsFuel + abilityFuel + nationalFuel;
 }
 
 function getSupportUnits(state: BattleState, playerId: PlayerId): BoardUnit[] {
@@ -1337,7 +1565,40 @@ export function getHeadquartersAttackValue(
   );
   const abilityBonus = getAbility(state, ownerId)?.hqAttackBonus ?? 0;
 
-  return state.headquarters[ownerId].attack + supportBonus + abilityBonus;
+  return (
+    state.headquarters[ownerId].attack +
+    supportBonus +
+    abilityBonus +
+    getLastStandHqAttackBonus(state, ownerId)
+  );
+}
+
+/**
+ * «Глухая оборона» (Польша): while all three of a side's spawn cells are held by
+ * its own battlefield units, its headquarters strikes harder.
+ */
+function getLastStandHqAttackBonus(
+  state: BattleState,
+  ownerId: PlayerId
+): number {
+  const ability = getNationalAbilityForPlayer(state, ownerId);
+
+  if (ability?.id !== "last_stand") return 0;
+
+  const spawnCells =
+    ownerId === "player" ? PLAYER_SPAWN_CELLS : BOT_SPAWN_CELLS;
+
+  const allSpawnCellsHeld = spawnCells.every((cell) =>
+    state.units.some(
+      (unit) =>
+        unit.ownerId === ownerId &&
+        isBattlefieldUnit(unit) &&
+        unit.currentHp > 0 &&
+        samePosition(unit.position, cell)
+    )
+  );
+
+  return allSpawnCellsHeld ? ability.bonus : 0;
 }
 
 /**
@@ -1445,14 +1706,16 @@ function getUnitCombatBonuses(
       getSpawnDamageReduction(attacker) +
       getArmorVsClassReduction(attacker, targetClass) +
       getFrontalArmorReduction(attacker, target) +
-      getHeavyArmorReduction(state, attacker),
+      getHeavyArmorReduction(state, attacker) +
+      getCohesionDefenseBonus(state, attacker),
     targetDefenseBonus:
       getStationaryTankDefenseBonus(state, target) +
       getTankDefenseAuraBonus(state, target) +
       getSpawnDamageReduction(target) +
       getArmorVsClassReduction(target, attackerClass) +
       getFrontalArmorReduction(target, attacker) +
-      getHeavyArmorReduction(state, target),
+      getHeavyArmorReduction(state, target) +
+      getCohesionDefenseBonus(state, target),
   };
 }
 
@@ -1872,6 +2135,8 @@ export function getAttackAnimationSequence(
       : 0;
   const heavyReduction =
     "cardId" in unitTarget ? getHeavyArmorReduction(state, unitTarget) : 0;
+  const cohesionReduction =
+    "cardId" in unitTarget ? getCohesionDefenseBonus(state, unitTarget) : 0;
 
   return [
     {
@@ -1889,7 +2154,8 @@ export function getAttackAnimationSequence(
             : 0) -
           spawnReduction -
           frontalReduction -
-          heavyReduction
+          heavyReduction -
+          cohesionReduction
       ),
     },
   ];
@@ -2120,13 +2386,16 @@ function attack(state: BattleState, action: AttackAction) {
       const frontalReduction = getFrontalArmorReduction(targetUnit, attacker);
       // «Стальной клин» soaks part of headquarters fire against heavy/td units.
       const heavyReduction = getHeavyArmorReduction(state, targetUnit);
+      // «Сплочение»: a cohesion line soaks part of headquarters fire too.
+      const cohesionReduction = getCohesionDefenseBonus(state, targetUnit);
       const totalDamage = Math.max(
         0,
         attackValue +
           damagedBonus -
           spawnReduction -
           frontalReduction -
-          heavyReduction
+          heavyReduction -
+          cohesionReduction
       );
 
       targetUnit.currentHp -= totalDamage;
@@ -2668,6 +2937,10 @@ export function applyAction(
     default:
       return nextState;
   }
+
+  // «Линия снабжения» (США): keep the +HP buff in sync with the live formation
+  // after any board change, regardless of which action path mutated the board.
+  syncSupplyLineHpBonus(nextState);
 
   return nextState;
 }

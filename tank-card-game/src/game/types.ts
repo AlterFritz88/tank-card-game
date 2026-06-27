@@ -393,6 +393,13 @@ export type BoardUnit = {
   /** Maximum-HP bonus currently granted by «Огневая позиция» (cornerBonus.hp). */
   cornerHpApplied?: number;
   /**
+   * Health bonus currently granted by the US national ability «Линия снабжения»
+   * (a horizontal line of three units fed by a rear support unit). Kept in sync
+   * like {@link cornerHpApplied}: gaining it raises current HP, losing it lowers
+   * it (never below 1).
+   */
+  supplyHpApplied?: number;
+  /**
    * «Контрбатарейный огонь»: this SPG cannot attack until the end of its
    * owner's next turn.
    */
