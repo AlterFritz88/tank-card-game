@@ -6,6 +6,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
 import { RoomManager } from "./rooms";
 import { getStorageStatuses } from "./storagePath";
@@ -20,6 +21,15 @@ const clientDistPath = resolve(process.cwd(), "..", "tank-card-game", "dist");
 const projectRootPath = resolve(process.cwd(), "..");
 const allowedOrigins = parseAllowedOrigins(
   process.env.WS_ALLOWED_ORIGINS ?? process.env.ALLOWED_ORIGINS
+);
+// Number of trusted reverse proxies in front of this server. The client IP is
+// taken that many hops from the right of the X-Forwarded-For chain, since
+// entries further left are attacker-controlled. Default 1 matches the Render/
+// Amvera deployment (single platform proxy); set 0 when directly exposed so
+// X-Forwarded-For is ignored entirely and the socket address is used.
+const TRUSTED_PROXY_COUNT = Math.max(
+  0,
+  Math.floor(Number(process.env.TRUSTED_PROXY_COUNT ?? 1)) || 0
 );
 const httpServer = createServer((request, response) => {
   void handleHttpRequest(request, response);
@@ -198,12 +208,27 @@ async function handleHttpRequest(
 }
 
 function getClientIp(request: IncomingMessage): string {
-  // Behind Render/Amvera the real client IP is in X-Forwarded-For (first hop).
-  const forwarded = request.headers["x-forwarded-for"];
-  const forwardedValue = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  const firstHop = forwardedValue?.split(",")[0]?.trim();
+  const remoteAddress = request.socket.remoteAddress || "unknown";
 
-  return firstHop || request.socket.remoteAddress || "unknown";
+  // Directly exposed: never trust client-supplied X-Forwarded-For.
+  if (TRUSTED_PROXY_COUNT <= 0) return remoteAddress;
+
+  const forwarded = request.headers["x-forwarded-for"];
+  const forwardedValue = Array.isArray(forwarded)
+    ? forwarded.join(",")
+    : forwarded ?? "";
+  const xffChain = forwardedValue
+    .split(",")
+    .map((ip) => ip.trim())
+    .filter(Boolean);
+
+  // Full hop chain, nearest proxy last. Strip the trusted proxies on the right;
+  // the next entry is the address the outermost trusted proxy actually observed.
+  // Anything further left was supplied by the client and can be spoofed.
+  const chain = [...xffChain, remoteAddress];
+  const index = chain.length - 1 - TRUSTED_PROXY_COUNT;
+
+  return chain[index] ?? chain[0] ?? remoteAddress;
 }
 
 function getCorsHeaders(request: IncomingMessage): Record<string, string> {
@@ -293,11 +318,19 @@ function getAdminToken(request: IncomingMessage): string {
   return Array.isArray(headerValue) ? headerValue[0] ?? "" : headerValue ?? "";
 }
 
+function constantTimeEquals(a: string, b: string): boolean {
+  // Hash both sides to a fixed length so neither the comparison time nor the
+  // length of the configured token leaks through this check.
+  const hashA = createHash("sha256").update(a).digest();
+  const hashB = createHash("sha256").update(b).digest();
+  return timingSafeEqual(hashA, hashB);
+}
+
 function isAdminAuthorized(request: IncomingMessage): boolean {
   const configuredToken = process.env.ADMIN_TOKEN?.trim();
   if (!configuredToken) return false;
 
-  return getAdminToken(request) === configuredToken;
+  return constantTimeEquals(getAdminToken(request), configuredToken);
 }
 
 function rejectAdminRequest(response: ServerResponse, corsHeaders: Record<string, string>) {
@@ -829,9 +862,31 @@ server.on("connection", (socket, request) => {
     return;
   }
 
-  socket.on("message", (data) => rooms.handleMessage(socket, data));
+  socket.on("message", (data) => {
+    try {
+      rooms.handleMessage(socket, data);
+    } catch (error) {
+      // A single malformed-but-typed message must never take the server down.
+      console.error("Unhandled error in WS message handler:", error);
+      if (socket.readyState === socket.OPEN) {
+        socket.send(
+          JSON.stringify({ type: "ERROR", message: "Внутренняя ошибка сервера" })
+        );
+      }
+    }
+  });
   socket.on("close", () => rooms.handleClose(socket));
   socket.on("error", () => rooms.handleClose(socket));
+});
+
+// Last-resort guards so a stray throw/rejection logs instead of taking the whole
+// server (and every live match) down. The per-message handler has its own
+// try/catch; this only catches what slips past it.
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception (kept alive):", error);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection (kept alive):", reason);
 });
 
 httpServer.listen(host ? { port, host } : { port }, () => {
