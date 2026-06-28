@@ -25,6 +25,8 @@ import {
 } from "../game/playerProgress";
 import { clearLocalDeckStorage } from "../game/customDecks";
 import { useBattleStore } from "../store/battleStore";
+import { useI18n } from "../game/i18n";
+import { getNationFlagAsset } from "../assets/nationFlagAssets";
 
 type FullscreenDocument = Document & {
   webkitFullscreenElement?: Element | null;
@@ -179,6 +181,7 @@ function SettingsModal({
   canSignOut: boolean;
 }) {
   const settings = useSettings();
+  const { t } = useI18n();
   const overlayTransform = useStageOverlayTransform();
   const [signingOut, setSigningOut] = useState(false);
 
@@ -196,8 +199,8 @@ function SettingsModal({
     const registered = isRegisteredUserId();
     const confirmed = window.confirm(
       registered
-        ? "Выйти из профиля и вернуться к гостевому входу?"
-        : "Выйти из профиля? Гостевой прогресс на этом устройстве будет удалён."
+        ? t("settings.signOutRegisteredConfirm")
+        : t("settings.signOutGuestConfirm")
     );
     if (!confirmed) return;
 
@@ -213,8 +216,12 @@ function SettingsModal({
       window.location.reload();
     } catch {
       setSigningOut(false);
-      window.alert("Не удалось выйти из профиля");
+      window.alert(t("settings.signOutError"));
     }
+  }
+
+  function getLanguageFlag(language: Language) {
+    return getNationFlagAsset(language === "ru" ? "ussr" : "uk");
   }
 
   return createPortal(
@@ -236,33 +243,33 @@ function SettingsModal({
           onClick={(event) => event.stopPropagation()}
         >
           <header style={styles.modalHeader}>
-            <h2 style={styles.modalTitle}>Настройки</h2>
+            <h2 style={styles.modalTitle}>{t("settings.title")}</h2>
             <button
               type="button"
               style={styles.modalCloseButton}
               onClick={onClose}
-              aria-label="Закрыть настройки"
+              aria-label={t("settings.close")}
             >
               ✕
             </button>
           </header>
 
           <section style={styles.modalSection}>
-            <h3 style={styles.modalSectionTitle}>Звук</h3>
+            <h3 style={styles.modalSectionTitle}>{t("settings.sound")}</h3>
             <VolumeRow
-              label="Громкость музыки"
+              label={t("settings.musicVolume")}
               value={settings.musicVolume}
               onChange={setMusicVolume}
             />
             <VolumeRow
-              label="Громкость эффектов"
+              label={t("settings.effectsVolume")}
               value={settings.effectsVolume}
               onChange={setEffectsVolume}
             />
           </section>
 
           <section style={styles.modalSection}>
-            <h3 style={styles.modalSectionTitle}>Язык</h3>
+            <h3 style={styles.modalSectionTitle}>{t("settings.language")}</h3>
             <div style={styles.languageRow}>
               {AVAILABLE_LANGUAGES.map((option) => (
                 <button
@@ -276,30 +283,38 @@ function SettingsModal({
                   }}
                   onClick={() => setLanguage(option.id as Language)}
                 >
+                  {getLanguageFlag(option.id) ? (
+                    <img
+                      src={getLanguageFlag(option.id) ?? ""}
+                      alt=""
+                      draggable={false}
+                      style={styles.languageFlag}
+                    />
+                  ) : null}
                   {option.label}
                 </button>
               ))}
             </div>
             <p style={styles.languageNote}>
-              Другие языки появятся в следующих обновлениях.
+              {t("settings.languageNote")}
             </p>
           </section>
 
           {canSignOut ? (
             <section style={styles.modalSection}>
-              <h3 style={styles.modalSectionTitle}>Профиль</h3>
+              <h3 style={styles.modalSectionTitle}>{t("settings.profile")}</h3>
               <button
                 type="button"
                 style={styles.signOutButton}
                 onClick={() => void signOut()}
                 disabled={signingOut}
               >
-                {signingOut ? "Выход..." : "Выйти из профиля"}
+                {signingOut ? t("settings.signingOut") : t("settings.signOut")}
               </button>
               <p style={styles.languageNote}>
                 {isRegisteredUserId()
-                  ? "Вы вернётесь к гостевому входу."
-                  : "Гостевой прогресс будет обнулён на этом устройстве."}
+                  ? t("settings.registeredSignOutNote")
+                  : t("settings.guestSignOutNote")}
               </p>
             </section>
           ) : null}
@@ -318,6 +333,7 @@ function SettingsModal({
  */
 export function SettingsControls({ side = "right" }: { side?: "left" | "right" }) {
   const { isFullscreen, toggle } = useFullscreen();
+  const { t } = useI18n();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const menuView = useBattleStore((state) => state.menuView);
   const battle = useBattleStore((state) => state.battle);
@@ -339,9 +355,15 @@ export function SettingsControls({ side = "right" }: { side?: "left" | "right" }
           style={styles.controlButton}
           onClick={toggle}
           aria-label={
-            isFullscreen ? "Выйти из полноэкранного режима" : "На весь экран"
+            isFullscreen
+              ? t("settings.exitFullscreen")
+              : t("settings.enterFullscreen")
           }
-          title={isFullscreen ? "Выйти из полноэкранного режима" : "На весь экран"}
+          title={
+            isFullscreen
+              ? t("settings.exitFullscreen")
+              : t("settings.enterFullscreen")
+          }
         >
           {isFullscreen ? <ExitFullscreenIcon /> : <EnterFullscreenIcon />}
         </button>
@@ -349,8 +371,8 @@ export function SettingsControls({ side = "right" }: { side?: "left" | "right" }
           type="button"
           style={styles.controlButton}
           onClick={() => setSettingsOpen(true)}
-          aria-label="Настройки"
-          title="Настройки"
+          aria-label={t("settings.title")}
+          title={t("settings.title")}
         >
           <GearIcon />
         </button>
@@ -507,6 +529,10 @@ const styles: Record<string, CSSProperties> = {
     minWidth: 110,
     height: 40,
     padding: "0 18px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
     borderRadius: 8,
     border: "1px solid rgba(255, 220, 180, 0.28)",
     background:
@@ -516,6 +542,13 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     letterSpacing: 0.4,
     cursor: "pointer",
+  },
+
+  languageFlag: {
+    width: 30,
+    height: 18,
+    objectFit: "cover",
+    boxShadow: "0 2px 5px rgba(0,0,0,0.55)",
   },
 
   languageButtonActive: {

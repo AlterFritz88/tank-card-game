@@ -28,7 +28,8 @@ import {
   type NationFilter,
   type UnitTypeFilter,
 } from "../game/customDecks";
-import { getCardLevel, getHeadquartersWeight } from "../game/deckWeight";
+import { getHeadquartersLevel } from "../game/deckWeight";
+import { getCardResearchLevel } from "../game/researchTrees";
 import {
   getDeckBuildingHeadquarters,
   getHeadquartersDefinition,
@@ -49,10 +50,12 @@ import { getCardKeywords, getHeadquartersKeywords } from "../game/cardKeywords";
 import { CardKeywordsPanel } from "./CardKeywordsPanel";
 import { screenDeltaToStage, useStageOverlayTransform } from "./GameStage";
 import { HandCardView } from "./HandCardView";
+import { useI18n } from "../game/i18n";
 
 type CollectionTypeFilter = UnitTypeFilter | "headquarters";
 
-type CollectionSort = "weight-desc" | "weight-asc";
+type CollectionSortKey = "cost" | "level";
+type CollectionSortDirection = "asc" | "desc";
 
 type CollectionSnapshot = {
   cards: Record<string, number>;
@@ -67,7 +70,8 @@ type CollectionItem =
       nation: Nation;
       typeFilter: CollectionTypeFilter;
       copies: number;
-      weight: number;
+      cost: number;
+      level: number;
     }
   | {
       kind: "headquarters";
@@ -76,7 +80,8 @@ type CollectionItem =
       nation: Nation;
       typeFilter: "headquarters";
       copies: 1;
-      weight: number;
+      cost: number;
+      level: number;
     };
 
 const COLLECTION_SEEN_STORAGE_PREFIX = "panzershrek.collectionSeen.v1";
@@ -93,9 +98,9 @@ const UNIT_TYPE_FILTER_ICONS: Partial<Record<UnitTypeFilter, string>> = {
   support: classCarIcon,
 };
 
-const SORT_OPTIONS: { id: CollectionSort; label: string }[] = [
-  { id: "weight-desc", label: "Вес ↓" },
-  { id: "weight-asc", label: "Вес ↑" },
+const SORT_BUTTONS: { key: CollectionSortKey; label: string }[] = [
+  { key: "level", label: "Уровень" },
+  { key: "cost", label: "Стоимость" },
 ];
 
 function getItemName(item: CollectionItem) {
@@ -136,11 +141,13 @@ function FilterDropdown<T extends string>({
   options,
   onChange,
   ariaLabel,
+  menuMaxHeight,
 }: {
   value: T;
   options: FilterOption<T>[];
   onChange: (next: T) => void;
   ariaLabel: string;
+  menuMaxHeight?: number;
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -212,7 +219,14 @@ function FilterDropdown<T extends string>({
       </button>
 
       {open ? (
-        <div style={styles.dropdownMenu} role="listbox">
+        <div
+          style={
+            menuMaxHeight !== undefined
+              ? { ...styles.dropdownMenu, maxHeight: menuMaxHeight }
+              : styles.dropdownMenu
+          }
+          role="listbox"
+        >
           {options.map((option) => (
             <button
               key={option.value}
@@ -326,12 +340,16 @@ type CardCollectionMenuProps = {
 };
 
 export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
+  const { language } = useI18n();
   const [progress, setProgress] = useState<PlayerProgress>(() =>
     loadPlayerProgress()
   );
   const [nationFilter, setNationFilter] = useState<NationFilter>("all");
   const [typeFilter, setTypeFilter] = useState<CollectionTypeFilter>("all");
-  const [sortMode, setSortMode] = useState<CollectionSort>("weight-desc");
+  const [sortKey, setSortKey] = useState<CollectionSortKey>("level");
+  const [sortDirections, setSortDirections] = useState<
+    Record<CollectionSortKey, CollectionSortDirection>
+  >({ level: "asc", cost: "asc" });
   const [previewItem, setPreviewItem] = useState<CollectionItem | null>(null);
   const [newItemKeys, setNewItemKeys] = useState<Set<string>>(() => new Set());
   const stageOverlayTransform = useStageOverlayTransform();
@@ -400,7 +418,8 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
           nation: card.nation,
           typeFilter: getCardTypeFilter(card),
           copies,
-          weight: getCardLevel(card),
+          cost: card.cost,
+          level: getCardResearchLevel(card.id),
         });
 
         return items;
@@ -419,7 +438,8 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
             nation: headquarters.nation,
             typeFilter: "headquarters" as const,
             copies: 1 as const,
-            weight: getHeadquartersWeight(headquarters.id),
+            cost: 0,
+            level: getHeadquartersLevel(headquarters.id),
           });
         } catch {
           return items;
@@ -466,17 +486,32 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
   );
 
   const visibleItems = useMemo(() => {
+    const direction = sortDirections[sortKey] === "asc" ? 1 : -1;
+    const getSortValue = (item: CollectionItem) =>
+      sortKey === "cost" ? item.cost : item.level;
+
     return collectionItems
       .filter((item) => nationFilter === "all" || item.nation === nationFilter)
       .filter((item) => typeFilter === "all" || item.typeFilter === typeFilter)
       .sort((first, second) => {
-        const direction = sortMode === "weight-desc" ? -1 : 1;
-        const weightDelta = first.weight - second.weight;
-        if (weightDelta !== 0) return weightDelta * direction;
+        const delta = getSortValue(first) - getSortValue(second);
+        if (delta !== 0) return delta * direction;
 
         return getItemName(first).localeCompare(getItemName(second), "ru");
       });
-  }, [collectionItems, nationFilter, sortMode, typeFilter]);
+  }, [collectionItems, nationFilter, sortDirections, sortKey, typeFilter]);
+
+  function handleSortClick(key: CollectionSortKey) {
+    if (sortKey === key) {
+      setSortDirections((current) => ({
+        ...current,
+        [key]: current[key] === "asc" ? "desc" : "asc",
+      }));
+      return;
+    }
+
+    setSortKey(key);
+  }
 
   const totalCollectionItems = useMemo(() => {
     const uniqueCardCount = new Set(cards.map((card) => card.id)).size;
@@ -670,6 +705,7 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
             options={typeOptions}
             onChange={setTypeFilter}
             ariaLabel="Фильтр по типу техники"
+            menuMaxHeight={typeOptions.length * 34 + 16}
           />
           <FilterDropdown
             value={nationFilter}
@@ -677,19 +713,25 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
             onChange={setNationFilter}
             ariaLabel="Фильтр по нации"
           />
-          {SORT_OPTIONS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              style={{
-                ...styles.filterButton,
-                ...(sortMode === option.id ? styles.filterButtonActive : null),
-              }}
-              onClick={() => setSortMode(option.id)}
-            >
-              {option.label}
-            </button>
-          ))}
+          {SORT_BUTTONS.map((option) => {
+            const active = sortKey === option.key;
+            const arrow = sortDirections[option.key] === "asc" ? "↑" : "↓";
+
+            return (
+              <button
+                key={option.key}
+                type="button"
+                style={{
+                  ...styles.filterButton,
+                  ...(active ? styles.filterButtonActive : null),
+                }}
+                onClick={() => handleSortClick(option.key)}
+                aria-pressed={active}
+              >
+                {option.label} {arrow}
+              </button>
+            );
+          })}
         </div>
       </section>
 
@@ -762,7 +804,7 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
 
               <span style={styles.itemMeta}>
                 <span style={styles.copyBadge}>×{item.copies}</span>
-                <span style={styles.weightBadge}>Вес {item.weight}</span>
+                <span style={styles.weightBadge}>Ур. {item.level}</span>
               </span>
             </motion.button>
           ))}
@@ -801,8 +843,12 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
                   <CardKeywordsPanel
                     keywords={
                       previewItem.kind === "card"
-                        ? getCardKeywords(previewItem.card)
-                        : getHeadquartersKeywords(previewItem.headquarters.ability)
+                        ? getCardKeywords(previewItem.card, language)
+                        : getHeadquartersKeywords(
+                            previewItem.headquarters.ability,
+                            previewItem.headquarters.nation,
+                            language
+                          )
                     }
                   />
 

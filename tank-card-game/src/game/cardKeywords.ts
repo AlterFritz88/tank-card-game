@@ -1,8 +1,14 @@
 import type { HeadquartersAbility, Nation, TankClass, TankCard } from "./types";
 import { getNationalAbility } from "./nationalAbilities";
+import { getSettings, type Language } from "./settings";
+import { getLocalizedClassLabel } from "./cardLocalization";
 
 /** Genitive-plural label of a unit class for ability descriptions. */
-function getClassLabel(unitClass: TankClass): string {
+function getClassLabel(unitClass: TankClass, language: Language = "ru"): string {
+  if (language === "en") {
+    return getLocalizedClassLabel(unitClass, language).toLowerCase();
+  }
+
   switch (unitClass) {
     case "light":
       return "лёгких танков";
@@ -35,7 +41,83 @@ export type CardKeyword = {
   body: string;
 };
 
-function getVehicleTypeKeyword(card: TankCard): CardKeyword {
+function getVehicleTypeKeyword(card: TankCard, language: Language): CardKeyword {
+  if (language === "en") {
+    if (card.deploymentZone === "support") {
+      switch (card.supportRole) {
+        case "artillery":
+          return {
+            id: "type",
+            title: "ARTILLERY",
+            body: "Support card. Deploys into one of the three rear-line slots next to your headquarters and strengthens your army without entering the main battlefield.",
+          };
+        case "transport":
+          return {
+            id: "type",
+            title: "TRANSPORT",
+            body: "Rear-line support card. Provides supply: fuel and card draw.",
+          };
+        case "medical":
+          return {
+            id: "type",
+            title: "MEDICAL UNIT",
+            body: "Rear-line support card. Restores health to your units or headquarters at the start of your turn.",
+          };
+        default:
+          return {
+            id: "type",
+            title: "SUPPORT",
+            body: "Support card. Deploys to the rear line next to your headquarters and does not fight directly.",
+          };
+      }
+    }
+
+    switch (card.class) {
+      case "light":
+        return {
+          id: "type",
+          title: "LIGHT TANK",
+          body: "Can move up to two cells in a straight line or one cell diagonally, and can move and attack on the turn it is deployed.",
+        };
+      case "medium":
+        return {
+          id: "type",
+          title: "MEDIUM TANK",
+          body: "Moves one cell in any direction, including diagonally, and can move and attack in the same turn.",
+        };
+      case "heavy":
+        return {
+          id: "type",
+          title: "HEAVY TANK",
+          body: "Each turn it can either move one cell or attack, but not both.",
+        };
+      case "td":
+        return {
+          id: "type",
+          title: "TANK DESTROYER",
+          body: "Attacks adjacent cells only and fires first from ambush when attacked in close combat. It may attack and then move, but if it moves first it cannot attack that turn.",
+        };
+      case "spg":
+        return {
+          id: "type",
+          title: "SPG",
+          body: "Can fire at any target regardless of distance and does not receive return fire, but is vulnerable up close.",
+        };
+      case "armored_car":
+        return {
+          id: "type",
+          title: "ARMORED CAR",
+          body: "Highly mobile but lightly protected: moves up to three cells straight or twice diagonally. Can attack twice per turn when attacking the rear line or headquarters. Deals −1 damage from the front and +1 from flank or rear; standard damage against SPGs and armored cars.",
+        };
+      default:
+        return {
+          id: "type",
+          title: "UNIT",
+          body: "Can both move and attack in one turn.",
+        };
+    }
+  }
+
   if (card.deploymentZone === "support") {
     switch (card.supportRole) {
       case "artillery":
@@ -111,46 +193,61 @@ function getVehicleTypeKeyword(card: TankCard): CardKeyword {
   }
 }
 
-function getAbilityKeywords(card: TankCard): CardKeyword[] {
+function getAbilityKeywords(card: TankCard, language: Language): CardKeyword[] {
   const keywords: CardKeyword[] = [];
 
   if (card.combatAbilities?.blitz) {
     keywords.push({
       id: "blitz",
-      title: "БЛИЦ",
-      body: "В тот ход, когда юнит выходит на поле, он может сделать два обычных перемещения (двойной запас хода), но атаковать всё равно только один раз. В следующие ходы перемещается как обычно.",
+      title: language === "en" ? "BLITZ" : "БЛИЦ",
+      body:
+        language === "en"
+          ? "On the turn this unit is deployed, it can make two normal moves, but it can still attack only once. On later turns it moves normally."
+          : "В тот ход, когда юнит выходит на поле, он может сделать два обычных перемещения (двойной запас хода), но атаковать всё равно только один раз. В следующие ходы перемещается как обычно.",
     });
   }
 
   if (card.combatAbilities?.lightScreen) {
     keywords.push({
       id: "lightScreen",
-      title: "ЭКРАН",
-      body: "Раз за ход первый удар, нацеленный на дружественный лёгкий танк, перенаправляется в этот юнит.",
+      title: language === "en" ? "SCREEN" : "ЭКРАН",
+      body:
+        language === "en"
+          ? "Once per turn, the first attack aimed at a friendly light tank is redirected to this unit."
+          : "Раз за ход первый удар, нацеленный на дружественный лёгкий танк, перенаправляется в этот юнит.",
     });
   }
 
   if (card.combatAbilities?.tankDefenseAura) {
     keywords.push({
       id: "tankDefenseAura",
-      title: "КОМАНДНАЯ МАШИНА",
-      body: `Пока этот юнит в строю, каждый ваш танк на поле получает −${card.combatAbilities.tankDefenseAura} к входящему урону от каждого удара.`,
+      title: language === "en" ? "COMMAND VEHICLE" : "КОМАНДНАЯ МАШИНА",
+      body:
+        language === "en"
+          ? `While this unit is operational, each of your tanks takes −${card.combatAbilities.tankDefenseAura} incoming damage from each hit.`
+          : `Пока этот юнит в строю, каждый ваш танк на поле получает −${card.combatAbilities.tankDefenseAura} к входящему урону от каждого удара.`,
     });
   }
 
   if (card.combatAbilities?.camouflage) {
     keywords.push({
       id: "camouflage",
-      title: "МАСКИРОВКА",
-      body: "Этот юнит нельзя атаковать дистанционно, из САУ или штабом — только соседним юнитом в ближнем бою. Передвижение маскировку не снимает: она спадает навсегда, только когда юнит сам открывает огонь или когда вражеский юнит встаёт на соседнюю клетку.",
+      title: language === "en" ? "CAMOUFLAGE" : "МАСКИРОВКА",
+      body:
+        language === "en"
+          ? "This unit cannot be attacked at range by SPGs or headquarters; only an adjacent unit can attack it in close combat. Moving does not break camouflage: it is lost permanently only when the unit fires or an enemy moves adjacent to it."
+          : "Этот юнит нельзя атаковать дистанционно, из САУ или штабом — только соседним юнитом в ближнем бою. Передвижение маскировку не снимает: она спадает навсегда, только когда юнит сам открывает огонь или когда вражеский юнит встаёт на соседнюю клетку.",
     });
   }
 
   if (card.combatAbilities?.attackEqualsHq) {
     keywords.push({
       id: "attackEqualsHq",
-      title: "КОРРЕКТИРОВЩИК",
-      body: "Огневая мощь этого юнита равна текущей огневой мощи вашего штаба (со всеми бонусами), а не значению на карте.",
+      title: language === "en" ? "FORWARD OBSERVER" : "КОРРЕКТИРОВЩИК",
+      body:
+        language === "en"
+          ? "This unit's firepower equals your current headquarters attack, including bonuses, instead of the printed value."
+          : "Огневая мощь этого юнита равна текущей огневой мощи вашего штаба (со всеми бонусами), а не значению на карте.",
     });
   }
 
@@ -158,10 +255,16 @@ function getAbilityKeywords(card: TankCard): CardKeyword[] {
     const armor = card.combatAbilities.armorVsClass;
     keywords.push({
       id: "armorVsClass",
-      title: "СПЕЦБРОНЯ",
-      body: `Каждый удар по этому юниту со стороны ${getClassLabel(
-        armor.class
-      )} слабее на ${armor.amount}.`,
+      title: language === "en" ? "SPECIAL ARMOR" : "СПЕЦБРОНЯ",
+      body:
+        language === "en"
+          ? `Each hit against this unit from ${getClassLabel(
+              armor.class,
+              language
+            )} units is reduced by ${armor.amount}.`
+          : `Каждый удар по этому юниту со стороны ${getClassLabel(
+              armor.class
+            )} слабее на ${armor.amount}.`,
     });
   }
 
@@ -169,20 +272,26 @@ function getAbilityKeywords(card: TankCard): CardKeyword[] {
     const frontal = card.combatAbilities.frontalArmor;
     keywords.push({
       id: "frontalArmor",
-      title: "ЛОБОВАЯ БРОНЯ",
-      body: `Когда по этому юниту бьют строго спереди — из клетки прямо перед ним, со стороны вражеского штаба, — урон слабее на ${frontal.amount}. Диагональные, фланговые и тыловые удары проходят полностью. Огонь САУ и штаба лобовая броня не сдерживает.`,
+      title: language === "en" ? "FRONTAL ARMOR" : "ЛОБОВАЯ БРОНЯ",
+      body:
+        language === "en"
+          ? `When this unit is hit directly from the front, from the enemy headquarters side, damage is reduced by ${frontal.amount}. Diagonal, flank, and rear attacks deal full damage. SPG and headquarters fire ignores frontal armor.`
+          : `Когда по этому юниту бьют строго спереди — из клетки прямо перед ним, со стороны вражеского штаба, — урон слабее на ${frontal.amount}. Диагональные, фланговые и тыловые удары проходят полностью. Огонь САУ и штаба лобовая броня не сдерживает.`,
     });
   }
 
   if (card.combatAbilities?.drawWhenAttacked) {
     keywords.push({
       id: "drawWhenAttacked",
-      title: "ДОЗОР",
-      body: `Когда этот юнит получает урон, вы добираете ${
-        card.combatAbilities.drawWhenAttacked === 1
-          ? "карту"
-          : `${card.combatAbilities.drawWhenAttacked} карты`
-      } (раз за ход).`,
+      title: language === "en" ? "WATCH" : "ДОЗОР",
+      body:
+        language === "en"
+          ? `When this unit takes damage, draw ${card.combatAbilities.drawWhenAttacked} card(s), once per turn.`
+          : `Когда этот юнит получает урон, вы добираете ${
+              card.combatAbilities.drawWhenAttacked === 1
+                ? "карту"
+                : `${card.combatAbilities.drawWhenAttacked} карты`
+            } (раз за ход).`,
     });
   }
 
@@ -194,56 +303,77 @@ function getAbilityKeywords(card: TankCard): CardKeyword[] {
 
     keywords.push({
       id: "cornerBonus",
-      title: "ОГНЕВАЯ ПОЗИЦИЯ",
-      body: `Пока эта САУ стоит в угловой клетке поля, она получает ${parts.join(
-        " и "
-      )}.`,
+      title: language === "en" ? "FIRING POSITION" : "ОГНЕВАЯ ПОЗИЦИЯ",
+      body:
+        language === "en"
+          ? `While this SPG is in a corner cell, it gains ${parts.join(" and ")}.`
+          : `Пока эта САУ стоит в угловой клетке поля, она получает ${parts.join(
+              " и "
+            )}.`,
     });
   }
 
   if (card.combatAbilities?.hqProximityBonus) {
     keywords.push({
       id: "hqProximityBonus",
-      title: "ОГНЕВОЙ ВАЛ",
-      body: `Чем ближе эта САУ к штабу противника, тем сильнее её удар: до +${card.combatAbilities.hqProximityBonus.maxBonus} к огневой мощи вплотную, и на 1 меньше за каждую клетку дистанции до вражеского штаба.`,
+      title: language === "en" ? "ROLLING BARRAGE" : "ОГНЕВОЙ ВАЛ",
+      body:
+        language === "en"
+          ? `The closer this SPG is to the enemy headquarters, the harder it hits: up to +${card.combatAbilities.hqProximityBonus.maxBonus} firepower up close, reduced by 1 for each cell of distance.`
+          : `Чем ближе эта САУ к штабу противника, тем сильнее её удар: до +${card.combatAbilities.hqProximityBonus.maxBonus} к огневой мощи вплотную, и на 1 меньше за каждую клетку дистанции до вражеского штаба.`,
     });
   }
 
   if (card.combatAbilities?.spawnDamageReduction) {
     keywords.push({
       id: "spawnDamageReduction",
-      title: "ОБОРОНА ПЛАЦДАРМА",
-      body: `Пока этот юнит находится на вашем плацдарме (клетке спавна), каждый удар по нему слабее на ${card.combatAbilities.spawnDamageReduction}.`,
+      title: language === "en" ? "BRIDGEHEAD DEFENSE" : "ОБОРОНА ПЛАЦДАРМА",
+      body:
+        language === "en"
+          ? `While this unit is on your bridgehead spawn cell, each hit against it is reduced by ${card.combatAbilities.spawnDamageReduction}.`
+          : `Пока этот юнит находится на вашем плацдарме (клетке спавна), каждый удар по нему слабее на ${card.combatAbilities.spawnDamageReduction}.`,
     });
   }
 
   if (card.combatAbilities?.raidDraw) {
     keywords.push({
       id: "raidDraw",
-      title: "ПРОРЫВ",
-      body: `Когда этот юнит впервые заходит на клетку плацдарма противника, вы добираете ${
-        card.combatAbilities.raidDraw === 1
-          ? "карту"
-          : `${card.combatAbilities.raidDraw} карты`
-      }.`,
+      title: language === "en" ? "BREAKTHROUGH" : "ПРОРЫВ",
+      body:
+        language === "en"
+          ? `When this unit first enters an enemy bridgehead cell, draw ${card.combatAbilities.raidDraw} card(s).`
+          : `Когда этот юнит впервые заходит на клетку плацдарма противника, вы добираете ${
+              card.combatAbilities.raidDraw === 1
+                ? "карту"
+                : `${card.combatAbilities.raidDraw} карты`
+            }.`,
     });
   }
 
   if (card.costModifiers) {
     keywords.push({
       id: "costModifiers",
-      title: "СЛАЖЕННОСТЬ",
-      body: `Пока у вас на поле боя есть юнит класса «${getClassLabel(
-        card.costModifiers.ifClassPresent
-      )}», эта карта дешевле на ${card.costModifiers.discount} топлива.`,
+      title: language === "en" ? "COORDINATION" : "СЛАЖЕННОСТЬ",
+      body:
+        language === "en"
+          ? `While you have a ${getClassLabel(
+              card.costModifiers.ifClassPresent,
+              language
+            )} unit on the battlefield, this card costs ${card.costModifiers.discount} less fuel.`
+          : `Пока у вас на поле боя есть юнит класса «${getClassLabel(
+              card.costModifiers.ifClassPresent
+            )}», эта карта дешевле на ${card.costModifiers.discount} топлива.`,
     });
   }
 
   if (card.onPlayEffects?.suppressEnemyIndirect) {
     keywords.push({
       id: "suppressEnemyIndirect",
-      title: "КОНТРБАТАРЕЙНЫЙ ОГОНЬ",
-      body: "При выходе на поле боя все САУ и штаб противника не могут атаковать до конца их следующего хода.",
+      title: language === "en" ? "COUNTER-BATTERY FIRE" : "КОНТРБАТАРЕЙНЫЙ ОГОНЬ",
+      body:
+        language === "en"
+          ? "On deployment, all enemy SPGs and the enemy headquarters cannot attack until the end of their next turn."
+          : "При выходе на поле боя все САУ и штаб противника не могут атаковать до конца их следующего хода.",
     });
   }
 
@@ -252,13 +382,23 @@ function getAbilityKeywords(card: TankCard): CardKeyword[] {
 
     keywords.push({
       id: "deployDamage",
-      title: "ОГНЕВОЙ НАЛЁТ",
+      title: language === "en" ? "FIRE RAID" : "ОГНЕВОЙ НАЛЁТ",
       body:
-        deploy.scope === "classes"
+        language === "en"
+          ? deploy.scope === "classes"
+            ? `On deployment, deals ${deploy.amount} damage to all enemy units of these classes: ${(
+                deploy.classes ?? []
+              )
+                .map((unitClass) => getClassLabel(unitClass, language))
+                .join(", ")}.`
+            : deploy.scope === "rear"
+              ? `On deployment, deals ${deploy.amount} damage to a random enemy rear-line unit.`
+              : `On deployment, deals ${deploy.amount} damage to a random enemy battlefield unit.`
+        : deploy.scope === "classes"
           ? `При выходе на поле боя наносит ${deploy.amount} урона всем вражеским юнитам классов: ${(
               deploy.classes ?? []
             )
-              .map(getClassLabel)
+              .map((unitClass) => getClassLabel(unitClass, language))
               .join(", ")}.`
           : deploy.scope === "rear"
             ? `При выходе наносит ${deploy.amount} урона случайному вражескому юниту в тылу.`
@@ -269,8 +409,11 @@ function getAbilityKeywords(card: TankCard): CardKeyword[] {
   if (card.onPlayEffects?.fetchToHand) {
     keywords.push({
       id: "fetchToHand",
-      title: "ПОПОЛНЕНИЕ",
-      body: `При выходе на поле боя вы переносите случайную карту «${card.onPlayEffects.fetchToHand.label}» из колоды в руку (если такая есть).`,
+      title: language === "en" ? "REINFORCEMENT" : "ПОПОЛНЕНИЕ",
+      body:
+        language === "en"
+          ? `On deployment, move a random "${card.onPlayEffects.fetchToHand.label}" card from your deck to your hand, if available.`
+          : `При выходе на поле боя вы переносите случайную карту «${card.onPlayEffects.fetchToHand.label}» из колоды в руку (если такая есть).`,
     });
   }
 
@@ -280,23 +423,29 @@ function getAbilityKeywords(card: TankCard): CardKeyword[] {
   if (draw > 0) {
     keywords.push({
       id: "deploy-draw",
-      title: "РАЗВЕДКА",
-      body: `Разведка срабатывает при выходе отряда на поле боя: вы добираете ${draw === 1 ? "карту" : `${draw} карты`} из колоды.`,
+      title: language === "en" ? "RECON" : "РАЗВЕДКА",
+      body:
+        language === "en"
+          ? `Recon triggers on deployment: draw ${draw} card(s) from your deck.`
+          : `Разведка срабатывает при выходе отряда на поле боя: вы добираете ${draw === 1 ? "карту" : `${draw} карты`} из колоды.`,
     });
   }
 
   if (hqProtection > 0) {
     keywords.push({
       id: "deploy-hq",
-      title: "ПРИКРЫТИЕ",
-      body: `Прикрытие срабатывает при выходе отряда на поле боя: ваш штаб получает +${hqProtection} к здоровью.`,
+      title: language === "en" ? "COVER" : "ПРИКРЫТИЕ",
+      body:
+        language === "en"
+          ? `Cover triggers on deployment: your headquarters gains +${hqProtection} health.`
+          : `Прикрытие срабатывает при выходе отряда на поле боя: ваш штаб получает +${hqProtection} к здоровью.`,
     });
   }
 
   return keywords;
 }
 
-function getSupportEffectKeywords(card: TankCard): CardKeyword[] {
+function getSupportEffectKeywords(card: TankCard, language: Language): CardKeyword[] {
   const effects = card.supportEffects;
   if (!effects) return [];
 
@@ -305,16 +454,22 @@ function getSupportEffectKeywords(card: TankCard): CardKeyword[] {
   if (effects.hqAttackBonus) {
     keywords.push({
       id: "fx-hqAttack",
-      title: "ОГНЕВАЯ ПОДДЕРЖКА",
-      body: `Ваш штаб наносит на +${effects.hqAttackBonus} урона больше.`,
+      title: language === "en" ? "FIRE SUPPORT" : "ОГНЕВАЯ ПОДДЕРЖКА",
+      body:
+        language === "en"
+          ? `Your headquarters deals +${effects.hqAttackBonus} extra damage.`
+          : `Ваш штаб наносит на +${effects.hqAttackBonus} урона больше.`,
     });
   }
 
   if (effects.hqDamageRedirect) {
     keywords.push({
       id: "fx-redirect",
-      title: "ЗАСЛОН ШТАБА",
-      body: `Принимает на себя до ${effects.hqDamageRedirect} урона, который шёл бы в ваш штаб.`,
+      title: language === "en" ? "HEADQUARTERS SCREEN" : "ЗАСЛОН ШТАБА",
+      body:
+        language === "en"
+          ? `Absorbs up to ${effects.hqDamageRedirect} damage that would hit your headquarters.`
+          : `Принимает на себя до ${effects.hqDamageRedirect} урона, который шёл бы в ваш штаб.`,
     });
   }
 
@@ -323,11 +478,11 @@ function getSupportEffectKeywords(card: TankCard): CardKeyword[] {
       .map((tankClass) => {
         switch (tankClass) {
           case "light":
-            return "лёгким";
+            return language === "en" ? "light" : "лёгким";
           case "medium":
-            return "средним";
+            return language === "en" ? "medium" : "средним";
           case "heavy":
-            return "тяжёлым";
+            return language === "en" ? "heavy" : "тяжёлым";
           case "td":
             return "ПТ-САУ";
           case "spg":
@@ -335,73 +490,97 @@ function getSupportEffectKeywords(card: TankCard): CardKeyword[] {
           case "armored_car":
             return "бронеавтомобилям";
           default:
-            return "танкам";
+            return language === "en" ? "tank" : "танкам";
         }
       })
       .join(" и ");
 
     keywords.push({
       id: "fx-tank-screen",
-      title: "ЭКРАН ТАНКОВ",
-      body: `Раз за ход первый удар по дружественным ${classNames} танкам перенаправляется в этот тыловой юнит.`,
+      title: language === "en" ? "TANK SCREEN" : "ЭКРАН ТАНКОВ",
+      body:
+        language === "en"
+          ? `Once per turn, the first hit against friendly ${classNames} tanks is redirected to this rear-line unit.`
+          : `Раз за ход первый удар по дружественным ${classNames} танкам перенаправляется в этот тыловой юнит.`,
     });
   }
 
   if (effects.supportLineCover) {
     keywords.push({
       id: "fx-cover",
-      title: "ПРОТИВОТАНКОВЫЙ ЗАСЛОН",
-      body: `Защищает тыл и штаб. Ближние атаки по союзной поддержке или по штабу встречает огнём на ${effects.supportLineCover} урона (раз за ход), а часть дистанционного огня по штабу принимает на себя.`,
+      title: language === "en" ? "ANTI-TANK SCREEN" : "ПРОТИВОТАНКОВЫЙ ЗАСЛОН",
+      body:
+        language === "en"
+          ? `Protects the rear line and headquarters. Close attacks against friendly support or headquarters are met with ${effects.supportLineCover} return damage once per turn, and part of ranged fire against the headquarters is absorbed.`
+          : `Защищает тыл и штаб. Ближние атаки по союзной поддержке или по штабу встречает огнём на ${effects.supportLineCover} урона (раз за ход), а часть дистанционного огня по штабу принимает на себя.`,
     });
   }
 
   if (effects.returnFire) {
     keywords.push({
       id: "fx-returnFire",
-      title: "САМООБОРОНА",
-      body: `Вооружённая машина: когда по ней бьёт вражеский юнит в ближнем бою, отвечает огнём на ${effects.returnFire} урона.`,
+      title: language === "en" ? "SELF-DEFENSE" : "САМООБОРОНА",
+      body:
+        language === "en"
+          ? `Armed vehicle: when attacked by an enemy unit in close combat, returns fire for ${effects.returnFire} damage.`
+          : `Вооружённая машина: когда по ней бьёт вражеский юнит в ближнем бою, отвечает огнём на ${effects.returnFire} урона.`,
     });
   }
 
   if (effects.fuelPerTurn) {
     keywords.push({
       id: "fx-fuel",
-      title: "СНАБЖЕНИЕ",
-      body: `В начале вашего хода вы получаете +${effects.fuelPerTurn} топлива.`,
+      title: language === "en" ? "SUPPLY" : "СНАБЖЕНИЕ",
+      body:
+        language === "en"
+          ? `At the start of your turn, gain +${effects.fuelPerTurn} fuel.`
+          : `В начале вашего хода вы получаете +${effects.fuelPerTurn} топлива.`,
     });
   }
 
   if (effects.drawEveryTurns) {
     keywords.push({
       id: "fx-draw",
-      title: "РАЗВЕДКА",
-      body: `Каждые ${effects.drawEveryTurns} ваших хода вы добираете дополнительную карту.`,
+      title: language === "en" ? "RECON" : "РАЗВЕДКА",
+      body:
+        language === "en"
+          ? `Every ${effects.drawEveryTurns} of your turns, draw an extra card.`
+          : `Каждые ${effects.drawEveryTurns} ваших хода вы добираете дополнительную карту.`,
     });
   }
 
   if (effects.fetchSupportCardEveryTurns) {
     keywords.push({
       id: "fx-fetch",
-      title: "ПОДВОЗ РЕЗЕРВОВ",
-      body: `Каждые ${effects.fetchSupportCardEveryTurns} хода переносит случайную карту поддержки из колоды в руку.`,
+      title: language === "en" ? "RESERVE DELIVERY" : "ПОДВОЗ РЕЗЕРВОВ",
+      body:
+        language === "en"
+          ? `Every ${effects.fetchSupportCardEveryTurns} turns, moves a random support card from your deck to your hand.`
+          : `Каждые ${effects.fetchSupportCardEveryTurns} хода переносит случайную карту поддержки из колоды в руку.`,
     });
   }
 
   if (effects.healRandomUnitPerTurn) {
     keywords.push({
       id: "fx-heal",
-      title: "ПОЛЕВОЙ ГОСПИТАЛЬ",
-      body: `В начале хода восстанавливает ${effects.healRandomUnitPerTurn} здоровья случайному повреждённому юниту${
-        effects.healClass ? " выбранного класса" : ""
-      }.`,
+      title: language === "en" ? "FIELD HOSPITAL" : "ПОЛЕВОЙ ГОСПИТАЛЬ",
+      body:
+        language === "en"
+          ? `At the start of your turn, restores ${effects.healRandomUnitPerTurn} health to a random damaged unit${effects.healClass ? " of the selected class" : ""}.`
+          : `В начале хода восстанавливает ${effects.healRandomUnitPerTurn} здоровья случайному повреждённому юниту${
+              effects.healClass ? " выбранного класса" : ""
+            }.`,
     });
   }
 
   if (effects.hqHealPerTurn) {
     keywords.push({
       id: "fx-hqHeal",
-      title: "РЕМОНТ ШТАБА",
-      body: `В начале хода восстанавливает ${effects.hqHealPerTurn} здоровья вашему штабу.`,
+      title: language === "en" ? "HEADQUARTERS REPAIR" : "РЕМОНТ ШТАБА",
+      body:
+        language === "en"
+          ? `At the start of your turn, restores ${effects.hqHealPerTurn} health to your headquarters.`
+          : `В начале хода восстанавливает ${effects.hqHealPerTurn} здоровья вашему штабу.`,
     });
   }
 
@@ -415,88 +594,135 @@ function getSupportEffectKeywords(card: TankCard): CardKeyword[] {
  * Used to print the abilities as plain text in the card description instead of
  * rendering them as separate tag badges.
  */
-export function getCardAbilityTags(card: TankCard): string[] {
+export function getCardAbilityTags(
+  card: TankCard,
+  language: Language = getSettings().language
+): string[] {
   const tags: string[] = [];
 
   if (card.combatAbilities?.blitz) {
-    tags.push("Блиц");
+    tags.push(language === "en" ? "Blitz" : "Блиц");
   }
 
   if (card.combatAbilities?.lightScreen) {
-    tags.push("Экран");
+    tags.push(language === "en" ? "Screen" : "Экран");
   }
 
   if (
     card.combatAbilities?.tankDefenseAura &&
     card.combatAbilities.tankDefenseAura > 0
   ) {
-    tags.push(`Командная машина −${card.combatAbilities.tankDefenseAura}`);
+    tags.push(
+      language === "en"
+        ? `Command vehicle −${card.combatAbilities.tankDefenseAura}`
+        : `Командная машина −${card.combatAbilities.tankDefenseAura}`
+    );
   }
 
   if (card.onPlayEffects?.draw && card.onPlayEffects.draw > 0) {
-    tags.push(`Разведка +${card.onPlayEffects.draw}`);
+    tags.push(
+      language === "en"
+        ? `Recon +${card.onPlayEffects.draw}`
+        : `Разведка +${card.onPlayEffects.draw}`
+    );
   }
 
   if (card.onPlayEffects?.hqProtection && card.onPlayEffects.hqProtection > 0) {
-    tags.push(`Прикрытие +${card.onPlayEffects.hqProtection}`);
+    tags.push(
+      language === "en"
+        ? `Cover +${card.onPlayEffects.hqProtection}`
+        : `Прикрытие +${card.onPlayEffects.hqProtection}`
+    );
   }
 
   if (card.combatAbilities?.camouflage) {
-    tags.push("Маскировка");
+    tags.push(language === "en" ? "Camouflage" : "Маскировка");
   }
 
   if (card.combatAbilities?.attackEqualsHq) {
-    tags.push("Корректировщик");
+    tags.push(language === "en" ? "Forward observer" : "Корректировщик");
   }
 
   if (card.combatAbilities?.armorVsClass) {
-    tags.push(`Спецброня −${card.combatAbilities.armorVsClass.amount}`);
+    tags.push(
+      language === "en"
+        ? `Special armor −${card.combatAbilities.armorVsClass.amount}`
+        : `Спецброня −${card.combatAbilities.armorVsClass.amount}`
+    );
   }
 
   if (card.combatAbilities?.frontalArmor) {
-    tags.push(`Лобовая броня −${card.combatAbilities.frontalArmor.amount}`);
+    tags.push(
+      language === "en"
+        ? `Frontal armor −${card.combatAbilities.frontalArmor.amount}`
+        : `Лобовая броня −${card.combatAbilities.frontalArmor.amount}`
+    );
   }
 
   if (
     card.combatAbilities?.drawWhenAttacked &&
     card.combatAbilities.drawWhenAttacked > 0
   ) {
-    tags.push(`Дозор +${card.combatAbilities.drawWhenAttacked}`);
+    tags.push(
+      language === "en"
+        ? `Watch +${card.combatAbilities.drawWhenAttacked}`
+        : `Дозор +${card.combatAbilities.drawWhenAttacked}`
+    );
   }
 
   if (card.combatAbilities?.cornerBonus) {
-    tags.push("Огневая позиция");
+    tags.push(language === "en" ? "Firing position" : "Огневая позиция");
   }
 
   if (card.combatAbilities?.hqProximityBonus) {
-    tags.push(`Огневой вал +${card.combatAbilities.hqProximityBonus.maxBonus}`);
+    tags.push(
+      language === "en"
+        ? `Rolling barrage +${card.combatAbilities.hqProximityBonus.maxBonus}`
+        : `Огневой вал +${card.combatAbilities.hqProximityBonus.maxBonus}`
+    );
   }
 
   if (
     card.combatAbilities?.spawnDamageReduction &&
     card.combatAbilities.spawnDamageReduction > 0
   ) {
-    tags.push("Оборона плацдарма");
+    tags.push(language === "en" ? "Bridgehead defense" : "Оборона плацдарма");
   }
 
   if (card.combatAbilities?.raidDraw && card.combatAbilities.raidDraw > 0) {
-    tags.push(`Прорыв +${card.combatAbilities.raidDraw}`);
+    tags.push(
+      language === "en"
+        ? `Breakthrough +${card.combatAbilities.raidDraw}`
+        : `Прорыв +${card.combatAbilities.raidDraw}`
+    );
   }
 
   if (card.costModifiers) {
-    tags.push(`Слаженность −${card.costModifiers.discount}`);
+    tags.push(
+      language === "en"
+        ? `Coordination −${card.costModifiers.discount}`
+        : `Слаженность −${card.costModifiers.discount}`
+    );
   }
 
   if (card.onPlayEffects?.suppressEnemyIndirect) {
-    tags.push("Контрбатарея");
+    tags.push(language === "en" ? "Counter-battery" : "Контрбатарея");
   }
 
   if (card.onPlayEffects?.deployDamage) {
-    tags.push(`Огневой налёт ${card.onPlayEffects.deployDamage.amount}`);
+    tags.push(
+      language === "en"
+        ? `Fire raid ${card.onPlayEffects.deployDamage.amount}`
+        : `Огневой налёт ${card.onPlayEffects.deployDamage.amount}`
+    );
   }
 
   if (card.onPlayEffects?.fetchToHand) {
-    tags.push(`Пополнение (${card.onPlayEffects.fetchToHand.label})`);
+    tags.push(
+      language === "en"
+        ? `Reinforcement (${card.onPlayEffects.fetchToHand.label})`
+        : `Пополнение (${card.onPlayEffects.fetchToHand.label})`
+    );
   }
 
   return tags;
@@ -506,24 +732,34 @@ export function getCardAbilityTags(card: TankCard): string[] {
  * Builds the ordered list of glossary entries for an enlarged unit card: the
  * vehicle type first, then any special mechanics it carries.
  */
-export function getCardKeywords(card: TankCard): CardKeyword[] {
+export function getCardKeywords(
+  card: TankCard,
+  language: Language = getSettings().language
+): CardKeyword[] {
   return [
-    getVehicleTypeKeyword(card),
-    ...getAbilityKeywords(card),
-    ...getSupportEffectKeywords(card),
+    getVehicleTypeKeyword(card, language),
+    ...getAbilityKeywords(card, language),
+    ...getSupportEffectKeywords(card, language),
   ];
 }
 
 function getHeadquartersAbilityKeyword(
-  ability: HeadquartersAbility
+  ability: HeadquartersAbility,
+  language: Language
 ): CardKeyword | null {
-  const title = ability.name.toUpperCase();
+  const title =
+    language === "en"
+      ? translateHeadquartersAbilityName(ability.name).toUpperCase()
+      : ability.name.toUpperCase();
 
   if (ability.firstTankBlitz) {
     return {
       id: "hq-firstTankBlitz",
       title,
-      body: "Первый танк, сыгранный за ход, получает «Блиц» — два перемещения в ход выхода на поле.",
+      body:
+        language === "en"
+          ? "The first tank played each turn gains Blitz: two moves on the turn it enters the battlefield."
+          : "Первый танк, сыгранный за ход, получает «Блиц» — два перемещения в ход выхода на поле.",
     };
   }
 
@@ -531,7 +767,10 @@ function getHeadquartersAbilityKeyword(
     return {
       id: "hq-lightUnitsBlitz",
       title,
-      body: "Лёгкие юниты получают «Блиц» — два перемещения в ход выхода на поле.",
+      body:
+        language === "en"
+          ? "Light units gain Blitz: two moves on the turn they enter the battlefield."
+          : "Лёгкие юниты получают «Блиц» — два перемещения в ход выхода на поле.",
     };
   }
 
@@ -539,7 +778,10 @@ function getHeadquartersAbilityKeyword(
     return {
       id: "hq-fuelDiscount",
       title,
-      body: `Первый юнит, сыгранный за ход, обходится на ${ability.firstUnitFuelDiscount} топлива дешевле.`,
+      body:
+        language === "en"
+          ? `The first unit played each turn costs ${ability.firstUnitFuelDiscount} less fuel.`
+          : `Первый юнит, сыгранный за ход, обходится на ${ability.firstUnitFuelDiscount} топлива дешевле.`,
     };
   }
 
@@ -547,18 +789,26 @@ function getHeadquartersAbilityKeyword(
     return {
       id: "hq-breakthrough",
       title,
-      body: "Первый ваш юнит за ход, ворвавшийся в тыловую половину поля противника, тут же получает повторное перемещение — клин рвётся в глубину.",
+      body:
+        language === "en"
+          ? "The first friendly unit each turn to break into the enemy rear half immediately gains an extra move: the spearhead drives deeper."
+          : "Первый ваш юнит за ход, ворвавшийся в тыловую половину поля противника, тут же получает повторное перемещение — клин рвётся в глубину.",
     };
   }
 
   if (ability.stationaryTankAttackBonus) {
     const toughness = ability.stationaryTankHpBonus
-      ? ` Кроме того, каждый удар по такому танку слабее на ${ability.stationaryTankHpBonus}.`
+      ? language === "en"
+        ? ` In addition, each hit against such a tank is reduced by ${ability.stationaryTankHpBonus}.`
+        : ` Кроме того, каждый удар по такому танку слабее на ${ability.stationaryTankHpBonus}.`
       : "";
     return {
       id: "hq-stationary",
       title,
-      body: `Ваши танки, не двигавшиеся в этот ход, наносят на +${ability.stationaryTankAttackBonus} урона больше.${toughness}`,
+      body:
+        language === "en"
+          ? `Your tanks that have not moved this turn deal +${ability.stationaryTankAttackBonus} extra damage.${toughness}`
+          : `Ваши танки, не двигавшиеся в этот ход, наносят на +${ability.stationaryTankAttackBonus} урона больше.${toughness}`,
     };
   }
 
@@ -566,7 +816,10 @@ function getHeadquartersAbilityKeyword(
     return {
       id: "hq-moved",
       title,
-      body: `Ваши танки, продвинувшиеся в этот ход, наносят на +${ability.movedTankAttackBonus} урона больше — удар на острие наступления.`,
+      body:
+        language === "en"
+          ? `Your tanks that moved this turn deal +${ability.movedTankAttackBonus} extra damage: the attack lands at the spearhead.`
+          : `Ваши танки, продвинувшиеся в этот ход, наносят на +${ability.movedTankAttackBonus} урона больше — удар на острие наступления.`,
     };
   }
 
@@ -574,7 +827,10 @@ function getHeadquartersAbilityKeyword(
     return {
       id: "hq-vsDamaged",
       title,
-      body: `Штаб наносит на +${ability.hqAttackBonusVsDamaged} урона больше по уже повреждённым целям.`,
+      body:
+        language === "en"
+          ? `The headquarters deals +${ability.hqAttackBonusVsDamaged} extra damage to already damaged targets.`
+          : `Штаб наносит на +${ability.hqAttackBonusVsDamaged} урона больше по уже повреждённым целям.`,
     };
   }
 
@@ -582,7 +838,10 @@ function getHeadquartersAbilityKeyword(
     return {
       id: "hq-attackBonus",
       title,
-      body: `Штаб наносит на +${ability.hqAttackBonus} урона больше.`,
+      body:
+        language === "en"
+          ? `The headquarters deals +${ability.hqAttackBonus} extra damage.`
+          : `Штаб наносит на +${ability.hqAttackBonus} урона больше.`,
     };
   }
 
@@ -590,7 +849,10 @@ function getHeadquartersAbilityKeyword(
     return {
       id: "hq-draw",
       title,
-      body: `В начале каждого ${ability.drawEveryTurns}-го вашего хода вы добираете дополнительную карту.`,
+      body:
+        language === "en"
+          ? `At the start of every ${ability.drawEveryTurns}th friendly turn, draw an extra card.`
+          : `В начале каждого ${ability.drawEveryTurns}-го вашего хода вы добираете дополнительную карту.`,
     };
   }
 
@@ -598,7 +860,10 @@ function getHeadquartersAbilityKeyword(
     return {
       id: "hq-heal",
       title,
-      body: `В начале хода восстанавливает ${ability.healRandomUnitPerTurn} здоровья случайному повреждённому юниту.`,
+      body:
+        language === "en"
+          ? `At the start of your turn, restores ${ability.healRandomUnitPerTurn} health to a random damaged unit.`
+          : `В начале хода восстанавливает ${ability.healRandomUnitPerTurn} здоровья случайному повреждённому юниту.`,
     };
   }
 
@@ -606,7 +871,10 @@ function getHeadquartersAbilityKeyword(
     return {
       id: "hq-combinedArms",
       title,
-      body: `Пока у вас одновременно есть и танк, и юнит поддержки, вы получаете +${ability.combinedArmsFuelBonus} топлива за ход.`,
+      body:
+        language === "en"
+          ? `While you have both a tank and a support unit, gain +${ability.combinedArmsFuelBonus} fuel per turn.`
+          : `Пока у вас одновременно есть и танк, и юнит поддержки, вы получаете +${ability.combinedArmsFuelBonus} топлива за ход.`,
     };
   }
 
@@ -614,7 +882,10 @@ function getHeadquartersAbilityKeyword(
     return {
       id: "hq-firstLightProtection",
       title,
-      body: `Первый лёгкий юнит, сыгранный за ход, добавляет штабу +${ability.firstLightUnitHqProtection} здоровья.`,
+      body:
+        language === "en"
+          ? `The first light unit played each turn gives your headquarters +${ability.firstLightUnitHqProtection} health.`
+          : `Первый лёгкий юнит, сыгранный за ход, добавляет штабу +${ability.firstLightUnitHqProtection} здоровья.`,
     };
   }
 
@@ -622,7 +893,10 @@ function getHeadquartersAbilityKeyword(
     return {
       id: "hq-ignoresCover",
       title,
-      body: "Атаки штаба нельзя перехватить прикрывающими юнитами тыловой линии.",
+      body:
+        language === "en"
+          ? "Headquarters attacks cannot be intercepted by rear-line cover units."
+          : "Атаки штаба нельзя перехватить прикрывающими юнитами тыловой линии.",
     };
   }
 
@@ -630,7 +904,10 @@ function getHeadquartersAbilityKeyword(
     return {
       id: "hq-returnUnit",
       title,
-      body: "Раз за бой первый уничтоженный ваш юнит возвращается к вам в руку.",
+      body:
+        language === "en"
+          ? "Once per battle, your first destroyed unit returns to your hand."
+          : "Раз за бой первый уничтоженный ваш юнит возвращается к вам в руку.",
     };
   }
 
@@ -643,18 +920,22 @@ function getHeadquartersAbilityKeyword(
  */
 export function getHeadquartersKeywords(
   ability: HeadquartersAbility | null | undefined,
-  nation?: Nation
+  nation?: Nation,
+  language: Language = getSettings().language
 ): CardKeyword[] {
   const keywords: CardKeyword[] = [
     {
       id: "hq-type",
-      title: "ШТАБ",
-      body: "Командный пункт вашей армии. Генерирует топливо каждый ход; если его здоровье падает до нуля — вы проигрываете бой.",
+      title: language === "en" ? "HEADQUARTERS" : "ШТАБ",
+      body:
+        language === "en"
+          ? "Command post of your army. Generates fuel every turn; if its health reaches zero, you lose the battle."
+          : "Командный пункт вашей армии. Генерирует топливо каждый ход; если его здоровье падает до нуля — вы проигрываете бой.",
     },
   ];
 
   if (ability) {
-    const abilityKeyword = getHeadquartersAbilityKeyword(ability);
+    const abilityKeyword = getHeadquartersAbilityKeyword(ability, language);
     if (abilityKeyword) {
       keywords.push(abilityKeyword);
     }
@@ -664,10 +945,55 @@ export function getHeadquartersKeywords(
   if (nationalAbility) {
     keywords.push({
       id: `hq-national-${nationalAbility.id}`,
-      title: `НАЦИЯ · ${nationalAbility.name.toUpperCase()}`,
-      body: nationalAbility.description,
+      title:
+        language === "en"
+          ? `NATION · ${translateNationalAbilityName(nationalAbility.name).toUpperCase()}`
+          : `НАЦИЯ · ${nationalAbility.name.toUpperCase()}`,
+      body:
+        language === "en"
+          ? translateNationalAbilityDescription(nationalAbility.description)
+          : nationalAbility.description,
     });
   }
 
   return keywords;
+}
+
+function translateHeadquartersAbilityName(name: string): string {
+  const translations: Record<string, string> = {
+    "Танковый клин": "Armored Spearhead",
+    "Быстрая переброска": "Rapid Redeployment",
+    "Артиллерийская подготовка": "Artillery Preparation",
+    "Тыловое снабжение": "Rear Supply",
+    "Система": "System",
+    "Залп «Катюш»": "Katyusha Salvo",
+    "Оборона Москвы": "Defense of Moscow",
+  };
+
+  return translations[name] ?? name;
+}
+
+function translateNationalAbilityName(name: string): string {
+  const translations: Record<string, string> = {
+    "Сплочение": "Cohesion",
+    "Система": "System",
+    "Последний рубеж": "Last Stand",
+  };
+
+  return translations[name] ?? name;
+}
+
+function translateNationalAbilityDescription(description: string): string {
+  const translations: Record<string, string> = {
+    "Три юнита в ряд дают центральному +2 к защите.":
+      "Three units in a row give the center unit +2 defense.",
+    "Когда три ваших юнита выстроены подряд в одну горизонтальную линию, центральный получает +2 к защите. Если линия разрывается — бонус пропадает.":
+      "When three of your units form one horizontal line, the center unit gains +2 defense. If the line breaks, the bonus is lost.",
+    "Три юнита в горизонтальной линии, упёртой в тыл, при юните снабжения получают +2 к здоровью.":
+      "Three units in a horizontal line connected to the rear gain +2 health while a supply unit supports them.",
+    "Если все три ваши клетки плацдарма заняты, штаб получает +2 к атаке.":
+      "If all three of your bridgehead cells are occupied, your headquarters gains +2 attack.",
+  };
+
+  return translations[description] ?? description;
 }

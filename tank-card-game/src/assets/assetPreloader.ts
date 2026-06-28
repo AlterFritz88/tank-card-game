@@ -1,5 +1,25 @@
 type PreloadTask = () => Promise<void>;
 
+import { getBattleBackgroundAsset } from "./battleBackgroundAssets";
+import { getHeadquartersAvatarAsset } from "./headquartersAvatarAssets";
+import { getNationFlagAsset } from "./nationFlagAssets";
+import { getCardOrNull } from "../game/cards";
+import {
+  getDeckBuildingHeadquarters,
+  getHeadquartersDefinition,
+} from "../game/headquarters";
+import { getHeadquartersImageAsset } from "../game/headquartersImages";
+import { getTankImage } from "../game/tankImages";
+import type {
+  BattleState,
+  BattleStateView,
+  ClientCardInstance,
+  HeadquartersId,
+  Nation,
+  PlayerState,
+  PlayerStateView,
+} from "../game/types";
+
 type WindowWithIdleCallback = Window & {
   requestIdleCallback?: (
     callback: () => void,
@@ -78,7 +98,30 @@ const unitImageModules = import.meta.glob(
   }
 ) as Record<string, string>;
 
+const missionIllustrationModules = import.meta.glob(
+  "./backgrounds/missions/*.{png,jpg,jpeg,webp,avif}",
+  {
+    eager: true,
+    import: "default",
+  }
+) as Record<string, string>;
+
+const menuUtilityImageModules = import.meta.glob(
+  [
+    "./backgrounds/top_background.{png,jpg,jpeg,webp,avif}",
+    "./backgrounds/matchmaking/*.{png,jpg,jpeg,webp,avif}",
+    "./cards/*.{png,jpg,jpeg,webp,avif}",
+    "./button.{png,jpg,jpeg,webp,avif}",
+  ],
+  {
+    eager: true,
+    import: "default",
+  }
+) as Record<string, string>;
+
 let mainMenuPreloadStarted = false;
+let cardLibraryPreloadStarted = false;
+let campaignPreloadStarted = false;
 
 export function startMainMenuAssetPreload() {
   if (mainMenuPreloadStarted || typeof window === "undefined") return;
@@ -90,9 +133,13 @@ export function startMainMenuAssetPreload() {
     ...Object.values(nationFlagModules),
     ...Object.values(combatIconModules),
     ...Object.values(battleEffectModules),
+    ...Object.values(menuUtilityImageModules),
   ]);
   const firstWaveSounds = uniqueAssetUrls(Object.values(battleSoundModules));
-  const secondWaveImages = uniqueAssetUrls(Object.values(battleBackgroundModules));
+  const secondWaveImages = uniqueAssetUrls([
+    ...Object.values(battleBackgroundModules),
+    ...Object.values(missionIllustrationModules),
+  ]);
   const idleWaveImages = uniqueAssetUrls(Object.values(unitImageModules));
 
   void runPreloadQueue(
@@ -116,8 +163,187 @@ export function startMainMenuAssetPreload() {
   });
 }
 
+export function startCardLibraryAssetPreload() {
+  if (cardLibraryPreloadStarted || typeof window === "undefined") return;
+  cardLibraryPreloadStarted = true;
+
+  scheduleIdlePreload(() => {
+    void runPreloadQueue(
+      Object.values(unitImageModules).map((url) => () => preloadImage(url)),
+      3
+    );
+  });
+}
+
+export function startCampaignMenuAssetPreload() {
+  if (campaignPreloadStarted || typeof window === "undefined") return;
+  campaignPreloadStarted = true;
+
+  void preloadAssetUrls(
+    [
+      ...Object.values(missionIllustrationModules),
+      ...Object.values(headquartersAvatarModules),
+      ...Object.values(headquartersImageModules),
+    ],
+    { imageConcurrency: 3 }
+  );
+}
+
+export function startHeadquartersMenuAssetPreload() {
+  if (typeof window === "undefined") return;
+
+  void preloadAssetUrls(
+    [
+      ...Object.values(headquartersImageModules),
+      ...Object.values(headquartersAvatarModules),
+      ...Object.values(nationFlagModules),
+    ],
+    { imageConcurrency: 4 }
+  );
+}
+
+export function startDeckBuilderAssetPreload() {
+  startHeadquartersMenuAssetPreload();
+  startCardLibraryAssetPreload();
+}
+
+export function startResearchAssetPreload() {
+  startHeadquartersMenuAssetPreload();
+  startCardLibraryAssetPreload();
+}
+
+export function preloadCardImages(cardIds: string[]): Promise<void> {
+  return preloadAssetUrls(cardIds.map((cardId) => getTankImage(cardId)), {
+    imageConcurrency: 4,
+  });
+}
+
+export function preloadHeadquartersAssets(
+  headquartersIds: HeadquartersId[]
+): Promise<void> {
+  const urls: string[] = [];
+
+  for (const headquartersId of headquartersIds) {
+    const definition = getHeadquartersDefinition(headquartersId);
+
+    urls.push(
+      getHeadquartersImageAsset(headquartersId) ?? "",
+      getHeadquartersAvatarAsset(headquartersId) ?? "",
+      getNationFlagAsset(definition.nation) ?? ""
+    );
+  }
+
+  return preloadAssetUrls(urls, { imageConcurrency: 4 });
+}
+
+export function preloadBattleAssetsForState(
+  battle: BattleState | BattleStateView
+): Promise<void> {
+  const cardIds = getBattleCardIds(battle);
+  const headquartersIds = uniqueHeadquartersIds([
+    battle.player.headquartersId,
+    battle.bot.headquartersId,
+    battle.headquarters.player.headquartersId,
+    battle.headquarters.bot.headquartersId,
+  ]);
+  const nationIds = getBattleNationIds(cardIds, headquartersIds);
+
+  return preloadAssetUrls(
+    [
+      getBattleBackgroundAsset(battle.backgroundId).image,
+      ...headquartersIds.flatMap((headquartersId) => [
+        getHeadquartersImageAsset(headquartersId) ?? "",
+        getHeadquartersAvatarAsset(headquartersId) ?? "",
+      ]),
+      ...nationIds.map((nation) => getNationFlagAsset(nation) ?? ""),
+      ...cardIds.map((cardId) => getTankImage(cardId)),
+      ...Object.values(combatIconModules),
+      ...Object.values(battleEffectModules),
+      ...Object.values(battleSoundModules),
+      ...Object.values(menuUtilityImageModules),
+    ],
+    { imageConcurrency: 5, resourceConcurrency: 4 }
+  );
+}
+
+export function startBattleAssetPreloadForState(
+  battle: BattleState | BattleStateView
+) {
+  void preloadBattleAssetsForState(battle);
+}
+
+function preloadAssetUrls(
+  urls: string[],
+  options: { imageConcurrency?: number; resourceConcurrency?: number } = {}
+): Promise<void> {
+  const uniqueUrls = uniqueAssetUrls(urls);
+  const imageTasks = uniqueUrls
+    .filter(isImageUrl)
+    .map((url) => () => preloadImage(url));
+  const resourceTasks = uniqueUrls
+    .filter((url) => !isImageUrl(url))
+    .map((url) => () => preloadResource(url));
+
+  return Promise.all([
+    runPreloadQueue(imageTasks, options.imageConcurrency ?? 4),
+    runPreloadQueue(resourceTasks, options.resourceConcurrency ?? 3),
+  ]).then(() => undefined);
+}
+
 function uniqueAssetUrls(urls: string[]): string[] {
   return Array.from(new Set(urls.filter(Boolean)));
+}
+
+function isImageUrl(url: string): boolean {
+  return /\.(png|jpe?g|webp|avif|svg)(?:$|\?)/i.test(url);
+}
+
+function uniqueHeadquartersIds(
+  values: Array<HeadquartersId | null | undefined>
+): HeadquartersId[] {
+  return Array.from(new Set(values.filter(Boolean) as HeadquartersId[]));
+}
+
+function getBattleCardIds(battle: BattleState | BattleStateView): string[] {
+  return Array.from(
+    new Set([
+      ...getPlayerCardIds(battle.player),
+      ...getPlayerCardIds(battle.bot),
+      ...battle.units.map((unit) => unit.cardId),
+    ])
+  );
+}
+
+function getPlayerCardIds(player: PlayerState | PlayerStateView): string[] {
+  return [...player.hand, ...player.deck, ...player.discard]
+    .map(getVisibleCardId)
+    .filter(Boolean) as string[];
+}
+
+function getVisibleCardId(card: ClientCardInstance): string | null {
+  return "cardId" in card ? card.cardId : null;
+}
+
+function getBattleNationIds(
+  cardIds: string[],
+  headquartersIds: HeadquartersId[]
+): Nation[] {
+  const nations = new Set<Nation>();
+
+  for (const cardId of cardIds) {
+    const card = getCardOrNull(cardId);
+    if (card) nations.add(card.nation);
+  }
+
+  for (const headquartersId of headquartersIds) {
+    nations.add(getHeadquartersDefinition(headquartersId).nation);
+  }
+
+  for (const headquarters of getDeckBuildingHeadquarters()) {
+    nations.add(headquarters.nation);
+  }
+
+  return Array.from(nations);
 }
 
 function preloadImage(url: string): Promise<void> {

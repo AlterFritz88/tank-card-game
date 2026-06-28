@@ -27,6 +27,10 @@ import { createBattleViewForPlayer } from "./battleView";
 import type { MatchEndReason, PvpClientMessage, PvpServerMessage } from "./protocol";
 import { PlayerAccountManager } from "./playerAccounts";
 import { PlayerProfileManager } from "./playerProfiles";
+import { createSessionToken, verifySessionToken } from "./authTokens";
+import { PromoRedemptionStore } from "./promoCodes";
+
+const REGISTERED_USER_PREFIX = "user:";
 
 type RoomPlayer = {
   id: PlayerId;
@@ -149,6 +153,16 @@ const LOGIN_ATTEMPT_WINDOW_MS = Number(
 );
 const LOGIN_BLOCK_MS = Number(process.env.LOGIN_BLOCK_MS ?? 15 * 60_000);
 const RECONNECT_GRACE_MS = Number(process.env.PVP_RECONNECT_GRACE_MS ?? 15_000);
+// PvE battle outcomes are computed client-side, so CLAIM_BATTLE_REWARD can't be
+// made fully authoritative without replaying the match. A per-account token
+// bucket instead caps how fast reward credits can be claimed, so a fabricated
+// stream of "wins" can't accrue faster than someone actually grinding battles.
+const REWARD_CLAIM_BUCKET_CAPACITY = Number(
+  process.env.REWARD_CLAIM_BUCKET_CAPACITY ?? 10
+);
+const REWARD_CLAIM_REFILL_MS = Number(
+  process.env.REWARD_CLAIM_REFILL_MS ?? 45_000
+);
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
 const PVP_MATCH_WEIGHT_TOLERANCE = Number(
@@ -322,6 +336,11 @@ export class RoomManager {
   private socketToPlayer = new WeakMap<WebSocket, PlayerId>();
   private socketRateLimits = new WeakMap<WebSocket, SocketRateLimitState>();
   private socketToIp = new WeakMap<WebSocket, string>();
+  // Registered account a socket has proven ownership of (via password login or a
+  // valid session token). Profile mutations for `user:` ids require this to
+  // match — see assertCanActAs. Guest ids are unguessable random strings and act
+  // as their own bearer secret, so they do not need a binding here.
+  private socketToAuthUser = new WeakMap<WebSocket, string>();
   private connectionsPerIp = new Map<string, number>();
   private ipRateLimits = new Map<string, SocketRateLimitState>();
   private loginAttempts = new Map<string, LoginAttemptState>();
@@ -330,6 +349,13 @@ export class RoomManager {
   private attackIntentSequence = 0;
   private accounts = new PlayerAccountManager();
   private profiles = new PlayerProfileManager();
+  private promoRedemptions = new PromoRedemptionStore();
+  // Token buckets for CLAIM_BATTLE_REWARD, keyed by profile id. See
+  // REWARD_CLAIM_* constants.
+  private rewardClaimBuckets = new Map<
+    string,
+    { tokens: number; lastRefill: number }
+  >();
   private completedPvpMatches = new Map<string, CompletedPvpMatch>();
   // One active game session per account. Keyed by accountId; the owning socket
   // auto-releases the lock when it closes (see handleClose). `instanceId`
@@ -525,6 +551,9 @@ export class RoomManager {
       case "LOGIN_ACCOUNT":
         this.loginAccount(socket, message);
         break;
+      case "AUTHENTICATE":
+        this.authenticateSession(socket, message);
+        break;
       default:
         console.warn(`Rejected message: unknown type "${(message as { type?: unknown }).type}"`);
         safeSend(socket, { type: "ERROR", message: "Неизвестное сообщение" });
@@ -657,6 +686,54 @@ export class RoomManager {
     this.loginAttempts.delete(ip);
   }
 
+  /**
+   * Token bucket guarding repeatable PvE reward claims, keyed by profile id.
+   * Returns true (and consumes nothing) when the account is out of tokens.
+   */
+  private isRewardClaimRateLimited(playerId: string): boolean {
+    const key = playerId.trim();
+    if (!key) return false;
+
+    const now = Date.now();
+    const bucket = this.rewardClaimBuckets.get(key) ?? {
+      tokens: REWARD_CLAIM_BUCKET_CAPACITY,
+      lastRefill: now,
+    };
+
+    const refilled = Math.floor(
+      (now - bucket.lastRefill) / REWARD_CLAIM_REFILL_MS
+    );
+    if (refilled > 0) {
+      bucket.tokens = Math.min(
+        REWARD_CLAIM_BUCKET_CAPACITY,
+        bucket.tokens + refilled
+      );
+      bucket.lastRefill += refilled * REWARD_CLAIM_REFILL_MS;
+    }
+
+    if (bucket.tokens <= 0) {
+      this.rewardClaimBuckets.set(key, bucket);
+      return true;
+    }
+
+    bucket.tokens -= 1;
+    this.rewardClaimBuckets.set(key, bucket);
+    this.pruneRewardClaimBuckets();
+    return false;
+  }
+
+  // Forget idle (fully refilled) buckets if the map grows large, e.g. under guest
+  // id churn. Active throttled buckets are never below capacity, so they survive.
+  private pruneRewardClaimBuckets() {
+    if (this.rewardClaimBuckets.size <= 50_000) return;
+
+    for (const [key, bucket] of this.rewardClaimBuckets) {
+      if (bucket.tokens >= REWARD_CLAIM_BUCKET_CAPACITY) {
+        this.rewardClaimBuckets.delete(key);
+      }
+    }
+  }
+
   handleClose(socket: WebSocket) {
     this.releaseConnection(socket);
     this.releaseSessionForSocket(socket);
@@ -697,6 +774,18 @@ export class RoomManager {
         type: "SESSION_DENIED",
         requestId: message.requestId,
         message: "Некорректная игровая сессия",
+      });
+      return;
+    }
+
+    if (
+      accountId.startsWith(REGISTERED_USER_PREFIX) &&
+      this.socketToAuthUser.get(socket) !== accountId
+    ) {
+      safeSend(socket, {
+        type: "SESSION_DENIED",
+        requestId: message.requestId,
+        message: "Войдите в аккаунт, чтобы начать бой",
       });
       return;
     }
@@ -777,6 +866,7 @@ export class RoomManager {
 
   private sendProfile(socket: WebSocket, requestId: string, playerId: string) {
     try {
+      this.assertCanActAs(socket, playerId);
       safeSend(socket, {
         type: "PROFILE_UPDATED",
         requestId,
@@ -794,6 +884,7 @@ export class RoomManager {
     profile: Extract<PvpClientMessage, { type: "SAVE_PROFILE" }>["profile"]
   ) {
     try {
+      this.assertCanActAs(socket, playerId);
       safeSend(socket, {
         type: "PROFILE_UPDATED",
         requestId,
@@ -809,6 +900,7 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "UPDATE_NICKNAME" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
       safeSend(socket, {
         type: "PROFILE_UPDATED",
         requestId: message.requestId,
@@ -824,6 +916,7 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "UPDATE_FAVORITE_HEADQUARTERS" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
       safeSend(socket, {
         type: "PROFILE_UPDATED",
         requestId: message.requestId,
@@ -842,6 +935,19 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "CLAIM_BATTLE_REWARD" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
+      // PvP rewards are only ever granted through CLAIM_PVP_BATTLE_REWARD, which
+      // is tied to a real server-tracked match. Legit clients never claim a
+      // "pvp" reward here, so reject it — otherwise a fabricated PvE battle could
+      // claim the richer PvP payout tier.
+      if (message.mode === "pvp") {
+        throw new Error("Награды PvP начисляются только за завершённый матч");
+      }
+      if (this.isRewardClaimRateLimited(message.playerId)) {
+        throw new Error(
+          "Слишком часто запрашиваются награды — подождите немного"
+        );
+      }
       const { profile, reward } = this.profiles.claimBattleReward(
         message.playerId,
         {
@@ -869,6 +975,7 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "CLAIM_PVP_BATTLE_REWARD" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
       const roomId = message.roomId.trim().toUpperCase();
       const completedMatch = this.completedPvpMatches.get(roomId);
       const currentRoom = this.rooms.get(roomId);
@@ -926,6 +1033,7 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "CLAIM_TUTORIAL_REWARD" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
       const { profile, reward } = this.profiles.claimTutorialReward(
         message.playerId,
         message.reward,
@@ -948,6 +1056,7 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "RESEARCH_CARD" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
       safeSend(socket, {
         type: "PROFILE_UPDATED",
         requestId: message.requestId,
@@ -967,6 +1076,7 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "RESEARCH_HEADQUARTERS" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
       safeSend(socket, {
         type: "PROFILE_UPDATED",
         requestId: message.requestId,
@@ -986,6 +1096,7 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "PURCHASE_CARD_COPY" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
       safeSend(socket, {
         type: "PROFILE_UPDATED",
         requestId: message.requestId,
@@ -1001,6 +1112,7 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "PURCHASE_HEADQUARTERS" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
       safeSend(socket, {
         type: "PROFILE_UPDATED",
         requestId: message.requestId,
@@ -1019,6 +1131,7 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "PURCHASE_PREMIUM_CARD" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
       safeSend(socket, {
         type: "PROFILE_UPDATED",
         requestId: message.requestId,
@@ -1037,6 +1150,7 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "PURCHASE_PREMIUM_DAYS" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
       safeSend(socket, {
         type: "PROFILE_UPDATED",
         requestId: message.requestId,
@@ -1055,6 +1169,7 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "EXCHANGE_GOLD_FOR_IRON" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
       safeSend(socket, {
         type: "PROFILE_UPDATED",
         requestId: message.requestId,
@@ -1073,6 +1188,7 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "CLAIM_CAMPAIGN_REWARD" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
       safeSend(socket, {
         type: "PROFILE_UPDATED",
         requestId: message.requestId,
@@ -1091,6 +1207,7 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "SAVE_CUSTOM_DECK" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
       safeSend(socket, {
         type: "PROFILE_UPDATED",
         requestId: message.requestId,
@@ -1106,6 +1223,7 @@ export class RoomManager {
     message: Extract<PvpClientMessage, { type: "DELETE_CUSTOM_DECK" }>
   ) {
     try {
+      this.assertCanActAs(socket, message.playerId);
       safeSend(socket, {
         type: "PROFILE_UPDATED",
         requestId: message.requestId,
@@ -1133,12 +1251,26 @@ export class RoomManager {
           : this.profiles.getProfile(account.userId);
 
       if (normalizePromoCode(message.promoCode) === DASHA_PROMO_CODE) {
-        profile = this.profiles.adminCreditTracks({
-          playerId: account.userId,
-          ironTracks: 0,
-          goldTracks: DASHA_PROMO_GOLD_TRACKS,
-        });
+        // One redemption per device/IP — otherwise the promo mints unlimited
+        // free gold (paid currency) across throwaway registrations.
+        const ip = this.socketToIp.get(socket);
+        const deviceId = message.guestPlayerId;
+
+        if (!this.promoRedemptions.hasRedeemed(DASHA_PROMO_CODE, ip, deviceId)) {
+          profile = this.profiles.adminCreditTracks({
+            playerId: account.userId,
+            ironTracks: 0,
+            goldTracks: DASHA_PROMO_GOLD_TRACKS,
+          });
+          this.promoRedemptions.recordRedemption(DASHA_PROMO_CODE, ip, deviceId);
+        } else {
+          console.warn(
+            `Promo "${DASHA_PROMO_CODE}" already redeemed for ip=${ip ?? "?"} device=${deviceId ?? "?"}; skipping credit`
+          );
+        }
       }
+
+      this.socketToAuthUser.set(socket, account.userId);
 
       safeSend(socket, {
         type: "AUTH_RESULT",
@@ -1146,6 +1278,7 @@ export class RoomManager {
         userId: account.userId,
         username: account.username,
         profile,
+        sessionToken: createSessionToken(account.userId),
       });
     } catch (error) {
       this.sendAuthError(socket, message.requestId, error);
@@ -1175,16 +1308,61 @@ export class RoomManager {
           ? this.profiles.mergeGuestProgress(account.userId, message.guestPlayerId)
           : this.profiles.getProfile(account.userId);
 
+      this.socketToAuthUser.set(socket, account.userId);
+
       safeSend(socket, {
         type: "AUTH_RESULT",
         requestId: message.requestId,
         userId: account.userId,
         username: account.username,
         profile,
+        sessionToken: createSessionToken(account.userId),
       });
     } catch (error) {
       this.recordFailedLogin(ip);
       this.sendAuthError(socket, message.requestId, error);
+    }
+  }
+
+  private authenticateSession(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "AUTHENTICATE" }>
+  ) {
+    const userId = verifySessionToken(message.token);
+    if (!userId) {
+      // Drop any stale binding and tell the client to discard its token.
+      this.socketToAuthUser.delete(socket);
+      this.sendAuthError(
+        socket,
+        message.requestId,
+        new Error("Сессия недействительна, войдите заново")
+      );
+      return;
+    }
+
+    this.socketToAuthUser.set(socket, userId);
+    safeSend(socket, {
+      type: "AUTHENTICATED",
+      requestId: message.requestId,
+      userId,
+    });
+  }
+
+  /**
+   * Authorize a profile read/write against the socket's proven identity.
+   *
+   * Registered accounts (`user:` ids) are guessable from the public username, so
+   * a socket may only touch such a profile after authenticating as exactly that
+   * account. Guests are identified by an unguessable random id that doubles as a
+   * bearer secret, so they are allowed through (and an empty/invalid id is left
+   * for the downstream sanitizer to reject).
+   */
+  private assertCanActAs(socket: WebSocket, requestedPlayerId: string | undefined) {
+    const id = (requestedPlayerId ?? "").trim();
+    if (!id.startsWith(REGISTERED_USER_PREFIX)) return;
+
+    if (this.socketToAuthUser.get(socket) !== id) {
+      throw new Error("Войдите в аккаунт, чтобы изменять его данные");
     }
   }
 

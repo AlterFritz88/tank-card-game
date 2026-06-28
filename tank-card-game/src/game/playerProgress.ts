@@ -914,6 +914,7 @@ export async function loginPlayerAccount(input: {
  * guest profile on the server is left orphaned and the player starts clean.
  */
 export function resetGuestProgress(): PlayerProgress {
+  profileClient.clearSession();
   window.localStorage.removeItem(PLAYER_PROGRESS_KEY);
   window.localStorage.removeItem(PLAYER_NICKNAME_STORAGE_KEY);
   window.localStorage.removeItem(PLAYER_ACCOUNT_TYPE_STORAGE_KEY);
@@ -928,6 +929,7 @@ export function resetGuestProgress(): PlayerProgress {
 }
 
 export async function logoutPlayerAccount(): Promise<PlayerProgress> {
+  profileClient.clearSession();
   const guestUserId = switchToGuestUser();
 
   try {

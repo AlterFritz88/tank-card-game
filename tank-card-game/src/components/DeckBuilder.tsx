@@ -66,6 +66,7 @@ import {
   retryProfileConnection,
   useProfileConnection,
 } from "../network/useProfileConnection";
+import { useI18n } from "../game/i18n";
 
 const HAND_CARD_BASE_WIDTH = 175;
 const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
@@ -336,6 +337,7 @@ export function DeckBuilder({
   onBack: () => void;
   onSaved: () => void;
 }) {
+  const { language } = useI18n();
   const [selectedHeadquartersId, setSelectedHeadquartersId] =
     useState<HeadquartersId | null>(editingDeck?.headquartersId ?? null);
   const [deckName, setDeckName] = useState(editingDeck?.name ?? "");
@@ -1348,11 +1350,15 @@ export function DeckBuilder({
                 onContextMenu={(event) => event.preventDefault()}
               >
                 <CardKeywordsPanel
-                  keywords={
-                    preview.type === "card"
-                      ? getCardKeywords(preview.card)
-                      : getHeadquartersKeywords(preview.headquarters.ability)
-                  }
+                    keywords={
+                      preview.type === "card"
+                      ? getCardKeywords(preview.card, language)
+                      : getHeadquartersKeywords(
+                          preview.headquarters.ability,
+                          preview.headquarters.nation,
+                          language
+                        )
+                    }
                 />
 
                 <button

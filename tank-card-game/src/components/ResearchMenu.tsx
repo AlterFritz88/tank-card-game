@@ -55,6 +55,7 @@ import {
   retryProfileConnection,
   useProfileConnection,
 } from "../network/useProfileConnection";
+import { useI18n } from "../game/i18n";
 
 const NATION_LABELS: Record<ResearchNation, string> = {
   germany: "Германия",
@@ -863,6 +864,7 @@ function getCelebrationCards(node: ResearchNode): RewardCelebrationCard[] {
 }
 
 export function ResearchMenu({ onBack }: { onBack: () => void }) {
+  const { language } = useI18n();
   const [selectedNation, setSelectedNation] = useState<ResearchNation>("ussr");
   const [previewNode, setPreviewNode] = useState<ResearchNode | null>(null);
   // Applies the stage scale + rotation so the body-portaled preview renders like
@@ -1546,9 +1548,13 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
                 <CardKeywordsPanel
                   keywords={
                     previewCard
-                      ? getCardKeywords(previewCard)
+                      ? getCardKeywords(previewCard, language)
                       : previewHeadquarters
-                        ? getHeadquartersKeywords(previewHeadquarters.ability)
+                        ? getHeadquartersKeywords(
+                            previewHeadquarters.ability,
+                            previewHeadquarters.nation,
+                            language
+                          )
                         : []
                   }
                 />

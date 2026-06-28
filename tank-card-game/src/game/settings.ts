@@ -7,7 +7,7 @@ import { useSyncExternalStore } from "react";
  * (see audio.ts) stay in sync when the user changes a slider.
  */
 
-export type Language = "ru";
+export type Language = "ru" | "en";
 
 export type Settings = {
   // Multipliers in the 0..1 range applied on top of each sound's authored
@@ -19,14 +19,30 @@ export type Settings = {
 
 export const AVAILABLE_LANGUAGES: { id: Language; label: string }[] = [
   { id: "ru", label: "Русский" },
+  { id: "en", label: "English" },
 ];
 
 const STORAGE_KEY = "panzershrek.settings";
 
+function getBrowserLanguage(): Language {
+  if (typeof navigator === "undefined") return "ru";
+
+  const languages =
+    navigator.languages && navigator.languages.length > 0
+      ? navigator.languages
+      : [navigator.language];
+
+  return languages.some((language) =>
+    language.toLowerCase().startsWith("en")
+  )
+    ? "en"
+    : "ru";
+}
+
 const DEFAULT_SETTINGS: Settings = {
   musicVolume: 1,
   effectsVolume: 1,
-  language: "ru",
+  language: getBrowserLanguage(),
 };
 
 function clamp01(value: number): number {
@@ -49,7 +65,9 @@ function loadSettings(): Settings {
         typeof parsed.effectsVolume === "number"
           ? clamp01(parsed.effectsVolume)
           : DEFAULT_SETTINGS.effectsVolume,
-      language: "ru",
+      language: parsed.language === "en" || parsed.language === "ru"
+        ? parsed.language
+        : DEFAULT_SETTINGS.language,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

@@ -1234,6 +1234,39 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
 export const RESEARCH_NATIONS: ResearchNation[] = ["ussr", "germany", "usa"];
 
 /**
+ * Card progression level derived from a unit's position in the research trees.
+ * Stock units (owned by every player from the start) are level 1; research and
+ * premium nodes sit at `tier + 2` — tier 0 is "Уровень 2" in the trees, so the
+ * exponent matches the comments in RESEARCH_TREES. Cards absent from every tree
+ * (stock units, special cards) fall back to level 1.
+ */
+let cardResearchLevelMap: Map<string, number> | null = null;
+
+function buildCardResearchLevelMap(): Map<string, number> {
+  const map = new Map<string, number>();
+
+  for (const tree of Object.values(RESEARCH_TREES)) {
+    for (const branch of tree.branches) {
+      for (const node of branch.nodes) {
+        if (node.type === "unit" && node.cardId && node.tier !== undefined) {
+          map.set(node.cardId, node.tier + 2);
+        }
+      }
+    }
+  }
+
+  return map;
+}
+
+export function getCardResearchLevel(cardId: string): number {
+  if (!cardResearchLevelMap) {
+    cardResearchLevelMap = buildCardResearchLevelMap();
+  }
+
+  return cardResearchLevelMap.get(cardId) ?? 1;
+}
+
+/**
  * Stock German collection: the 11 units a player owns from the start (the
  * Trainingslager starting deck, granted by getStarterOwnedCardCopies). These
  * are intentionally kept out of the research tree — everything else is unlocked

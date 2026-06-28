@@ -167,6 +167,13 @@ export type PvpClientMessage =
       mergeGuestProgress?: boolean;
     }
   | {
+      // Re-binds a reconnecting socket to a registered account using the session
+      // token issued at login/registration, without re-sending the password.
+      type: "AUTHENTICATE";
+      requestId: string;
+      token: string;
+    }
+  | {
       // Single-session lock: a client must hold an active game session for its
       // account before starting any battle (PVE or PVP). Anchored to the
       // sending socket so it auto-releases on disconnect.
@@ -273,6 +280,12 @@ export type PvpServerMessage =
       userId: string;
       username: string;
       profile: PlayerProgress;
+      sessionToken: string;
+    }
+  | {
+      type: "AUTHENTICATED";
+      requestId: string;
+      userId: string;
     }
   | {
       type: "AUTH_ERROR";

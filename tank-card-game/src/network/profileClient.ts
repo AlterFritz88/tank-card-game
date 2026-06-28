@@ -130,6 +130,11 @@ type ProfileClientMessage =
       mergeGuestProgress?: boolean;
     }
   | {
+      type: "AUTHENTICATE";
+      requestId: string;
+      token: string;
+    }
+  | {
       type: "ACQUIRE_SESSION";
       requestId: string;
       accountId: string;
@@ -161,6 +166,12 @@ type ProfileServerMessage =
       userId: string;
       username: string;
       profile: PlayerProgress;
+      sessionToken: string;
+    }
+  | {
+      type: "AUTHENTICATED";
+      requestId: string;
+      userId: string;
     }
   | {
       type: "AUTH_ERROR";
@@ -175,6 +186,7 @@ type ProfileSuccessMessage = Extract<
   ProfileServerMessage,
   | { type: "PROFILE_UPDATED" }
   | { type: "AUTH_RESULT" }
+  | { type: "AUTHENTICATED" }
   | { type: "SESSION_GRANTED" }
 >;
 
@@ -245,6 +257,30 @@ const PROFILE_HTTP_SERVER_URL = PROFILE_SERVER_URL.replace(/^wss:/, "https:").re
 );
 const PROFILE_REQUEST_TIMEOUT_MS = 15_000;
 const SESSION_INSTANCE_STORAGE_KEY = "tank-card-game:session-instance-id";
+// Bearer token proving ownership of a registered account. Stored so a page
+// reload re-binds the socket identity without re-entering the password.
+const SESSION_TOKEN_STORAGE_KEY = "panzershrek.session-token";
+
+function readSessionToken(): string | null {
+  try {
+    return window.localStorage.getItem(SESSION_TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionToken(token: string | null) {
+  try {
+    if (token) {
+      window.localStorage.setItem(SESSION_TOKEN_STORAGE_KEY, token);
+    } else {
+      window.localStorage.removeItem(SESSION_TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    // localStorage unavailable (private mode / quota): tokens simply won't
+    // persist across reloads, which only forces a re-login.
+  }
+}
 
 function createRequestId(): string {
   if (globalThis.crypto?.randomUUID) {
@@ -386,6 +422,10 @@ class ProfileClient {
   private socket: WebSocket | null = null;
   private connecting: Promise<void> | null = null;
   private pending = new Map<string, PendingRequest>();
+  // Resolves once the post-connect AUTHENTICATE handshake has settled, so
+  // guarded requests never go out before the socket is re-bound to the account.
+  private authReady: Promise<void> | null = null;
+  private pendingAuth: { requestId: string; settle: () => void } | null = null;
   private connection: ProfileConnectionSnapshot = {
     status: "idle",
     message: null,
@@ -756,6 +796,7 @@ class ProfileClient {
       throw new Error("Auth server returned an unexpected response");
     }
 
+    writeSessionToken(response.sessionToken);
     return response;
   }
 
@@ -775,7 +816,16 @@ class ProfileClient {
       throw new Error("Auth server returned an unexpected response");
     }
 
+    writeSessionToken(response.sessionToken);
     return response;
+  }
+
+  /**
+   * Forget the stored session token (used on sign-out). The next registered
+   * action will require a fresh login; guest play is unaffected.
+   */
+  clearSession(): void {
+    writeSessionToken(null);
   }
 
   private async request(
@@ -807,6 +857,9 @@ class ProfileClient {
 
   private async ensureConnected(): Promise<void> {
     if (this.socket?.readyState === WebSocket.OPEN) {
+      // Wait out any in-flight re-authentication so a guarded request isn't sent
+      // on a socket that hasn't been bound to the account yet.
+      if (this.authReady) await this.authReady;
       this.setConnection("online", null);
       return;
     }
@@ -822,9 +875,16 @@ class ProfileClient {
       socket.addEventListener("open", () => {
         if (this.socket !== socket) return;
 
-        this.connecting = null;
-        this.setConnection("online", null);
-        resolve();
+        const authReady = this.authenticateSocket(socket);
+        this.authReady = authReady;
+        void authReady.finally(() => {
+          if (this.authReady === authReady) this.authReady = null;
+          if (this.socket !== socket) return;
+
+          this.connecting = null;
+          this.setConnection("online", null);
+          resolve();
+        });
       });
 
       socket.addEventListener("message", (event) => {
@@ -853,12 +913,60 @@ class ProfileClient {
     return this.connecting;
   }
 
+  // Sends the stored session token (if any) on a freshly opened socket and
+  // resolves once the server acknowledges. Resolves silently on connection drop
+  // or timeout (keeping the token for a later retry); only an explicit AUTH_ERROR
+  // discards the token.
+  private authenticateSocket(socket: WebSocket): Promise<void> {
+    const token = readSessionToken();
+    if (!token) return Promise.resolve();
+
+    return new Promise((resolve) => {
+      const requestId = createRequestId();
+      const timeoutId = window.setTimeout(() => {
+        if (this.pendingAuth?.requestId === requestId) this.pendingAuth = null;
+        resolve();
+      }, PROFILE_REQUEST_TIMEOUT_MS);
+
+      this.pendingAuth = {
+        requestId,
+        settle: () => {
+          window.clearTimeout(timeoutId);
+          resolve();
+        },
+      };
+
+      try {
+        socket.send(JSON.stringify({ type: "AUTHENTICATE", requestId, token }));
+      } catch {
+        window.clearTimeout(timeoutId);
+        this.pendingAuth = null;
+        resolve();
+      }
+    });
+  }
+
   private handleMessage(data: unknown) {
     let message: ProfileServerMessage;
 
     try {
       message = JSON.parse(String(data)) as ProfileServerMessage;
     } catch {
+      return;
+    }
+
+    if (this.pendingAuth && message.requestId === this.pendingAuth.requestId) {
+      const settle = this.pendingAuth.settle;
+      this.pendingAuth = null;
+
+      if (message.type === "AUTH_ERROR") {
+        // Token invalid or expired: discard it so registered actions prompt a
+        // fresh login instead of silently failing every request.
+        writeSessionToken(null);
+      }
+
+      this.setConnection("online", null);
+      settle();
       return;
     }
 
@@ -884,6 +992,14 @@ class ProfileClient {
   }
 
   private rejectPending(message: string) {
+    // A dropped connection isn't an auth rejection — settle the handshake without
+    // discarding the token so the next connect can re-authenticate.
+    if (this.pendingAuth) {
+      const settle = this.pendingAuth.settle;
+      this.pendingAuth = null;
+      settle();
+    }
+
     for (const [, request] of this.pending) {
       request.reject(new Error(message));
     }

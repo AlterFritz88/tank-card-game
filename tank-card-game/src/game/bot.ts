@@ -11,6 +11,7 @@ import {
   getFreeSupportSlots,
   getFrontColumn,
   getNationalAbilityForPlayer,
+  getSupportSlotPosition,
   getTargetsInRange,
   isBattlefieldUnit,
   isSupportUnit,
@@ -1015,6 +1016,16 @@ function getBotNationalAbility(state: BattleState): NationalAbility | null {
   return getNationalAbilityForPlayer(state, "bot");
 }
 
+/** Whether the player still has any living unit on the battlefield. */
+function enemyHasBattlefieldUnits(state: BattleState): boolean {
+  return state.units.some(
+    (unit) =>
+      unit.ownerId === "player" &&
+      isBattlefieldUnit(unit) &&
+      unit.currentHp > 0
+  );
+}
+
 function getBotBattlefieldUnits(
   state: BattleState,
   excludeId: string | null
@@ -1044,6 +1055,15 @@ function getNationalFormationCellValue(
 ): number {
   if (!ability) return 0;
 
+  // «Линия снабжения» is a pure health buff that only matters while the bot's
+  // line is under enemy fire. With no enemy unit left on the board there is
+  // nothing to defend against, so assembling the formation is wasted tempo — the
+  // bot should instead rush the now-open enemy headquarters. Suppress the supply
+  // incentive in that case so advancing toward the HQ wins the move/spawn scoring.
+  if (ability.id === "supply_line" && !enemyHasBattlefieldUnits(state)) {
+    return 0;
+  }
+
   const others = getBotBattlefieldUnits(state, movingUnitId);
 
   // «Сплочение» (СССР): three own units sharing one fully-occupied column gain
@@ -1058,14 +1078,26 @@ function getNationalFormationCellValue(
   }
 
   // «Линия снабжения» (США): three own units in a row, the run anchored on the
-  // front column, while a support unit feeds it from the rear.
+  // front column, while a support unit feeds it from the rear — and the supply
+  // only flows if that support unit sits directly behind the line's rear cell
+  // (the front-column cell of this row). A support unit off to the side cannot
+  // feed the row, so the formation would never trigger from here.
   if (ability.id === "supply_line") {
-    const hasSupplySource = state.units.some(
-      (u) => u.ownerId === "bot" && isSupportUnit(u) && u.currentHp > 0
-    );
-    if (!hasSupplySource) return 0;
-
     const frontColumn = getFrontColumn("bot");
+    const rearCell: Position = { row: cell.row, col: frontColumn };
+    const hasAdjacentSupply = state.units.some(
+      (u) =>
+        u.ownerId === "bot" &&
+        isSupportUnit(u) &&
+        u.currentHp > 0 &&
+        u.supportSlot !== undefined &&
+        getChebyshevDistance(
+          getSupportSlotPosition("bot", u.supportSlot),
+          rearCell
+        ) === 1
+    );
+    if (!hasAdjacentSupply) return 0;
+
     const rearRun = [frontColumn - 2, frontColumn - 1, frontColumn];
     if (!rearRun.includes(cell.col)) return 0;
 

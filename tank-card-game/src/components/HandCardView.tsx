@@ -19,6 +19,13 @@ import {
 } from "../game/cardVisuals";
 import { getTankImage } from "../game/tankImages";
 import { getCardAbilityTags } from "../game/cardKeywords";
+import {
+  getLocalizedCardAbilityText,
+  getLocalizedCardClassLabel,
+  getLocalizedHeadquartersDescription,
+  getLocalizedHeadquartersType,
+} from "../game/cardLocalization";
+import { useI18n } from "../game/i18n";
 import prototypeTankImage from "../assets/tanks/prototype-tank.png";
 import { FitText } from "./FitText";
 import { StatBadge } from "./StatBadge";
@@ -297,6 +304,7 @@ export function HandCardView({
   displayMode = "hand",
   previewScale,
 }: HandCardViewProps) {
+  const { language } = useI18n();
   const [activeTooltip, setActiveTooltip] = useState<StatTooltipId | null>(null);
   const isHeadquarters = Boolean(headquarters);
 
@@ -337,7 +345,7 @@ export function HandCardView({
     ? getHeadquartersTitleFontSize(title)
     : 15;
   const subtitle = isHeadquarters
-    ? headquartersDefinition?.type ?? headquartersDefinition?.subtitle ?? "Командный пункт"
+    ? getLocalizedHeadquartersType(headquartersDefinition, language)
     : `${nation!.label} · ${unitClass!.label}`;
 
   const hpValue = isHeadquarters
@@ -356,11 +364,11 @@ export function HandCardView({
     : card!.fuelGeneration;
 
   const abilityText = isHeadquarters
-    ? headquartersDefinition?.description ?? "Командный пункт."
-    : card!.abilityText || "";
+    ? getLocalizedHeadquartersDescription(headquartersDefinition, language)
+    : getLocalizedCardAbilityText(card!, language);
   // Abilities are printed as a plain-text enumeration appended to the
   // description (with their numeric bonuses), instead of separate tag badges.
-  const abilityTags = !isHeadquarters && card ? getCardAbilityTags(card) : [];
+  const abilityTags = !isHeadquarters && card ? getCardAbilityTags(card, language) : [];
   const descriptionText = [abilityText, abilityTags.join(", ")]
     .filter(Boolean)
     .join(" ");
@@ -373,18 +381,38 @@ export function HandCardView({
 
   const tooltipEnabled = isPreview;
   const classTooltip = isHeadquarters
-    ? "Класс: штаб. Командная карта с прочностью, атакой и приростом топлива."
-    : `Класс: ${unitClass!.label}. Определяет роль юнита и его боевую механику.`;
+    ? language === "en"
+      ? "Class: headquarters. Command card with durability, attack, and fuel generation."
+      : "Класс: штаб. Командная карта с прочностью, атакой и приростом топлива."
+    : language === "en"
+      ? `Class: ${getLocalizedCardClassLabel(card!, language)}. Defines the unit role and combat mechanics.`
+      : `Класс: ${unitClass!.label}. Определяет роль юнита и его боевую механику.`;
   const costTooltip = isHeadquarters
-    ? `Топливо штаба: +${fuelGenerationValue} к запасу в начале вашего хода.`
+    ? language === "en"
+      ? `Headquarters fuel: +${fuelGenerationValue} to your reserve at the start of your turn.`
+      : `Топливо штаба: +${fuelGenerationValue} к запасу в начале вашего хода.`
     : isCostDiscounted
-      ? `Стоимость: ${displayCost} топлива (со скидкой; обычная ${printedCost}). Зависит от ситуации на поле боя.`
-      : `Стоимость: ${displayCost} топлива нужно, чтобы вывести карту на поле.`;
-  const fuelTooltip = `Прирост топлива: +${fuelGenerationValue} к запасу в начале вашего хода.`;
+      ? language === "en"
+        ? `Cost: ${displayCost} fuel with discount; printed cost is ${printedCost}. Depends on the battlefield.`
+        : `Стоимость: ${displayCost} топлива (со скидкой; обычная ${printedCost}). Зависит от ситуации на поле боя.`
+      : language === "en"
+        ? `Cost: ${displayCost} fuel to deploy this card.`
+        : `Стоимость: ${displayCost} топлива нужно, чтобы вывести карту на поле.`;
+  const fuelTooltip =
+    language === "en"
+      ? `Fuel generation: +${fuelGenerationValue} to your reserve at the start of your turn.`
+      : `Прирост топлива: +${fuelGenerationValue} к запасу в начале вашего хода.`;
   const attackTooltip = isDefensiveAttack
-    ? `Ответный огонь: ${attackValue}. Столько урона эта машина наносит юниту, который атакует её (или штаб) в ближнем бою.`
-    : `Атака: ${attackValue}. Столько урона карта наносит при ударе.`;
-  const healthTooltip = `Защита: ${hpValue}. Столько прочности осталось у карты.`;
+    ? language === "en"
+      ? `Return fire: ${attackValue}. This is the damage dealt to a unit attacking it (or the headquarters) in close combat.`
+      : `Ответный огонь: ${attackValue}. Столько урона эта машина наносит юниту, который атакует её (или штаб) в ближнем бою.`
+    : language === "en"
+      ? `Attack: ${attackValue}. Damage dealt by this card when it strikes.`
+      : `Атака: ${attackValue}. Столько урона карта наносит при ударе.`;
+  const healthTooltip =
+    language === "en"
+      ? `Defense: ${hpValue}. Remaining durability of the card.`
+      : `Защита: ${hpValue}. Столько прочности осталось у карты.`;
   const showTooltip = (id: StatTooltipId) => setActiveTooltip(id);
   const hideTooltip = (id: StatTooltipId) => {
     setActiveTooltip((current) => (current === id ? null : current));
@@ -456,10 +484,16 @@ export function HandCardView({
             valueStyle={isCostDiscounted ? styles.discountedCostValue : undefined}
             title={
               isHeadquarters
-                ? "Генерация топлива штабом"
+                ? language === "en"
+                  ? "Headquarters fuel generation"
+                  : "Генерация топлива штабом"
                 : isCostDiscounted
-                  ? "Стоимость розыгрыша (со скидкой)"
-                  : "Стоимость розыгрыша"
+                  ? language === "en"
+                    ? "Deployment cost (discounted)"
+                    : "Стоимость розыгрыша (со скидкой)"
+                  : language === "en"
+                    ? "Deployment cost"
+                    : "Стоимость розыгрыша"
             }
             style={styles.fullBadge}
           />
@@ -487,7 +521,7 @@ export function HandCardView({
               type="fuelGeneration"
               mode={badgeMode}
               value={`+${fuelGenerationValue}`}
-              title="Генерация топлива за ход"
+              title={language === "en" ? "Fuel generation per turn" : "Генерация топлива за ход"}
               style={styles.fullBadge}
             />
           </StatTooltipTarget>
@@ -559,8 +593,8 @@ export function HandCardView({
           >
             <img
               src={classIcon}
-              alt={isHeadquarters ? "Штаб" : unitClass!.label}
-              title={isHeadquarters ? "Штаб" : unitClass!.label}
+              alt={isHeadquarters ? (language === "en" ? "Headquarters" : "Штаб") : unitClass!.label}
+              title={isHeadquarters ? (language === "en" ? "Headquarters" : "Штаб") : unitClass!.label}
               style={{
                 ...styles.classIcon,
                 ...(ownerId === "player" ? null : styles.enemyClassIcon),
@@ -589,7 +623,7 @@ export function HandCardView({
                 fontSize: scaled(23),
                 color: ownerId === "player" ? "#7dff8a" : "#ff5a52",
               }}
-              title="Штаб"
+              title={language === "en" ? "Headquarters" : "Штаб"}
             >
               ⚑
             </span>
@@ -610,7 +644,7 @@ export function HandCardView({
             mode={badgeMode}
             ownerId={ownerId}
             value={attackValue}
-            title="Атака"
+            title={language === "en" ? "Attack" : "Атака"}
           />
         </StatTooltipTarget>
 
@@ -628,7 +662,7 @@ export function HandCardView({
             type="health"
             mode={badgeMode}
             value={hpValue}
-            title="Здоровье"
+            title={language === "en" ? "Health" : "Здоровье"}
           />
         </StatTooltipTarget>
       </div>

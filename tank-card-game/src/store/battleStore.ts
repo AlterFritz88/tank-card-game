@@ -11,6 +11,17 @@ import {
 } from "../game/headquarters";
 import { getRandomBattleBackgroundId } from "../assets/battleBackgroundAssets";
 import {
+  preloadBattleAssetsForState,
+  preloadCardImages,
+  preloadHeadquartersAssets,
+  startBattleAssetPreloadForState,
+  startCampaignMenuAssetPreload,
+  startCardLibraryAssetPreload,
+  startDeckBuilderAssetPreload,
+  startHeadquartersMenuAssetPreload,
+  startResearchAssetPreload,
+} from "../assets/assetPreloader";
+import {
   getAutoLaunchMission,
   getCampaignMission,
   isCampaignMissionUnlocked,
@@ -478,6 +489,7 @@ function applyFirstTurnRollMessage(
   clearFirstTurnRollTimers();
   clearReconnectTimer();
   pvpClient.rememberRoom(message.roomId);
+  startBattleAssetPreloadForState(message.battle);
 
   const now = Date.now();
   const serverRevealDelay = Math.max(0, message.revealAt - now);
@@ -545,6 +557,7 @@ function applyGameStartedMessage(
 ) {
   clearReconnectTimer();
   pvpClient.rememberRoom(message.roomId);
+  startBattleAssetPreloadForState(message.battle);
   useBattleStore.setState({
     battle: message.battle,
     mode: "pvp",
@@ -766,6 +779,8 @@ function setupPvpSubscriptions() {
       }
 
       case "GAME_STARTED":
+        startBattleAssetPreloadForState(message.battle);
+
         if (pendingFirstTurnRollMessage || store.pvpStatus === "matchPreview") {
           pendingGameStartedMessage = message;
           useBattleStore.setState({
@@ -784,6 +799,7 @@ function setupPvpSubscriptions() {
         break;
 
       case "GAME_STATE":
+        startBattleAssetPreloadForState(message.battle);
         store.applyRemoteBattleState(message.battle);
         break;
 
@@ -791,6 +807,7 @@ function setupPvpSubscriptions() {
         clearFirstTurnRollTimers();
         clearReconnectTimer();
         pvpClient.rememberRoom(message.roomId);
+        startBattleAssetPreloadForState(message.battle);
         useBattleStore.setState({
           battle: message.battle,
           mode: "pvp",
@@ -1007,22 +1024,26 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   tutorialStepIndex: 0,
   tutorialEpilogueSeen: false,
 
-  startTutorial: () => {
+  startTutorial: async () => {
     clearFirstTurnRollTimers();
     clearReconnectTimer();
     clearPendingPvpStart();
     pvpClient.clearSession();
 
+    const battle = createInitialBattleState({
+      playerHeadquartersId: TUTORIAL_PLAYER_HEADQUARTERS_ID,
+      botHeadquartersId: TUTORIAL_BOT_HEADQUARTERS_ID,
+      playerDeckCardIds: [...TUTORIAL_PLAYER_DECK],
+      botDeckCardIds: [...TUTORIAL_BOT_DECK],
+      backgroundId: getRandomBattleBackgroundId(),
+      shuffleDecks: false,
+    });
+
+    await preloadBattleAssetsForState(battle);
+
     set({
       ...getCleanMenuState(),
-      battle: createInitialBattleState({
-        playerHeadquartersId: TUTORIAL_PLAYER_HEADQUARTERS_ID,
-        botHeadquartersId: TUTORIAL_BOT_HEADQUARTERS_ID,
-        playerDeckCardIds: [...TUTORIAL_PLAYER_DECK],
-        botDeckCardIds: [...TUTORIAL_BOT_DECK],
-        backgroundId: getRandomBattleBackgroundId(),
-        shuffleDecks: false,
-      }),
+      battle,
       tutorialActive: true,
       tutorialStepIndex: 0,
       tutorialEpilogueSeen: false,
@@ -1066,6 +1087,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   openHeadquartersMenu: (mode) => {
+    startHeadquartersMenuAssetPreload();
     set({
       menuView: "headquarters",
       mode,
@@ -1082,6 +1104,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   openDeckBuilderMenu: () => {
+    startDeckBuilderAssetPreload();
     set({
       menuView: "deckBuilder",
       pvpError: null,
@@ -1112,6 +1135,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   openResearchMenu: () => {
+    startResearchAssetPreload();
     set({
       menuView: "research",
       mode: "ai",
@@ -1128,6 +1152,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   openCollectionMenu: () => {
+    startCardLibraryAssetPreload();
     set({
       menuView: "collection",
       mode: "ai",
@@ -1176,6 +1201,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   openCampaignMenu: () => {
+    startCampaignMenuAssetPreload();
     set({
       menuView: "campaign",
       mode: "campaign",
@@ -1184,6 +1210,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   openCampaignMissions: (campaignId) => {
+    startCampaignMenuAssetPreload();
     set({
       menuView: "missions",
       mode: "campaign",
@@ -1260,12 +1287,16 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     clearPendingPvpStart();
     pvpClient.clearSession();
 
+    const battle = createFreshBattle(
+      get().selectedHeadquartersId,
+      undefined,
+      deckCardIds
+    );
+
+    await preloadBattleAssetsForState(battle);
+
     set({
-      battle: createFreshBattle(
-        get().selectedHeadquartersId,
-        undefined,
-        deckCardIds
-      ),
+      battle,
       mode: "ai",
       menuView: "main",
       localPlayerId: "player",
@@ -1345,36 +1376,49 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         return;
       }
 
-      useBattleStore.setState({
-        battle: createFreshBattle(
-          state.selectedHeadquartersId,
-          aiOpponent.headquartersId,
-          deckCardIds,
-          aiOpponent.deckCardIds
-        ),
-        mode: "ai",
-        menuView: "main",
-        localPlayerId: "player",
-        pvpRoomId: null,
-        pvpStatus: "idle",
-        pvpError: null,
-        pvpOpponentHeadquartersId: null,
-        pvpMatchPreviewLabel: null,
-        pvpSearchStartedAt: null,
-        pvpSearchDeadlineAt: null,
-        pvpFallbackDeckCardIds: null,
-        matchEndReason: null,
-        pvpTimer: emptyPvpTimer,
-        pvpMovementIntent: null,
-        pvpAttackIntent: null,
-        firstTurnRoll: emptyFirstTurnRoll,
-        selectedCardInstanceId: null,
-        opponentSelectedCardInstanceId: null,
-        selectedAttacker: null,
-        currentCampaignMissionId: null,
-      });
+      const battle = createFreshBattle(
+        state.selectedHeadquartersId,
+        aiOpponent.headquartersId,
+        deckCardIds,
+        aiOpponent.deckCardIds
+      );
 
-      matchFoundPreviewTimer = null;
+      void preloadBattleAssetsForState(battle).then(() => {
+        const current = useBattleStore.getState();
+        if (
+          current.mode !== "pvp" ||
+          current.pvpStatus !== "matchPreview" ||
+          current.pvpOpponentHeadquartersId !== aiOpponent.headquartersId
+        ) {
+          return;
+        }
+
+        useBattleStore.setState({
+          battle,
+          mode: "ai",
+          menuView: "main",
+          localPlayerId: "player",
+          pvpRoomId: null,
+          pvpStatus: "idle",
+          pvpError: null,
+          pvpOpponentHeadquartersId: null,
+          pvpMatchPreviewLabel: null,
+          pvpSearchStartedAt: null,
+          pvpSearchDeadlineAt: null,
+          pvpFallbackDeckCardIds: null,
+          matchEndReason: null,
+          pvpTimer: emptyPvpTimer,
+          pvpMovementIntent: null,
+          pvpAttackIntent: null,
+          firstTurnRoll: emptyFirstTurnRoll,
+          selectedCardInstanceId: null,
+          opponentSelectedCardInstanceId: null,
+          selectedAttacker: null,
+          currentCampaignMissionId: null,
+        });
+
+        matchFoundPreviewTimer = null;
+      });
     }, PVP_MATCH_FOUND_PREVIEW_MS);
   },
 
@@ -1395,6 +1439,8 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     if (!battle) return;
 
     if (!(await acquireGameSession("campaign"))) return;
+
+    await preloadBattleAssetsForState(battle);
 
     clearFirstTurnRollTimers();
     clearReconnectTimer();
@@ -1447,6 +1493,10 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   findPvpMatch: async (deckCardIds) => {
     if (!(await acquireGameSession("pvp"))) return;
 
+    const selectedHeadquartersId = get().selectedHeadquartersId;
+    void preloadHeadquartersAssets([selectedHeadquartersId]);
+    if (deckCardIds) void preloadCardImages(deckCardIds);
+
     clearFirstTurnRollTimers();
     clearReconnectTimer();
     clearPendingPvpStart();
@@ -1475,9 +1525,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       selectedAttacker: null,
     });
 
-    connectAndRun(() =>
-      pvpClient.findMatch(get().selectedHeadquartersId, deckCardIds)
-    );
+    connectAndRun(() => pvpClient.findMatch(selectedHeadquartersId, deckCardIds));
   },
 
   retryPvpMatchmaking: () => {
@@ -1490,6 +1538,10 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   createPvpRoom: async (deckCardIds) => {
     if (!(await acquireGameSession("pvp"))) return;
 
+    const selectedHeadquartersId = get().selectedHeadquartersId;
+    void preloadHeadquartersAssets([selectedHeadquartersId]);
+    if (deckCardIds) void preloadCardImages(deckCardIds);
+
     clearFirstTurnRollTimers();
     clearReconnectTimer();
     clearPendingPvpStart();
@@ -1518,9 +1570,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       selectedAttacker: null,
     });
 
-    connectAndRun(() =>
-      pvpClient.createRoom(get().selectedHeadquartersId, deckCardIds)
-    );
+    connectAndRun(() => pvpClient.createRoom(selectedHeadquartersId, deckCardIds));
   },
 
   joinPvpRoom: async (roomId, deckCardIds) => {
@@ -1532,6 +1582,10 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     }
 
     if (!(await acquireGameSession("pvp"))) return;
+
+    const selectedHeadquartersId = get().selectedHeadquartersId;
+    void preloadHeadquartersAssets([selectedHeadquartersId]);
+    if (deckCardIds) void preloadCardImages(deckCardIds);
 
     clearFirstTurnRollTimers();
     clearReconnectTimer();
@@ -1564,7 +1618,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     connectAndRun(() =>
       pvpClient.joinRoom(
         normalizedRoomId,
-        get().selectedHeadquartersId,
+        selectedHeadquartersId,
         deckCardIds
       )
     );
@@ -1820,7 +1874,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     });
   },
 
-  reset: () => {
+  reset: async () => {
     const { battle, currentCampaignMissionId, mode, tutorialActive } = get();
 
     if (tutorialActive) {
@@ -1874,8 +1928,11 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       return;
     }
 
+    const nextBattle = createFreshBattle(get().selectedHeadquartersId);
+    await preloadBattleAssetsForState(nextBattle);
+
     set({
-      battle: createFreshBattle(get().selectedHeadquartersId),
+      battle: nextBattle,
       selectedCardInstanceId: null,
       opponentSelectedCardInstanceId: null,
       selectedAttacker: null,

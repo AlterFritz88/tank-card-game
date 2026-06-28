@@ -120,6 +120,22 @@ function makeUnit(
   check("Линия снабжения: без юнита снабжения не срабатывает", ids.size === 0, `size ${ids.size}`);
 }
 
+// 5b. США «Линия снабжения»: line abuts the front column but the only support
+//     unit sits in a non-adjacent rear slot (a gap between it and the line's
+//     rear cell) → the supply chain is broken, ability does not trigger.
+{
+  const battle = makeBattle({ playerHq: "training_camp" });
+  battle.units = [
+    makeUnit({ instanceId: "a", cardId: "t34_76", ownerId: "player", position: { row: 0, col: 0 } }),
+    makeUnit({ instanceId: "b", cardId: "t34_76", ownerId: "player", position: { row: 0, col: 1 } }),
+    makeUnit({ instanceId: "c", cardId: "t34_76", ownerId: "player", position: { row: 0, col: 2 } }),
+    // Slot 3 sits at row 3 — two rows away from the row-0 line's rear cell.
+    makeUnit({ instanceId: "s", cardId: "t34_76", ownerId: "player", zone: "support", supportSlot: 3 }),
+  ];
+  const ids = getSupplyLineUnitIds(battle, "player");
+  check("Линия снабжения: снабжение не вплотную к линии не срабатывает", ids.size === 0, `size ${ids.size}`);
+}
+
 // 6. Бот «Сплочение»: a Soviet bot with two units in its spawn column and a
 //    playable card spends it to complete the vertical line.
 {
@@ -145,6 +161,39 @@ function makeUnit(
   check(
     "Бот СССР достраивает колонку «Сплочение»",
     completesColumn,
+    `got ${action?.type} ${action && "position" in action ? JSON.stringify(action.position) : ""}`
+  );
+}
+
+// 7. Бот «Линия снабжения» без врага на поле: with the board clear of enemy
+//    units the supply-line buff is pointless, so the US bot must NOT spend its
+//    card completing the formation row — it should deploy offensively (closest
+//    spawn cell to the enemy HQ) to press the now-open headquarters.
+{
+  const battle = makeBattle({ botHq: "training_camp" });
+  battle.activePlayer = "bot";
+  battle.headquarters.bot.alreadyAttacked = true;
+  battle.bot.resources = 5;
+  battle.bot.maxResources = 5;
+  // Two-thirds of a supply row already built (row 0, cols 2 & 3); a fresh unit
+  // at the spawn cell (0,4) would complete it. A rear support unit (slot 0) sits
+  // adjacent to that rear cell, so the formation is genuinely completable.
+  battle.units = [
+    makeUnit({ instanceId: "x", cardId: "t34_76", ownerId: "bot", position: { row: 0, col: 3 }, alreadyMoved: true, alreadyAttacked: true }),
+    makeUnit({ instanceId: "y", cardId: "t34_76", ownerId: "bot", position: { row: 0, col: 2 }, alreadyMoved: true, alreadyAttacked: true }),
+    makeUnit({ instanceId: "s", cardId: "t34_76", ownerId: "bot", zone: "support", supportSlot: 0 }),
+  ];
+  battle.bot.hand = [{ instanceId: "card-z", cardId: "t34_76" }];
+
+  const action = getNextBotAction(battle);
+  const buildsSupplyLine =
+    action?.type === "PLAY_CARD" &&
+    "position" in action &&
+    action.position.row === 0 &&
+    action.position.col === 4;
+  check(
+    "Бот США не строит линию снабжения без врага на поле",
+    action?.type === "PLAY_CARD" && !buildsSupplyLine,
     `got ${action?.type} ${action && "position" in action ? JSON.stringify(action.position) : ""}`
   );
 }

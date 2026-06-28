@@ -107,6 +107,13 @@ import {
   GUEST_SESSION_READY_STORAGE_KEY,
   isRegisteredUserId,
 } from "../game/playerIdentity";
+import {
+  AVAILABLE_LANGUAGES,
+  setLanguage,
+  useSettings,
+  type Language,
+} from "../game/settings";
+import { useI18n } from "../game/i18n";
 
 const DeckBuilder = lazy(() =>
   import("./DeckBuilder").then((module) => ({ default: module.DeckBuilder }))
@@ -143,8 +150,6 @@ const NATION_LABELS: Record<Nation, string> = {
 
 const TEST_BATTLE_HEADQUARTERS_LEVEL = 4;
 const PLAYER_NICKNAME_INPUT_PATTERN = "[A-Za-z0-9_-]{3,14}";
-const PLAYER_NICKNAME_HINT =
-  "Ник: 3-14 символов, только латинские буквы, цифры, дефис и нижнее подчёркивание";
 
 type BattleDeckOption = {
   id: string | null;
@@ -192,7 +197,9 @@ function getPlayerDisplayNickname(progress: PlayerProgress, userLogin?: string |
   return progress.nickname?.trim() || userLogin?.trim() || "Commander";
 }
 
-function getPlayerAccountData() {
+function getPlayerAccountData(
+  accountLabels: { premiumProfile: string; basicProfile: string }
+) {
   const progress = loadPlayerProgress();
   const headquarters = HEADQUARTERS[getMostPlayedHeadquartersId(progress)];
   const premium = progress.accountType === "premium";
@@ -202,18 +209,24 @@ function getPlayerAccountData() {
     avatar: getHeadquartersAvatarAsset(headquarters.id),
     flag: getNationFlagAsset(headquarters.nation),
     nickname: getPlayerDisplayNickname(progress, userLogin),
-    accountLabel: premium ? "Премиум профиль" : "Базовый профиль",
+    accountLabel: premium
+      ? accountLabels.premiumProfile
+      : accountLabels.basicProfile,
   };
 }
 
 function PlayerAccountPanel({ onOpenProfile }: { onOpenProfile?: () => void }) {
-  const account = getPlayerAccountData();
+  const { t } = useI18n();
+  const account = getPlayerAccountData({
+    premiumProfile: t("account.premiumProfile"),
+    basicProfile: t("account.basicProfile"),
+  });
 
   return (
     <button
       type="button"
       style={styles.playerAccountPanel}
-      aria-label="Открыть профиль игрока"
+      aria-label={t("account.openProfile")}
       onClick={onOpenProfile}
     >
       {account.flag ? (
@@ -246,8 +259,8 @@ function PlayerAccountPanel({ onOpenProfile }: { onOpenProfile?: () => void }) {
   );
 }
 
-function formatResourceValue(value: number) {
-  return new Intl.NumberFormat("ru-RU").format(value);
+function formatResourceValue(value: number, language?: Language) {
+  return new Intl.NumberFormat(language === "en" ? "en-US" : "ru-RU").format(value);
 }
 
 function formatRubPrice(value: number) {
@@ -310,6 +323,47 @@ function LegalLinks({ compact = false }: { compact?: boolean }) {
   );
 }
 
+function LanguageChoiceRow({ compact = false }: { compact?: boolean }) {
+  const { language } = useSettings();
+
+  return (
+    <div
+      style={compact ? styles.languageChoiceRowCompact : styles.languageChoiceRow}
+      role="group"
+      aria-label="Language"
+    >
+      {AVAILABLE_LANGUAGES.map((option) => {
+        const active = language === option.id;
+        const flag = getNationFlagAsset(option.id === "ru" ? "ussr" : "uk");
+
+        return (
+          <button
+            key={option.id}
+            type="button"
+            style={{
+              ...styles.languageChoiceButton,
+              ...(active ? styles.languageChoiceButtonActive : {}),
+            }}
+            onClick={() => setLanguage(option.id)}
+            aria-pressed={active}
+            title={option.label}
+          >
+            {flag ? (
+              <img
+                src={flag}
+                alt=""
+                draggable={false}
+                style={styles.languageChoiceFlag}
+              />
+            ) : null}
+            <span>{option.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function PlayerResourcesPanel({
   onOpenShop,
   onOpenExchange,
@@ -317,32 +371,33 @@ function PlayerResourcesPanel({
   onOpenShop?: () => void;
   onOpenExchange?: () => void;
 }) {
+  const { language, t } = useI18n();
   const progress = loadPlayerProgress();
   const resources = [
     {
       icon: experienceIcon,
-      label: "Свободный опыт",
+      label: t("resources.freeXp"),
       value: progress.freeXp,
     },
     {
       icon: silverTracksIcon,
-      label: "Железные траки",
+      label: t("resources.ironTracks"),
       value: progress.ironTracks,
       onClick: onOpenExchange,
-      actionLabel: "Обменять золотые траки на железные",
+      actionLabel: t("resources.exchangeGold"),
     },
     {
       icon: goldTracksIcon,
-      label: "Золотые траки",
+      label: t("resources.goldTracks"),
       value: progress.goldTracks,
       iconOffsetX: -6,
       onClick: onOpenShop,
-      actionLabel: "Открыть магазин",
+      actionLabel: t("resources.openShop"),
     },
   ];
 
   return (
-    <aside style={styles.playerResourcesPanel} aria-label="Ресурсы игрока">
+    <aside style={styles.playerResourcesPanel} aria-label={t("resources.freeXp")}>
       {resources.map((resource) => {
         const interactive = Boolean(resource.onClick);
         const content = (
@@ -359,7 +414,7 @@ function PlayerResourcesPanel({
               }}
             />
             <span style={styles.playerResourceValue}>
-              {formatResourceValue(resource.value)}
+              {formatResourceValue(resource.value, language)}
             </span>
           </>
         );
@@ -389,9 +444,9 @@ function PlayerResourcesPanel({
           type="button"
           style={styles.playerShopButton}
           onClick={onOpenShop}
-          aria-label="Открыть магазин"
+          aria-label={t("resources.openShop")}
         >
-          Магазин
+          {t("main.shop")}
         </button>
       ) : null}
     </aside>
@@ -405,15 +460,17 @@ function ProfileServerBanner({
   message: string | null;
   onRetry: () => void;
 }) {
+  const { t } = useI18n();
+
   return (
     <div style={styles.profileServerBanner}>
-      <span>{message ?? "Сервер профиля недоступен"}</span>
+      <span>{message ?? t("common.profileServerUnavailable")}</span>
       <button
         type="button"
         style={styles.profileServerRetryButton}
         onClick={onRetry}
       >
-        Повторить
+        {t("common.retry")}
       </button>
     </div>
   );
@@ -938,6 +995,7 @@ function GuestEntryScreen({
     promoCode?: string
   ) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const [authMode, setAuthMode] = useState<"guest" | "login" | "register">(
     "guest"
   );
@@ -967,17 +1025,17 @@ function GuestEntryScreen({
     setAuthError(null);
     try {
       if (!isValidPlayerNickname(normalizedNickname)) {
-        throw new Error(PLAYER_NICKNAME_HINT);
+        throw new Error(t("auth.nicknameHint"));
       }
 
       if (!legalAccepted) {
-        throw new Error("Необходимо ознакомиться с документами и принять условия");
+        throw new Error(t("auth.legalRequired"));
       }
 
       await onEnter(normalizedNickname, legalAccepted);
       window.localStorage.setItem(LEGAL_ACCEPTED_STORAGE_KEY, "true");
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : "Не удалось войти");
+      setAuthError(error instanceof Error ? error.message : t("auth.loginFailed"));
     } finally {
       setSaving(false);
     }
@@ -994,33 +1052,33 @@ function GuestEntryScreen({
         await onLogin(username, password);
       } else {
         if (!isValidPlayerNickname(username)) {
-          throw new Error(PLAYER_NICKNAME_HINT);
+          throw new Error(t("auth.nicknameHint"));
         }
 
         if (!isValidEmail(email)) {
-          throw new Error("Укажите корректный e-mail");
+          throw new Error(t("auth.emailInvalid"));
         }
 
         if (password !== repeatPassword) {
-          throw new Error("Пароли не совпадают");
+          throw new Error(t("auth.passwordMismatch"));
         }
 
         if (!legalAccepted) {
-          throw new Error("Необходимо ознакомиться с документами и принять условия");
+          throw new Error(t("auth.legalRequired"));
         }
 
         await onRegister(username, email, password, legalAccepted, promoCode);
         window.localStorage.setItem(LEGAL_ACCEPTED_STORAGE_KEY, "true");
       }
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : "Не удалось войти");
+      setAuthError(error instanceof Error ? error.message : t("auth.loginFailed"));
     } finally {
       setSaving(false);
     }
   }
 
   const authModeTitle =
-    authMode === "login" ? "Вход в аккаунт" : "Регистрация";
+    authMode === "login" ? t("auth.accountLogin") : t("auth.register");
 
   return (
     <main style={styles.page}>
@@ -1028,20 +1086,20 @@ function GuestEntryScreen({
       <section style={styles.guestEntryPanel}>
         <header style={styles.guestEntryHeader}>
           <h1 style={styles.guestEntryTitle}>PANZERSHREK</h1>
-          <p style={styles.guestEntrySubtitle}>Вход в штабной профиль</p>
+          <p style={styles.guestEntrySubtitle}>{t("auth.profileLogin")}</p>
         </header>
 
         {authMode === "guest" ? (
         <form style={styles.guestEntryForm} onSubmit={submitGuest}>
           <label style={styles.guestEntryLabel} htmlFor="guest-nickname">
-            Ник командира
+            {t("auth.commanderNickname")}
           </label>
           <input
             id="guest-nickname"
             value={nickname}
             maxLength={PLAYER_NICKNAME_MAX_LENGTH}
             pattern={PLAYER_NICKNAME_INPUT_PATTERN}
-            title={PLAYER_NICKNAME_HINT}
+            title={t("auth.nicknameHint")}
             onChange={(event) =>
               setNickname(sanitizePlayerNicknameInput(event.target.value))
             }
@@ -1055,7 +1113,7 @@ function GuestEntryScreen({
             style={styles.guestPrimaryButton}
             disabled={saving}
           >
-            {saving ? "Сохранение..." : "Играть как гость"}
+            {saving ? t("auth.saving") : t("auth.playAsGuest")}
           </button>
 
           <label style={styles.legalConsentRow}>
@@ -1066,9 +1124,10 @@ function GuestEntryScreen({
               style={styles.legalConsentCheckbox}
             />
             <span>
-              Я ознакомился и согласен: <LegalLinks compact />
+              {t("auth.legalConsent")} <LegalLinks compact />
             </span>
           </label>
+          <LanguageChoiceRow compact />
 
           <div style={styles.guestSecondaryActions}>
             <button
@@ -1080,7 +1139,7 @@ function GuestEntryScreen({
                 setRepeatPassword("");
               }}
             >
-              Войти
+              {t("auth.login")}
             </button>
             <button
               type="button"
@@ -1091,7 +1150,7 @@ function GuestEntryScreen({
                 setRepeatPassword("");
               }}
             >
-              Регистрация
+              {t("auth.register")}
             </button>
           </div>
         </form>
@@ -1108,19 +1167,19 @@ function GuestEntryScreen({
                   setRepeatPassword("");
                 }}
               >
-                Гость
+                {t("common.guest")}
               </button>
             </div>
 
             <label style={styles.guestEntryLabel} htmlFor="account-username">
-              Логин
+              {t("auth.login")}
             </label>
             <input
               id="account-username"
               value={username}
               maxLength={PLAYER_NICKNAME_MAX_LENGTH}
               pattern={PLAYER_NICKNAME_INPUT_PATTERN}
-              title={PLAYER_NICKNAME_HINT}
+              title={t("auth.nicknameHint")}
               onChange={(event) =>
                 setUsername(sanitizePlayerNicknameInput(event.target.value))
               }
@@ -1148,7 +1207,7 @@ function GuestEntryScreen({
             ) : null}
 
             <label style={styles.guestEntryLabel} htmlFor="account-password">
-              Пароль
+              {t("auth.password")}
             </label>
             <input
               id="account-password"
@@ -1170,7 +1229,7 @@ function GuestEntryScreen({
                   style={styles.guestEntryLabel}
                   htmlFor="account-repeat-password"
                 >
-                  Повторить пароль
+                  {t("auth.repeatPassword")}
                 </label>
                 <input
                   id="account-repeat-password"
@@ -1185,7 +1244,7 @@ function GuestEntryScreen({
                 />
 
                 <label style={styles.guestEntryLabel} htmlFor="account-promo-code">
-                  Промокод
+                  {t("auth.promoCode")}
                 </label>
                 <input
                   id="account-promo-code"
@@ -1208,10 +1267,12 @@ function GuestEntryScreen({
                   style={styles.legalConsentCheckbox}
                 />
                 <span>
-                  Я ознакомился и согласен: <LegalLinks compact />
+                  {t("auth.legalConsent")} <LegalLinks compact />
                 </span>
               </label>
             ) : null}
+
+            {authMode === "register" ? <LanguageChoiceRow compact /> : null}
 
             <button
               type="submit"
@@ -1219,30 +1280,29 @@ function GuestEntryScreen({
               disabled={saving}
             >
               {saving
-                ? "Связь..."
+                ? t("auth.connecting")
                 : authMode === "login"
-                  ? "Войти"
-                  : "Создать аккаунт"}
+                  ? t("auth.login")
+                  : t("auth.createAccount")}
             </button>
           </form>
         )}
 
         <p style={styles.guestEntryNote}>
-          Гостевой прогресс привязан к этому устройству. Позже его можно будет
-          перенести в полноценный аккаунт.
+          {t("auth.guestProgressNote")}
         </p>
 
         {authError ? <p style={styles.guestEntryError}>{authError}</p> : null}
 
         {profileUnavailable ? (
           <div style={styles.guestServerNotice}>
-            <span>{profileMessage ?? "Сервер профиля недоступен"}</span>
+            <span>{profileMessage ?? t("common.profileServerUnavailable")}</span>
             <button
               type="button"
               style={styles.profileServerRetryButton}
               onClick={onRetryProfile}
             >
-              Повторить
+              {t("common.retry")}
             </button>
           </div>
         ) : null}
@@ -1276,6 +1336,7 @@ function ProfileRegisterModal({
     promoCode?: string
   ) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const overlayTransform = useStageOverlayTransform();
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -1305,19 +1366,19 @@ function ProfileRegisterModal({
     setError(null);
     try {
       if (!isValidPlayerNickname(username)) {
-        throw new Error(PLAYER_NICKNAME_HINT);
+        throw new Error(t("auth.nicknameHint"));
       }
 
       if (!isValidEmail(email)) {
-        throw new Error("Укажите корректный e-mail");
+        throw new Error(t("auth.emailInvalid"));
       }
 
       if (password !== repeatPassword) {
-        throw new Error("Пароли не совпадают");
+        throw new Error(t("auth.passwordMismatch"));
       }
 
       if (!legalAccepted) {
-        throw new Error("Необходимо ознакомиться с документами и принять условия");
+        throw new Error(t("auth.legalRequired"));
       }
 
       await onRegister(username, email, password, legalAccepted, promoCode);
@@ -1327,7 +1388,7 @@ function ProfileRegisterModal({
       setError(
         submitError instanceof Error
           ? submitError.message
-          : "Не удалось зарегистрироваться"
+          : t("auth.registerFailed")
       );
     } finally {
       setSaving(false);
@@ -1342,18 +1403,18 @@ function ProfileRegisterModal({
           onClick={(event) => event.stopPropagation()}
         >
           <div style={styles.guestAuthHeader}>
-            <span style={styles.guestAuthTitle}>Регистрация</span>
+            <span style={styles.guestAuthTitle}>{t("auth.register")}</span>
             <button
               type="button"
               style={styles.guestAuthBackButton}
               onClick={onClose}
             >
-              Отмена
+              {t("auth.cancel")}
             </button>
           </div>
 
           <p style={styles.guestEntryNote}>
-            Гостевой прогресс будет перенесён в новый аккаунт.
+            {t("auth.guestMergeNote")}
           </p>
 
           <form style={styles.guestEntryForm} onSubmit={submit}>
@@ -1361,14 +1422,14 @@ function ProfileRegisterModal({
               style={styles.guestEntryLabel}
               htmlFor="profile-register-username"
             >
-              Логин
+              {t("auth.login")}
             </label>
             <input
               id="profile-register-username"
               value={username}
               maxLength={PLAYER_NICKNAME_MAX_LENGTH}
               pattern={PLAYER_NICKNAME_INPUT_PATTERN}
-              title={PLAYER_NICKNAME_HINT}
+              title={t("auth.nicknameHint")}
               onChange={(event) =>
                 setUsername(sanitizePlayerNicknameInput(event.target.value))
               }
@@ -1381,7 +1442,7 @@ function ProfileRegisterModal({
               style={styles.guestEntryLabel}
               htmlFor="profile-register-password"
             >
-              Пароль
+              {t("auth.password")}
             </label>
             <input
               id="profile-register-password"
@@ -1416,7 +1477,7 @@ function ProfileRegisterModal({
               style={styles.guestEntryLabel}
               htmlFor="profile-register-repeat-password"
             >
-              Повторить пароль
+              {t("auth.repeatPassword")}
             </label>
             <input
               id="profile-register-repeat-password"
@@ -1434,7 +1495,7 @@ function ProfileRegisterModal({
               style={styles.guestEntryLabel}
               htmlFor="profile-register-promo-code"
             >
-              Промокод
+              {t("auth.promoCode")}
             </label>
             <input
               id="profile-register-promo-code"
@@ -1454,16 +1515,18 @@ function ProfileRegisterModal({
                 style={styles.legalConsentCheckbox}
               />
               <span>
-                Я ознакомился и согласен: <LegalLinks compact />
+                {t("auth.legalConsent")} <LegalLinks compact />
               </span>
             </label>
+
+            <LanguageChoiceRow compact />
 
             <button
               type="submit"
               style={styles.guestPrimaryButton}
               disabled={saving}
             >
-              {saving ? "Регистрация..." : "Зарегистрироваться"}
+              {saving ? t("auth.registering") : t("auth.registerAccount")}
             </button>
           </form>
 
@@ -1482,6 +1545,7 @@ function PlayerProfileMenu({
   onBack: () => void;
   onProfileChanged?: () => void;
 }) {
+  const { t } = useI18n();
   const [progress, setProgress] = useState(() => loadPlayerProgress());
   const [registerOpen, setRegisterOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<
@@ -1530,7 +1594,7 @@ function PlayerProfileMenu({
       onProfileChanged?.();
     } catch {
       setSyncStatus("failed");
-      window.alert("Сервер профиля недоступен");
+      window.alert(t("common.profileServerUnavailable"));
     }
   }
 
@@ -1538,8 +1602,8 @@ function PlayerProfileMenu({
     if (!profileServerReady) {
       window.alert(
         profileServerUnavailable
-          ? "Сервер профиля недоступен"
-          : "Дождитесь синхронизации профиля"
+          ? t("common.profileServerUnavailable")
+          : t("common.profileSyncWait")
       );
       return;
     }
@@ -1820,6 +1884,7 @@ function PvpMatchmakingScreen({
   onRetry: () => void;
   onFallback: () => void;
 }) {
+  const { t } = useI18n();
   const [now, setNow] = useState(() => Date.now());
   const [reticleIndex, setReticleIndex] = useState(0);
   const playRadarScanSoundRef = useRef(createRadarScanSoundPlayer());
@@ -1886,7 +1951,7 @@ function PvpMatchmakingScreen({
 
       <section style={styles.matchmakingScreen}>
         <header style={styles.matchmakingHeader}>
-          <h1 style={styles.matchmakingTitle}>ПОИСК ПРОТИВНИКА</h1>
+          <h1 style={styles.matchmakingTitle}>{t("battle.searchingOpponent")}</h1>
         </header>
 
         <div
@@ -2036,12 +2101,12 @@ function PvpMatchmakingScreen({
 
         <footer style={styles.matchmakingFooter}>
           <div style={styles.matchmakingTimer}>
-            {failed ? "PVP-СЕРВЕР НЕДОСТУПЕН" : matched
-              ? "ПРОТИВНИК НАЙДЕН"
-              : `АВТОБОЙ ЧЕРЕЗ ${String(remainingSeconds).padStart(2, "0")} СЕК`}
+            {failed ? t("battle.pvpServerUnavailable") : matched
+              ? t("battle.opponentFound")
+              : `${t("battle.autobattleIn")} ${String(remainingSeconds).padStart(2, "0")} ${t("battle.secondsShort")}`}
           </div>
           <button type="button" style={styles.cancelButton} onClick={onCancel}>
-            {failed ? "В меню" : "Отмена поиска"}
+            {failed ? t("common.back") : t("battle.cancelSearch")}
           </button>
           {error ? <div style={styles.error}>{error}</div> : null}
           {failed ? (
@@ -2050,7 +2115,7 @@ function PvpMatchmakingScreen({
               style={{ ...styles.cancelButton, ...styles.retryButton }}
               onClick={onRetry}
             >
-              Повторить
+              {t("common.retry")}
             </button>
           ) : null}
         </footer>
@@ -2213,6 +2278,7 @@ function CarouselTapFrame({
 }
 
 export function PvpLobby() {
+  const { language, t } = useI18n();
   const {
     mode,
     menuView,
@@ -2350,7 +2416,7 @@ export function PvpLobby() {
 
   async function claimCampaignReward(rewardId: string) {
     if (!profileServerReady) {
-      window.alert("Сервер профиля недоступен");
+      window.alert(t("common.profileServerUnavailable"));
       return;
     }
 
@@ -2376,13 +2442,13 @@ export function PvpLobby() {
           });
         }
       } else {
-        window.alert("Награда не выдана: сервер профиля недоступен");
+        window.alert(t("campaign.rewardClaimError"));
       }
     } catch (error) {
       window.alert(
         error instanceof Error
           ? error.message
-          : "Награда не выдана: сервер профиля недоступен"
+          : t("campaign.rewardClaimError")
       );
     } finally {
       setClaimingRewardId(null);
@@ -2398,7 +2464,7 @@ export function PvpLobby() {
       ]);
       setProfileRevision((revision) => revision + 1);
     } catch {
-      window.alert("Сервер профиля недоступен");
+      window.alert(t("common.profileServerUnavailable"));
     }
   }
 
@@ -2437,7 +2503,7 @@ export function PvpLobby() {
     if (message.length < 8) {
       setSupportFeedback((state) => ({
         ...state,
-        error: "Опишите проблему чуть подробнее.",
+        error: t("support.describeMore"),
       }));
       return;
     }
@@ -2473,7 +2539,7 @@ export function PvpLobby() {
         error:
           error instanceof Error
             ? error.message
-            : "Не удалось отправить обращение.",
+            : t("support.sendFailed"),
       }));
     }
   }
@@ -2605,7 +2671,7 @@ export function PvpLobby() {
     const defaultDeckCardIds = getDeckCardIds(headquarters.defaultDeckId);
     const defaultOption: BattleDeckOption = {
       id: null,
-      name: "Стоковая колода",
+      name: t("battle.stockDeck"),
       cardIds: undefined,
       countLabel: `${defaultDeckCardIds.length}/${DECK_UNIT_LIMIT}`,
       weightLabel: `${getDefaultDeckWeight(headquartersId).totalWeight}`,
@@ -2652,7 +2718,7 @@ export function PvpLobby() {
     if (deckCardIds) {
       const validation = validateDeck(headquartersId, deckCardIds, playerProgress);
       if (!validation.valid) {
-        window.alert(validation.message ?? "Invalid deck");
+        window.alert(validation.message ?? t("common.invalidDeck"));
         return;
       }
     }
@@ -2704,14 +2770,14 @@ export function PvpLobby() {
     if (!profileServerReady) {
       window.alert(
         profileServerUnavailable
-          ? "Сервер профиля недоступен"
-          : "Дождитесь синхронизации профиля"
+          ? t("common.profileServerUnavailable")
+          : t("common.profileSyncWait")
       );
       return;
     }
 
     const confirmed = window.confirm(
-      `Удалить колоду "${previewDeck.deck.name}"?`
+      `${t("battle.deleteDeckConfirm")} "${previewDeck.deck.name}"?`
     );
     if (!confirmed) return;
 
@@ -2924,13 +2990,13 @@ export function PvpLobby() {
                 setPreviewUnitCard(null);
               }}
             >
-              <CardKeywordsPanel keywords={getCardKeywords(previewUnitCard)} />
+              <CardKeywordsPanel keywords={getCardKeywords(previewUnitCard, language)} />
 
               <button
                 type="button"
                 style={styles.cardPreviewClose}
                 onClick={() => setPreviewUnitCard(null)}
-                aria-label="Закрыть просмотр карты"
+                aria-label={t("battle.closeCardPreview")}
               >
                 ×
               </button>
@@ -3016,13 +3082,13 @@ export function PvpLobby() {
 
         <section style={{ ...styles.menuLayer, ...styles.mainMenuLayer }}>
           <header style={styles.header}>
-            <h1 style={styles.title}>ВЫБЕРИ КОМПАНИЮ</h1>
+            <h1 style={styles.title}>{t("battle.selectCompany")}</h1>
           </header>
 
           <CarouselTapFrame
             viewportRef={campaignsCarouselRef}
             viewportStyle={styles.carouselViewport}
-            ariaLabel="Выбор кампании"
+            ariaLabel={t("battle.selectCompany")}
           >
             <div style={styles.campaignCarouselTrack}>
               {visibleCampaigns.map((campaign, index) => {
@@ -3039,7 +3105,7 @@ export function PvpLobby() {
                     whileHover={{ y: -8, scale: 1.035 }}
                     whileTap={{ scale: 0.985 }}
                     transition={{ type: "spring", stiffness: 360, damping: 28 }}
-                    aria-label={`Выбрать кампанию ${campaign.title}`}
+                    aria-label={`${t("battle.selectCompany")}: ${campaign.title}`}
                   >
                     <div
                       style={{
@@ -3058,7 +3124,7 @@ export function PvpLobby() {
 
           <div style={styles.menuActionsRow}>
             <button type="button" style={styles.backButton} onClick={closeCampaignMenu}>
-              Назад
+              {t("common.back")}
             </button>
           </div>
         </section>
@@ -3096,19 +3162,19 @@ export function PvpLobby() {
       const canClaim = rewardUnlocked && !rewardClaimed;
       const isFocusTarget = `reward-${reward.id}` === campaignFocusKey;
       const tooltip = rewardClaimed
-        ? `Награда получена: ${cardLabel}`
+        ? `${t("campaign.rewardReceived")}: ${cardLabel}`
         : rewardUnlocked
           ? claiming
-            ? "Выдача награды…"
-            : `Нажмите, чтобы забрать: ${cardLabel}`
-          : `Завершите операцию ${requiredMissionLabel}, чтобы забрать ${cardLabel}`;
+            ? t("campaign.rewardClaiming")
+            : `${t("campaign.rewardClaim")}: ${cardLabel}`
+          : `${t("campaign.rewardLocked")} ${requiredMissionLabel}: ${cardLabel}`;
       const captionText = rewardClaimed
-        ? "Получено"
+        ? t("campaign.rewardReceived")
         : canClaim
           ? claiming
-            ? "Выдача…"
-            : "Забрать"
-          : "Закрыто";
+            ? t("campaign.rewardClaiming")
+            : t("campaign.rewardClaim")
+          : t("campaign.rewardLocked");
 
       return (
         <motion.div
@@ -3174,7 +3240,7 @@ export function PvpLobby() {
 
         <section style={styles.menuLayer}>
           <header style={styles.header}>
-            <div style={styles.kicker}>Выбор операции</div>
+            <div style={styles.kicker}>{t("battle.selectOperation")}</div>
             <h1 style={styles.title}>{missionCampaign.title}</h1>
             <p style={styles.subtitle}>{missionCampaign.description}</p>
           </header>
@@ -3250,7 +3316,7 @@ export function PvpLobby() {
                       />
                       <div style={styles.missionArtContent}>
                         <span style={styles.missionNumber}>
-                          Операция {String(index + 1).padStart(2, "0")}
+                          {t("campaign.operation")} {String(index + 1).padStart(2, "0")}
                         </span>
                         <span style={styles.missionChapter}>{mission.chapter}</span>
                         <span style={styles.missionTitle}>{mission.title}</span>
@@ -3264,14 +3330,14 @@ export function PvpLobby() {
                           }}
                         >
                           {completed
-                            ? "Пройдено"
+                            ? t("campaign.completed")
                             : !available
-                              ? "Скоро"
+                              ? t("campaign.soon")
                               : rewardLocked
-                                ? "Заберите награду"
+                                ? t("campaign.claimReward")
                                 : unlocked
-                                  ? "Доступно"
-                                  : "Закрыто"}
+                                  ? t("campaign.available")
+                                  : t("campaign.rewardLocked")}
                         </span>
                       </div>
                     </div>
@@ -3286,7 +3352,7 @@ export function PvpLobby() {
 
           <div style={styles.menuActionsRow}>
             <button type="button" style={styles.backButton} onClick={closeCampaignMissions}>
-              Назад
+              {t("common.back")}
             </button>
           </div>
         </section>
@@ -3296,7 +3362,7 @@ export function PvpLobby() {
             <RewardCelebrationOverlay
               key={rewardCelebration.id}
               cards={rewardCelebration.cards}
-              label="Награда"
+              label={t("campaign.reward")}
               tone="reward"
               onClose={() => setRewardCelebration(null)}
             />
@@ -3378,13 +3444,13 @@ export function PvpLobby() {
 
         <section style={{ ...styles.menuLayer, ...styles.mainMenuLayer }}>
           <header style={{ ...styles.header, ...styles.mainMenuHeader }}>
-            <h1 style={styles.title}>ВЫБЕРИ РЕЖИМ БОЯ</h1>
+            <h1 style={styles.title}>{t("main.selectBattleMode")}</h1>
           </header>
 
           <CarouselTapFrame
             viewportRef={mainMenuCarouselRef}
             viewportStyle={styles.carouselViewport}
-            ariaLabel="Выбор режима боя"
+            ariaLabel={t("main.selectBattleMode")}
             hideArrows
           >
             <div style={styles.mainMenuTrack}>
@@ -3392,7 +3458,7 @@ export function PvpLobby() {
               type="button"
               style={styles.campaignEntryOption}
               onClick={openCampaignMenu}
-              aria-label="Открыть компании"
+              aria-label={t("main.campaign")}
               whileHover={{ y: -8, scale: 1.035 }}
               whileTap={{ scale: 0.985 }}
               transition={{ type: "spring", stiffness: 360, damping: 28 }}
@@ -3407,7 +3473,7 @@ export function PvpLobby() {
                   }
                   style={styles.campaignEntryImage}
                 />
-                <span style={styles.campaignEntryTitleOverlay}>Компании</span>
+                <span style={styles.campaignEntryTitleOverlay}>{t("main.campaign")}</span>
               </div>
             </motion.button>
 
@@ -3415,7 +3481,7 @@ export function PvpLobby() {
               type="button"
               style={styles.campaignEntryOption}
               onClick={() => openHeadquartersMenu("pvp")}
-              aria-label="Открыть быстрый бой"
+              aria-label={t("main.quickBattle")}
               whileHover={{ y: -8, scale: 1.035 }}
               whileTap={{ scale: 0.985 }}
               transition={{ type: "spring", stiffness: 360, damping: 28 }}
@@ -3428,7 +3494,7 @@ export function PvpLobby() {
                   onError={(event) => usePngFallback(event, "/ui/menu/PVP.png")}
                   style={styles.campaignEntryImage}
                 />
-                <span style={styles.campaignEntryTitleOverlay}>Быстрый бой</span>
+                <span style={styles.campaignEntryTitleOverlay}>{t("main.quickBattle")}</span>
               </div>
             </motion.button>
 
@@ -3436,7 +3502,7 @@ export function PvpLobby() {
               type="button"
               style={styles.campaignEntryOption}
               onClick={() => openHeadquartersMenu("ai")}
-              aria-label="Открыть бой против ИИ"
+              aria-label={t("main.aiBattle")}
               whileHover={{ y: -8, scale: 1.035 }}
               whileTap={{ scale: 0.985 }}
               transition={{ type: "spring", stiffness: 360, damping: 28 }}
@@ -3449,7 +3515,7 @@ export function PvpLobby() {
                   onError={(event) => usePngFallback(event, "/ui/menu/PVE.png")}
                   style={styles.campaignEntryImage}
                 />
-                <span style={styles.campaignEntryTitleOverlay}>Бой против ИИ</span>
+                <span style={styles.campaignEntryTitleOverlay}>{t("main.aiBattle")}</span>
               </div>
             </motion.button>
 
@@ -3462,7 +3528,7 @@ export function PvpLobby() {
               }
               style={styles.campaignEntryOption}
               onClick={startTutorial}
-              aria-label="Начать обучение"
+              aria-label={t("main.tutorial")}
               whileHover={{ y: -8, scale: 1.035 }}
               whileTap={{ scale: 0.985 }}
               transition={{ type: "spring", stiffness: 360, damping: 28 }}
@@ -3477,7 +3543,7 @@ export function PvpLobby() {
                   }
                   style={styles.campaignEntryImage}
                 />
-                <span style={styles.campaignEntryTitleOverlay}>Обучение</span>
+                <span style={styles.campaignEntryTitleOverlay}>{t("main.tutorial")}</span>
               </div>
             </motion.button>
             </div>
@@ -3490,7 +3556,7 @@ export function PvpLobby() {
             style={styles.researchButton}
             onClick={openResearchMenu}
           >
-            Исследования
+            {t("main.research")}
           </button>
 
           <button
@@ -3499,7 +3565,7 @@ export function PvpLobby() {
             style={styles.collectionButton}
             onClick={openCollectionMenu}
           >
-            Коллекция
+            {t("main.collection")}
           </button>
 
           </div>
@@ -3512,7 +3578,7 @@ export function PvpLobby() {
             style={styles.supportLink}
             onClick={openSupportForm}
           >
-            Поддержка
+            {t("main.support")}
           </button>
         </section>
 
@@ -3526,21 +3592,21 @@ export function PvpLobby() {
               <div style={styles.supportHeader}>
                 <div>
                   <div style={styles.supportKicker}>PANZERSHREK</div>
-                  <h2 style={styles.supportTitle}>Поддержка</h2>
+                  <h2 style={styles.supportTitle}>{t("support.title")}</h2>
                 </div>
                 <button
                   type="button"
                   style={styles.supportCloseButton}
                   onClick={closeSupportForm}
                   disabled={supportFeedback.sending}
-                  aria-label="Закрыть поддержку"
+                  aria-label={t("support.close")}
                 >
                   ×
                 </button>
               </div>
 
               <label style={styles.supportLabel}>
-                Контакт для ответа
+                {t("support.contact")}
                 <input
                   value={supportFeedback.contact}
                   onChange={(event) =>
@@ -3550,13 +3616,13 @@ export function PvpLobby() {
                     }))
                   }
                   style={styles.supportInput}
-                  placeholder="email, ник в Telegram или Discord"
+                  placeholder={t("support.contactPlaceholder")}
                   maxLength={160}
                 />
               </label>
 
               <label style={styles.supportLabel}>
-                Что случилось?
+                {t("support.message")}
                 <textarea
                   value={supportFeedback.message}
                   onChange={(event) =>
@@ -3568,7 +3634,7 @@ export function PvpLobby() {
                     }))
                   }
                   style={styles.supportTextarea}
-                  placeholder="Опишите проблему, что нажимали и что ожидали увидеть"
+                  placeholder={t("support.messagePlaceholder")}
                   maxLength={3000}
                   rows={7}
                   required
@@ -3580,8 +3646,7 @@ export function PvpLobby() {
               ) : null}
               {supportFeedback.sent ? (
                 <div style={styles.supportSuccess}>
-                  Сообщение отправлено. Ответ вы получите по e-mail, указанному
-                  при регистрации.
+                  {t("support.sent")}
                 </div>
               ) : null}
 
@@ -3592,14 +3657,14 @@ export function PvpLobby() {
                   onClick={closeSupportForm}
                   disabled={supportFeedback.sending}
                 >
-                  Закрыть
+                  {t("common.close")}
                 </button>
                 <button
                   type="submit"
                   style={styles.supportPrimaryButton}
                   disabled={supportFeedback.sending}
                 >
-                  {supportFeedback.sending ? "Отправка..." : "Отправить"}
+                  {supportFeedback.sending ? t("support.sending") : t("support.send")}
                 </button>
               </div>
             </form>
@@ -3622,7 +3687,7 @@ export function PvpLobby() {
       <section style={{ ...styles.menuLayer, ...styles.headquartersMenuLayer }}>
         <header style={{ ...styles.header, ...styles.headquartersHeader }}>
           <h1 style={{ ...styles.title, ...styles.headquartersTitle }}>
-            ВЫБЕРИ ШТАБ
+            {t("battle.selectHeadquarters")}
           </h1>
         </header>
 
@@ -3632,7 +3697,7 @@ export function PvpLobby() {
             ...styles.carouselViewport,
             ...styles.headquartersCarouselViewport,
           }}
-          ariaLabel="Выбор штаба"
+          ariaLabel={t("battle.selectHeadquarters")}
         >
           <div style={styles.carouselTrack}>
             {filteredDeckOptions.map(
@@ -3669,7 +3734,7 @@ export function PvpLobby() {
                   whileHover={buttonsDisabled ? undefined : { y: -8, scale: 1.035 }}
                   whileTap={buttonsDisabled ? undefined : { scale: 0.985 }}
                   transition={{ type: "spring", stiffness: 360, damping: 28 }}
-                  aria-label={`Играть колодой ${deck.name}`}
+                  aria-label={`${t("battle.playDeck")} ${deck.name}`}
                 >
                   <div
                     style={{
@@ -3698,7 +3763,7 @@ export function PvpLobby() {
                   <div style={styles.headquartersDeckCaption}>
                     <span style={styles.headquartersDeckName}>{deck.name}</span>
                     <span style={styles.headquartersDeckCount}>
-                      {deck.countLabel} · сила {deck.weightLabel}
+                      {deck.countLabel} · {t("battle.deckStrength")} {deck.weightLabel}
                     </span>
                   </div>
                 </motion.button>
@@ -3722,13 +3787,13 @@ export function PvpLobby() {
                 onClick={openCreateDeckBuilder}
                 aria-label="Открыть создание колоды"
               >
-                Создать колоду
+                {t("battle.createDeck")}
               </button>
 
               <div
                 style={styles.deckNationFilterRow}
                 role="group"
-                aria-label="Фильтр колод по нации"
+                aria-label={t("battle.filterDecksByNation")}
               >
                 <button
                   type="button"
@@ -3740,9 +3805,9 @@ export function PvpLobby() {
                   }}
                   onClick={() => setDeckNationFilter("all")}
                   aria-pressed={deckNationFilter === "all"}
-                  title="Все нации"
+                  title={t("battle.allNations")}
                 >
-                  Все
+                  {t("common.all")}
                 </button>
                 {availableDeckNations.map((nation) => {
                   const flag = getNationFlagAsset(nation);
@@ -3783,8 +3848,8 @@ export function PvpLobby() {
               className="menu-image-button"
               style={styles.headquartersBackButton}
               onClick={closeHeadquartersMenu}
-              aria-label="Назад"
-              title="Назад"
+              aria-label={t("common.back")}
+              title={t("common.back")}
             >
               ‹
             </button>
@@ -3820,7 +3885,7 @@ export function PvpLobby() {
             style={styles.cancelButton}
             onClick={cancelMatchmaking}
           >
-            Отмена поиска
+            {t("battle.cancelSearch")}
           </button>
         ) : null}
 
@@ -3873,7 +3938,9 @@ export function PvpLobby() {
                 {!previewDeckIsCustom && previewHeadquarters ? (
                   <CardKeywordsPanel
                     keywords={getHeadquartersKeywords(
-                      previewHeadquarters.ability
+                      previewHeadquarters.ability,
+                      previewHeadquarters.nation,
+                      language
                     )}
                   />
                 ) : null}
@@ -3882,7 +3949,7 @@ export function PvpLobby() {
                   type="button"
                   style={styles.cardPreviewClose}
                   onClick={closeHeadquartersPreview}
-                  aria-label="Закрыть просмотр карты"
+                aria-label={t("battle.closeCardPreview")}
                 >
                   ×
                 </button>
@@ -3894,14 +3961,14 @@ export function PvpLobby() {
                       style={styles.deckPreviewActionButton}
                       onClick={deletePreviewDeck}
                     >
-                      Удалить колоду
+                      {t("battle.deleteDeck")}
                     </button>
                     <button
                       type="button"
                       style={styles.deckPreviewActionButton}
                       onClick={editPreviewDeck}
                     >
-                      Редактировать колоду
+                      {t("battle.editDeck")}
                     </button>
                   </aside>
                 ) : null}
@@ -3964,7 +4031,7 @@ export function PvpLobby() {
                 ) : null}
 
                 <div style={styles.cardPreviewHint}>
-                  ПКМ по фону или Esc — закрыть
+                  {t("battle.previewCloseHint")}
                 </div>
               </motion.div>
 
@@ -3981,13 +4048,13 @@ export function PvpLobby() {
                     setPreviewUnitCard(null);
                   }}
                 >
-                  <CardKeywordsPanel keywords={getCardKeywords(previewUnitCard)} />
+                  <CardKeywordsPanel keywords={getCardKeywords(previewUnitCard, language)} />
 
                   <button
                     type="button"
                     style={styles.cardPreviewClose}
                     onClick={() => setPreviewUnitCard(null)}
-                    aria-label="Закрыть просмотр юнита"
+                    aria-label={t("battle.closeUnitPreview")}
                   >
                     ×
                   </button>
@@ -4396,6 +4463,54 @@ const styles: Record<string, CSSProperties> = {
 
   legalLinksSeparator: {
     color: "rgba(244,229,191,0.42)",
+  },
+
+  languageChoiceRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 10,
+  },
+
+  languageChoiceRowCompact: {
+    display: "flex",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 8,
+  },
+
+  languageChoiceButton: {
+    minHeight: 34,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    padding: "0 12px",
+    border: "1px solid rgba(216,174,92,0.25)",
+    borderRadius: 0,
+    background: "rgba(6,8,6,0.46)",
+    color: "rgba(245,230,192,0.82)",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 900,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+
+  languageChoiceButtonActive: {
+    border: "1px solid rgba(232, 198, 112, 0.82)",
+    color: "#fff0bd",
+    background:
+      "linear-gradient(180deg, rgba(104, 79, 35, 0.74), rgba(22, 18, 12, 0.76))",
+    boxShadow: "0 0 14px rgba(232,198,112,0.18)",
+  },
+
+  languageChoiceFlag: {
+    width: 28,
+    height: 17,
+    objectFit: "cover",
+    filter: "saturate(0.92) contrast(1.02)",
+    boxShadow: "0 2px 5px rgba(0,0,0,0.56)",
   },
 
   guestEntryLabel: {

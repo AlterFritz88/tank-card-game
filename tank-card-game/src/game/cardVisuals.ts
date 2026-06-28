@@ -1,4 +1,10 @@
 import { getNationFlagAsset } from "../assets/nationFlagAssets";
+import {
+  getLocalizedClassLabel,
+  getLocalizedNationLabel,
+  getLocalizedNationShortLabel,
+  getLocalizedSupportRoleLabel,
+} from "./cardLocalization";
 import type { Nation, TankCard } from "./types";
 
 export type NationVisual = {
@@ -52,8 +58,8 @@ export function getNationVisual(nation: TankCard["nation"] | Nation): NationVisu
   switch (nation) {
     case "ussr":
       return {
-        label: "СССР",
-        shortLabel: "СССР",
+        label: getLocalizedNationLabel(nation),
+        shortLabel: getLocalizedNationShortLabel(nation),
         background:
           "linear-gradient(135deg, rgba(150, 20, 20, 0.95), rgba(52, 10, 10, 0.95))",
         accent: "#ff5555",
@@ -64,8 +70,8 @@ export function getNationVisual(nation: TankCard["nation"] | Nation): NationVisu
 
     case "germany":
       return {
-        label: "Германия",
-        shortLabel: "ГЕР",
+        label: getLocalizedNationLabel(nation),
+        shortLabel: getLocalizedNationShortLabel(nation),
         background:
           "linear-gradient(135deg, rgba(38, 38, 38, 0.95), rgba(110, 28, 28, 0.82), rgba(165, 132, 38, 0.82))",
         accent: "#d7b75f",
@@ -76,8 +82,8 @@ export function getNationVisual(nation: TankCard["nation"] | Nation): NationVisu
 
     case "usa":
       return {
-        label: "США",
-        shortLabel: "США",
+        label: getLocalizedNationLabel(nation),
+        shortLabel: getLocalizedNationShortLabel(nation),
         background:
           "linear-gradient(135deg, rgba(31, 57, 114, 0.95), rgba(120, 28, 38, 0.85))",
         accent: "#7aa2ff",
@@ -88,8 +94,8 @@ export function getNationVisual(nation: TankCard["nation"] | Nation): NationVisu
 
     case "uk":
       return {
-        label: "Британия",
-        shortLabel: "БР",
+        label: getLocalizedNationLabel(nation),
+        shortLabel: getLocalizedNationShortLabel(nation),
         background:
           "linear-gradient(135deg, rgba(31, 45, 96, 0.95), rgba(130, 28, 45, 0.85))",
         accent: "#8fb7ff",
@@ -100,8 +106,8 @@ export function getNationVisual(nation: TankCard["nation"] | Nation): NationVisu
 
     case "poland":
       return {
-        label: "Польша",
-        shortLabel: "ПЛ",
+        label: getLocalizedNationLabel(nation),
+        shortLabel: getLocalizedNationShortLabel(nation),
         background:
           "linear-gradient(135deg, rgba(238, 238, 232, 0.96), rgba(165, 42, 52, 0.9))",
         accent: "#ef6b76",
@@ -112,8 +118,8 @@ export function getNationVisual(nation: TankCard["nation"] | Nation): NationVisu
 
     case "france":
       return {
-        label: "Франция",
-        shortLabel: "ФР",
+        label: getLocalizedNationLabel(nation),
+        shortLabel: getLocalizedNationShortLabel(nation),
         background:
           "linear-gradient(135deg, rgba(35, 61, 134, 0.95), rgba(236, 236, 226, 0.9), rgba(179, 42, 55, 0.92))",
         accent: "#8aa8ff",
@@ -124,8 +130,8 @@ export function getNationVisual(nation: TankCard["nation"] | Nation): NationVisu
 
     default:
       return {
-        label: "Неизвестно",
-        shortLabel: "Н/Д",
+        label: "Unknown",
+        shortLabel: "N/A",
         background:
           "linear-gradient(135deg, rgba(50, 50, 50, 0.95), rgba(20, 20, 20, 0.95))",
         accent: "#aaaaaa",
@@ -140,49 +146,49 @@ export function getClassVisual(vehicleClass: TankCard["class"]): ClassVisual {
   switch (vehicleClass) {
     case "light":
       return {
-        label: "Лёгкий танк",
+        label: getLocalizedClassLabel(vehicleClass),
         icon: "⚡",
         accent: "#7de38d",
       };
 
     case "medium":
       return {
-        label: "Средний танк",
+        label: getLocalizedClassLabel(vehicleClass),
         icon: "◈",
         accent: "#6fb7ff",
       };
 
     case "heavy":
       return {
-        label: "Тяжёлый танк",
+        label: getLocalizedClassLabel(vehicleClass),
         icon: "🛡",
         accent: "#d6a84f",
       };
 
     case "td":
       return {
-        label: "ПТ-САУ",
+        label: getLocalizedClassLabel(vehicleClass),
         icon: "🎯",
         accent: "#ff6b5f",
       };
 
     case "spg":
       return {
-        label: "САУ",
+        label: getLocalizedClassLabel(vehicleClass),
         icon: "💥",
         accent: "#c084fc",
       };
 
     case "armored_car":
       return {
-        label: "Бронеавтомобиль",
+        label: getLocalizedClassLabel(vehicleClass),
         icon: "🚗",
         accent: "#9be3c4",
       };
 
     default:
       return {
-        label: "Юнит",
+        label: "Unit",
         icon: "◆",
         accent: "#aaaaaa",
       };
@@ -197,21 +203,21 @@ export function getCardClassVisual(card: TankCard): ClassVisual {
   switch (card.supportRole) {
     case "artillery":
       return {
-        label: "Артиллерия",
+        label: getLocalizedSupportRoleLabel(card.supportRole),
         icon: "АРТ",
         accent: "#c084fc",
       };
 
     case "transport":
       return {
-        label: "Автотранспорт",
+        label: getLocalizedSupportRoleLabel(card.supportRole),
         icon: "ТР",
         accent: "#9bd17b",
       };
 
     case "medical":
       return {
-        label: "Медицина",
+        label: getLocalizedSupportRoleLabel(card.supportRole),
         icon: "МЕД",
         accent: "#72d6cb",
       };

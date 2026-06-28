@@ -46,6 +46,7 @@ import { ResultScreen } from "./ResultScreen";
 import { FuelPanel } from "./FuelPanel";
 import { BattleTimerPanel } from "./BattleTimerPanel";
 import { DeckStack } from "./DeckStack";
+import { useI18n } from "../game/i18n";
 import {
   screenDeltaToStage,
   screenPointToStage,
@@ -495,6 +496,7 @@ type BattleScreenContentProps = {
 };
 
 function BattleScreenContent({ battle }: BattleScreenContentProps) {
+  const { language, t } = useI18n();
   const battleStore = useBattleStore();
   const {
     mode,
@@ -896,13 +898,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   function getStartRollResultText(winner: PlayerId): string {
     if (mode === "pvp") {
       return winner === humanPlayerId
-        ? "ПЕРВЫМ ХОДИШЬ ТЫ"
-        : "ПЕРВЫМ ХОДИТ ВРАГ";
+        ? t("battle.youStart")
+        : t("battle.enemyStarts");
     }
 
     return winner === "player"
-      ? "ПЕРВЫМ ХОДИТ ИГРОК"
-      : "ПЕРВЫМ ХОДИТ ВРАГ";
+      ? t("battle.playerStarts")
+      : t("battle.enemyStarts");
   }
 
   const DRAW_CARD_ANIMATION_MS = 760;
@@ -1346,7 +1348,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     surrenderBattle();
     return;
 
-    const confirmed = window.confirm("Сдаться и засчитать поражение?");
+    const confirmed = window.confirm(t("battle.surrenderConfirm"));
     if (!confirmed) return;
 
     surrenderBattle();
@@ -1648,7 +1650,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         resultVisible: false,
       });
 
-      setTurnBannerText("ТВОЙ ХОД");
+      setTurnBannerText(t("battle.yourTurn"));
       const bannerTimer = window.setTimeout(() => setTurnBannerText(null), 1300);
 
       previousActivePlayerRef.current = "player";
@@ -1690,7 +1692,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         resultVisible: false,
       });
 
-      setTurnBannerText(winner === humanPlayerId ? "ТВОЙ ХОД" : "ХОД ВРАГА");
+      setTurnBannerText(
+        winner === humanPlayerId ? t("battle.yourTurn") : t("battle.enemyTurn")
+      );
 
       window.setTimeout(() => {
         setTurnBannerText(null);
@@ -1848,7 +1852,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   playTurnStartSound();
 
   const nextBannerText =
-    battle.activePlayer === humanPlayerId ? "ТВОЙ ХОД" : "ХОД ВРАГА";
+    battle.activePlayer === humanPlayerId ? t("battle.yourTurn") : t("battle.enemyTurn");
 
   setTurnBannerText(nextBannerText);
 
@@ -3784,7 +3788,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
               : styles.turnControlLabelEnemy),
           }}
         >
-          {isLocalPlayer ? "ХОД ИГРОКА" : "ХОД ВРАГА"}
+          {isLocalPlayer ? t("battle.playerTurn") : t("battle.enemyTurn")}
         </div>
 
         <BattleTimerPanel
@@ -3817,7 +3821,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
             enqueueBattleCommand(executeQueuedEndTurn);
           }}
         >
-          Конец хода
+          {t("battle.endTurn")}
         </button>
       </div>
     );
@@ -3836,11 +3840,11 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           >
             <div style={styles.startRollPanel}>
               <div style={styles.startRollCenterGroup}>
-                <div style={styles.startRollText}>Определяем первый ход</div>
+                <div style={styles.startRollText}>{t("battle.rollFirstTurn")}</div>
 
                 <motion.img
                   src={cartridgeImage}
-                  alt="Жеребьёвка первого хода"
+                  alt={t("battle.rollAlt")}
                   style={styles.startRollCartridge}
                   initial={{ rotate: 0, scale: 0.9 }}
                   animate={{
@@ -4332,7 +4336,7 @@ function renderEnemyDeckWithTimer() {
     selectedHandCardDefinition !== null &&
     selectedHandCardDefinition.deploymentZone !== "support";
   const battleBackground = getBattleBackgroundAsset(battle.backgroundId);
-  const resultRestartLabel = "В меню";
+  const resultRestartLabel = t("battle.toMenu");
   const handleResultRestart =
     mode === "pvp"
       ? leavePvpMatch
@@ -4359,7 +4363,7 @@ function renderEnemyDeckWithTimer() {
           style={{ ...styles.surrenderButton, ...styles.surrenderCornerPos }}
           onClick={handleSurrenderClick}
         >
-          <span style={styles.surrenderButtonText}>Сдаться</span>
+          <span style={styles.surrenderButtonText}>{t("battle.surrender")}</span>
         </button>
       ) : null}
 
@@ -4621,7 +4625,7 @@ function renderEnemyDeckWithTimer() {
     >
       <div style={styles.startRollPanel}>
         <div style={styles.startRollCenterGroup}>
-          <div style={styles.startRollText}>Определяем первый ход</div>
+          <div style={styles.startRollText}>{t("battle.rollFirstTurn")}</div>
 
           <motion.img
             src={cartridgeImage}
@@ -4665,7 +4669,7 @@ function renderEnemyDeckWithTimer() {
     <motion.div
       style={{
         ...styles.turnBanner,
-        ...(turnBannerText === "ХОД ВРАГА" ? styles.enemyTurnBanner : {}),
+        ...(turnBannerText === t("battle.enemyTurn") ? styles.enemyTurnBanner : {}),
       }}
       initial={{ opacity: 0, scale: 0.72, y: 20 }}
       animate={{
@@ -5342,13 +5346,13 @@ function renderEnemyDeckWithTimer() {
                 style={styles.surrenderButton}
                 onClick={handleSurrenderClick}
               >
-                Сдаться
+                {t("battle.surrender")}
               </button>
             ) : null}
 
             {false && !tutorialActive && mode !== "pvp" && !missionMinimalBattleControls ? (
               <button style={styles.secondaryButton} onClick={reset}>
-                Новый бой
+                {t("battle.newBattle")}
               </button>
             ) : null}
 
@@ -5358,7 +5362,7 @@ function renderEnemyDeckWithTimer() {
                 style={styles.secondaryButton}
                 onClick={exitBattleToMenu}
               >
-                В меню
+                {t("battle.toMenu")}
               </button>
             ) : null}
 
@@ -5657,11 +5661,12 @@ function renderEnemyDeckWithTimer() {
                   <CardKeywordsPanel
                     keywords={
                       cardPreview.type === "unit"
-                        ? getCardKeywords(getCard(cardPreview.cardId))
+                        ? getCardKeywords(getCard(cardPreview.cardId), language)
                         : getHeadquartersKeywords(
                             getHeadquartersAbility(cardPreview.headquartersId),
                             getHeadquartersDefinition(cardPreview.headquartersId)
-                              .nation
+                              .nation,
+                            language
                           )
                     }
                   />
@@ -5670,7 +5675,7 @@ function renderEnemyDeckWithTimer() {
                     type="button"
                     style={styles.cardPreviewClose}
                     onClick={closeCardPreview}
-                    aria-label="Закрыть просмотр карты"
+                    aria-label={t("battle.closeCardPreview")}
                   >
                     ×
                   </button>

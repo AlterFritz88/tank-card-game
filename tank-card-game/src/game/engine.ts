@@ -64,7 +64,7 @@ const SUPPORT_SLOT_ROW: Record<SupportSlot, number> = {
   3: 3,
 };
 
-function getSupportSlotPosition(
+export function getSupportSlotPosition(
   playerId: PlayerId,
   supportSlot: SupportSlot
 ): Position {
@@ -327,9 +327,14 @@ function getCohesionDefenseBonus(state: BattleState, unit: BoardUnit): number {
 
 /**
  * «Линия снабжения» (США): instanceIds of a side's battlefield units forming a
- * horizontal line of three in consecutive columns of one row, provided the side
- * also holds at least one rear support unit (the supply source feeding the line).
- * Each such unit gains the national health bonus.
+ * horizontal line of three in consecutive columns of one row, whose rear edge
+ * abuts the front (spawn) column AND is fed by a rear support unit standing
+ * directly behind that rear edge. Each such unit gains the national health bonus.
+ *
+ * The supply must flow without a break: a support unit feeds the line only if it
+ * sits in a rear-strip cell adjacent to the line's rear-most unit (the one in the
+ * front column). If the support unit is off to the side — leaving an empty cell
+ * between it and the line — the chain is broken and no bonus is granted.
  */
 export function getSupplyLineUnitIds(
   state: BattleState,
@@ -341,13 +346,19 @@ export function getSupplyLineUnitIds(
     return ids;
   }
 
-  // The supply source: a unit in the rear (support) line at the start of the line.
-  const hasSupplySource = state.units.some(
-    (unit) =>
-      unit.ownerId === playerId && isSupportUnit(unit) && unit.currentHp > 0
-  );
+  // Living supply sources, resolved to their actual rear-strip cell positions
+  // (support units share the HQ position, so the real cell comes from the slot).
+  const supplyCells = state.units
+    .filter(
+      (unit) =>
+        unit.ownerId === playerId &&
+        isSupportUnit(unit) &&
+        unit.currentHp > 0 &&
+        unit.supportSlot !== undefined
+    )
+    .map((unit) => getSupportSlotPosition(playerId, unit.supportSlot!));
 
-  if (!hasSupplySource) return ids;
+  if (supplyCells.length === 0) return ids;
 
   // The line must reach back to the rear: its rear-most cell sits in the side's
   // front (spawn) column, so supply can flow from the rear into the formation.
@@ -367,24 +378,33 @@ export function getSupplyLineUnitIds(
     const occupiedCols = new Set(rowUnits.map((unit) => unit.position.col));
 
     // Find a run of three consecutive occupied columns that abuts the front
-    // column — the only run whose rear edge is fed by the rear/spawn area.
+    // column — the only run whose rear edge can be fed by the rear/spawn area.
     for (let startCol = 0; startCol <= 2; startCol += 1) {
       const touchesRear =
         startCol <= frontColumn && frontColumn <= startCol + 2;
 
       if (
-        touchesRear &&
-        occupiedCols.has(startCol) &&
-        occupiedCols.has(startCol + 1) &&
-        occupiedCols.has(startCol + 2)
+        !touchesRear ||
+        !occupiedCols.has(startCol) ||
+        !occupiedCols.has(startCol + 1) ||
+        !occupiedCols.has(startCol + 2)
       ) {
-        for (const unit of rowUnits) {
-          if (
-            unit.position.col >= startCol &&
-            unit.position.col <= startCol + 2
-          ) {
-            ids.add(unit.instanceId);
-          }
+        continue;
+      }
+
+      // Supply enters through the line's rear-most cell (in the front column).
+      // A support unit feeds the line only if it stands in an adjacent rear cell;
+      // otherwise the supply chain is broken and the formation gets no bonus.
+      const rearCell: Position = { row, col: frontColumn };
+      const isFed = supplyCells.some((cell) =>
+        isAdjacentAnyDirection(cell, rearCell)
+      );
+
+      if (!isFed) continue;
+
+      for (const unit of rowUnits) {
+        if (unit.position.col >= startCol && unit.position.col <= startCol + 2) {
+          ids.add(unit.instanceId);
         }
       }
     }
