@@ -135,6 +135,17 @@ export type HeadquartersAbility = {
   lightUnitsBlitz?: boolean;
   /** Extra headquarters damage against already damaged enemy units. */
   hqAttackBonusVsDamaged?: number;
+  /**
+   * «Удар по тылам»: extra headquarters damage when this HQ strikes the enemy
+   * rear line (support units) or the enemy headquarters.
+   */
+  hqRearStrikeBonus?: number;
+  /**
+   * The downside paired with {@link hqRearStrikeBonus}: this side's own rear
+   * line (support units) and headquarters take this much extra damage from
+   * enemy light tanks and armored cars.
+   */
+  rearVulnerabilityToLightUnits?: number;
   /** Heal a random damaged own battlefield unit at the start of the turn. */
   healRandomUnitPerTurn?: number;
   /** Extra fuel per turn while controlling both a tank and a support unit. */
@@ -564,4 +575,11 @@ export type BattleKillStats = {
 export type BattleStats = {
   destroyedByPlayer: BattleKillStats;
   destroyedByBot: BattleKillStats;
+  /**
+   * Count of meaningful in-battle actions each side performed (playing a card,
+   * moving, attacking — END_TURN/idle passes do not count). Used as an
+   * anti-farm guard: a side that barely played the match earns no reward.
+   */
+  actionsByPlayer: number;
+  actionsByBot: number;
 };

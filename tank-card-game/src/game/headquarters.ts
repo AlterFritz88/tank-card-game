@@ -148,10 +148,12 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "45. Infanterie-Division",
     type: "Артиллерийский штаб",
     description:
-      "Артиллерийская подготовка: атака штаба наносит +1 урон.",
+      "Удар по тылам: штаб бьёт по тылу и штабу врага на +1, но свой тыл и " +
+      "штаб получают +1 урона от лёгкой техники.",
     ability: {
-      name: "Артиллерийская подготовка",
-      hqAttackBonus: 1,
+      name: "Удар по тылам",
+      hqRearStrikeBonus: 1,
+      rearVulnerabilityToLightUnits: 1,
     },
     faction: "Wehrmacht",
     nation: "germany",

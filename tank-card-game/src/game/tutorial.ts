@@ -15,6 +15,7 @@ import type {
   Position,
   SupportSlot,
 } from "./types";
+import { getSettings, type Language } from "./settings";
 
 export const TUTORIAL_PLAYER_HEADQUARTERS_ID = "training_unit" as const;
 export const TUTORIAL_BOT_HEADQUARTERS_ID = "trainingslager" as const;
@@ -70,6 +71,7 @@ export const TUTORIAL_REWARD: BattleReward = {
   resultMultiplier: 1,
   reasonMultiplier: 1,
   fullyResearchedConversion: false,
+  insufficientActions: false,
 };
 
 /** Центральная клетка переднего столбца спавна — сюда обучение просит выставить Т-12. */
@@ -98,6 +100,7 @@ export type TutorialStep = {
   kind: "dialogue" | "task";
   /** Speech of the instructor avatar (dialogue) or the task instruction. */
   text: string;
+  textEn?: string;
   /** Returns true when a dispatched player action completes this task step. */
   completes?: (action: BattleAction, battle: BattleState) => boolean;
   /** Additional player actions tolerated while the task is active. */
@@ -293,12 +296,17 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     text:
       "Добро пожаловать, командир! Это твой штаб — сердце армии. У штаба есть очки атаки и здоровья. " +
       "Если здоровье штаба упадёт до нуля, он уничтожен. Твоя задача — уничтожить штаб противника раньше, чем он уничтожит твой.",
+    textEn:
+      "Welcome, commander! This is your headquarters: the heart of your army. It has attack and health. " +
+      "If headquarters health drops to zero, it is destroyed. Your objective is to destroy the enemy headquarters before it destroys yours.",
   },
   {
     id: "shoot-hq",
     kind: "task",
     text:
       "Штаб умеет стрелять! Выбери свой штаб и выстрели по вражескому штабу.",
+    textEn:
+      "The headquarters can fire! Select your headquarters and shoot the enemy headquarters.",
     completes: (action, battle) =>
       action.type === "ATTACK" &&
       action.playerId === "player" &&
@@ -312,11 +320,15 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     text:
       "Отлично! Внизу — твоя рука с картами. Топливо каждый ход генерируют штаб и тыловые юниты снабжения. " +
       "За топливо ты разыгрываешь новые юниты на клетки спавна рядом со штабом.",
+    textEn:
+      "Good. Your hand of cards is at the bottom. Fuel is generated each turn by your headquarters and rear supply units. " +
+      "Spend fuel to deploy new units onto the spawn cells next to your headquarters.",
   },
   {
     id: "play-medium",
     kind: "task",
     text: "Разыграй танк Т-12 на среднюю клетку плацдарма (подсвечена).",
+    textEn: "Deploy the T-12 tank to the middle bridgehead cell (highlighted).",
     completes: (action, battle) =>
       action.type === "PLAY_CARD" &&
       action.playerId === "player" &&
@@ -333,6 +345,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     kind: "task",
     text:
       "Т-12 занял плацдарм. Выбери его и сделай первое перемещение вперёд на подсвеченную клетку.",
+    textEn:
+      "The T-12 has taken the bridgehead. Select it and make its first move forward to the highlighted cell.",
     completes: (action, battle) =>
       action.type === "MOVE_UNIT" &&
       getUnit(battle, action.unitId)?.cardId === "t-12" &&
@@ -348,11 +362,17 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       "Средние — универсалы. Тяжёлые — мощные, но за ход либо движутся, либо стреляют. " +
       "ПТ-САУ опасны в ближнем бою, САУ бьют издалека без ответного огня, а бронеавтомобили делают ставку на скорость и манёвр. " +
       "Подробнее о способностях юнита можно узнать правой кнопкой мыши или долгим тапом по карте.",
+    textEn:
+      "Your army has several vehicle roles. Light tanks are fast and can act immediately after deployment. " +
+      "Medium tanks are versatile. Heavy tanks are powerful, but each turn they either move or fire. " +
+      "Tank destroyers are dangerous in close combat, SPGs fire from range without return fire, and armored cars rely on speed and maneuver. " +
+      "Right-click a unit, or long-press it on a phone, to inspect its abilities.",
   },
   {
     id: "end-turn-1",
     kind: "task",
     text: "Теперь нажми кнопку «Конец хода» и посмотри, что сделает противник.",
+    textEn: "Now press End Turn and watch what the enemy does.",
     completes: (action) =>
       action.type === "END_TURN" && action.playerId === "player",
   },
@@ -364,6 +384,10 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       "и обстрелял твой танк. Тыловые юниты — артиллерия, транспорт, медицина — усиливают " +
       "штаб, не выходя на поле. Их можно уничтожить, если твой юнит прорвётся в передний " +
       "столбец врага. САУ бьют по ним из любой точки.",
+    textEn:
+      "Look: the enemy deployed artillery into the rear line next to its headquarters and shelled your tank. " +
+      "Rear units - artillery, transport, and medical support - strengthen the army without entering the main battlefield. " +
+      "They can be destroyed if your unit breaks into the enemy front column. SPGs can hit them from anywhere.",
   },
   {
     id: "bt-blitz",
@@ -372,11 +396,15 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       "Твой Т-12 повреждён, но держится. Усилим натиск! Любой юнит может двигаться и " +
       "атаковать в тот же ход, когда выходит на поле. А у быстрых БТ есть ещё и «Блиц» — " +
       "в ход выхода они успевают сделать два перемещения. Попробуем рейд по тылам: БТ может дойти до линии тыла врага за две команды перемещения.",
+    textEn:
+      "Your T-12 is damaged, but holding. Let's press the attack. Any unit can move and attack on the turn it enters the battlefield. " +
+      "Fast BT tanks also have Blitz: on the deployment turn they can make two moves. Let's raid the rear: a BT can reach the enemy rear line in two movement commands.",
   },
   {
     id: "play-bt",
     kind: "task",
     text: "Разыграй БТ-7 на нижнюю клетку спавна (подсвечена).",
+    textEn: "Deploy the BT-7 to the lower spawn cell (highlighted).",
     completes: (action, battle) =>
       action.type === "PLAY_CARD" &&
       action.playerId === "player" &&
@@ -392,6 +420,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: "move-bt",
     kind: "task",
     text: "БТ-7 готов действовать сразу. Сделай первую команду перемещения: продвинь его к противнику на подсвеченную клетку.",
+    textEn:
+      "The BT-7 can act immediately. Give the first movement command: push it toward the enemy onto the highlighted cell.",
     // Завершаем шаг только когда БТ доходит до конечной клетки. Промежуточную
     // клетку двухклеточного хода пропускаем через allows, иначе шаг сменился бы
     // после первой клетки и второй ход движка был бы заблокирован.
@@ -408,6 +438,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: "raid-bt",
     kind: "task",
     text: "Теперь используй вторую команду Блиц: доведи БТ-7 до линии тыла врага на подсвеченную клетку.",
+    textEn:
+      "Now use the second Blitz command: move the BT-7 to the enemy rear line on the highlighted cell.",
     completes: (action, battle) =>
       action.type === "MOVE_UNIT" &&
       getUnit(battle, action.unitId)?.cardId === "bt_7" &&
@@ -422,6 +454,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     kind: "task",
     text:
       "БТ-7 прорвался к спавну врага. Выбери его и ударь по артиллерии leIG 18 на тыловой линии.",
+    textEn:
+      "The BT-7 has broken into the enemy bridgehead. Select it and strike the leIG 18 artillery on the rear line.",
     completes: isAttackOnSupport,
     allows: (action, battle) =>
       isBtAdvanceTowardCell(action, battle, BT_FRONT_LINE_CELL),
@@ -430,6 +464,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: "end-turn-2",
     kind: "task",
     text: "Заверши ход.",
+    textEn: "End your turn.",
     completes: (action) =>
       action.type === "END_TURN" && action.playerId === "player",
   },
@@ -438,12 +473,16 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     kind: "dialogue",
     text:
       "Противник вывел лёгкий танк и добил твой Т-12. Теперь покажем другой способ контроля поля: дальнобойная САУ может уничтожать опасные цели без ответного огня.",
+    textEn:
+      "The enemy deployed a light tank and finished off your T-12. Now for another way to control the battlefield: a long-range SPG can destroy dangerous targets without return fire.",
   },
   {
     id: "play-spg",
     kind: "task",
     text:
       "Начался следующий ход, и топлива хватает на СУ-5-2. Разыграй САУ на верхнюю клетку спавна (подсвечена).",
+    textEn:
+      "The next turn has begun, and you have enough fuel for the SU-5-2. Deploy the SPG to the upper spawn cell (highlighted).",
     completes: (action, battle) =>
       action.type === "PLAY_CARD" &&
       action.playerId === "player" &&
@@ -461,12 +500,15 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     text:
       "Артиллерия уничтожена! Лёгкий танк врага ослаблен ответным огнём — " +
       "добей его выстрелом своего штаба.",
+    textEn:
+      "The artillery is destroyed. The enemy light tank was weakened by return fire: finish it with a shot from your headquarters.",
     completes: isHqAttackOnBotLightTank,
   },
   {
     id: "end-turn-3",
     kind: "task",
     text: "Отличная работа! Заверши ход.",
+    textEn: "Excellent work. End your turn.",
     completes: (action) =>
       action.type === "END_TURN" && action.playerId === "player",
   },
@@ -476,6 +518,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     text:
       "Противник вывел ПТ-САУ! Запомни правило: в ближнем бою ПТ-САУ стреляет первой — " +
       "атаковать её вплотную опасно. Зато САУ бьют по любой цели издалека, и ответного огня не будет.",
+    textEn:
+      "The enemy deployed a tank destroyer. Remember the rule: in close combat, a tank destroyer fires first, so attacking it up close is dangerous. " +
+      "But SPGs can hit any target from range and take no return fire.",
   },
   {
     id: "kill-td",
@@ -483,6 +528,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     text:
       "Твоя СУ-5-2 уже на позиции. САУ бьют по любой цели издалека и не получают " +
       "ответного огня — уничтожь вражескую ПТ-САУ.",
+    textEn:
+      "Your SU-5-2 is in position. SPGs can hit any target from range and take no return fire: destroy the enemy tank destroyer.",
     completes: isSpgAttackOnTd,
     allows: isPlayerUnitMove,
   },
@@ -492,6 +539,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     text:
       "Ты освоил основы! Теперь добей штаб противника: стреляй штабом, юнитами и разыгрывай " +
       "оставшиеся карты. Вперёд, к победе!",
+    textEn:
+      "You have learned the basics. Now finish the enemy headquarters: fire with your headquarters, attack with units, and deploy the remaining cards. Forward to victory!",
   },
 ];
 
@@ -499,6 +548,17 @@ export const TUTORIAL_EPILOGUE_TEXT =
   "Победа, командир! Дальше тебя ждёт дерево исследований: открывай новые юниты и штабы, " +
   "покупай технику за железные траки и собирай собственные колоды под свой стиль. " +
   "Развивай армию после каждого боя — и удача всегда будет на твоей стороне!";
+
+export const TUTORIAL_EPILOGUE_TEXT_EN =
+  "Victory, commander! Next comes the research tree: unlock new units and headquarters, " +
+  "buy vehicles with iron tracks, and build custom decks for your own style. " +
+  "Develop your army after every battle, and fortune will stay on your side.";
+
+export function getTutorialEpilogueText(
+  language: Language = getSettings().language
+): string {
+  return language === "en" ? TUTORIAL_EPILOGUE_TEXT_EN : TUTORIAL_EPILOGUE_TEXT;
+}
 
 export function isTutorialFreePlay(stepIndex: number): boolean {
   return stepIndex >= TUTORIAL_STEPS.length;
@@ -575,8 +635,17 @@ export function getTutorialHighlights(
   }
 }
 
-export function getTutorialStep(stepIndex: number): TutorialStep | null {
-  return TUTORIAL_STEPS[stepIndex] ?? null;
+export function getTutorialStep(
+  stepIndex: number,
+  language: Language = getSettings().language
+): TutorialStep | null {
+  const step = TUTORIAL_STEPS[stepIndex];
+  if (!step) return null;
+
+  return {
+    ...step,
+    text: language === "en" ? step.textEn ?? step.text : step.text,
+  };
 }
 
 /**

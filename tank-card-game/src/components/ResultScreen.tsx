@@ -13,8 +13,10 @@ import type { BattleReward } from "../game/economy";
 import { loadPlayerProgress } from "../game/playerProgress";
 import { getHeadquartersDefinition } from "../game/headquarters";
 import type { MatchEndReason } from "../game/modes";
+import { getSettings, type Language } from "../game/settings";
 import type { BattleKillStats, ClientBattleState, PlayerId } from "../game/types";
 import { useStageRotation, useStageScale } from "./GameStage";
+import { useI18n } from "../game/i18n";
 
 type ResultScreenProps = {
   battle: ClientBattleState;
@@ -32,14 +34,14 @@ type ResultScreenProps = {
 type ResultTab = "summary" | "trophies";
 type TrophyStatKey = keyof BattleKillStats;
 
-const STAT_ROWS: { key: TrophyStatKey; label: string }[] = [
-  { key: "light", label: "Легкие танки" },
-  { key: "medium", label: "Средние танки" },
-  { key: "heavy", label: "Тяжелые танки" },
-  { key: "td", label: "ПТ-САУ" },
-  { key: "spg", label: "САУ" },
-  { key: "armored_car", label: "Бронеавтомобили" },
-  { key: "support", label: "Тыловые войска" },
+const STAT_ROWS: { key: TrophyStatKey }[] = [
+  { key: "light" },
+  { key: "medium" },
+  { key: "heavy" },
+  { key: "td" },
+  { key: "spg" },
+  { key: "armored_car" },
+  { key: "support" },
 ];
 
 const emptyStats: BattleKillStats = {
@@ -60,8 +62,8 @@ function getStatCount(stats: BattleKillStats, key: TrophyStatKey): number {
   return stats[key] ?? 0;
 }
 
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat("ru-RU").format(value);
+function formatNumber(value: number, language = getSettings().language): string {
+  return new Intl.NumberFormat(language === "en" ? "en-US" : "ru-RU").format(value);
 }
 
 function getPremiumValue(value: number): number {
@@ -88,6 +90,8 @@ export function ResultScreen({
   rewardSyncPending = false,
   onRetryReward,
 }: ResultScreenProps) {
+  const { language } = useI18n();
+  const resultText = getResultText(language);
   const [activeTab, setActiveTab] = useState<ResultTab>("summary");
 
   // Portaled to <body>, outside the scaled/rotated GameStage, so apply the
@@ -110,8 +114,8 @@ export function ResultScreen({
         : null;
 
   const localPlayerWon = winningPlayer === localPlayerId;
-  const title = localPlayerWon ? "Победа!" : "Поражение";
-  const reasonText = getResultReasonText(matchEndReason, localPlayerWon);
+  const title = localPlayerWon ? resultText.victory : resultText.defeat;
+  const reasonText = getResultReasonText(matchEndReason, localPlayerWon, language);
   const bannerImage = localPlayerWon ? victoryBannerImage : defeatBannerImage;
   const titleColor = localPlayerWon ? "#9ef47f" : "#ff7b6c";
   const accentColor = localPlayerWon ? "#78d45f" : "#d76555";
@@ -158,8 +162,8 @@ export function ResultScreen({
             <div style={styles.subtitle}>
               {reasonText ??
                 (localPlayerWon
-                  ? "Штаб противника уничтожен."
-                  : "Ваш штаб потерял боеспособность.")}
+                  ? resultText.enemyHqDestroyed
+                  : resultText.ownHqDestroyed)}
             </div>
             <div style={styles.topRewards}>
               <RewardTicker icon={silverTracksIcon} value={netIronTracks} animated />
@@ -179,13 +183,13 @@ export function ResultScreen({
             active={activeTab === "trophies"}
             onClick={() => setActiveTab("trophies")}
           >
-            Трофеи
+            {resultText.trophies}
           </ResultTabButton>
           <ResultTabButton
             active={activeTab === "summary"}
             onClick={() => setActiveTab("summary")}
           >
-            Сводка
+            {resultText.summary}
           </ResultTabButton>
         </nav>
 
@@ -198,7 +202,7 @@ export function ResultScreen({
           <aside style={styles.ratingBadge}>
             <img src={ratingBannerImage} alt="" style={styles.ratingImage} />
             <div style={styles.ratingContent}>
-              <span style={styles.ratingTitle}>Рейтинг</span>
+              <span style={styles.ratingTitle}>{resultText.rating}</span>
               <span style={styles.ratingValue}>{ratingText}</span>
             </div>
           </aside>
@@ -206,36 +210,41 @@ export function ResultScreen({
           <div style={styles.summary}>
             {rewardStatus === "pending" ? (
               <RewardClaimNotice tone="pending">
-                Начисляем награду на сервере профиля...
+                {resultText.rewardPending}
               </RewardClaimNotice>
             ) : null}
             {rewardStatus === "failed" ? (
               <RewardClaimNotice tone="failed">
-                {rewardError ?? "Награда не начислена: сервер профиля недоступен"}
+                {rewardError ?? resultText.rewardFailed}
               </RewardClaimNotice>
             ) : null}
             {rewardSyncPending ? (
               <RewardClaimNotice tone="queued">
-                Награда сохранена локально. Будет синхронизирована при подключении к серверу.
+                {resultText.rewardQueued}
+              </RewardClaimNotice>
+            ) : null}
+            {reward?.insufficientActions ? (
+              <RewardClaimNotice tone="failed">
+                {resultText.insufficientActions}
               </RewardClaimNotice>
             ) : null}
 
             {activeTab === "summary" ? (
               <>
-                <ResultSection title="Опыт" icon={experienceIcon}>
+                <ResultSection title={resultText.experience} icon={experienceIcon}>
                   <ResultTable
                     icon={experienceIcon}
                     isPremium={isPremium}
                     rows={[
                       {
-                        label: "Боевой опыт штаба",
+                        label: resultText.headquartersXp,
                         value: rawHeadquartersXp,
                         premiumValue: getPremiumValue(rawHeadquartersXp),
                       },
                       {
                         label: reward?.fullyResearchedConversion
-                          ? "Штаб изучен, перевод в свободный опыт"
-                          : "Итого начислено на штаб",
+                          ? resultText.fullyResearchedConversion
+                          : resultText.headquartersXpTotal,
                         value: reward?.fullyResearchedConversion
                           ? freeXp
                           : baseHeadquartersXp,
@@ -246,7 +255,7 @@ export function ResultScreen({
                         ),
                       },
                       {
-                        label: "Свободный опыт",
+                        label: resultText.freeXp,
                         value: freeXp,
                         premiumValue: getPremiumValue(freeXp),
                       },
@@ -254,24 +263,24 @@ export function ResultScreen({
                   />
                 </ResultSection>
 
-                <ResultSection title="Железные траки" icon={silverTracksIcon}>
+                <ResultSection title={resultText.ironTracks} icon={silverTracksIcon}>
                   <ResultTable
                     icon={silverTracksIcon}
                     isPremium={isPremium}
                     rows={[
                       {
-                        label: "Базовая награда за бой",
+                        label: resultText.baseBattleReward,
                         value: rawIronTracks,
                         premiumValue: getPremiumValue(rawIronTracks),
                       },
                       {
-                        label: "Автоматический ремонт штаба",
+                        label: resultText.autoRepair,
                         value: repairCost,
                         premiumValue: repairCost,
                         muted: true,
                       },
                       {
-                        label: "Итого заработано",
+                        label: resultText.totalEarned,
                         value: netIronTracks,
                         premiumValue: Math.max(
                           0,
@@ -283,8 +292,12 @@ export function ResultScreen({
                 </ResultSection>
               </>
             ) : (
-              <ResultSection title="Уничтоженные юниты">
-                <StatsSummary ownStats={ownStats} enemyStats={enemyStats} />
+              <ResultSection title={resultText.destroyedUnits}>
+                <StatsSummary
+                  ownStats={ownStats}
+                  enemyStats={enemyStats}
+                  language={language}
+                />
               </ResultSection>
             )}
           </div>
@@ -301,11 +314,13 @@ export function ResultScreen({
               style={{ ...styles.continueButton, ...styles.retryRewardButton }}
               onClick={onRetryReward}
             >
-              Повторить начисление
+              {resultText.retryReward}
             </button>
           ) : null}
           <button type="button" style={styles.continueButton} onClick={onRestart}>
-            {restartLabel}
+            {language === "en" && restartLabel === "В меню"
+              ? "To Menu"
+              : restartLabel}
           </button>
         </footer>
       </main>
@@ -538,25 +553,29 @@ function CurrencyAmount({ icon, value }: { icon: string; value: number }) {
 function StatsSummary({
   ownStats,
   enemyStats,
+  language,
 }: {
   ownStats: BattleKillStats;
   enemyStats: BattleKillStats;
+  language: Language;
 }) {
+  const text = getResultText(language);
+
   return (
     <div style={styles.statsGrid}>
       <div style={styles.statsTotalCard}>
-        <div style={styles.statsColumnTitle}>Вы уничтожили</div>
+        <div style={styles.statsColumnTitle}>{text.youDestroyed}</div>
         <strong style={styles.statsTotalValue}>{getTotal(ownStats)}</strong>
       </div>
       <div style={styles.statsTotalCard}>
-        <div style={styles.statsColumnTitle}>Противник уничтожил</div>
+        <div style={styles.statsColumnTitle}>{text.enemyDestroyed}</div>
         <strong style={styles.statsTotalValue}>{getTotal(enemyStats)}</strong>
       </div>
 
       <div style={styles.statsTypeColumn}>
         {STAT_ROWS.map((row) => (
           <div key={row.key} style={styles.statsTypeLine}>
-            <span>{row.label}</span>
+            <span>{getTrophyStatLabel(row.key, language)}</span>
             <strong style={styles.statsTypeValue}>
               {getStatCount(ownStats, row.key)}
             </strong>
@@ -567,7 +586,7 @@ function StatsSummary({
       <div style={styles.statsTypeColumn}>
         {STAT_ROWS.map((row) => (
           <div key={row.key} style={styles.statsTypeLine}>
-            <span>{row.label}</span>
+            <span>{getTrophyStatLabel(row.key, language)}</span>
             <strong style={styles.statsTypeValue}>
               {getStatCount(enemyStats, row.key)}
             </strong>
@@ -592,19 +611,111 @@ function formatSigned(value: number): string {
 
 function getResultReasonText(
   reason: MatchEndReason | null,
-  isVictory: boolean
+  isVictory: boolean,
+  language: Language
 ): string | null {
+  const text = getResultText(language);
+
   switch (reason) {
     case "surrender":
-      return isVictory ? "Противник сдался" : "Вы сдались";
+      return isVictory ? text.reasonOpponentSurrendered : text.reasonYouSurrendered;
     case "disconnect":
-      return isVictory ? "Противник покинул бой" : "Соединение потеряно";
+      return isVictory ? text.reasonOpponentDisconnected : text.reasonConnectionLost;
     case "leave":
     case "opponent_left":
-      return isVictory ? "Противник вышел из боя" : "Вы вышли из боя";
+      return isVictory ? text.reasonOpponentLeft : text.reasonYouLeft;
     default:
       return null;
   }
+}
+
+function getTrophyStatLabel(key: TrophyStatKey, language: Language): string {
+  const labels: Record<TrophyStatKey, { ru: string; en: string }> = {
+    light: { ru: "Легкие танки", en: "Light tanks" },
+    medium: { ru: "Средние танки", en: "Medium tanks" },
+    heavy: { ru: "Тяжелые танки", en: "Heavy tanks" },
+    td: { ru: "ПТ-САУ", en: "Tank destroyers" },
+    spg: { ru: "САУ", en: "SPGs" },
+    armored_car: { ru: "Бронеавтомобили", en: "Armored cars" },
+    support: { ru: "Тыловые войска", en: "Rear troops" },
+  };
+
+  return labels[key]?.[language] ?? labels[key]?.ru ?? key;
+}
+
+function getResultText(language: Language) {
+  if (language === "en") {
+    return {
+      victory: "Victory!",
+      defeat: "Defeat",
+      enemyHqDestroyed: "Enemy headquarters destroyed.",
+      ownHqDestroyed: "Your headquarters has lost combat capability.",
+      trophies: "Trophies",
+      summary: "Summary",
+      rating: "Rating",
+      rewardPending: "Granting reward on the profile server...",
+      rewardFailed: "Reward not granted: profile server is unavailable",
+      rewardQueued:
+        "Reward saved locally. It will synchronize when the profile server is available.",
+      insufficientActions:
+        "Reward not granted: too few battle actions. Play a more active battle to earn resources.",
+      experience: "Experience",
+      headquartersXp: "Headquarters battle XP",
+      fullyResearchedConversion:
+        "Headquarters fully researched, converted into free XP",
+      headquartersXpTotal: "Total added to headquarters",
+      freeXp: "Free XP",
+      ironTracks: "Iron tracks",
+      baseBattleReward: "Base battle reward",
+      autoRepair: "Automatic headquarters repair",
+      totalEarned: "Total earned",
+      destroyedUnits: "Destroyed units",
+      retryReward: "Retry reward",
+      youDestroyed: "You destroyed",
+      enemyDestroyed: "Enemy destroyed",
+      reasonOpponentSurrendered: "Opponent surrendered",
+      reasonYouSurrendered: "You surrendered",
+      reasonOpponentDisconnected: "Opponent left the battle",
+      reasonConnectionLost: "Connection lost",
+      reasonOpponentLeft: "Opponent left the battle",
+      reasonYouLeft: "You left the battle",
+    };
+  }
+
+  return {
+    victory: "Победа!",
+    defeat: "Поражение",
+    enemyHqDestroyed: "Штаб противника уничтожен.",
+    ownHqDestroyed: "Ваш штаб потерял боеспособность.",
+    trophies: "Трофеи",
+    summary: "Сводка",
+    rating: "Рейтинг",
+    rewardPending: "Начисляем награду на сервере профиля...",
+    rewardFailed: "Награда не начислена: сервер профиля недоступен",
+    rewardQueued:
+      "Награда сохранена локально. Будет синхронизирована при подключении к серверу.",
+    insufficientActions:
+      "Награда не начислена: слишком мало действий в бою. Чтобы получить ресурсы, сыграйте бой активнее.",
+    experience: "Опыт",
+    headquartersXp: "Боевой опыт штаба",
+    fullyResearchedConversion: "Штаб изучен, перевод в свободный опыт",
+    headquartersXpTotal: "Итого начислено на штаб",
+    freeXp: "Свободный опыт",
+    ironTracks: "Железные траки",
+    baseBattleReward: "Базовая награда за бой",
+    autoRepair: "Автоматический ремонт штаба",
+    totalEarned: "Итого заработано",
+    destroyedUnits: "Уничтоженные юниты",
+    retryReward: "Повторить начисление",
+    youDestroyed: "Вы уничтожили",
+    enemyDestroyed: "Противник уничтожил",
+    reasonOpponentSurrendered: "Противник сдался",
+    reasonYouSurrendered: "Вы сдались",
+    reasonOpponentDisconnected: "Противник покинул бой",
+    reasonConnectionLost: "Соединение потеряно",
+    reasonOpponentLeft: "Противник вышел из боя",
+    reasonYouLeft: "Вы вышли из боя",
+  };
 }
 
 const styles: Record<string, CSSProperties> = {

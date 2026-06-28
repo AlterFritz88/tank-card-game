@@ -2006,6 +2006,8 @@ export function createInitialBattleState(
         armored_car: 0,
         support: 0,
       },
+      actionsByPlayer: 0,
+      actionsByBot: 0,
     },
 
     startingHandSize: options.startingHandSize,

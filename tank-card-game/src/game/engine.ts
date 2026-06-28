@@ -230,12 +230,16 @@ function ensureBattleStats(state: BattleState) {
       armored_car: 0,
       support: 0,
     },
+    actionsByPlayer: 0,
+    actionsByBot: 0,
   };
 
   state.stats.destroyedByPlayer.support ??= 0;
   state.stats.destroyedByBot.support ??= 0;
   state.stats.destroyedByPlayer.armored_car ??= 0;
   state.stats.destroyedByBot.armored_car ??= 0;
+  state.stats.actionsByPlayer ??= 0;
+  state.stats.actionsByBot ??= 0;
 }
 
 function recordDestroyedUnit(
@@ -863,9 +867,25 @@ function resetStepTimer(state: BattleState, playerId: PlayerId) {
   state.timers[playerId].actedThisStep = false;
 }
 
-function markSuccessfulAction(state: BattleState, playerId: PlayerId) {
+function markSuccessfulAction(
+  state: BattleState,
+  playerId: PlayerId,
+  // END_TURN / idle passes reset the timer like any acted step but must not
+  // count toward the anti-farm action tally — otherwise a player could grind
+  // rewards by repeatedly ending the turn without playing.
+  countsAsAction = true
+) {
   state.timers[playerId].idleStreak = 0;
   resetStepTimer(state, playerId);
+
+  if (countsAsAction) {
+    ensureBattleStats(state);
+    if (playerId === "player") {
+      state.stats.actionsByPlayer += 1;
+    } else {
+      state.stats.actionsByBot += 1;
+    }
+  }
 }
 
 function setWinnerByLoser(state: BattleState, loserId: PlayerId, reason: string) {
@@ -1831,7 +1851,10 @@ function getUnitCombatBonuses(
       getArmorVsClassReduction(attacker, targetClass) +
       getFrontalArmorReduction(attacker, target) +
       getHeavyArmorReduction(state, attacker) +
-      getCohesionDefenseBonus(state, attacker),
+      getCohesionDefenseBonus(state, attacker) -
+      (isSupportUnit(attacker)
+        ? getRearVulnerabilityPenalty(state, attacker.ownerId, target)
+        : 0),
     targetDefenseBonus:
       getStationaryTankDefenseBonus(state, target) +
       getTankDefenseAuraBonus(state, target) +
@@ -1839,7 +1862,10 @@ function getUnitCombatBonuses(
       getArmorVsClassReduction(target, attackerClass) +
       getFrontalArmorReduction(target, attacker) +
       getHeavyArmorReduction(state, target) +
-      getCohesionDefenseBonus(state, target),
+      getCohesionDefenseBonus(state, target) -
+      (isSupportUnit(target)
+        ? getRearVulnerabilityPenalty(state, target.ownerId, attacker)
+        : 0),
   };
 }
 
@@ -1862,6 +1888,41 @@ function headquartersAttackIgnoresCover(
   attackerOwnerId: PlayerId
 ): boolean {
   return getAbility(state, attackerOwnerId)?.hqAttackIgnoresCover === true;
+}
+
+/**
+ * «Удар по тылам»: extra headquarters damage when this HQ strikes the enemy rear
+ * line (support units) or the enemy headquarters. Caller is responsible for
+ * checking that the target actually is a rear/HQ object.
+ */
+function getHeadquartersRearStrikeBonus(
+  state: BattleState,
+  attackerOwnerId: PlayerId
+): number {
+  return getAbility(state, attackerOwnerId)?.hqRearStrikeBonus ?? 0;
+}
+
+/**
+ * Downside of «Удар по тылам»: the owner's own rear line (support units) and
+ * headquarters take extra damage from enemy light tanks and armored cars.
+ * `defenderOwnerId` holds the vulnerable rear/HQ; `attacker` is the striker.
+ * Returns the extra damage to add (0 when the ability or attacker class does
+ * not apply).
+ */
+function getRearVulnerabilityPenalty(
+  state: BattleState,
+  defenderOwnerId: PlayerId,
+  attacker: NonNullable<ReturnType<typeof getAttacker>>
+): number {
+  const penalty =
+    getAbility(state, defenderOwnerId)?.rearVulnerabilityToLightUnits ?? 0;
+  if (penalty <= 0) return 0;
+  if (!("cardId" in attacker)) return 0;
+
+  const attackerClass = getCard(attacker.cardId).class;
+  return attackerClass === "light" || attackerClass === "armored_car"
+    ? penalty
+    : 0;
 }
 
 function canUnitAttackTarget(
@@ -2237,18 +2298,31 @@ export function getAttackAnimationSequence(
       }
     }
 
+    // «Удар по тылам»: a HQ striking the enemy HQ hits harder; the same ability
+    // on the defender makes its HQ softer against enemy light tanks / armored cars.
+    const rearStrikeBonus = attackerIsHeadquarters
+      ? getHeadquartersRearStrikeBonus(state, attacker.ownerId)
+      : 0;
+    const effectiveAttackValue = attackValue + rearStrikeBonus;
+    const rearPenalty = getRearVulnerabilityPenalty(state, target.ownerId, attacker);
+
     const distribution =
       attackerIsHeadquarters &&
       headquartersAttackIgnoresCover(state, attacker.ownerId)
-        ? { redirected: [], headquartersDamage: attackValue }
+        ? { redirected: [], headquartersDamage: effectiveAttackValue }
         : getHeadquartersDamageDistribution(
             state,
             target.ownerId,
-            attackValue,
+            effectiveAttackValue,
             // Ranged fire on the HQ is partly soaked by the screen; melee raids
             // are answered by return fire above and deal full HQ damage.
             !attackerIsMelee
           );
+
+    const headquartersDamage =
+      distribution.headquartersDamage > 0
+        ? distribution.headquartersDamage + rearPenalty
+        : 0;
 
     return [
       ...hqCoverStrikes,
@@ -2257,12 +2331,12 @@ export function getAttackAnimationSequence(
         targetId: unit.instanceId,
         damage,
       })),
-      ...(distribution.headquartersDamage > 0
+      ...(headquartersDamage > 0
         ? [
             {
               sourceId,
               targetId: getCombatObjectId(target),
-              damage: distribution.headquartersDamage,
+              damage: headquartersDamage,
             },
           ]
         : []),
@@ -2294,6 +2368,10 @@ export function getAttackAnimationSequence(
                 attacker.ownerId,
                 unitTarget
               )
+            : 0) +
+          // «Удар по тылам»: HQ fire on a rear (support) unit lands harder.
+          (attackerIsHeadquarters && isSupportUnit(unitTarget)
+            ? getHeadquartersRearStrikeBonus(state, attacker.ownerId)
             : 0) -
           spawnReduction -
           frontalReduction -
@@ -2531,10 +2609,15 @@ function attack(state: BattleState, action: AttackAction) {
       const heavyReduction = getHeavyArmorReduction(state, targetUnit);
       // «Сплочение»: a cohesion line soaks part of headquarters fire too.
       const cohesionReduction = getCohesionDefenseBonus(state, targetUnit);
+      // «Удар по тылам»: HQ fire on a rear (support) unit lands harder.
+      const rearStrikeBonus = isSupportUnit(targetUnit)
+        ? getHeadquartersRearStrikeBonus(state, action.playerId)
+        : 0;
       const totalDamage = Math.max(
         0,
         attackValue +
-          damagedBonus -
+          damagedBonus +
+          rearStrikeBonus -
           spawnReduction -
           frontalReduction -
           heavyReduction -
@@ -2547,6 +2630,13 @@ function attack(state: BattleState, action: AttackAction) {
         addLog(
           state,
           `${getAbility(state, action.playerId)?.name}: +${damagedBonus} урона по повреждённой технике.`
+        );
+      }
+
+      if (rearStrikeBonus > 0) {
+        addLog(
+          state,
+          `${getAbility(state, action.playerId)?.name}: +${rearStrikeBonus} урона по тылу.`
         );
       }
 
@@ -2619,10 +2709,22 @@ function attack(state: BattleState, action: AttackAction) {
       }
     }
 
+    // «Удар по тылам»: a HQ striking the enemy HQ hits harder; the same ability
+    // on the defender makes its HQ softer against enemy light tanks / armored cars.
+    const rearStrikeBonus = !attackerIsUnit
+      ? getHeadquartersRearStrikeBonus(state, action.playerId)
+      : 0;
+    const effectiveAttackValue = attackValue + rearStrikeBonus;
+    const rearPenalty = getRearVulnerabilityPenalty(
+      state,
+      targetHeadquarters.ownerId,
+      attacker
+    );
+
     const normalDistribution = getHeadquartersDamageDistribution(
       state,
       targetHeadquarters.ownerId,
-      attackValue,
+      effectiveAttackValue,
       // Ranged fire on the HQ is partly soaked by the anti-tank screen; melee
       // raids are answered by return fire above, so the HQ takes full damage.
       !attackerIsMelee
@@ -2632,7 +2734,7 @@ function attack(state: BattleState, action: AttackAction) {
       headquartersAttackIgnoresCover(state, action.playerId) &&
       normalDistribution.redirected.length > 0;
     const distribution: HeadquartersDamageDistribution = ignoresCover
-      ? { redirected: [], headquartersDamage: attackValue }
+      ? { redirected: [], headquartersDamage: effectiveAttackValue }
       : normalDistribution;
 
     if (ignoresCover) {
@@ -2650,8 +2752,26 @@ function attack(state: BattleState, action: AttackAction) {
       }
     }
 
-    const incoming = distribution.headquartersDamage;
+    const incoming =
+      distribution.headquartersDamage > 0
+        ? distribution.headquartersDamage + rearPenalty
+        : 0;
     targetHeadquarters.hp -= incoming;
+
+    if (rearStrikeBonus > 0 && distribution.headquartersDamage > 0) {
+      addLog(
+        state,
+        `${getAbility(state, action.playerId)?.name}: +${rearStrikeBonus} урона по штабу.`
+      );
+    }
+
+    if (rearPenalty > 0 && distribution.headquartersDamage > 0) {
+      addLog(
+        state,
+        `${getAbility(state, targetHeadquarters.ownerId)?.name}: штаб получает +${rearPenalty} урона от лёгкой техники.`
+      );
+    }
+
     addLog(state, `${attackerName} атакует штаб и наносит ${incoming} урона.`);
 
     if (targetHeadquarters.hp <= 0) {
@@ -3163,7 +3283,7 @@ export function applyAction(
       break;
 
     case "END_TURN":
-      markSuccessfulAction(nextState, action.playerId);
+      markSuccessfulAction(nextState, action.playerId, false);
       endTurn(nextState, action.playerId);
       break;
 

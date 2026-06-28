@@ -32,8 +32,16 @@ const SUPPORT_ROLE_LABELS: Record<SupportRole, LocaleText> = {
 };
 
 const HEADQUARTERS_TYPE_TRANSLATIONS: Record<string, string> = {
+  "Учебная часть": "Training headquarters",
   "Учебный штаб": "Training headquarters",
+  "Полевой штаб": "Field headquarters",
+  "Армейский штаб": "Army headquarters",
+  "Резервный штаб": "Reserve headquarters",
+  "Укреплённый штаб": "Fortified headquarters",
   "Танковый штаб": "Armored headquarters",
+  "Танковая дивизия": "Armored division",
+  "Гвардейский танковый штаб": "Guards armored headquarters",
+  "Стрелковый штаб": "Rifle headquarters",
   "Мотопехотный штаб": "Motorized infantry headquarters",
   "Артиллерийский штаб": "Artillery headquarters",
   "Тыловой штаб": "Rear headquarters",
@@ -166,6 +174,38 @@ export function getLocalizedCardClassLabel(
     : getLocalizedClassLabel(card.class, language);
 }
 
+export function getLocalizedUnitTypeFilterLabel(
+  value: "all" | TankClass | "support" | "headquarters",
+  language = getSettings().language,
+  allLabel?: string
+) {
+  if (value === "all") {
+    return allLabel ?? (language === "en" ? "All" : "Все");
+  }
+
+  if (value === "support") {
+    return language === "en" ? "Rear" : "Тыл";
+  }
+
+  if (value === "headquarters") {
+    return language === "en" ? "Headquarters" : "Штабы";
+  }
+
+  return getLocalizedClassLabel(value, language);
+}
+
+export function getLocalizedNationFilterLabel(
+  value: "all" | Nation,
+  language = getSettings().language,
+  allLabel?: string
+) {
+  if (value === "all") {
+    return allLabel ?? (language === "en" ? "All" : "Все");
+  }
+
+  return getLocalizedNationLabel(value, language);
+}
+
 export function getLocalizedHeadquartersType(
   headquarters: HeadquartersDefinition | null | undefined,
   language = getSettings().language
@@ -202,10 +242,66 @@ export function getLocalizedHeadquartersDescription(
 
 const HEADQUARTERS_DESCRIPTION_TRANSLATIONS: Record<string, string> = {
   "Командный пункт.": "Command post.",
-  ussr_training:
+  training_unit:
     "Soviet training headquarters with balanced stats: steady attack, durability, and supply.",
-  german_training:
+  trainingslager:
     "German training camp with strong headquarters attack, average durability, and modest supply.",
-  usa_training:
+  training_camp:
     "Weak headquarters with strong supply and fast resource growth.",
+  first_panzer_division:
+    "Armored Spearhead: the first tank played each turn gains Blitz, allowing two moves on the turn it enters the battlefield.",
+  german_motorized_division:
+    "Motorized March: the first unit played each turn costs 1 less fuel.",
+  german_artillery_division:
+    "Rear Strike: HQ hits the enemy rear and HQ for +1, but your own rear and HQ take +1 from light vehicles.",
+  german_rear_corps:
+    "Scheduled Supply: every third friendly turn, draw an extra card.",
+  soviet_tank_brigade:
+    "Tank Ambush: a tank that has not moved this turn deals +1 damage and takes 1 less incoming damage.",
+  soviet_motor_rifle_division:
+    "Rapid Redeployment: light units gain Blitz, allowing two moves on the turn they enter the battlefield.",
+  soviet_guards_mortar_regiment:
+    "Katyusha Salvo: headquarters attacks deal +1 damage to already damaged targets.",
+  soviet_auto_battalion:
+    "Repair Columns: at the start of your turn, restore 1 health to a random damaged unit.",
+  usa_old_ironsides:
+    "Combined Arms: while you have both a tank and a support unit, the headquarters generates +1 fuel each turn.",
+  usa_armored_infantry_regiment:
+    "Armored Infantry: the first light unit played each turn gives your headquarters +1 health.",
+  usa_armored_artillery_battalion:
+    "Time on Target: headquarters attacks cannot be intercepted by rear-line cover units.",
+  usa_maintenance_battalion:
+    "Recovery and Repair: once per battle, your first destroyed unit returns to your hand.",
+  polish_border_guard:
+    "Forward Polish position. Light vehicles and tankettes quickly occupy key cells.",
+  polish_army_lodz:
+    "Fortified army headquarters supported by 7TP tanks and anti-tank tankettes. Stronger at holding a defensive line.",
+  polish_army_prusy:
+    "Reserve formation with improved tanks and self-propelled artillery. Builds pressure in a longer fight.",
+  polish_warsaw_defense:
+    "The last defensive line. Armored trains, reserve tanks, and improved supply make it the most dangerous Polish headquarters.",
+  lavrinenko_tank_brigade:
+    "Tank Ambush: a tank that has not moved this turn deals +1 damage and takes 1 less incoming damage.",
+  first_guards_tank_brigade:
+    "Guards Ambush: a stationary tank deals +2 damage and takes 1 less incoming damage; the first tank played each turn gains Blitz.",
+  panfilov_division:
+    "Hold to the Last: strong line defense. At the start of your turn, restore 1 headquarters health.",
+  german_4_panzer:
+    "Armored Assault: tanks that moved this turn deal +1 damage at the spearhead of the attack.",
+  guderian_corps:
+    "Breakthrough Spearhead: a unit that breaks into the enemy rear pushes deeper.",
+  german_10_panzer:
+    "Artillery Preparation: headquarters attacks deal +1 damage.",
+  german_11_panzer:
+    "Motorized March: the first unit played each turn costs 1 less fuel.",
+  grossdeutschland:
+    "Unbending Regiment: once per battle, your first destroyed unit returns to your hand.",
+  german_winter_panzer:
+    "Armored Assault in winter conditions: moving tanks still hit harder, but frozen fuel sharply reduces supply.",
+  soviet_central_front:
+    "Tank Ram: tanks that moved this turn deal +1 damage at the spearhead of the counterattack.",
+  german_9th_army:
+    "Steel Wedge: heavy tanks and tank destroyers under this headquarters take 1 less damage from each hit.",
+  winter_blocking_force:
+    "Dense Anti-Tank Fire: headquarters attacks deal +1 damage to already damaged vehicles, but winter reduces supply.",
 };

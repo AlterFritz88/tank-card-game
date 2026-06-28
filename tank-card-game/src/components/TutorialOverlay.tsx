@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import eduAvatarImage from "../assets/headquarters/avatars/edu_avatar.webp";
 import buttonImage from "../assets/button.webp";
+import { useI18n } from "../game/i18n";
 
 type TutorialOverlayProps = {
   /** Dialogue blocks the battle and shows the «Далее» button. */
@@ -23,11 +24,17 @@ export function TutorialOverlay({
   text,
   visible,
   onNext,
-  nextLabel = "Далее",
+  nextLabel,
   avatarSrc = eduAvatarImage,
-  speakerName = "Инструктор",
+  speakerName,
   centered = false,
 }: TutorialOverlayProps) {
+  const { language } = useI18n();
+  const resolvedNextLabel =
+    nextLabel ?? (language === "en" ? "Next" : "Далее");
+  const resolvedSpeakerName =
+    speakerName ?? (language === "en" ? "Instructor" : "Инструктор");
+
   return (
     <AnimatePresence>
       {visible ? (
@@ -60,10 +67,10 @@ export function TutorialOverlay({
                 style={styles.dialogueAvatar}
               />
               <div style={styles.dialogueBody}>
-                <div style={styles.speakerName}>{speakerName}</div>
+                <div style={styles.speakerName}>{resolvedSpeakerName}</div>
                 <p style={styles.dialogueText}>{text}</p>
                 <button type="button" style={styles.nextButton} onClick={onNext}>
-                  {nextLabel}
+                  {resolvedNextLabel}
                 </button>
               </div>
             </motion.div>

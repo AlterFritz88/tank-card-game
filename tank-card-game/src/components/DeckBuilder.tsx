@@ -56,6 +56,10 @@ import {
   getCardKeywords,
   getHeadquartersKeywords,
 } from "../game/cardKeywords";
+import {
+  getLocalizedNationFilterLabel,
+  getLocalizedUnitTypeFilterLabel,
+} from "../game/cardLocalization";
 import { calculateDeckWeight, getCardLevel } from "../game/deckWeight";
 import {
   loadPlayerProgress,
@@ -105,6 +109,33 @@ function getNationFlagIconStyle(
   // Британия и Франция: показываем флаг целиком, сжимая по ширине до квадрата
   if (value === "uk" || value === "france") return { objectFit: "fill" };
   return undefined;
+}
+
+function localizeDeckValidationMessage(
+  message: string | null,
+  language: string
+): string | null {
+  if (language !== "en" || !message) return message;
+
+  if (message === "Выберите штаб") return "Choose a headquarters";
+  if (message === "Этот штаб еще не куплен") {
+    return "This headquarters has not been purchased yet";
+  }
+  if (message.includes("В колоде должно быть")) {
+    return `The deck must contain ${DECK_UNIT_LIMIT} cards`;
+  }
+  if (message.includes("Неизвестная карта")) return "Unknown card";
+  if (message.includes("только карты своей нации")) {
+    return "This headquarters can use only cards of its own nation";
+  }
+  if (message.includes("максимум")) {
+    return `A deck can contain at most ${CARD_COPY_LIMIT} copies of one card`;
+  }
+  if (message.includes("Недостаточно копий")) {
+    return "Not enough card copies in the collection";
+  }
+
+  return message;
 }
 
 // Payload describing what a card button is, recorded on pointerdown so the row
@@ -337,7 +368,7 @@ export function DeckBuilder({
   onBack: () => void;
   onSaved: () => void;
 }) {
-  const { language } = useI18n();
+  const { language, t } = useI18n();
   const [selectedHeadquartersId, setSelectedHeadquartersId] =
     useState<HeadquartersId | null>(editingDeck?.headquartersId ?? null);
   const [deckName, setDeckName] = useState(editingDeck?.name ?? "");
@@ -419,21 +450,29 @@ export function DeckBuilder({
     () =>
       UNIT_TYPE_FILTERS.map((filter) => ({
         ...filter,
-        label: filter.value === "all" ? "Тип" : filter.label,
+        label: getLocalizedUnitTypeFilterLabel(
+          filter.value,
+          language,
+          language === "en" ? "Type" : "Тип"
+        ),
         icon: UNIT_TYPE_FILTER_ICONS[filter.value],
       })),
-    []
+    [language]
   );
   const nationOptions = useMemo(
     () =>
       NATION_FILTERS.map((filter) => ({
         ...filter,
-        label: filter.value === "all" ? "Нация" : filter.label,
+        label: getLocalizedNationFilterLabel(
+          filter.value,
+          language,
+          language === "en" ? "Nation" : "Нация"
+        ),
         icon: getNationFilterIcon(filter.value),
         iconShape: "cover" as const,
         iconStyleOverride: getNationFlagIconStyle(filter.value),
       })),
-    []
+    [language]
   );
   const deckWeight = selectedHeadquartersId
     ? calculateDeckWeight(selectedHeadquartersId, deckCardIds)
@@ -510,14 +549,14 @@ export function DeckBuilder({
     if (!profileServerReady) {
       setSaveMessage(
         profileServerUnavailable
-          ? "Сервер профиля недоступен"
-          : "Дождитесь синхронизации профиля"
+          ? t("common.profileServerUnavailable")
+          : t("common.profileSyncWait")
       );
       return;
     }
 
     if (!selectedHeadquartersId || !validation.valid) {
-      setSaveMessage(validation.message);
+      setSaveMessage(localizeDeckValidationMessage(validation.message, language));
       return;
     }
 
@@ -532,7 +571,11 @@ export function DeckBuilder({
 
     try {
       const savedDeck = await saveCustomDeckToServer(deckDraft);
-      setSaveMessage(`Колода ${savedDeck.name} сохранена`);
+      setSaveMessage(
+        language === "en"
+          ? `Deck ${savedDeck.name} saved`
+          : `Колода ${savedDeck.name} сохранена`
+      );
     } catch (error) {
       setSaveMessage(
         error instanceof Error ? error.message : "Server rejected deck"
@@ -550,7 +593,7 @@ export function DeckBuilder({
       setProgress(serverProgress);
       setSaveMessage(null);
     } catch {
-      setSaveMessage("Сервер профиля недоступен");
+      setSaveMessage(t("common.profileServerUnavailable"));
     }
   }
 
@@ -953,7 +996,13 @@ export function DeckBuilder({
         </button>
         <div>
           <h1 style={styles.title}>
-            {editingDeck ? "Редактирование колоды" : "Создание колоды"}
+            {editingDeck
+              ? language === "en"
+                ? "Edit Deck"
+                : "Редактирование колоды"
+              : language === "en"
+                ? "Create Deck"
+                : "Создание колоды"}
           </h1>
         </div>
         <div style={styles.headerActions}>
@@ -962,12 +1011,12 @@ export function DeckBuilder({
             value={deckName}
             onChange={(event) => setDeckName(event.target.value)}
             disabled={!selectedHeadquarters}
-            placeholder="Имя колоды"
+            placeholder={language === "en" ? "Deck name" : "Имя колоды"}
             style={{
               ...styles.deckNameInput,
               ...(!selectedHeadquarters ? styles.deckNameInputDisabled : {}),
             }}
-            aria-label="Имя колоды"
+            aria-label={language === "en" ? "Deck name" : "Имя колоды"}
           />
           {selectedHeadquarters ? (
             <div style={styles.filters}>
@@ -975,22 +1024,22 @@ export function DeckBuilder({
                 value={unitTypeFilter}
                 options={unitTypeOptions}
                 onChange={setUnitTypeFilter}
-                ariaLabel="Фильтр по типу юнита"
+                ariaLabel={language === "en" ? "Unit type filter" : "Фильтр по типу юнита"}
               />
               <FilterDropdown
                 value={nationFilter}
                 options={nationOptions}
                 onChange={setNationFilter}
-                ariaLabel="Фильтр по нации"
+                ariaLabel={language === "en" ? "Nation filter" : "Фильтр по нации"}
               />
             </div>
           ) : null}
           <div style={styles.deckCounter}>
-            <span>Колода</span>
+            <span>{language === "en" ? "Deck" : "Колода"}</span>
             <strong>{deckCardIds.length}/{DECK_UNIT_LIMIT}</strong>
           </div>
           <div style={styles.deckWeightBadge}>
-            <span>Вес</span>
+            <span>{language === "en" ? "Weight" : "Вес"}</span>
             <strong>{deckWeight?.totalWeight ?? "—"}</strong>
           </div>
           <button
@@ -1002,7 +1051,7 @@ export function DeckBuilder({
             disabled={!validation.valid}
             onClick={saveDeck}
           >
-            Готово
+            {language === "en" ? "Done" : "Готово"}
           </button>
         </div>
       </header>
@@ -1010,14 +1059,14 @@ export function DeckBuilder({
       {profileServerUnavailable ? (
         <div style={styles.profileServerBanner}>
           <span>
-            {profileConnection.message ?? "Сервер профиля недоступен"}
+            {profileConnection.message ?? t("common.profileServerUnavailable")}
           </span>
           <button
             type="button"
             style={styles.profileServerRetryButton}
             onClick={() => void retryProfileSync()}
           >
-            Повторить
+            {t("common.retry")}
           </button>
         </div>
       ) : null}
@@ -1150,7 +1199,7 @@ export function DeckBuilder({
                           className="deck-card-weight-badge"
                           style={styles.cardWeightBadge}
                         >
-                          Вес {getCardLevel(card)}
+                          {language === "en" ? "Weight" : "Вес"} {getCardLevel(card)}
                         </span>
                       </motion.button>
                     );
@@ -1275,7 +1324,7 @@ export function DeckBuilder({
                     className="deck-card-weight-badge"
                     style={styles.cardWeightBadge}
                   >
-                    Вес {getCardLevel(card)}
+                    {language === "en" ? "Weight" : "Вес"} {getCardLevel(card)}
                   </span>
                   <span style={styles.deckCopyBadge}>x{count}</span>
                 </motion.button>

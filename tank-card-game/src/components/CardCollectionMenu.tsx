@@ -47,6 +47,10 @@ import type {
   TankCard,
 } from "../game/types";
 import { getCardKeywords, getHeadquartersKeywords } from "../game/cardKeywords";
+import {
+  getLocalizedNationFilterLabel,
+  getLocalizedUnitTypeFilterLabel,
+} from "../game/cardLocalization";
 import { CardKeywordsPanel } from "./CardKeywordsPanel";
 import { screenDeltaToStage, useStageOverlayTransform } from "./GameStage";
 import { HandCardView } from "./HandCardView";
@@ -98,9 +102,9 @@ const UNIT_TYPE_FILTER_ICONS: Partial<Record<UnitTypeFilter, string>> = {
   support: classCarIcon,
 };
 
-const SORT_BUTTONS: { key: CollectionSortKey; label: string }[] = [
-  { key: "level", label: "Уровень" },
-  { key: "cost", label: "Стоимость" },
+const SORT_BUTTONS: { key: CollectionSortKey; ru: string; en: string }[] = [
+  { key: "level", ru: "Уровень", en: "Level" },
+  { key: "cost", ru: "Стоимость", en: "Cost" },
 ];
 
 function getItemName(item: CollectionItem) {
@@ -455,34 +459,38 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
     () => [
       {
         value: "all",
-        label: "Тип",
+        label: language === "en" ? "Type" : "Тип",
       },
       {
         value: "headquarters",
-        label: "Штабы",
+        label: getLocalizedUnitTypeFilterLabel("headquarters", language),
         icon: classHqIcon,
       },
       ...DECK_UNIT_TYPE_FILTERS.filter((filter) => filter.value !== "all").map(
         (filter) => ({
           value: filter.value,
-          label: filter.label,
+          label: getLocalizedUnitTypeFilterLabel(filter.value, language),
           icon: UNIT_TYPE_FILTER_ICONS[filter.value],
         })
       ),
     ],
-    []
+    [language]
   );
 
   const nationOptions = useMemo<FilterOption<NationFilter>[]>(
     () =>
       DECK_NATION_FILTERS.map((filter) => ({
         value: filter.value,
-        label: filter.value === "all" ? "Нация" : filter.label,
+        label: getLocalizedNationFilterLabel(
+          filter.value,
+          language,
+          language === "en" ? "Nation" : "Нация"
+        ),
         icon: getNationFilterIcon(filter.value),
         iconShape: filter.value === "all" ? undefined : "cover",
         iconStyleOverride: getNationFlagIconStyle(filter.value),
       })),
-    []
+    [language]
   );
 
   const visibleItems = useMemo(() => {
@@ -690,28 +698,31 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
           type="button"
           style={styles.backButton}
           onClick={onBack}
-          aria-label="Назад"
+          aria-label={language === "en" ? "Back" : "Назад"}
         >
           ‹
         </button>
-        <h1 style={styles.title}>КОЛЛЕКЦИЯ</h1>
+        <h1 style={styles.title}>{language === "en" ? "COLLECTION" : "КОЛЛЕКЦИЯ"}</h1>
         <div />
       </header>
 
-      <section style={styles.filterPanel} aria-label="Фильтры коллекции">
+      <section
+        style={styles.filterPanel}
+        aria-label={language === "en" ? "Collection filters" : "Фильтры коллекции"}
+      >
         <div style={styles.filters}>
           <FilterDropdown
             value={typeFilter}
             options={typeOptions}
             onChange={setTypeFilter}
-            ariaLabel="Фильтр по типу техники"
+            ariaLabel={language === "en" ? "Vehicle type filter" : "Фильтр по типу техники"}
             menuMaxHeight={typeOptions.length * 34 + 16}
           />
           <FilterDropdown
             value={nationFilter}
             options={nationOptions}
             onChange={setNationFilter}
-            ariaLabel="Фильтр по нации"
+            ariaLabel={language === "en" ? "Nation filter" : "Фильтр по нации"}
           />
           {SORT_BUTTONS.map((option) => {
             const active = sortKey === option.key;
@@ -728,16 +739,19 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
                 onClick={() => handleSortClick(option.key)}
                 aria-pressed={active}
               >
-                {option.label} {arrow}
+                {(language === "en" ? option.en : option.ru)} {arrow}
               </button>
             );
           })}
         </div>
       </section>
 
-      <section style={styles.progressPanel} aria-label="Прогресс коллекции">
+      <section
+        style={styles.progressPanel}
+        aria-label={language === "en" ? "Collection progress" : "Прогресс коллекции"}
+      >
         <div style={styles.progressLabel}>
-          <span>Прогресс коллекции</span>
+          <span>{language === "en" ? "Collection progress" : "Прогресс коллекции"}</span>
           <strong>
             {ownedCollectionCount}/{totalCollectionItems}
           </strong>
@@ -762,7 +776,7 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
         onWheel={handleCollectionWheel}
         onScroll={clearLongPressTimer}
         onClickCapture={handlePanClickCapture}
-        aria-label="Карты коллекции"
+        aria-label={language === "en" ? "Collection cards" : "Карты коллекции"}
       >
         <div style={styles.collectionGrid}>
           {visibleItems.map((item) => (
@@ -804,14 +818,20 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
 
               <span style={styles.itemMeta}>
                 <span style={styles.copyBadge}>×{item.copies}</span>
-                <span style={styles.weightBadge}>Ур. {item.level}</span>
+                <span style={styles.weightBadge}>
+                  {language === "en" ? "Lvl." : "Ур."} {item.level}
+                </span>
               </span>
             </motion.button>
           ))}
         </div>
 
         {visibleItems.length === 0 ? (
-          <div style={styles.emptyState}>В коллекции нет карт по выбранным фильтрам</div>
+          <div style={styles.emptyState}>
+            {language === "en"
+              ? "No cards in the collection match the selected filters"
+              : "В коллекции нет карт по выбранным фильтрам"}
+          </div>
         ) : null}
       </section>
 
@@ -856,7 +876,9 @@ export function CardCollectionMenu({ onBack }: CardCollectionMenuProps) {
                     type="button"
                     style={styles.cardPreviewClose}
                     onClick={closePreview}
-                    aria-label="Закрыть просмотр карты"
+                    aria-label={
+                      language === "en" ? "Close card preview" : "Закрыть просмотр карты"
+                    }
                   >
                     ×
                   </button>

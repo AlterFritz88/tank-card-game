@@ -2,6 +2,7 @@
 import { createInitialBattleState } from "./src/game/initialState";
 import {
   applyAction,
+  getAttackAnimationSequence,
   getEffectiveCardCost,
   getHeadquartersAttackValue,
   getUnitDisplayAttackValue,
@@ -108,14 +109,60 @@ function makeUnit(partial: Partial<BoardUnit> & { instanceId: string; cardId: st
   );
 }
 
-// 3. Артиллерийская подготовка: +1 к атаке штаба.
+// 3. Удар по тылам: +1 урона штаба по вражескому штабу, и свой штаб получает
+//    +1 урона от лёгких танков / бронеавтомобилей.
 {
+  // 3a. Атака штаба 45.InfDiv по вражескому штабу: базовая атака 2 + бонус 1 = 3.
   const battle = makeBattle("german_artillery_division", "panzer_35t");
 
   check(
-    "45.InfDiv: атака штаба 2+1=3",
-    getHeadquartersAttackValue(battle, "player") === 3,
+    "45.InfDiv: базовая атака штаба без флэт-бонуса (2)",
+    getHeadquartersAttackValue(battle, "player") === 2,
     `got ${getHeadquartersAttackValue(battle, "player")}`
+  );
+
+  const hqStrikes = getAttackAnimationSequence(battle, {
+    type: "ATTACK",
+    playerId: "player",
+    attackerType: "headquarters",
+    attackerId: "player_hq",
+    targetType: "headquarters",
+    targetId: "bot_hq",
+  });
+  const hqDamage = hqStrikes.find((s) => s.targetId === "bot_hq")?.damage;
+
+  check(
+    "45.InfDiv: удар штаба по штабу 2+1=3",
+    hqDamage === 3,
+    `got ${hqDamage}`
+  );
+
+  // 3b. Лёгкий танк противника бьёт по штабу 45.InfDiv: атака 1 + штраф 1 = 2.
+  const defBattle = makeBattle("german_artillery_division", "panzer_35t");
+  defBattle.activePlayer = "bot";
+  defBattle.units.push(
+    makeUnit({
+      instanceId: "bot_light",
+      cardId: "ms_1_t18",
+      ownerId: "bot",
+      position: { row: 1, col: 0 },
+    })
+  );
+
+  const lightStrikes = getAttackAnimationSequence(defBattle, {
+    type: "ATTACK",
+    playerId: "bot",
+    attackerType: "unit",
+    attackerId: "bot_light",
+    targetType: "headquarters",
+    targetId: "player_hq",
+  });
+  const lightDamage = lightStrikes.find((s) => s.targetId === "player_hq")?.damage;
+
+  check(
+    "45.InfDiv: лёгкий танк бьёт штаб на 1+1=2",
+    lightDamage === 2,
+    `got ${lightDamage}`
   );
 }
 

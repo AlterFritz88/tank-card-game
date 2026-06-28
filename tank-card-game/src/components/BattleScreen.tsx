@@ -63,7 +63,15 @@ import {
   getCampaignCompletionReward,
   getCampaignMission,
 } from "../game/campaigns";
+import {
+  getLocalizedMissionBriefing,
+  getLocalizedMissionDefeatDebrief,
+  getLocalizedMissionPlayerCommanderName,
+  getLocalizedMissionVictoryDebrief,
+  getLocalizedCampaignSpeaker,
+} from "../game/campaignLocalization";
 import { getHeadquartersImageAsset } from "../game/headquartersImages";
+import { getBattleFlagAsset } from "../game/battleFlags";
 import {
   playCannonShotSound,
   playCardDistributionSound,
@@ -92,8 +100,8 @@ import {
   getHeadquartersDefinition,
 } from "../game/headquarters";
 import {
-  TUTORIAL_EPILOGUE_TEXT,
   TUTORIAL_REWARD,
+  getTutorialEpilogueText,
   getTutorialBotAction,
   getTutorialHighlights,
   getTutorialMoveTargetCell,
@@ -527,7 +535,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const advanceTutorialStep = battleStore.advanceTutorialStep;
   const completeTutorialEpilogue = battleStore.completeTutorialEpilogue;
   const tutorialStep = tutorialActive
-    ? getTutorialStep(tutorialStepIndex)
+    ? getTutorialStep(tutorialStepIndex, language)
     : null;
 
   // Campaign mission briefing/debrief delivered by the commander avatar.
@@ -539,12 +547,17 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const campaignBriefingAvatar = campaignMission?.campaign.briefingAvatarId
     ? getAvatarAssetById(campaignMission.campaign.briefingAvatarId) ?? undefined
     : undefined;
-  const campaignSpeaker =
-    campaignMission?.campaign.briefingSpeaker ?? undefined;
-  const missionBriefingText = campaignMission?.mission.briefing ?? null;
+  const campaignSpeaker = campaignMission
+    ? getLocalizedCampaignSpeaker(campaignMission.campaign, language) ?? undefined
+    : undefined;
+  const missionBriefingText = campaignMission
+    ? getLocalizedMissionBriefing(campaignMission.mission, language) ?? null
+    : null;
   // Scripted-intro overrides: a fixed commander name and a skipped first-turn roll.
-  const missionPlayerCommanderName =
-    campaignMission?.mission.playerCommanderName ?? null;
+  const missionPlayerCommanderName = campaignMission
+    ? getLocalizedMissionPlayerCommanderName(campaignMission.mission, language) ??
+      null
+    : null;
   const missionSkipFirstTurnRoll =
     campaignMission?.mission.skipFirstTurnRoll ?? false;
   const missionCenteredDialogue =
@@ -557,8 +570,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const missionWon = battle.status === "player_won";
   const missionDebriefText = campaignMission
     ? missionWon
-      ? campaignMission.mission.victoryDebrief ?? null
-      : campaignMission.mission.defeatDebrief ?? null
+      ? getLocalizedMissionVictoryDebrief(
+          campaignMission.mission,
+          language
+        ) ?? null
+      : getLocalizedMissionDefeatDebrief(
+          campaignMission.mission,
+          language
+        ) ?? null
     : null;
 
   // Local gating: the briefing shows once at battle start, the debrief once at
@@ -3889,11 +3908,35 @@ function renderEnemyDeckWithTimer() {
       {renderDeckAvatarStack(opponentPlayerId, "enemy")}
 
       <div style={styles.enemyFuelOnly}>
-        <FuelPanel
-          ownerId={getVisualOwnerId(opponentPlayerId)}
-          currentFuel={battle[opponentPlayerId].resources}
-          nextTurnFuel={getNextTurnFuel(opponentPlayerId)}
-        />
+        {(() => {
+          const flag = getBattleFlagAsset(
+            getHeadquartersDefinition(getHeadquartersIdForOwner(opponentPlayerId))
+              .nation
+          );
+
+          if (!flag) return null;
+
+          // Enemy flag staked by the HQ but drawn behind the fuel indicator
+          // (fuelPanelOverFlag, zIndex 1) so the fuel stays readable. Shifted
+          // down-left toward the HQ and mirrored to match the player's flag.
+          return (
+            <img
+              src={flag}
+              alt=""
+              aria-hidden
+              draggable={false}
+              style={styles.fuelBattleFlag}
+            />
+          );
+        })()}
+
+        <div style={styles.fuelPanelOverFlag}>
+          <FuelPanel
+            ownerId={getVisualOwnerId(opponentPlayerId)}
+            currentFuel={battle[opponentPlayerId].resources}
+            nextTurnFuel={getNextTurnFuel(opponentPlayerId)}
+          />
+        </div>
       </div>
 
       {renderTurnControlPanel("column")}
@@ -4026,6 +4069,31 @@ function renderEnemyDeckWithTimer() {
               : styles.hqAuraEnemy),
           }}
         />
+
+        {/* The enemy flag is drawn behind the enemy fuel indicator instead (see
+            renderEnemyDeckWithTimer): the fuel lives in a side column that sits
+            below the board, so a flag in this board cell would always cover it.
+            Only the player's flag is planted behind the HQ card here. */}
+        {owner === humanPlayerId &&
+          (() => {
+            const flag = getBattleFlagAsset(
+              getHeadquartersDefinition(getHeadquartersIdForOwner(owner)).nation
+            );
+
+            if (!flag) return null;
+
+            // Planted behind the HQ card art (zIndex below the card) so it only
+            // peeks out to the left.
+            return (
+              <img
+                src={flag}
+                alt=""
+                aria-hidden
+                draggable={false}
+                style={{ ...styles.hqBattleFlag, ...styles.hqBattleFlagFriendly }}
+              />
+            );
+          })()}
 
         <motion.div
           style={{ ...styles.boardCardContent, ...styles.rearHqCardContent }}
@@ -5123,6 +5191,12 @@ function renderEnemyDeckWithTimer() {
                               battle as BattleState,
                               unit
                             )}
+                            // Тыловые/слотовые юниты рисуются без рамки —
+                            // боевые юниты на поле выглядели иначе из-за тёмной
+                            // окантовки (2px бордюр + чёрная тень-гало). Убираем
+                            // её, чтобы юнит на линии тыла не «висел» в чёрной
+                            // рамке и совпадал с видом слотовых юнитов.
+                            borderlessBoard
                             selected={isSelected}
                             alreadyMoved={unit.alreadyMoved}
                             alreadyAttacked={unit.alreadyAttacked}
@@ -5726,10 +5800,10 @@ function renderEnemyDeckWithTimer() {
       !tutorialEpilogueSeen ? (
         <TutorialOverlay
           kind="dialogue"
-          text={TUTORIAL_EPILOGUE_TEXT}
+          text={getTutorialEpilogueText(language)}
           visible
           onNext={completeTutorialEpilogue}
-          nextLabel="К наградам"
+          nextLabel={language === "en" ? "Rewards" : "К наградам"}
           centered
         />
       ) : null}
@@ -5748,7 +5822,7 @@ function renderEnemyDeckWithTimer() {
           avatarSrc={campaignBriefingAvatar}
           speakerName={campaignSpeaker}
           onNext={() => setBriefingDismissed(true)}
-          nextLabel="В бой"
+          nextLabel={language === "en" ? "To Battle" : "В бой"}
           centered={missionCenteredDialogue}
         />
       ) : null}
@@ -5765,7 +5839,15 @@ function renderEnemyDeckWithTimer() {
           avatarSrc={campaignBriefingAvatar}
           speakerName={campaignSpeaker}
           onNext={() => setDebriefDismissed(true)}
-          nextLabel={missionSkipResultScreen ? "Далее" : "К результатам"}
+          nextLabel={
+            missionSkipResultScreen
+              ? language === "en"
+                ? "Next"
+                : "Далее"
+              : language === "en"
+                ? "Results"
+                : "К результатам"
+          }
           centered={missionCenteredDialogue}
         />
       ) : null}
@@ -5774,7 +5856,7 @@ function renderEnemyDeckWithTimer() {
       {endRewardCards ? (
         <RewardCelebrationOverlay
           cards={endRewardCards}
-          label="Награда"
+          label={language === "en" ? "Reward" : "Награда"}
           tone="reward"
           onClose={completeTrailerAndExit}
         />
@@ -6286,6 +6368,36 @@ actionSideColumn: {
     pointerEvents: "none",
   },
 
+  // National flag staked behind the HQ card art. Sits at zIndex 0 (below the
+  // boardCardContent at zIndex 1) so the HQ image covers most of it and only a
+  // tilted sliver peeks out past one edge.
+  hqBattleFlag: {
+    position: "absolute",
+    bottom: "56%",
+    width: "62%",
+    height: "auto",
+    zIndex: 0,
+    pointerEvents: "none",
+    // Flip/rotate around the bottom centre so a horizontal mirror keeps the flag
+    // box in place (a corner origin would slide the enemy flag back under the HQ
+    // card and hide it).
+    transformOrigin: "center bottom",
+    filter: "brightness(0.82) saturate(0.92) drop-shadow(0 2px 4px rgba(0,0,0,0.55))",
+    opacity: 0.95,
+  },
+
+  hqBattleFlagFriendly: {
+    left: "-46%",
+    transform: "scaleX(-1) rotate(31deg)",
+  },
+
+  // True horizontal mirror of the friendly flag: scaleX wraps the same rotation
+  // so the enemy flag leans symmetrically and peeks out on the right.
+  hqBattleFlagEnemy: {
+    right: "-46%",
+    transform: "rotate(31deg)",
+  },
+
   // Soft side-coloured halo bleeding past the HQ cell (overflow:visible) so the
   // command centre glows green (player) / red (enemy) against the dark rear.
   hqAura: {
@@ -6346,6 +6458,10 @@ actionSideColumn: {
   },
 
   occupiedCell: {
+    border: "none",
+    background:
+      "linear-gradient(135deg, rgba(17, 24, 26, 0.42), rgba(7, 9, 10, 0.34))",
+    boxShadow: "none",
   },
 
   emptyCell: {
@@ -6761,10 +6877,34 @@ actionSideColumn: {
     marginTop: -85,
   },
   enemyFuelOnly: {
+    position: "relative",
     width: 118,
     alignSelf: "center",
-    transform: "none",
+    transform: "translateY(80px)",
     zIndex: 32,
+  },
+
+  // Enemy national flag planted by the HQ but kept BEHIND the fuel indicator
+  // (the panel sits at fuelPanelOverFlag zIndex 1). Offset down-left so it reads
+  // as standing next to the headquarters, mirrored to match the player's flag.
+  fuelBattleFlag: {
+    position: "absolute",
+    bottom: "+14%",
+    left: "-20%",
+    width: "70%",
+    height: "auto",
+    zIndex: 0,
+    pointerEvents: "none",
+    transform: "rotate(+21deg)",
+    transformOrigin: "center bottom",
+    filter: "brightness(1.02) saturate(0.92) drop-shadow(0 2px 5px rgba(0,0,0,0.6))",
+    opacity: 0.95,
+    top: "-132%",
+  },
+
+  fuelPanelOverFlag: {
+    position: "relative",
+    zIndex: 1,
   },
   turnControlPanel: {
     position: "absolute",
@@ -7002,7 +7142,7 @@ turnCounterValue: {
   },
 
   surrenderButton: {
-    width: 92,
+    width: 116,
     pointerEvents: "auto",
     border: "none",
     borderRadius: 0,
@@ -7043,6 +7183,7 @@ turnCounterValue: {
   // (отрицательный нижний отступ убирает зазор колонки).
   playerFuelNearDeck: {
     marginBottom: -35,
+    transform: "translateY(-56px)",
   },
 
   actionHint: {

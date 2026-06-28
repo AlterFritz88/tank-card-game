@@ -184,6 +184,7 @@ export function TankCardView({
         style={{
           ...styles.card,
           ...styles.boardCard,
+          border: borderlessBoard ? "none" : styles.card.border,
           borderColor: borderlessBoard
             ? "transparent"
             : "rgba(225, 214, 184, 0.28)",

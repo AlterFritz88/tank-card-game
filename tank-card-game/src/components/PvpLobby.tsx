@@ -37,6 +37,13 @@ import {
   isCampaignRewardClaimed,
   type CampaignCompletionReward,
 } from "../game/campaigns";
+import {
+  getLocalizedCampaignDescription,
+  getLocalizedCampaignTitle,
+  getLocalizedMissionChapter,
+  getLocalizedMissionDescription,
+  getLocalizedMissionTitle,
+} from "../game/campaignLocalization";
 import { getCardOrNull } from "../game/cards";
 import {
   DECK_UNIT_LIMIT,
@@ -92,6 +99,7 @@ import {
   getCardKeywords,
   getHeadquartersKeywords,
 } from "../game/cardKeywords";
+import { getLocalizedNationLabel } from "../game/cardLocalization";
 import { useStageOverlayTransform, screenDeltaToStage } from "./GameStage";
 import { useLandscapeKeyboardLock } from "./useLandscapeKeyboardLock";
 import { usePngFallback } from "./LoadingScreen";
@@ -139,14 +147,14 @@ const CAMPAIGN_CARD_WIDTH = Math.round(MENU_CARD_WIDTH * 1.5);
 const CAMPAIGN_CARD_HEIGHT = Math.round(MENU_CARD_HEIGHT * 1.5);
 const GUEST_SESSION_READY_KEY = GUEST_SESSION_READY_STORAGE_KEY;
 
-const NATION_LABELS: Record<Nation, string> = {
-  france: "Франция",
-  germany: "Германия",
-  poland: "Польша",
-  uk: "Британия",
-  usa: "США",
-  ussr: "СССР",
-};
+const NATION_FILTER_VALUES: Nation[] = [
+  "france",
+  "germany",
+  "poland",
+  "uk",
+  "usa",
+  "ussr",
+];
 
 const TEST_BATTLE_HEADQUARTERS_LEVEL = 4;
 const PLAYER_NICKNAME_INPUT_PATTERN = "[A-Za-z0-9_-]{3,14}";
@@ -292,6 +300,58 @@ const PREMIUM_PRODUCTS = [
   { days: 21, cost: 1500 },
   { days: 50, cost: 4199 },
 ];
+
+function getShopText(language: Language) {
+  if (language === "en") {
+    return {
+      title: "SHOP",
+      subtitle: "Gold tracks and premium account",
+      balance: "Balance",
+      until: "until",
+      loadPricesFailed: "Could not load shop prices",
+      premiumActivated: "Premium activated",
+      buyPremiumFailed: "Could not buy premium account",
+      createPaymentFailed: "Could not create payment",
+      guestTitle: "An e-mail account is required",
+      guestBody:
+        "Gold purchases are available only to registered players because the receipt is sent to the account e-mail. Sign in or register from the profile panel in the upper-left corner to buy gold tracks.",
+      priceLoading: "Loading price...",
+      priceMissing: "Price not set",
+      signIn: "Sign in",
+      creatingPayment: "Creating payment...",
+      payYooKassa: "Pay via YooKassa",
+      configurePrice: "Configure price on server",
+      buying: "Buying...",
+      buy: "Buy",
+      notEnoughGold: "Not enough gold",
+      goldTracks: "gold tracks",
+    };
+  }
+
+  return {
+    title: "МАГАЗИН",
+    subtitle: "Золотые траки и премиум аккаунт",
+    balance: "Баланс",
+    until: "до",
+    loadPricesFailed: "Не удалось загрузить цены магазина",
+    premiumActivated: "Премиум активирован",
+    buyPremiumFailed: "Не удалось купить премиум аккаунт",
+    createPaymentFailed: "Не удалось создать платеж",
+    guestTitle: "Нужен аккаунт с e-mail",
+    guestBody:
+      "Покупка золота доступна только зарегистрированным игрокам — на e-mail аккаунта приходит кассовый чек. Войдите или зарегистрируйтесь в профиле (иконка вверху слева), чтобы покупать золотые траки.",
+    priceLoading: "Загрузка цены...",
+    priceMissing: "Цена не задана",
+    signIn: "Войдите в аккаунт",
+    creatingPayment: "Создание платежа...",
+    payYooKassa: "Оплата через ЮKassa",
+    configurePrice: "Настройте цену на сервере",
+    buying: "Покупка...",
+    buy: "Купить",
+    notEnoughGold: "Не хватает золота",
+    goldTracks: "золотых траков",
+  };
+}
 
 function formatPremiumUntil(progress: PlayerProgress) {
   if (!progress.premiumUntil) return null;
@@ -483,6 +543,8 @@ function ShopMenu({
   onBack: () => void;
   onProfileChanged: () => void;
 }) {
+  const { language, t } = useI18n();
+  const shopText = getShopText(language);
   const [progress, setProgress] = useState(() => loadPlayerProgress());
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [purchasingPremiumDays, setPurchasingPremiumDays] = useState<
@@ -524,7 +586,7 @@ function ShopMenu({
           setStatusMessage(
             error instanceof Error
               ? error.message
-              : "Не удалось загрузить цены магазина"
+              : shopText.loadPricesFailed
           );
         }
       })
@@ -549,13 +611,15 @@ function ShopMenu({
       onProfileChanged();
       const nextPremiumUntil = formatPremiumUntil(nextProgress);
       setStatusMessage(
-        `Премиум активирован${nextPremiumUntil ? ` до ${nextPremiumUntil}` : ""}.`
+        `${shopText.premiumActivated}${
+          nextPremiumUntil ? ` ${shopText.until} ${nextPremiumUntil}` : ""
+        }.`
       );
     } catch (error) {
       setStatusMessage(
         error instanceof Error
           ? error.message
-          : "Не удалось купить премиум аккаунт"
+          : shopText.buyPremiumFailed
       );
     } finally {
       setPurchasingPremiumDays(null);
@@ -573,7 +637,7 @@ function ShopMenu({
       setStatusMessage(
         error instanceof Error
           ? error.message
-          : "Не удалось создать платеж"
+          : shopText.createPaymentFailed
       );
     } finally {
       setPurchasingGoldProductId(null);
@@ -595,18 +659,18 @@ function ShopMenu({
       <section style={{ ...styles.menuLayer, ...styles.shopLayer }}>
         <header style={styles.shopHeader}>
           <button type="button" style={styles.shopBackButton} onClick={onBack}>
-            Назад
+            {t("common.back")}
           </button>
           <div>
-            <h1 style={styles.title}>МАГАЗИН</h1>
+            <h1 style={styles.title}>{shopText.title}</h1>
             <p style={styles.shopSubtitle}>
-              Золотые траки и премиум аккаунт
+              {shopText.subtitle}
             </p>
           </div>
         </header>
 
         <div style={styles.shopBalanceRow}>
-          <span>Баланс</span>
+          <span>{shopText.balance}</span>
           <strong>
             <img
               src={goldTracksIcon}
@@ -614,26 +678,25 @@ function ShopMenu({
               draggable={false}
               style={styles.shopBalanceIcon}
             />
-            {formatResourceValue(progress.goldTracks)}
+            {formatResourceValue(progress.goldTracks, language)}
           </strong>
           <span>
             {isPremiumAccountActive(progress)
-              ? `Премиум аккаунт${premiumUntilText ? ` до ${premiumUntilText}` : ""}`
-              : "Базовый аккаунт"}
+              ? `${t("account.premiumAccount")}${
+                  premiumUntilText ? ` ${shopText.until} ${premiumUntilText}` : ""
+                }`
+              : t("account.basicAccount")}
           </span>
         </div>
 
         <div style={styles.shopGrid}>
           <section style={styles.shopSection}>
-            <h2 style={styles.shopSectionTitle}>Золотые траки</h2>
+            <h2 style={styles.shopSectionTitle}>{t("resources.goldTracks")}</h2>
             {isGuest ? (
               <div style={styles.shopGuestHint}>
-                <strong>Нужен аккаунт с e-mail</strong>
+                <strong>{shopText.guestTitle}</strong>
                 <span>
-                  Покупка золота доступна только зарегистрированным игрокам — на
-                  e-mail аккаунта приходит кассовый чек. Войдите или
-                  зарегистрируйтесь в профиле (иконка вверху слева), чтобы
-                  покупать золотые траки.
+                  {shopText.guestBody}
                 </span>
               </div>
             ) : null}
@@ -666,22 +729,24 @@ function ShopMenu({
                       draggable={false}
                       style={styles.shopOfferIcon}
                     />
-                    <strong>{product.label}</strong>
+                    <strong>
+                      {formatResourceValue(product.gold, language)} {shopText.goldTracks}
+                    </strong>
                     <span style={styles.shopRubPrice}>
                       {catalogLoading
-                        ? "Загрузка цены..."
+                        ? shopText.priceLoading
                         : priceReady
                           ? `${formatRubPrice(priceRub)} ₽`
-                          : "Цена не задана"}
+                          : shopText.priceMissing}
                     </span>
                     <span>
                       {isGuest
-                        ? "Войдите в аккаунт"
+                        ? shopText.signIn
                         : purchasingGoldProductId === product.id
-                          ? "Создание платежа..."
+                          ? shopText.creatingPayment
                           : priceReady
-                            ? "Оплата через ЮKassa"
-                            : "Настройте цену на сервере"}
+                            ? shopText.payYooKassa
+                            : shopText.configurePrice}
                     </span>
                   </button>
                 );
@@ -690,12 +755,19 @@ function ShopMenu({
           </section>
 
           <section style={styles.shopSection}>
-            <h2 style={styles.shopSectionTitle}>Премиум аккаунт</h2>
+            <h2 style={styles.shopSectionTitle}>{t("account.premiumAccount")}</h2>
             <div style={styles.shopOfferGrid}>
               {PREMIUM_PRODUCTS.map((product) => {
                 const affordable = progress.goldTracks >= product.cost;
                 const busy = purchasingPremiumDays === product.days;
-                const dayLabel = product.days === 1 ? "день" : "дней";
+                const dayLabel =
+                  language === "en"
+                    ? product.days === 1
+                      ? "day"
+                      : "days"
+                    : product.days === 1
+                      ? "день"
+                      : "дней";
 
                 return (
                   <button
@@ -718,14 +790,14 @@ function ShopMenu({
                         draggable={false}
                         style={styles.shopPremiumPriceIcon}
                       />
-                      {formatResourceValue(product.cost)}
+                      {formatResourceValue(product.cost, language)}
                     </span>
                     <span>
                       {busy
-                        ? "Покупка..."
+                        ? shopText.buying
                         : affordable
-                          ? "Купить"
-                          : "Не хватает золота"}
+                          ? shopText.buy
+                          : shopText.notEnoughGold}
                     </span>
                   </button>
                 );
@@ -751,6 +823,7 @@ function ExchangeMenu({
   onOpenShop: () => void;
   onProfileChanged: () => void;
 }) {
+  const { language, t } = useI18n();
   const [progress, setProgress] = useState(() => loadPlayerProgress());
   const [goldAmount, setGoldAmount] = useState(1);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -783,13 +856,22 @@ function ExchangeMenu({
       setGoldAmount((current) => Math.min(current, nextProgress.goldTracks));
       onProfileChanged();
       setStatusMessage(
-        `Обмен выполнен: +${formatResourceValue(
-          exchangedGold * GOLD_TO_IRON_RATE
-        )} железных траков.`
+        language === "en"
+          ? `Exchange complete: +${formatResourceValue(
+              exchangedGold * GOLD_TO_IRON_RATE,
+              language
+            )} iron tracks.`
+          : `Обмен выполнен: +${formatResourceValue(
+              exchangedGold * GOLD_TO_IRON_RATE
+            )} железных траков.`
       );
     } catch (error) {
       setStatusMessage(
-        error instanceof Error ? error.message : "Не удалось выполнить обмен"
+        error instanceof Error
+          ? error.message
+          : language === "en"
+            ? "Could not complete exchange"
+            : "Не удалось выполнить обмен"
       );
     } finally {
       setExchanging(false);
@@ -811,12 +893,16 @@ function ExchangeMenu({
       <section style={{ ...styles.menuLayer, ...styles.shopLayer }}>
         <header style={styles.shopHeader}>
           <button type="button" style={styles.shopBackButton} onClick={onBack}>
-            Назад
+            {t("common.back")}
           </button>
           <div>
-            <h1 style={styles.title}>ОБМЕН ТРАКОВ</h1>
+            <h1 style={styles.title}>
+              {language === "en" ? "TRACK EXCHANGE" : "ОБМЕН ТРАКОВ"}
+            </h1>
             <p style={styles.shopSubtitle}>
-              1 золотой трак = {GOLD_TO_IRON_RATE} железных траков
+              {language === "en"
+                ? `1 gold track = ${GOLD_TO_IRON_RATE} iron tracks`
+                : `1 золотой трак = ${GOLD_TO_IRON_RATE} железных траков`}
             </p>
           </div>
         </header>
@@ -829,7 +915,7 @@ function ExchangeMenu({
               draggable={false}
               style={styles.shopBalanceIcon}
             />
-            {formatResourceValue(progress.goldTracks)}
+            {formatResourceValue(progress.goldTracks, language)}
           </span>
           <span style={styles.exchangeBalanceCell}>
             <img
@@ -838,7 +924,7 @@ function ExchangeMenu({
               draggable={false}
               style={styles.shopBalanceIcon}
             />
-            {formatResourceValue(progress.ironTracks)}
+            {formatResourceValue(progress.ironTracks, language)}
           </span>
         </div>
 
@@ -854,7 +940,7 @@ function ExchangeMenu({
               <span style={styles.exchangeSideValue}>
                 −{formatResourceValue(clampedAmount)}
               </span>
-              <span style={styles.exchangeSideLabel}>Золотые траки</span>
+              <span style={styles.exchangeSideLabel}>{t("resources.goldTracks")}</span>
             </div>
             <span style={styles.exchangeArrow}>→</span>
             <div style={styles.exchangeSide}>
@@ -867,7 +953,7 @@ function ExchangeMenu({
               <span style={styles.exchangeSideValue}>
                 +{formatResourceValue(ironGain)}
               </span>
-              <span style={styles.exchangeSideLabel}>Железные траки</span>
+              <span style={styles.exchangeSideLabel}>{t("resources.ironTracks")}</span>
             </div>
           </div>
 
@@ -877,7 +963,7 @@ function ExchangeMenu({
               style={styles.exchangeStepButton}
               onClick={() => setAmount(clampedAmount - 1)}
               disabled={clampedAmount <= 0}
-              aria-label="Уменьшить"
+              aria-label={language === "en" ? "Decrease" : "Уменьшить"}
             >
               −
             </button>
@@ -889,14 +975,14 @@ function ExchangeMenu({
               onChange={(event) => setAmount(Number(event.target.value))}
               style={styles.exchangeInput}
               inputMode="numeric"
-              aria-label="Количество золотых траков"
+              aria-label={t("resources.goldTracks")}
             />
             <button
               type="button"
               style={styles.exchangeStepButton}
               onClick={() => setAmount(clampedAmount + 1)}
               disabled={clampedAmount >= maxGold}
-              aria-label="Увеличить"
+              aria-label={language === "en" ? "Increase" : "Увеличить"}
             >
               +
             </button>
@@ -920,7 +1006,7 @@ function ExchangeMenu({
               disabled={maxGold < 1}
               onClick={() => setAmount(maxGold)}
             >
-              Всё
+              {language === "en" ? "All" : "Всё"}
             </button>
           </div>
 
@@ -934,14 +1020,25 @@ function ExchangeMenu({
             onClick={() => void runExchange()}
           >
             {exchanging
-              ? "Обмен..."
+              ? language === "en"
+                ? "Exchanging..."
+                : "Обмен..."
               : maxGold < 1
-                ? "Нет золотых траков"
+                ? language === "en"
+                  ? "No gold tracks"
+                  : "Нет золотых траков"
                 : clampedAmount < 1
-                  ? "Выберите количество"
-                  : `Обменять ${formatResourceValue(
-                      clampedAmount
-                    )} → ${formatResourceValue(ironGain)}`}
+                  ? language === "en"
+                    ? "Choose amount"
+                    : "Выберите количество"
+                  : language === "en"
+                    ? `Exchange ${formatResourceValue(
+                        clampedAmount,
+                        language
+                      )} → ${formatResourceValue(ironGain, language)}`
+                    : `Обменять ${formatResourceValue(
+                        clampedAmount
+                      )} → ${formatResourceValue(ironGain)}`}
           </button>
 
           <button
@@ -949,7 +1046,9 @@ function ExchangeMenu({
             style={styles.exchangeShopLink}
             onClick={onOpenShop}
           >
-            Купить золотые траки в магазине
+            {language === "en"
+              ? "Buy gold tracks in the shop"
+              : "Купить золотые траки в магазине"}
           </button>
         </div>
 
@@ -1545,7 +1644,7 @@ function PlayerProfileMenu({
   onBack: () => void;
   onProfileChanged?: () => void;
 }) {
-  const { t } = useI18n();
+  const { language, t } = useI18n();
   const [progress, setProgress] = useState(() => loadPlayerProgress());
   const [registerOpen, setRegisterOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<
@@ -1818,8 +1917,11 @@ function PlayerProfileMenu({
                     {headquarters.title}
                   </strong>
                   <span>
-                    {NATION_LABELS[headquarters.nation]} · боев: {matches} · побед:{" "}
-                    {stats.wins} · поражений: {stats.losses} · опыта: {xp}
+                    {getLocalizedNationLabel(headquarters.nation, language)} ·{" "}
+                    {language === "en" ? "battles" : "боев"}: {matches} ·{" "}
+                    {language === "en" ? "wins" : "побед"}: {stats.wins} ·{" "}
+                    {language === "en" ? "losses" : "поражений"}: {stats.losses} ·{" "}
+                    {language === "en" ? "XP" : "опыта"}: {xp}
                   </span>
                 </div>
                 <button
@@ -2285,6 +2387,7 @@ export function PvpLobby() {
     pvpRoomId,
     pvpStatus,
     pvpError,
+    battleStarting,
     pvpOpponentHeadquartersId,
     pvpMatchPreviewLabel,
     pvpSearchDeadlineAt,
@@ -2662,7 +2765,7 @@ export function PvpLobby() {
   const matchmakingAvatar =
     pvpBusy ? getHeadquartersAvatarAsset(selectedHeadquartersId) : null;
 
-  const buttonsDisabled = pvpBusy;
+  const buttonsDisabled = pvpBusy || battleStarting;
 
   function getDeckOptionsForHeadquarters(headquartersId: HeadquartersId) {
     const savedDecks = loadSavedDecksForHeadquarters(headquartersId);
@@ -2875,6 +2978,7 @@ export function PvpLobby() {
   }
 
   function selectMission(missionId: string) {
+    if (buttonsDisabled) return;
     if (!missionCampaign) return;
     if (
       !isCampaignMissionUnlocked(
@@ -3026,9 +3130,7 @@ export function PvpLobby() {
     }));
   });
 
-  const availableDeckNations = (
-    Object.keys(NATION_LABELS) as Nation[]
-  ).filter((nation) =>
+  const availableDeckNations = NATION_FILTER_VALUES.filter((nation) =>
     battleDeckOptions.some((option) => option.nation === nation)
   );
 
@@ -3095,6 +3197,7 @@ export function PvpLobby() {
                 const artUrl =
                   campaign.menuArtUrl ??
                   `/ui/menu/campaign-${index + 1}-panzer-div.webp`;
+                const campaignTitle = getLocalizedCampaignTitle(campaign, language);
 
                 return (
                   <motion.button
@@ -3105,7 +3208,7 @@ export function PvpLobby() {
                     whileHover={{ y: -8, scale: 1.035 }}
                     whileTap={{ scale: 0.985 }}
                     transition={{ type: "spring", stiffness: 360, damping: 28 }}
-                    aria-label={`${t("battle.selectCompany")}: ${campaign.title}`}
+                    aria-label={`${t("battle.selectCompany")}: ${campaignTitle}`}
                   >
                     <div
                       style={{
@@ -3113,7 +3216,7 @@ export function PvpLobby() {
                         backgroundImage: `linear-gradient(180deg, rgba(8, 9, 7, 0.04), rgba(0, 0, 0, 0.25)), url('${artUrl}')`,
                       }}
                     >
-                      <span style={styles.campaignArtLabel}>{campaign.title}</span>
+                      <span style={styles.campaignArtLabel}>{campaignTitle}</span>
                     </div>
                   </motion.button>
                 );
@@ -3241,17 +3344,27 @@ export function PvpLobby() {
         <section style={styles.menuLayer}>
           <header style={styles.header}>
             <div style={styles.kicker}>{t("battle.selectOperation")}</div>
-            <h1 style={styles.title}>{missionCampaign.title}</h1>
-            <p style={styles.subtitle}>{missionCampaign.description}</p>
+            <h1 style={styles.title}>
+              {getLocalizedCampaignTitle(missionCampaign, language)}
+            </h1>
+            <p style={styles.subtitle}>
+              {getLocalizedCampaignDescription(missionCampaign, language)}
+            </p>
           </header>
 
           <CarouselTapFrame
             viewportRef={missionsCarouselRef}
             viewportStyle={styles.missionCarouselViewport}
-            ariaLabel="Выбор миссии"
+            ariaLabel={t("battle.selectOperation")}
           >
             <div style={styles.missionCarouselTrack}>
               {missionCampaign.missions.map((mission, index) => {
+                const missionTitle = getLocalizedMissionTitle(mission, language);
+                const missionChapter = getLocalizedMissionChapter(mission, language);
+                const missionDescription = getLocalizedMissionDescription(
+                  mission,
+                  language
+                );
                 const available = mission.available !== false;
                 const unlocked = isCampaignMissionUnlocked(
                   missionCampaign,
@@ -3298,7 +3411,7 @@ export function PvpLobby() {
                     whileTap={playable ? { scale: 0.985 } : undefined}
                     transition={{ type: "spring", stiffness: 360, damping: 28 }}
                     aria-pressed={selected}
-                    aria-label={`Выбрать миссию ${mission.title}`}
+                    aria-label={`${t("battle.selectOperation")}: ${missionTitle}`}
                   >
                     <div
                       style={{
@@ -3318,10 +3431,10 @@ export function PvpLobby() {
                         <span style={styles.missionNumber}>
                           {t("campaign.operation")} {String(index + 1).padStart(2, "0")}
                         </span>
-                        <span style={styles.missionChapter}>{mission.chapter}</span>
-                        <span style={styles.missionTitle}>{mission.title}</span>
+                        <span style={styles.missionChapter}>{missionChapter}</span>
+                        <span style={styles.missionTitle}>{missionTitle}</span>
                         <span style={styles.missionDescription}>
-                          {mission.description}
+                          {missionDescription}
                         </span>
                         <span
                           style={{
@@ -3785,7 +3898,7 @@ export function PvpLobby() {
                 }}
                 disabled={buttonsDisabled}
                 onClick={openCreateDeckBuilder}
-                aria-label="Открыть создание колоды"
+                aria-label={t("battle.createDeck")}
               >
                 {t("battle.createDeck")}
               </button>
@@ -3812,6 +3925,7 @@ export function PvpLobby() {
                 {availableDeckNations.map((nation) => {
                   const flag = getNationFlagAsset(nation);
                   const active = deckNationFilter === nation;
+                  const nationLabel = getLocalizedNationLabel(nation, language);
 
                   return (
                     <button
@@ -3825,8 +3939,12 @@ export function PvpLobby() {
                       }}
                       onClick={() => setDeckNationFilter(nation)}
                       aria-pressed={active}
-                      aria-label={`Колоды нации: ${NATION_LABELS[nation]}`}
-                      title={NATION_LABELS[nation]}
+                      aria-label={
+                        language === "en"
+                          ? `Decks of nation: ${nationLabel}`
+                          : `Колоды нации: ${nationLabel}`
+                      }
+                      title={nationLabel}
                     >
                       {flag ? (
                         <img
@@ -3836,7 +3954,7 @@ export function PvpLobby() {
                           style={styles.deckNationFilterFlag}
                         />
                       ) : (
-                        NATION_LABELS[nation]
+                        nationLabel
                       )}
                     </button>
                   );

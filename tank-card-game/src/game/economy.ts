@@ -85,6 +85,8 @@ export type BattleReward = {
   resultMultiplier: number;
   reasonMultiplier: number;
   fullyResearchedConversion: boolean;
+  /** True when the reward was zeroed because the player barely participated. */
+  insufficientActions: boolean;
 };
 
 type BattleRewardInput = {
@@ -97,6 +99,14 @@ type BattleRewardInput = {
 
 const FREE_XP_SHARE = 0.08;
 const FULLY_RESEARCHED_FREE_XP_CONVERSION = 0.65;
+
+/**
+ * Anti-farm guard: a player who entered a battle but performed fewer than this
+ * many meaningful actions (cards played, moves, attacks — see
+ * {@link BattleStats.actionsByPlayer}) gets no reward at all. This blocks
+ * grinding via instant surrenders / quits without ever really playing.
+ */
+const MIN_ACTIONS_FOR_REWARD = 5;
 
 const CLASS_HP_ESTIMATE: BattleKillStats = {
   light: 3,
@@ -208,20 +218,30 @@ export function calculateBattleReward({
   );
   const ironTracks = Math.max(0, rawIronTracks + repairCost);
 
+  // Anti-farm: if the local player barely participated, deny all rewards. The
+  // mode/result/reason metadata is preserved so the result screen can still
+  // explain *why* the payout is zero.
+  const localActions =
+    localPlayerId === "player"
+      ? battle.stats.actionsByPlayer ?? 0
+      : battle.stats.actionsByBot ?? 0;
+  const insufficientActions = localActions < MIN_ACTIONS_FOR_REWARD;
+
   return {
     headquartersId,
     rawHeadquartersXp,
-    headquartersXp,
-    freeXp,
+    headquartersXp: insufficientActions ? 0 : headquartersXp,
+    freeXp: insufficientActions ? 0 : freeXp,
     rawIronTracks,
-    repairCost,
-    ironTracks,
+    repairCost: insufficientActions ? 0 : repairCost,
+    ironTracks: insufficientActions ? 0 : ironTracks,
     goldTracks: 0,
     destructionProgress,
     modeMultiplier: modeReward.multiplier,
     resultMultiplier,
     reasonMultiplier,
     fullyResearchedConversion: headquartersFullyResearched,
+    insufficientActions,
   };
 }
 

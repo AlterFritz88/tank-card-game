@@ -823,6 +823,19 @@ function getHeadquartersAbilityKeyword(
     };
   }
 
+  if (ability.hqRearStrikeBonus || ability.rearVulnerabilityToLightUnits) {
+    const bonus = ability.hqRearStrikeBonus ?? 0;
+    const penalty = ability.rearVulnerabilityToLightUnits ?? 0;
+    return {
+      id: "hq-rearStrike",
+      title,
+      body:
+        language === "en"
+          ? `The headquarters deals +${bonus} extra damage when attacking enemy rear-line units and the enemy headquarters, but your own rear line and headquarters take +${penalty} extra damage from enemy light tanks and armored cars.`
+          : `Штаб наносит на +${bonus} урона больше по тыловым юнитам и вражескому штабу, но свой тыл и штаб получают +${penalty} урона от лёгких танков и бронеавтомобилей.`,
+    };
+  }
+
   if (ability.hqAttackBonusVsDamaged) {
     return {
       id: "hq-vsDamaged",
@@ -947,11 +960,11 @@ export function getHeadquartersKeywords(
       id: `hq-national-${nationalAbility.id}`,
       title:
         language === "en"
-          ? `NATION · ${translateNationalAbilityName(nationalAbility.name).toUpperCase()}`
+          ? `NATION · ${translateNationalAbilityName(nationalAbility).toUpperCase()}`
           : `НАЦИЯ · ${nationalAbility.name.toUpperCase()}`,
       body:
         language === "en"
-          ? translateNationalAbilityDescription(nationalAbility.description)
+          ? translateNationalAbilityDescription(nationalAbility)
           : nationalAbility.description,
     });
   }
@@ -962,38 +975,57 @@ export function getHeadquartersKeywords(
 function translateHeadquartersAbilityName(name: string): string {
   const translations: Record<string, string> = {
     "Танковый клин": "Armored Spearhead",
+    "Моторизованный марш": "Motorized March",
     "Быстрая переброска": "Rapid Redeployment",
     "Артиллерийская подготовка": "Artillery Preparation",
+    "Удар по тылам": "Rear Strike",
+    "Снабжение по графику": "Scheduled Supply",
+    "Танковая засада": "Tank Ambush",
+    "Ремонтные колонны": "Repair Columns",
+    "Бронедесант": "Armored Infantry",
+    "Эвакуация и ремонт": "Recovery and Repair",
     "Тыловое снабжение": "Rear Supply",
     "Система": "System",
     "Залп «Катюш»": "Katyusha Salvo",
     "Оборона Москвы": "Defense of Moscow",
+    "Гвардейская засада": "Guards Ambush",
+    "Стоять насмерть": "Hold to the Last",
+    "Танковый натиск": "Armored Assault",
+    "Остриё прорыва": "Breakthrough Spearhead",
+    "Артподготовка": "Artillery Preparation",
+    "Несгибаемый полк": "Unbending Regiment",
+    "Танковый таран": "Tank Ram",
+    "Стальной клин": "Steel Wedge",
+    "Заградительный огонь": "Blocking Fire",
   };
 
   return translations[name] ?? name;
 }
 
-function translateNationalAbilityName(name: string): string {
-  const translations: Record<string, string> = {
-    "Сплочение": "Cohesion",
-    "Система": "System",
-    "Последний рубеж": "Last Stand",
+function translateNationalAbilityName(ability: NonNullable<ReturnType<typeof getNationalAbility>>): string {
+  const translations: Record<typeof ability.id, string> = {
+    cohesion: "Cohesion",
+    supply_line: "Supply Line",
+    system: "System",
+    last_stand: "Last Stand",
   };
 
-  return translations[name] ?? name;
+  return translations[ability.id] ?? ability.name;
 }
 
-function translateNationalAbilityDescription(description: string): string {
-  const translations: Record<string, string> = {
-    "Три юнита в ряд дают центральному +2 к защите.":
-      "Three units in a row give the center unit +2 defense.",
-    "Когда три ваших юнита выстроены подряд в одну горизонтальную линию, центральный получает +2 к защите. Если линия разрывается — бонус пропадает.":
-      "When three of your units form one horizontal line, the center unit gains +2 defense. If the line breaks, the bonus is lost.",
-    "Три юнита в горизонтальной линии, упёртой в тыл, при юните снабжения получают +2 к здоровью.":
-      "Three units in a horizontal line connected to the rear gain +2 health while a supply unit supports them.",
-    "Если все три ваши клетки плацдарма заняты, штаб получает +2 к атаке.":
-      "If all three of your bridgehead cells are occupied, your headquarters gains +2 attack.",
+function translateNationalAbilityDescription(
+  ability: NonNullable<ReturnType<typeof getNationalAbility>>
+): string {
+  const translations: Record<typeof ability.id, string> = {
+    cohesion:
+      "When three of your units stand in one vertical line, filling a full three-cell column, each of them gains +1 defense. Every hit against those units is reduced by 1.",
+    supply_line:
+      "When three of your units form a horizontal line connected to the rear edge by a supply unit, those three units gain +2 health. If the line is not connected to the rear, the supply bonus does not apply.",
+    system:
+      "While all four rear-line slots are occupied by support units, your headquarters gains +1 fuel at the start of each turn.",
+    last_stand:
+      "While all three of your bridgehead cells are occupied by your units, your headquarters gains +2 attack: the line holds to the last.",
   };
 
-  return translations[description] ?? description;
+  return translations[ability.id] ?? ability.description;
 }
