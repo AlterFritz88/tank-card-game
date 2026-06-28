@@ -1282,7 +1282,7 @@ function GuestEntryScreen({
               onChange={(event) =>
                 setUsername(sanitizePlayerNicknameInput(event.target.value))
               }
-              style={styles.guestEntryInput}
+              style={{ ...styles.guestEntryInput, ...styles.authModalInput }}
               autoComplete="username"
               {...keyboardLock}
             />
@@ -1418,15 +1418,16 @@ function getTotalMatchCount(progress: PlayerProgress) {
 }
 
 /**
- * Registration dialog opened from the guest profile header. On success the
- * guest progress is merged into the new account (handled server-side via
- * mergeGuestProgress) and the caller refreshes the profile view.
+ * Account dialog opened from the guest profile header. It lets a guest either
+ * create a new account (merging guest progress) or sign in to an existing one.
  */
 function ProfileRegisterModal({
   onClose,
+  onLogin,
   onRegister,
 }: {
   onClose: () => void;
+  onLogin: (username: string, password: string) => Promise<void>;
   onRegister: (
     username: string,
     email: string,
@@ -1437,6 +1438,7 @@ function ProfileRegisterModal({
 }) {
   const { t } = useI18n();
   const overlayTransform = useStageOverlayTransform();
+  const [authMode, setAuthMode] = useState<"login" | "register">("register");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1466,6 +1468,12 @@ function ProfileRegisterModal({
     try {
       if (!isValidPlayerNickname(username)) {
         throw new Error(t("auth.nicknameHint"));
+      }
+
+      if (authMode === "login") {
+        await onLogin(username, password);
+        onClose();
+        return;
       }
 
       if (!isValidEmail(email)) {
@@ -1502,7 +1510,9 @@ function ProfileRegisterModal({
           onClick={(event) => event.stopPropagation()}
         >
           <div style={styles.guestAuthHeader}>
-            <span style={styles.guestAuthTitle}>{t("auth.register")}</span>
+            <span style={styles.guestAuthTitle}>
+              {authMode === "login" ? t("auth.accountLogin") : t("auth.register")}
+            </span>
             <button
               type="button"
               style={styles.guestAuthBackButton}
@@ -1512,120 +1522,182 @@ function ProfileRegisterModal({
             </button>
           </div>
 
-          <p style={styles.guestEntryNote}>
-            {t("auth.guestMergeNote")}
-          </p>
-
-          <form style={styles.guestEntryForm} onSubmit={submit}>
-            <label
-              style={styles.guestEntryLabel}
-              htmlFor="profile-register-username"
+          <div style={styles.guestSecondaryActions}>
+            <button
+              type="button"
+              style={{
+                ...styles.guestSecondaryButton,
+                ...(authMode === "login" ? styles.guestModeButtonActive : {}),
+              }}
+              onClick={() => {
+                setAuthMode("login");
+                setError(null);
+              }}
             >
               {t("auth.login")}
-            </label>
-            <input
-              id="profile-register-username"
-              value={username}
-              maxLength={PLAYER_NICKNAME_MAX_LENGTH}
-              pattern={PLAYER_NICKNAME_INPUT_PATTERN}
-              title={t("auth.nicknameHint")}
-              onChange={(event) =>
-                setUsername(sanitizePlayerNicknameInput(event.target.value))
-              }
-              style={styles.guestEntryInput}
-              autoComplete="username"
-              {...keyboardLock}
-            />
-
-            <label
-              style={styles.guestEntryLabel}
-              htmlFor="profile-register-password"
+            </button>
+            <button
+              type="button"
+              style={{
+                ...styles.guestSecondaryButton,
+                ...(authMode === "register" ? styles.guestModeButtonActive : {}),
+              }}
+              onClick={() => {
+                setAuthMode("register");
+                setError(null);
+              }}
             >
-              {t("auth.password")}
-            </label>
-            <input
-              id="profile-register-password"
-              type="password"
-              value={password}
-              minLength={6}
-              maxLength={72}
-              onChange={(event) => setPassword(event.target.value)}
-              style={styles.guestEntryInput}
-              autoComplete="new-password"
-              {...keyboardLock}
-            />
+              {t("auth.register")}
+            </button>
+          </div>
 
-            <label
-              style={styles.guestEntryLabel}
-              htmlFor="profile-register-email"
-            >
-              E-mail
-            </label>
-            <input
-              id="profile-register-email"
-              type="email"
-              value={email}
-              maxLength={254}
-              onChange={(event) => setEmail(event.target.value)}
-              style={styles.guestEntryInput}
-              autoComplete="email"
-              {...keyboardLock}
-            />
+          <p style={{ ...styles.guestEntryNote, ...styles.authModalNote }}>
+            {authMode === "login"
+              ? t("auth.guestProgressNote")
+              : t("auth.guestMergeNote")}
+          </p>
 
-            <label
-              style={styles.guestEntryLabel}
-              htmlFor="profile-register-repeat-password"
-            >
-              {t("auth.repeatPassword")}
-            </label>
-            <input
-              id="profile-register-repeat-password"
-              type="password"
-              value={repeatPassword}
-              minLength={6}
-              maxLength={72}
-              onChange={(event) => setRepeatPassword(event.target.value)}
-              style={styles.guestEntryInput}
-              autoComplete="new-password"
-              {...keyboardLock}
-            />
-
-            <label
-              style={styles.guestEntryLabel}
-              htmlFor="profile-register-promo-code"
-            >
-              {t("auth.promoCode")}
-            </label>
-            <input
-              id="profile-register-promo-code"
-              value={promoCode}
-              maxLength={32}
-              onChange={(event) => setPromoCode(event.target.value)}
-              style={styles.guestEntryInput}
-              autoComplete="off"
-              {...keyboardLock}
-            />
-
-            <label style={styles.legalConsentRow}>
+          <form
+            style={{ ...styles.guestEntryForm, ...styles.authModalForm }}
+            onSubmit={submit}
+          >
+            <div style={styles.authModalField}>
+              <label
+                style={styles.guestEntryLabel}
+                htmlFor="profile-register-username"
+              >
+                {t("auth.login")}
+              </label>
               <input
-                type="checkbox"
-                checked={legalAccepted}
-                onChange={(event) => setLegalAccepted(event.target.checked)}
-                style={styles.legalConsentCheckbox}
+                id="profile-register-username"
+                value={username}
+                maxLength={PLAYER_NICKNAME_MAX_LENGTH}
+                pattern={PLAYER_NICKNAME_INPUT_PATTERN}
+                title={t("auth.nicknameHint")}
+                onChange={(event) =>
+                  setUsername(sanitizePlayerNicknameInput(event.target.value))
+                }
+                style={{ ...styles.guestEntryInput, ...styles.authModalInput }}
+                autoComplete="username"
+                {...keyboardLock}
               />
-              <span>
-                {t("auth.legalConsent")} <LegalLinks compact />
-              </span>
-            </label>
+            </div>
 
-            <LanguageChoiceRow compact />
+            {authMode === "register" ? (
+              <div style={styles.authModalField}>
+                <label
+                  style={styles.guestEntryLabel}
+                  htmlFor="profile-register-email"
+                >
+                  E-mail
+                </label>
+                <input
+                  id="profile-register-email"
+                  type="email"
+                  value={email}
+                  maxLength={254}
+                  onChange={(event) => setEmail(event.target.value)}
+                  style={{ ...styles.guestEntryInput, ...styles.authModalInput }}
+                  autoComplete="email"
+                  {...keyboardLock}
+                />
+              </div>
+            ) : null}
+
+            <div style={styles.authModalField}>
+              <label
+                style={styles.guestEntryLabel}
+                htmlFor="profile-register-password"
+              >
+                {t("auth.password")}
+              </label>
+              <input
+                id="profile-register-password"
+                type="password"
+                value={password}
+                minLength={6}
+                maxLength={72}
+                onChange={(event) => setPassword(event.target.value)}
+                style={{ ...styles.guestEntryInput, ...styles.authModalInput }}
+                autoComplete={authMode === "login" ? "current-password" : "new-password"}
+                {...keyboardLock}
+              />
+            </div>
+
+            {authMode === "register" ? (
+              <>
+                <div style={styles.authModalField}>
+                  <label
+                    style={styles.guestEntryLabel}
+                    htmlFor="profile-register-repeat-password"
+                  >
+                    {t("auth.repeatPassword")}
+                  </label>
+                  <input
+                    id="profile-register-repeat-password"
+                    type="password"
+                    value={repeatPassword}
+                    minLength={6}
+                    maxLength={72}
+                    onChange={(event) => setRepeatPassword(event.target.value)}
+                    style={{ ...styles.guestEntryInput, ...styles.authModalInput }}
+                    autoComplete="new-password"
+                    {...keyboardLock}
+                  />
+                </div>
+
+                <div style={styles.authModalField}>
+                  <label
+                    style={styles.guestEntryLabel}
+                    htmlFor="profile-register-promo-code"
+                  >
+                    {t("auth.promoCode")}
+                  </label>
+                  <input
+                    id="profile-register-promo-code"
+                    value={promoCode}
+                    maxLength={32}
+                    onChange={(event) => setPromoCode(event.target.value)}
+                    style={{ ...styles.guestEntryInput, ...styles.authModalInput }}
+                    autoComplete="off"
+                    {...keyboardLock}
+                  />
+                </div>
+
+                <label style={{ ...styles.legalConsentRow, ...styles.authModalWide }}>
+                  <input
+                    type="checkbox"
+                    checked={legalAccepted}
+                    onChange={(event) => setLegalAccepted(event.target.checked)}
+                    style={styles.legalConsentCheckbox}
+                  />
+                  <span>
+                    {t("auth.legalConsent")} <LegalLinks compact />
+                  </span>
+                </label>
+
+                <div style={styles.authModalWide}>
+                  <LanguageChoiceRow compact />
+                </div>
+              </>
+            ) : null}
 
             <button
               type="submit"
-              style={styles.guestPrimaryButton}
+              style={{
+                ...styles.guestPrimaryButton,
+                ...styles.authModalPrimaryButton,
+                ...styles.authModalWide,
+              }}
               disabled={saving}
             >
-              {saving ? t("auth.registering") : t("auth.registerAccount")}
+              {saving
+                ? authMode === "login"
+                  ? t("auth.connecting")
+                  : t("auth.registering")
+                : authMode === "login"
+                  ? t("auth.login")
+                  : t("auth.registerAccount")}
             </button>
           </form>
 
@@ -1734,6 +1806,17 @@ function PlayerProfileMenu({
     onProfileChanged?.();
   }
 
+  async function loginFromProfile(username: string, password: string) {
+    const nextProgress = await loginPlayerAccount({
+      username,
+      password,
+      mergeGuestProgress: false,
+    });
+    window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
+    setProgress(nextProgress);
+    onProfileChanged?.();
+  }
+
   async function logoutAccount() {
     if (!registeredUser) return;
 
@@ -1791,7 +1874,7 @@ function PlayerProfileMenu({
               style={styles.profileRegisterButton}
               onClick={() => setRegisterOpen(true)}
             >
-              Регистрация
+              {language === "en" ? "Log in / register" : "Войти / регистрация"}
             </button>
           )}
           <div style={styles.profileAvatarFrame}>
@@ -1947,6 +2030,7 @@ function PlayerProfileMenu({
       {registerOpen ? (
         <ProfileRegisterModal
           onClose={() => setRegisterOpen(false)}
+          onLogin={loginFromProfile}
           onRegister={registerFromProfile}
         />
       ) : null}
@@ -4529,6 +4613,22 @@ const styles: Record<string, CSSProperties> = {
     gap: 12,
   },
 
+  authModalForm: {
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    columnGap: 12,
+    rowGap: 7,
+  },
+
+  authModalField: {
+    display: "grid",
+    gap: 4,
+    minWidth: 0,
+  },
+
+  authModalWide: {
+    gridColumn: "1 / -1",
+  },
+
   legalConsentRow: {
     display: "grid",
     gridTemplateColumns: "18px minmax(0, 1fr)",
@@ -4654,6 +4754,11 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: "inset 0 0 18px rgba(0,0,0,0.42)",
   },
 
+  authModalInput: {
+    padding: "7px 10px",
+    fontSize: 15,
+  },
+
   guestPrimaryButton: {
     cursor: "pointer",
     minHeight: 48,
@@ -4707,6 +4812,17 @@ const styles: Record<string, CSSProperties> = {
     textShadow: "0 2px 0 rgba(0,0,0,0.86)",
   },
 
+  authModalPrimaryButton: {
+    minHeight: 36,
+    fontSize: 14,
+  },
+
+  guestModeButtonActive: {
+    backgroundColor: "#7f6330",
+    backgroundImage: `linear-gradient(180deg, rgba(234, 190, 94, 0.44), rgba(84, 58, 20, 0.82)), url(${buttonImage})`,
+    color: "#fff3c8",
+  },
+
   guestAuthHeader: {
     display: "flex",
     alignItems: "center",
@@ -4745,6 +4861,11 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 13,
     lineHeight: 1.45,
     textAlign: "center",
+  },
+
+  authModalNote: {
+    fontSize: 12,
+    lineHeight: 1.25,
   },
 
   guestEntryError: {
@@ -5019,17 +5140,22 @@ const styles: Record<string, CSSProperties> = {
     inset: 0,
     zIndex: 6000,
     display: "grid",
-    placeItems: "center",
+    justifyItems: "center",
+    alignItems: "start",
+    paddingTop: "clamp(10px, 5vh, 42px)",
+    paddingBottom: 12,
     background: "rgba(3, 4, 5, 0.72)",
     backdropFilter: "blur(3px)",
+    overflow: "hidden",
   },
 
   authModalPanel: {
-    width: 420,
-    maxWidth: "90vw",
+    width: "min(620px, 92vw)",
+    maxHeight: "calc(100vh - 18px)",
+    overflow: "hidden",
     display: "grid",
-    gap: 14,
-    padding: "22px 24px 24px",
+    gap: 7,
+    padding: "12px 18px 14px",
     border: "1px solid rgba(216,174,92,0.4)",
     background:
       "linear-gradient(180deg, rgba(34, 30, 22, 0.98), rgba(14, 12, 9, 0.98))",

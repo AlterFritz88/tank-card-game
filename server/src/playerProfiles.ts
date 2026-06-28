@@ -50,6 +50,8 @@ type ClaimBattleRewardInput = {
   mode: GameMode;
   localPlayerId: PlayerId;
   matchEndReason?: MatchEndReason | null;
+  localDeckWeight?: number | null;
+  opponentDeckWeight?: number | null;
 };
 
 const PROFILE_DB_PATH = resolveWritableDbPath(
@@ -1219,6 +1221,8 @@ export class PlayerProfileManager {
             profile,
             rewardHeadquartersId
           ),
+          localDeckWeight: input.localDeckWeight ?? null,
+          opponentDeckWeight: input.opponentDeckWeight ?? null,
         }),
       };
     }
@@ -1236,6 +1240,8 @@ export class PlayerProfileManager {
         profile,
         rewardHeadquartersId
       ),
+      localDeckWeight: input.localDeckWeight ?? null,
+      opponentDeckWeight: input.opponentDeckWeight ?? null,
     });
     const localPlayerWon = getBattleWinner(input.battle, input.localPlayerId);
     const nextProfile = {

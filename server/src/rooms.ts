@@ -79,6 +79,9 @@ type Room = {
   id: string;
   players: Partial<Record<PlayerId, RoomPlayer>>;
   publicMatchmaking: boolean;
+  // When this room entered the public matchmaking queue. Drives the widening
+  // tolerance band. Null for private (CREATE_ROOM/JOIN_ROOM) rooms.
+  matchmakingStartedAt: number | null;
   battle: BattleState | null;
   pendingStartRoll: PendingStartRoll | null;
   pendingMovement: PendingMovement | null;
@@ -94,7 +97,9 @@ type CompletedPvpMatch = {
   roomId: string;
   battle: BattleState;
   endReason: MatchEndReason | null;
-  players: Partial<Record<PlayerId, { profilePlayerId: string | null }>>;
+  players: Partial<
+    Record<PlayerId, { profilePlayerId: string | null; deckWeight: number }>
+  >;
   timeoutId: NodeJS.Timeout;
 };
 
@@ -165,9 +170,44 @@ const REWARD_CLAIM_REFILL_MS = Number(
 );
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
-const PVP_MATCH_WEIGHT_TOLERANCE = Number(
-  process.env.PVP_MATCH_WEIGHT_TOLERANCE ?? 12
+// Matchmaking weight band. The search starts at ±15% of the deck weight and
+// widens by +10 percentage points every 5 seconds, up to a 30-second cap (so the
+// widest band is reached at 30s and held). Comparison is relative to the average
+// of the two deck weights, so the band is symmetric regardless of which side is
+// heavier.
+const PVP_MATCH_BASE_TOLERANCE_PCT = Number(
+  process.env.PVP_MATCH_BASE_TOLERANCE_PCT ?? 15
 );
+const PVP_MATCH_TOLERANCE_STEP_PCT = Number(
+  process.env.PVP_MATCH_TOLERANCE_STEP_PCT ?? 10
+);
+const PVP_MATCH_TOLERANCE_STEP_MS = Number(
+  process.env.PVP_MATCH_TOLERANCE_STEP_MS ?? 5_000
+);
+const PVP_MATCH_TOLERANCE_MAX_MS = Number(
+  process.env.PVP_MATCH_TOLERANCE_MAX_MS ?? 30_000
+);
+const PVP_MATCH_SWEEP_INTERVAL_MS = Number(
+  process.env.PVP_MATCH_SWEEP_INTERVAL_MS ?? 1_000
+);
+
+// Fraction of deck weight two players may differ by after `elapsedMs` of waiting.
+function getMatchToleranceFraction(elapsedMs: number): number {
+  const cappedElapsed = Math.min(
+    Math.max(0, elapsedMs),
+    PVP_MATCH_TOLERANCE_MAX_MS
+  );
+  const steps = Math.floor(cappedElapsed / PVP_MATCH_TOLERANCE_STEP_MS);
+  return (
+    (PVP_MATCH_BASE_TOLERANCE_PCT + steps * PVP_MATCH_TOLERANCE_STEP_PCT) / 100
+  );
+}
+
+// Symmetric relative difference between two deck weights.
+function getRelativeWeightDelta(a: number, b: number): number {
+  const reference = Math.max(1, (a + b) / 2);
+  return Math.abs(a - b) / reference;
+}
 
 function normalizePromoCode(promoCode: string | undefined): string {
   return promoCode?.trim().toLowerCase() ?? "";
@@ -365,6 +405,19 @@ export class RoomManager {
     { socket: WebSocket; instanceId: string; kind: string; since: number }
   >();
   private socketToSessionAccount = new WeakMap<WebSocket, string>();
+  // Periodically re-pairs waiting rooms whose tolerance bands have widened enough
+  // to overlap. Without this, two players already in the queue would never match
+  // each other once their bands grew, since matching is otherwise only attempted
+  // when a fresh FIND_MATCH arrives.
+  private matchmakingSweepTimer: NodeJS.Timeout;
+
+  constructor() {
+    this.matchmakingSweepTimer = setInterval(() => {
+      this.sweepMatchmaking();
+    }, PVP_MATCH_SWEEP_INTERVAL_MS);
+    // Don't keep the process alive just for the sweep.
+    this.matchmakingSweepTimer.unref?.();
+  }
 
   getAdminRuntimeStats(): AdminRuntimeStats {
     let matchmakingRooms = 0;
@@ -989,10 +1042,16 @@ export class RoomManager {
         completedMatch?.players ??
         ({
           player: currentRoom?.players.player
-            ? { profilePlayerId: currentRoom.players.player.profilePlayerId }
+            ? {
+                profilePlayerId: currentRoom.players.player.profilePlayerId,
+                deckWeight: currentRoom.players.player.deckWeight,
+              }
             : undefined,
           bot: currentRoom?.players.bot
-            ? { profilePlayerId: currentRoom.players.bot.profilePlayerId }
+            ? {
+                profilePlayerId: currentRoom.players.bot.profilePlayerId,
+                deckWeight: currentRoom.players.bot.deckWeight,
+              }
             : undefined,
         } satisfies CompletedPvpMatch["players"]);
       const endReason = completedMatch?.endReason ?? currentRoom?.endReason ?? null;
@@ -1006,6 +1065,7 @@ export class RoomManager {
         message.playerId,
         message.localPlayerId
       );
+      const opponentPlayerId = this.getOpponent(localPlayerId);
       const { profile, reward } = this.profiles.claimBattleReward(
         message.playerId,
         {
@@ -1014,6 +1074,8 @@ export class RoomManager {
           mode: "pvp",
           localPlayerId,
           matchEndReason: endReason,
+          localDeckWeight: players[localPlayerId]?.deckWeight ?? null,
+          opponentDeckWeight: players[opponentPlayerId]?.deckWeight ?? null,
         }
       );
 
@@ -1486,8 +1548,9 @@ export class RoomManager {
   }
 
   private getCompatibleWaitingRoom(deckWeight: number): Room | null {
+    const now = Date.now();
     let bestRoom: Room | null = null;
-    let bestDistance = Number.POSITIVE_INFINITY;
+    let bestDelta = Number.POSITIVE_INFINITY;
 
     for (const room of this.rooms.values()) {
       if (!room.publicMatchmaking) continue;
@@ -1497,15 +1560,125 @@ export class RoomManager {
       const socket = player?.socket;
       if (!player || !socket || socket.readyState !== socket.OPEN) continue;
 
-      const distance = Math.abs(player.deckWeight - deckWeight);
-      if (distance > PVP_MATCH_WEIGHT_TOLERANCE) continue;
-      if (distance >= bestDistance) continue;
+      // The arriving searcher has waited 0ms, so the band is governed by however
+      // long the waiting room has already been queued.
+      const roomElapsed = room.matchmakingStartedAt
+        ? now - room.matchmakingStartedAt
+        : 0;
+      const tolerance = getMatchToleranceFraction(roomElapsed);
+      const delta = getRelativeWeightDelta(player.deckWeight, deckWeight);
+      if (delta > tolerance) continue;
+      if (delta >= bestDelta) continue;
 
       bestRoom = room;
-      bestDistance = distance;
+      bestDelta = delta;
     }
 
     return bestRoom;
+  }
+
+  // Re-pairs queued players whose tolerance bands now overlap. Runs on an
+  // interval so expansion happens over time even when no new FIND_MATCH arrives.
+  private sweepMatchmaking() {
+    const now = Date.now();
+    const waiting = [...this.rooms.values()]
+      .filter((room) => {
+        if (!room.publicMatchmaking) return false;
+        if (!this.isWaitingForOpponent(room)) return false;
+        const socket = room.players.player?.socket;
+        return Boolean(socket && socket.readyState === socket.OPEN);
+      })
+      .sort(
+        (a, b) => (a.matchmakingStartedAt ?? 0) - (b.matchmakingStartedAt ?? 0)
+      );
+
+    if (waiting.length < 2) return;
+
+    const paired = new Set<string>();
+
+    for (let i = 0; i < waiting.length; i += 1) {
+      const host = waiting[i];
+      if (paired.has(host.id)) continue;
+      const hostPlayer = host.players.player;
+      if (!hostPlayer) continue;
+      const hostElapsed = host.matchmakingStartedAt
+        ? now - host.matchmakingStartedAt
+        : 0;
+
+      let bestGuest: Room | null = null;
+      let bestDelta = Number.POSITIVE_INFINITY;
+
+      for (let j = i + 1; j < waiting.length; j += 1) {
+        const guest = waiting[j];
+        if (paired.has(guest.id)) continue;
+        const guestPlayer = guest.players.player;
+        if (!guestPlayer) continue;
+        const guestElapsed = guest.matchmakingStartedAt
+          ? now - guest.matchmakingStartedAt
+          : 0;
+        // The longer-waiting side relaxes the band for the pair.
+        const tolerance = getMatchToleranceFraction(
+          Math.max(hostElapsed, guestElapsed)
+        );
+        const delta = getRelativeWeightDelta(
+          hostPlayer.deckWeight,
+          guestPlayer.deckWeight
+        );
+        if (delta > tolerance) continue;
+        if (delta >= bestDelta) continue;
+
+        bestGuest = guest;
+        bestDelta = delta;
+      }
+
+      if (bestGuest) {
+        paired.add(host.id);
+        paired.add(bestGuest.id);
+        this.mergeWaitingRooms(host, bestGuest);
+      }
+    }
+  }
+
+  // Folds a second waiting room (`guest`) into `host` as the opponent, then
+  // tears the now-empty guest room down and kicks off the match.
+  private mergeWaitingRooms(host: Room, guest: Room) {
+    const guestPlayer = guest.players.player;
+    const guestSocket = guestPlayer?.socket;
+    if (
+      !guestPlayer ||
+      !guestSocket ||
+      guestSocket.readyState !== guestSocket.OPEN
+    ) {
+      return;
+    }
+
+    delete guest.players.player;
+    if (this.waitingRoomId === guest.id) {
+      this.waitingRoomId = null;
+    }
+    this.rooms.delete(guest.id);
+
+    const botPlayer: RoomPlayer = { ...guestPlayer, id: "bot" };
+    host.players.bot = botPlayer;
+    host.publicMatchmaking = false;
+    host.matchmakingStartedAt = null;
+    if (this.waitingRoomId === host.id) {
+      this.waitingRoomId = null;
+    }
+
+    this.bindSocket(guestSocket, host, "bot");
+    this.sessionToRoom.set(botPlayer.sessionId, {
+      roomId: host.id,
+      playerId: "bot",
+    });
+
+    safeSend(guestSocket, {
+      type: "ROOM_JOINED",
+      roomId: host.id,
+      playerId: "bot",
+    });
+
+    this.startFirstTurnRoll(host);
   }
 
   private createRoom(
@@ -1556,6 +1729,7 @@ export class RoomManager {
         ),
       },
       publicMatchmaking: Boolean(options?.makePublicWaiting),
+      matchmakingStartedAt: options?.makePublicWaiting ? Date.now() : null,
       battle: null,
       pendingStartRoll: null,
       pendingMovement: null,
@@ -2408,10 +2582,16 @@ export class RoomManager {
       endReason,
       players: {
         player: room.players.player
-          ? { profilePlayerId: room.players.player.profilePlayerId }
+          ? {
+              profilePlayerId: room.players.player.profilePlayerId,
+              deckWeight: room.players.player.deckWeight,
+            }
           : undefined,
         bot: room.players.bot
-          ? { profilePlayerId: room.players.bot.profilePlayerId }
+          ? {
+              profilePlayerId: room.players.bot.profilePlayerId,
+              deckWeight: room.players.bot.deckWeight,
+            }
           : undefined,
       },
       timeoutId,

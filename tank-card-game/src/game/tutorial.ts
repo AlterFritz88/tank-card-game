@@ -70,6 +70,7 @@ export const TUTORIAL_REWARD: BattleReward = {
   modeMultiplier: 1,
   resultMultiplier: 1,
   reasonMultiplier: 1,
+  opponentStrengthMultiplier: 1,
   fullyResearchedConversion: false,
   insufficientActions: false,
 };

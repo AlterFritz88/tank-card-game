@@ -160,11 +160,18 @@ const SUPPORT_ROLE_BONUS: Record<SupportRole, number> = {
 };
 
 export function getCardLevel(card: TankCard): number {
+  // An explicit, discrete upgrade level is exponentially weighted (a level-5 card
+  // is meaningfully rarer/stronger than a level-1 one). The computed strength
+  // score, however, is a continuous value in the ~1.5–17 range; feeding it into
+  // the exponential made a single rare (e.g. Ferdinand at strength 17) weigh ~1110
+  // while a common weighed 1, so one card dominated a whole 40-card deck and made
+  // the ±% matchmaking band meaningless. Use the strength score directly instead,
+  // which keeps per-card weights smooth and comparable.
   if (card.level !== undefined) {
     return getExponentialLevelWeight(card.level);
   }
 
-  return getExponentialLevelWeight(getCardStrength(card).total);
+  return Math.max(1, Math.round(getCardStrength(card).total));
 }
 
 export function getCardStrength(card: TankCard): CardStrengthBreakdown {

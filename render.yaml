@@ -31,8 +31,16 @@ services:
         sync: false
       - key: PVP_RECONNECT_GRACE_MS
         value: "15000"
-      - key: PVP_MATCH_WEIGHT_TOLERANCE
-        value: "12"
+      - key: PVP_MATCH_BASE_TOLERANCE_PCT
+        value: "15"
+      - key: PVP_MATCH_TOLERANCE_STEP_PCT
+        value: "10"
+      - key: PVP_MATCH_TOLERANCE_STEP_MS
+        value: "5000"
+      - key: PVP_MATCH_TOLERANCE_MAX_MS
+        value: "30000"
+      - key: PVP_MATCH_SWEEP_INTERVAL_MS
+        value: "1000"
       - key: WS_MAX_MESSAGE_BYTES
         value: "262144"
       - key: WS_RATE_LIMIT_WINDOW_MS

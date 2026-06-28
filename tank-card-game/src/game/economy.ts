@@ -84,6 +84,8 @@ export type BattleReward = {
   modeMultiplier: number;
   resultMultiplier: number;
   reasonMultiplier: number;
+  /** Scales the payout by relative deck strength — see {@link getOpponentStrengthMultiplier}. */
+  opponentStrengthMultiplier: number;
   fullyResearchedConversion: boolean;
   /** True when the reward was zeroed because the player barely participated. */
   insufficientActions: boolean;
@@ -95,10 +97,21 @@ type BattleRewardInput = {
   localPlayerId: PlayerId;
   matchEndReason?: MatchEndReason | null;
   headquartersFullyResearched?: boolean;
+  /** Total deck weight of the local player (from {@link calculateDeckWeight}). */
+  localDeckWeight?: number | null;
+  /** Total deck weight of the opponent. Enables the strength bonus below. */
+  opponentDeckWeight?: number | null;
 };
 
 const FREE_XP_SHARE = 0.08;
 const FULLY_RESEARCHED_FREE_XP_CONVERSION = 0.65;
+
+// Relative-strength reward scaling (PvP wins only). Beating a heavier deck pays
+// proportionally more; beating a much lighter one pays slightly less, which also
+// discourages farming weak opponents. The multiplier is the opponent/local deck
+// weight ratio, clamped to this band.
+const OPPONENT_STRENGTH_MIN_MULTIPLIER = 0.8;
+const OPPONENT_STRENGTH_MAX_MULTIPLIER = 1.6;
 
 /**
  * Anti-farm guard: a player who entered a battle but performed fewer than this
@@ -156,6 +169,8 @@ export function calculateBattleReward({
   localPlayerId,
   matchEndReason = null,
   headquartersFullyResearched = false,
+  localDeckWeight = null,
+  opponentDeckWeight = null,
 }: BattleRewardInput): BattleReward {
   const rewardMode = mode === "pvp" ? "pvp" : mode === "campaign" ? "campaign" : "ai";
   const opponentId: PlayerId = localPlayerId === "player" ? "bot" : "player";
@@ -186,12 +201,19 @@ export function calculateBattleReward({
     destructionProgress
   );
   const activityMultiplier = 0.45 + destructionProgress * 0.55;
+  const opponentStrengthMultiplier = getOpponentStrengthMultiplier(
+    localWon,
+    rewardMode,
+    localDeckWeight,
+    opponentDeckWeight
+  );
   const rawHeadquartersXp = Math.round(
     modeReward.headquartersXp *
       modeReward.multiplier *
       resultMultiplier *
       reasonMultiplier *
-      activityMultiplier
+      activityMultiplier *
+      opponentStrengthMultiplier
   );
   const headquartersXp = headquartersFullyResearched ? 0 : rawHeadquartersXp;
   const freeXp = Math.max(
@@ -209,6 +231,7 @@ export function calculateBattleReward({
         modeReward.multiplier *
         resultMultiplier *
         reasonMultiplier *
+        opponentStrengthMultiplier *
         (0.5 + destructionProgress * 0.5)
     )
   );
@@ -240,9 +263,31 @@ export function calculateBattleReward({
     modeMultiplier: modeReward.multiplier,
     resultMultiplier,
     reasonMultiplier,
+    opponentStrengthMultiplier,
     fullyResearchedConversion: headquartersFullyResearched,
     insufficientActions,
   };
+}
+
+// Beating a stronger deck should pay proportionally more. Only PvP wins are
+// scaled (a bot's "deck weight" is not a fair yardstick, and losses keep their
+// baseline payout). The bonus is the opponent/local deck-weight ratio, clamped
+// so a single lopsided match can neither zero out nor balloon the reward.
+function getOpponentStrengthMultiplier(
+  localWon: boolean,
+  rewardMode: keyof typeof MODE_REWARD,
+  localDeckWeight?: number | null,
+  opponentDeckWeight?: number | null
+): number {
+  if (rewardMode !== "pvp" || !localWon) return 1;
+  if (!localDeckWeight || !opponentDeckWeight) return 1;
+  if (localDeckWeight <= 0 || opponentDeckWeight <= 0) return 1;
+
+  const ratio = opponentDeckWeight / localDeckWeight;
+  return Math.max(
+    OPPONENT_STRENGTH_MIN_MULTIPLIER,
+    Math.min(OPPONENT_STRENGTH_MAX_MULTIPLIER, ratio)
+  );
 }
 
 function getHeadquartersIdForReward(
