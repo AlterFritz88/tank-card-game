@@ -7,6 +7,7 @@ import {
 import type { HeadquartersId, PlayerId } from "../game/types";
 import prototypeTankImage from "../assets/tanks/prototype-tank.png";
 import { StatBadge } from "./StatBadge";
+import { FitText } from "./FitText";
 
 const hqClassIconModules = import.meta.glob(
   "../assets/icons/classes/class-hq-*.{png,jpg,jpeg,webp}",
@@ -177,9 +178,14 @@ export function HeadquartersCardView({
             </span>
           )}
 
-          <strong style={{ ...styles.title, fontSize: titleFontSize }}>
+          <FitText
+            maxFontSize={titleFontSize}
+            minFontSize={6}
+            style={styles.title}
+            title={title}
+          >
             {title}
-          </strong>
+          </FitText>
         </div>
       </div>
 

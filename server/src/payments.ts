@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { resolveWritableDbPath, writeJsonFileAtomic } from "./storagePath";
+import { resolveWritableDbPath } from "./storagePath";
+import { JsonDocumentStore } from "./sqliteStore";
 import { PlayerProfileManager } from "./playerProfiles";
 import { PlayerAccountManager } from "./playerAccounts";
 
@@ -117,24 +117,21 @@ const GOLD_PRODUCTS: Record<GoldProductId, GoldProduct> = {
 };
 
 console.log(`Player payments database path: ${PAYMENT_DB_PATH}`);
+const paymentStore = new JsonDocumentStore<PaymentDb>(
+  "player-payments",
+  {},
+  PAYMENT_DB_PATH
+);
 
 function readPaymentDb(): PaymentDb {
-  try {
-    if (!existsSync(PAYMENT_DB_PATH)) return {};
-
-    const rawValue = readFileSync(PAYMENT_DB_PATH, "utf8");
-    const parsed = JSON.parse(rawValue) as unknown;
-    return parsed && typeof parsed === "object"
-      ? (parsed as PaymentDb)
-      : {};
-  } catch (error) {
-    console.warn("Failed to read player payments database", error);
-    return {};
-  }
+  const parsed = paymentStore.read();
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed
+    : {};
 }
 
 function writePaymentDb(db: PaymentDb) {
-  writeJsonFileAtomic(PAYMENT_DB_PATH, db);
+  paymentStore.write(db);
 }
 
 function getRequiredEnv(name: string): string {

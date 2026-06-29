@@ -226,6 +226,7 @@ type PendingRequest = {
 export type ProfileConnectionStatus =
   | "idle"
   | "connecting"
+  | "reconnecting"
   | "online"
   | "offline"
   | "error";
@@ -256,6 +257,9 @@ const PROFILE_HTTP_SERVER_URL = PROFILE_SERVER_URL.replace(/^wss:/, "https:").re
   "http:"
 );
 const PROFILE_REQUEST_TIMEOUT_MS = 15_000;
+const PROFILE_AUTO_RECONNECT_MAX_ATTEMPTS = 15;
+const PROFILE_AUTO_RECONNECT_BASE_DELAY_MS = 1_000;
+const PROFILE_AUTO_RECONNECT_MAX_DELAY_MS = 5_000;
 const SESSION_INSTANCE_STORAGE_KEY = "tank-card-game:session-instance-id";
 // Bearer token proving ownership of a registered account. Stored so a page
 // reload re-binds the socket identity without re-entering the password.
@@ -431,6 +435,8 @@ class ProfileClient {
     message: null,
   };
   private listeners = new Set<ProfileConnectionListener>();
+  private autoReconnectAttempts = 0;
+  private autoReconnectTimerId: number | null = null;
 
   getConnectionSnapshot(): ProfileConnectionSnapshot {
     return this.connection;
@@ -446,6 +452,9 @@ class ProfileClient {
   }
 
   async reconnect(): Promise<void> {
+    this.clearAutoReconnectTimer();
+    this.autoReconnectAttempts = 0;
+
     if (this.socket && this.socket.readyState !== WebSocket.CLOSED) {
       this.socket.close();
     }
@@ -875,6 +884,8 @@ class ProfileClient {
       socket.addEventListener("open", () => {
         if (this.socket !== socket) return;
 
+        this.clearAutoReconnectTimer();
+        this.autoReconnectAttempts = 0;
         const authReady = this.authenticateSocket(socket);
         this.authReady = authReady;
         void authReady.finally(() => {
@@ -897,7 +908,10 @@ class ProfileClient {
 
         this.connecting = null;
         this.socket = null;
-        this.setConnection("offline", "Соединение с сервером профиля закрыто");
+        this.handleConnectionFailure(
+          "offline",
+          "Соединение с сервером профиля закрыто"
+        );
       });
 
       socket.addEventListener("error", () => {
@@ -905,12 +919,57 @@ class ProfileClient {
         if (this.socket !== socket) return;
 
         this.connecting = null;
-        this.setConnection("error", "Сервер профиля недоступен");
+        this.socket = null;
+        this.handleConnectionFailure("error", "Сервер профиля недоступен");
         reject(new Error("Profile server connection error"));
       });
     });
 
     return this.connecting;
+  }
+
+  private handleConnectionFailure(
+    finalStatus: Extract<ProfileConnectionStatus, "offline" | "error">,
+    finalMessage: string
+  ) {
+    if (this.autoReconnectAttempts >= PROFILE_AUTO_RECONNECT_MAX_ATTEMPTS) {
+      this.clearAutoReconnectTimer();
+      this.setConnection(finalStatus, finalMessage);
+      return;
+    }
+
+    this.scheduleAutoReconnect();
+  }
+
+  private scheduleAutoReconnect() {
+    if (this.autoReconnectTimerId !== null) return;
+
+    this.autoReconnectAttempts += 1;
+    this.setConnection(
+      "reconnecting",
+      `Восстанавливаем соединение с сервером профиля (${this.autoReconnectAttempts}/${PROFILE_AUTO_RECONNECT_MAX_ATTEMPTS})`
+    );
+
+    const delay = Math.min(
+      PROFILE_AUTO_RECONNECT_MAX_DELAY_MS,
+      PROFILE_AUTO_RECONNECT_BASE_DELAY_MS *
+        Math.max(1, this.autoReconnectAttempts)
+    );
+
+    this.autoReconnectTimerId = window.setTimeout(() => {
+      this.autoReconnectTimerId = null;
+      void this.ensureConnected().catch(() => {
+        // ensureConnected already schedules the next background attempt or
+        // exposes the final error after the retry budget is exhausted.
+      });
+    }, delay);
+  }
+
+  private clearAutoReconnectTimer() {
+    if (this.autoReconnectTimerId === null) return;
+
+    window.clearTimeout(this.autoReconnectTimerId);
+    this.autoReconnectTimerId = null;
   }
 
   // Sends the stored session token (if any) on a freshly opened socket and

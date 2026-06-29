@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolveWritableDbPath, writeJsonFileAtomic } from "./storagePath";
+import { resolveWritableDbPath } from "./storagePath";
+import { JsonDocumentStore } from "./sqliteStore";
 
 // Tracks which device/IP has already redeemed a one-time promo code so the same
 // machine can't farm the reward by re-registering. Persisted so a server restart
@@ -38,22 +38,21 @@ export class PromoRedemptionStore {
     "promo-redemptions.json",
     "Promo redemptions"
   );
+  private store = new JsonDocumentStore<PromoLedger>(
+    "promo-redemptions",
+    {},
+    this.path
+  );
 
   constructor() {
     console.log(`Promo redemptions database path: ${this.path}`);
   }
 
   private read(): PromoLedger {
-    try {
-      if (!existsSync(this.path)) return {};
-      const parsed = JSON.parse(readFileSync(this.path, "utf8")) as unknown;
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as PromoLedger)
-        : {};
-    } catch (error) {
-      console.warn("Failed to read promo redemptions database", error);
-      return {};
-    }
+    const parsed = this.store.read();
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
   }
 
   /**
@@ -85,6 +84,6 @@ export class PromoRedemptionStore {
     }
 
     ledger[code] = entry;
-    writeJsonFileAtomic(this.path, ledger);
+    this.store.write(ledger);
   }
 }

@@ -1074,38 +1074,23 @@ const DECK_CARD_IDS: Record<string, string[]> = {
   ],
 
   // Миссия 6 «Одинокий Т-34»: мало машин, но каждая бьёт насмерть. Личный
-  // танк аса уже стоит на спавне (см. playerBoardUnits миссии), в колоде —
-  // тяжёлые Т-34/41 и КВ, дальняя поддержка, ремонт.
+  // танк аса уже стоит на спавне (см. playerBoardUnits миссии); колода урезана
+  // до 15 — только тяжёлые засадные Т-34/41 и КВ, ПТ-САУ, дальняя поддержка и
+  // ремонт. Короткая дуэль: на руки приходит стандартное число карт.
   lavrinenko_ace_campaign: [
     "t34_1941",
     "t34_1941",
     "t34_1941",
-    "t34_1941",
-    "t34_76",
     "t34_76",
     "t34_76",
     "kv1",
-    "kv1",
     "kv1_1940",
-    "kv1_1940",
-    "bt_7_command",
-    "bt_7_command",
-    "t60",
-    "t60",
-    "zis_30",
     "zis_30",
     "zis_30",
     "su_5_2",
-    "su_5_2",
-    "at1",
     "at1",
     "gun_m30",
-    "gun_m30",
     "parm_workshop",
-    "parm_workshop",
-    "ba_10_ac",
-    "ba_10_ac",
-    "zis_5_ammo",
     "zis_5_ammo",
     "gaz_55_ambulance",
   ],
@@ -1422,39 +1407,23 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "sdkfz_222",
   ],
 
-  // Миссия 6: «Призрачная» дивизия на марше — длинная колонна дешёвых машин.
+  // Миссия 6: «Призрачная» дивизия на марше — короткая колонна (15 карт)
+  // быстрых лёгких машин с парой средних танков и ПТ-самоходок.
   german_11_panzer_campaign: [
     "panzer_38t",
     "panzer_38t",
     "panzer_38t",
-    "panzer_38t",
-    "pzkpfw_iii_ausf_h",
     "pzkpfw_iii_ausf_h",
     "pzkpfw_iii_ausf_h",
     "pzkpfw_ii_ausf_f",
     "pzkpfw_ii_ausf_f",
-    "pzkpfw_ii_ausf_f",
-    "pzkpfw_ii_ausf_d",
-    "pzkpfw_ii_ausf_d",
-    "pzkpfw_iv_ausf_e",
     "pzkpfw_iv_ausf_e",
     "panzerjaeger_i",
     "panzerjaeger_i",
-    "panzerjaeger_i",
-    "panzerjaeger_i",
     "krad_bmw",
     "krad_bmw",
-    "krad_bmw",
-    "sdkfz_251",
-    "sdkfz_251",
     "sdkfz_251",
     "adler_type_10_n",
-    "adler_type_10_n",
-    "kfz_13",
-    "kfz_13",
-    "sdkfz_221",
-    "sdkfz_221",
-    "leig_18",
     "leig_18",
   ],
 

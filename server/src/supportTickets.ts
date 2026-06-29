@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { resolveWritableDbPath, writeJsonFileAtomic } from "./storagePath";
+import { resolveWritableDbPath } from "./storagePath";
+import { JsonDocumentStore } from "./sqliteStore";
 
 export type SupportTicket = {
   id: string;
@@ -27,28 +27,23 @@ const MAX_TICKETS = 1000;
 const MAX_ADMIN_TICKETS = 200;
 
 console.log(`Support tickets database path: ${SUPPORT_TICKETS_DB_PATH}`);
+const ticketStore = new JsonDocumentStore<SupportTicketDb>(
+  "support-tickets",
+  { tickets: [] },
+  SUPPORT_TICKETS_DB_PATH
+);
 
 function readDb(): SupportTicketDb {
-  try {
-    if (!existsSync(SUPPORT_TICKETS_DB_PATH)) {
-      return { tickets: [] };
-    }
-
-    const rawValue = readFileSync(SUPPORT_TICKETS_DB_PATH, "utf8");
-    const parsed = JSON.parse(rawValue);
-
-    return {
-      tickets: Array.isArray(parsed?.tickets)
-        ? normalizeTickets(parsed.tickets)
-        : [],
-    };
-  } catch {
-    return { tickets: [] };
-  }
+  const parsed = ticketStore.read();
+  return {
+    tickets: Array.isArray(parsed?.tickets)
+      ? normalizeTickets(parsed.tickets)
+      : [],
+  };
 }
 
 function writeDb(db: SupportTicketDb) {
-  writeJsonFileAtomic(SUPPORT_TICKETS_DB_PATH, db);
+  ticketStore.write(db);
 }
 
 function normalizeText(value: unknown, maxLength: number): string {

@@ -239,7 +239,14 @@ export function TankCardView({
               />
             ) : null}
 
-            <strong style={styles.boardTitle}>{card.name}</strong>
+            <FitText
+              maxFontSize={10}
+              minFontSize={6}
+              style={styles.boardTitle}
+              title={card.name}
+            >
+              {card.name}
+            </FitText>
           </div>
         </div>
 

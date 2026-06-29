@@ -425,7 +425,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "Варшавский оборонительный штаб",
     type: "Укреплённый штаб",
     description:
-      "Последний рубеж обороны. Бронепоезда, резервные танки и повышенная генерация топлива делают его самым опасным польским штабом.",
+      "Последний рубеж обороны.",
     faction: "Wojsko Polskie",
     nation: "poland",
     hp: 18,
@@ -560,10 +560,10 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "10-я танковая дивизия",
     type: "Танковая дивизия",
     description:
-      "Артподготовка: атака штаба наносит +1 урон.",
+      "Штаб наносит +2 урона по тыловой линии и штабу врага.",
     ability: {
       name: "Артподготовка",
-      hqAttackBonus: 1,
+      hqRearStrikeBonus: 2,
     },
     faction: "Wehrmacht",
     nation: "germany",
@@ -582,10 +582,10 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "11-я танковая «Призрачная» дивизия",
     type: "Танковая дивизия",
     description:
-      "Моторизованный марш: первый юнит каждого хода стоит на 1 топливо дешевле.",
+      "Призрачный марш: все лёгкие машины дивизии получают «Блиц» — два хода за один ход.",
     ability: {
-      name: "Моторизованный марш",
-      firstUnitFuelDiscount: 1,
+      name: "Призрачный марш",
+      lightUnitsBlitz: true,
     },
     faction: "Wehrmacht",
     nation: "germany",

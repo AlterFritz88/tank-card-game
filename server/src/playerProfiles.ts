@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolveWritableDbPath, writeJsonFileAtomic } from "./storagePath";
-import { getCard, normalizeCardId } from "../../tank-card-game/src/game/cards";
+import { resolveWritableDbPath } from "./storagePath";
+import { JsonDocumentStore } from "./sqliteStore";
+import { cards, getCard, normalizeCardId } from "../../tank-card-game/src/game/cards";
 import {
   calculateBattleReward,
   type BattleReward,
@@ -69,8 +69,77 @@ const PREMIUM_DAY_OFFERS: Record<number, number> = {
 };
 
 console.log(`Player profiles database path: ${PROFILE_DB_PATH}`);
+const profileStore = new JsonDocumentStore<ProfileDb>(
+  "player-profiles",
+  {},
+  PROFILE_DB_PATH
+);
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const MAX_SAVED_DECKS = 80;
+
+// Master accounts (configured via MASTER_ACCOUNT_USERNAMES) get every
+// headquarters and the full card collection unlocked — a play/test account that
+// can field and build any deck. Regular players still unlock everything beyond
+// the three training headquarters through progression.
+const ALL_HEADQUARTERS_IDS = Object.keys(HEADQUARTERS) as HeadquartersId[];
+const ALL_CARD_IDS = cards.map((card) => card.id);
+
+function masterUsernameToUserId(username: string): string {
+  // Mirrors how PlayerAccountManager derives userIds from usernames so the env
+  // list can be plain logins ("commander") rather than internal ids.
+  const key = username
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "")
+    .slice(0, 32);
+  return key ? `user:${key}` : "";
+}
+
+function parseMasterAccountUserIds(raw: string | undefined): Set<string> {
+  const ids = new Set<string>();
+  if (!raw) return ids;
+
+  for (const entry of raw.split(/[\s,;]+/)) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+
+    // Accept either a plain username ("commander") or a full userId ("user:commander").
+    const userId = trimmed.startsWith("user:")
+      ? trimmed
+      : masterUsernameToUserId(trimmed);
+    if (userId) ids.add(userId);
+  }
+
+  if (ids.size > 0) {
+    console.log(`Master accounts configured: ${Array.from(ids).join(", ")}`);
+  }
+
+  return ids;
+}
+
+const MASTER_ACCOUNT_USER_IDS = parseMasterAccountUserIds(
+  process.env.MASTER_ACCOUNT_USERNAMES
+);
+
+function isMasterAccount(playerId: string): boolean {
+  return MASTER_ACCOUNT_USER_IDS.has(playerId);
+}
+
+function applyMasterAccountGrants(profile: PlayerProgress): PlayerProgress {
+  const ownedCardCopies: Record<string, number> = { ...profile.ownedCardCopies };
+  for (const cardId of ALL_CARD_IDS) {
+    ownedCardCopies[cardId] = CARD_COPY_LIMIT;
+  }
+
+  return {
+    ...profile,
+    researchedHeadquartersIds: [...ALL_HEADQUARTERS_IDS],
+    unlockedHeadquartersIds: [...ALL_HEADQUARTERS_IDS],
+    researchedCardIds: [...ALL_CARD_IDS],
+    unlockedCardIds: [...ALL_CARD_IDS],
+    ownedCardCopies,
+  };
+}
 
 function sanitizePlayerId(playerId: string): string {
   return playerId.replace(/[^a-zA-Z0-9_:-]/g, "").slice(0, 120);
@@ -230,22 +299,14 @@ function mergeProgressForAccount(
 }
 
 function readDb(): ProfileDb {
-  try {
-    if (!existsSync(PROFILE_DB_PATH)) return {};
-
-    const rawValue = readFileSync(PROFILE_DB_PATH, "utf8");
-    const parsed = JSON.parse(rawValue);
-
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as ProfileDb)
-      : {};
-  } catch {
-    return {};
-  }
+  const parsed = profileStore.read();
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed
+    : {};
 }
 
 function writeDb(db: ProfileDb) {
-  writeJsonFileAtomic(PROFILE_DB_PATH, db);
+  profileStore.write(db);
 }
 
 function getPositiveInteger(value: unknown): number {
@@ -432,6 +493,22 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
     ),
     pendingRewardClaims: [],
   };
+}
+
+/**
+ * Normalizes a stored profile and, for master accounts, grants every
+ * headquarters and the full card collection. Grants are re-normalized so the
+ * unlocked/owned invariants still hold (owned copies stay within the researched
+ * set, saved decks revalidate against the now-unlocked headquarters).
+ */
+function normalizeProfileForPlayer(
+  playerId: string,
+  profile?: Partial<PlayerProgress>
+): PlayerProgress {
+  const normalized = mergeWithDefaultProgress(profile);
+  if (!isMasterAccount(playerId)) return normalized;
+
+  return mergeWithDefaultProgress(applyMasterAccountGrants(normalized));
 }
 
 function normalizeSavedDecks(
@@ -1028,7 +1105,7 @@ export class PlayerProfileManager {
     if (!safePlayerId) throw new Error("Некорректный playerId");
 
     const db = readDb();
-    const savedProfile = mergeWithDefaultProgress({
+    const savedProfile = normalizeProfileForPlayer(safePlayerId, {
       ...profile,
       lastActivityAt:
         options.touchActivity === false ? profile.lastActivityAt : Date.now(),
@@ -1047,7 +1124,7 @@ export class PlayerProfileManager {
     if (!safePlayerId) return createInitialPlayerProgress();
 
     const db = readDb();
-    const profile = mergeWithDefaultProgress({
+    const profile = normalizeProfileForPlayer(safePlayerId, {
       ...db[safePlayerId],
       lastActivityAt:
         options.touchActivity === false
@@ -1066,7 +1143,7 @@ export class PlayerProfileManager {
     if (!safePlayerId) return null;
 
     const db = readDb();
-    const profile = mergeWithDefaultProgress(db[safePlayerId]);
+    const profile = normalizeProfileForPlayer(safePlayerId, db[safePlayerId]);
     db[safePlayerId] = {
       ...profile,
       lastActivityAt: Date.now(),

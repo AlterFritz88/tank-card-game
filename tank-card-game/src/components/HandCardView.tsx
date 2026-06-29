@@ -549,7 +549,8 @@ export function HandCardView({
         >
           <FitText
             maxFontSize={scaled(titleFontSize)}
-            minFontSize={scaled(7)}
+            minFontSize={scaled(isHeadquarters ? 5.5 : 6)}
+            ellipsis={false}
             style={{
               ...styles.title,
               letterSpacing: 0.4 * uiScale,

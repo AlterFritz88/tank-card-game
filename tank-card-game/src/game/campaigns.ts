@@ -428,8 +428,8 @@ export const CAMPAIGNS: Campaign[] = [
         playerDeckId: "lavrinenko_ace_campaign",
         backgroundId: "winter_1",
         illustrationId: "lavrinenko_m6",
-        // Личный Т-34 аса уже в засаде на спавне; обе стороны начинают с 10 карт.
-        startingHandSize: 10,
+        // Личный Т-34 аса уже в засаде на спавне; на руки — стандартное число
+        // карт, у обеих сторон колоды урезаны до 15 (короткая напряжённая дуэль).
         playerBoardUnits: [
           { cardId: "t34_lavrinenko", position: { row: 2, col: 1 } },
         ],

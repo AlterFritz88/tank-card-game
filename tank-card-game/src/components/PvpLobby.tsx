@@ -1504,9 +1504,12 @@ function ProfileRegisterModal({
 
   return createPortal(
     <div style={styles.authModalOverlay} onClick={onClose}>
-      <div style={overlayTransform}>
         <div
-          style={styles.authModalPanel}
+          style={{
+            ...styles.authModalPanel,
+            transform: `translate(-50%, -50%) ${overlayTransform.transform}`,
+            transformOrigin: "center center",
+          }}
           onClick={(event) => event.stopPropagation()}
         >
           <div style={styles.guestAuthHeader}>
@@ -1703,7 +1706,6 @@ function ProfileRegisterModal({
 
           {error ? <p style={styles.guestEntryError}>{error}</p> : null}
         </div>
-      </div>
     </div>,
     document.body
   );
@@ -4438,14 +4440,17 @@ const styles: Record<string, CSSProperties> = {
     left: "50%",
     top: 0,
     zIndex: 6,
-    width: 368,
+    width: 430,
     height: 40,
     transform: "translateX(-50%)",
     display: "grid",
-    gridTemplateColumns: "repeat(3, 1fr)",
+    // Columns track the plate art's two divider lines (~33% / ~64%) so each
+    // value sits centred in its lit section. The middle (iron tracks) cell is
+    // sized to comfortably hold a 7-digit number at the readable HUD font.
+    gridTemplateColumns: "33fr 31fr 36fr",
     alignItems: "center",
-    gap: 40,
-    padding: "8px 38px 12px 0px",
+    gap: 0,
+    padding: "8px 8px 12px 8px",
     backgroundImage: `url("${topBackgroundImage}")`,
     backgroundSize: "100% 100%",
     backgroundPosition: "center top",
@@ -5140,19 +5145,25 @@ const styles: Record<string, CSSProperties> = {
     inset: 0,
     zIndex: 6000,
     display: "grid",
-    justifyItems: "center",
-    alignItems: "start",
-    paddingTop: "clamp(10px, 5vh, 42px)",
-    paddingBottom: 12,
+    placeItems: "center",
     background: "rgba(3, 4, 5, 0.72)",
     backdropFilter: "blur(3px)",
     overflow: "hidden",
   },
 
   authModalPanel: {
-    width: "min(620px, 92vw)",
-    maxHeight: "calc(100vh - 18px)",
-    overflow: "hidden",
+    // Absolutely centered (top/left 50% + translate(-50%,-50%) in the transform)
+    // so it stays centered even when the fixed design width is larger than a
+    // phone's portrait viewport — grid `place-items: center` aligns oversized
+    // items to the start, which left the panel off-centre after rotation.
+    // Authored in fixed design px so the stage transform scales it like the rest
+    // of the game; vw/vh here would resolve against the raw (rotated) viewport.
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    width: 600,
+    maxHeight: 680,
+    overflowY: "auto",
     display: "grid",
     gap: 7,
     padding: "12px 18px 14px",

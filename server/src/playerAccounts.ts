@@ -1,7 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
 import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { resolveWritableDbPath, writeJsonFileAtomic } from "./storagePath";
+import { resolveWritableDbPath } from "./storagePath";
+import { JsonDocumentStore } from "./sqliteStore";
 
 const scryptAsync = promisify(scrypt);
 
@@ -45,24 +45,21 @@ const LEGAL_VERSION = "2026-06-20";
 const DUMMY_SALT = "0".repeat(32);
 
 console.log(`Player accounts database path: ${ACCOUNT_DB_PATH}`);
+const accountStore = new JsonDocumentStore<AccountDb>(
+  "player-accounts",
+  {},
+  ACCOUNT_DB_PATH
+);
 
 function readDb(): AccountDb {
-  try {
-    if (!existsSync(ACCOUNT_DB_PATH)) return {};
-
-    const rawValue = readFileSync(ACCOUNT_DB_PATH, "utf8");
-    const parsed = JSON.parse(rawValue);
-
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as AccountDb)
-      : {};
-  } catch {
-    return {};
-  }
+  const parsed = accountStore.read();
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed
+    : {};
 }
 
 function writeDb(db: AccountDb) {
-  writeJsonFileAtomic(ACCOUNT_DB_PATH, db);
+  accountStore.write(db);
 }
 
 function normalizeUsername(username: string): string {

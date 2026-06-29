@@ -761,7 +761,7 @@ export function AdminPanel() {
                   Завершённые комнаты: <b>{overview.runtime.finishedRooms}</b>
                 </div>
                 <div style={styles.infoLine}>
-                  Хранилище: <b>player-accounts.json / player-profiles.json</b>
+                  Хранилище: <b>SQLite / panzershrek.sqlite</b>
                 </div>
               </div>
             </section>
