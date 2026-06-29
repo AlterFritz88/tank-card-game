@@ -156,7 +156,6 @@ const NATION_FILTER_VALUES: Nation[] = [
   "ussr",
 ];
 
-const TEST_BATTLE_HEADQUARTERS_LEVEL = 4;
 const PLAYER_NICKNAME_INPUT_PATTERN = "[A-Za-z0-9_-]{3,14}";
 
 type BattleDeckOption = {
@@ -2779,9 +2778,7 @@ export function PvpLobby() {
   const headquartersList = useMemo(
     () =>
       getDeckBuildingHeadquarters().filter((headquarters) =>
-        playerProgress.unlockedHeadquartersIds.includes(headquarters.id) ||
-        (headquarters.level === TEST_BATTLE_HEADQUARTERS_LEVEL &&
-          headquarters.defaultDeckId.endsWith("_default"))
+        playerProgress.unlockedHeadquartersIds.includes(headquarters.id)
       ),
     [playerProgress.unlockedHeadquartersIds]
   );
@@ -4037,7 +4034,11 @@ export function PvpLobby() {
                           src={flag}
                           alt=""
                           draggable={false}
-                          style={styles.deckNationFilterFlag}
+                          style={{
+                            ...styles.deckNationFilterFlag,
+                            objectPosition:
+                              nation === "usa" ? "25% center" : "center",
+                          }}
                         />
                       ) : (
                         nationLabel

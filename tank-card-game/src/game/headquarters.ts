@@ -389,7 +389,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "Штаб армии «Лодзь»",
     type: "Армейский штаб",
     description:
-      "Укреплённый штаб с поддержкой 7TP и противотанковых танкеток. Сильнее держит оборонительный рубеж.",
+      "Укреплённый штаб с поддержкой 7TP и противотанковых танкеток.",
     faction: "Wojsko Polskie",
     nation: "poland",
     hp: 15,
@@ -407,7 +407,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "Резервная армия «Прусы»",
     type: "Резервный штаб",
     description:
-      "Резервное соединение с усиленными танками и самоходной артиллерией. Наращивает давление в затяжном бою.",
+      "Резервное соединение с усиленными танками и самоходной артиллерией.",
     faction: "Wojsko Polskie",
     nation: "poland",
     hp: 16,
@@ -468,7 +468,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "1-я гвардейская танковая бригада",
     type: "Гвардейский танковый штаб",
     description:
-      "Гвардейская засада: стоящий танк бьёт на +2 и крепче держит удар (−1 к урону), а первый танк за ход получает «Блиц» (два перемещения в ход выхода).",
+      "Гвардейская засада: стоящий танк бьёт на +2 и крепче держит удар (−1 к урону), а первый танк за ход получает «Блиц».",
     ability: {
       name: "Гвардейская засада",
       stationaryTankAttackBonus: 2,
@@ -604,7 +604,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "Моторизованный пехотный полк Великая Германия",
     type: "Мотопехотный штаб",
     description:
-      "Несгибаемый полк: первый уничтоженный за бой свой юнит возвращается в руку — элиту так просто не перемолоть.",
+      "Первый уничтоженный за бой свой юнит возвращается в руку — элиту так просто не перемолоть.",
     ability: {
       name: "Несгибаемый полк",
       returnFirstDestroyedUnit: true,
@@ -626,7 +626,7 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     subtitle: "4-я танковая дивизия — зимний некомплект",
     type: "Танковая дивизия",
     description:
-      "Танковый натиск, скованный морозом: танк на ходу всё ещё бьёт +1, но замёрзшее горючее резко срезало снабжение.",
+      "Танковый натиск, скованный морозом: замёрзшее горючее резко срезало снабжение.",
     ability: {
       name: "Танковый натиск",
       movedTankAttackBonus: 1,
