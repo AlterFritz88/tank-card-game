@@ -114,10 +114,11 @@ export const CAMPAIGNS: Campaign[] = [
           { cardId: "ferdinand", position: { row: 1, col: 2 }, hp: 7 },
           { cardId: "pzkpfw_iii_ausf_f", position: { row: 2, col: 3 } },
         ],
-        // СУ-122 на задней линии, перед ней КВ-1; Т-34 на нижнем спавне.
-        // Тыл: гаубица М-30 и два «лекаря» (ГАЗ-55, ПАРМ).
+        // Две СУ-122 на спавне (верхняя и нижняя клетки), перед верхней — КВ-1;
+        // Т-34 на нижней линии. Тыл: гаубица М-30 и два «лекаря» (ГАЗ-55, ПАРМ).
         playerBoardUnits: [
           { cardId: "su_122", position: { row: 0, col: 0 } },
+          { cardId: "su_122", position: { row: 2, col: 0 } },
           { cardId: "kv1", position: { row: 0, col: 1 } },
           { cardId: "t34_76", position: { row: 2, col: 1 } },
           { cardId: "gun_m30", zone: "support", supportSlot: 0 },

@@ -242,6 +242,7 @@ export function TankCardView({
             <FitText
               maxFontSize={10}
               minFontSize={6}
+              ellipsis={false}
               style={styles.boardTitle}
               title={card.name}
             >

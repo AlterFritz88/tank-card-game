@@ -65,6 +65,9 @@ function GameApp() {
   const autoLaunchTrailerIfNeeded = useBattleStore(
     (state) => state.autoLaunchTrailerIfNeeded
   );
+  const trailerLaunchPending = useBattleStore(
+    (state) => state.trailerLaunchPending
+  );
   const sessionError = useBattleStore((state) => state.sessionError);
   const clearSessionError = useBattleStore((state) => state.clearSessionError);
   const [bootReady, setBootReady] = useState(false);
@@ -95,6 +98,11 @@ function GameApp() {
   }, []);
 
   if (!bootReady) return <LoadingScreen />;
+
+  // First visit: keep the loading screen up while the welcome trailer mission is
+  // being auto-launched, so the registration/menu screen doesn't flash (or get
+  // stuck) in the gap before the trailer battle starts.
+  if (trailerLaunchPending && !battle) return <LoadingScreen />;
 
   return (
     <>

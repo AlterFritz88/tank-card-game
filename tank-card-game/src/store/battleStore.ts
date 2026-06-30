@@ -126,6 +126,10 @@ type BattleStore = {
   /** True while a battle is being started (session lock + asset preload), used
    * to disable start buttons so a match can't be launched twice. */
   battleStarting: boolean;
+  /** True on a first visit until the welcome trailer mission has launched (or
+   * been ruled out), so the menu/registration screen isn't shown in the gap
+   * before the trailer battle starts. */
+  trailerLaunchPending: boolean;
   pvpOpponentHeadquartersId: HeadquartersId | null;
   pvpOpponentNickname: string | null;
   pvpMatchPreviewLabel: string | null;
@@ -244,6 +248,17 @@ function saveTrailerSeen() {
   } catch {
     // Ignore storage failures — at worst the trailer shows again next visit.
   }
+}
+
+/**
+ * Decided synchronously at store creation: on a fresh device with no campaign
+ * progress and an unseen welcome trailer, the trailer mission will auto-launch,
+ * so we should hold the menu/registration screen until it does.
+ */
+function computeTrailerLaunchPending(completedMissionIds: string[]): boolean {
+  if (loadTrailerSeen()) return false;
+  if (completedMissionIds.length > 0) return false;
+  return getAutoLaunchMission() != null;
 }
 
 const emptyFirstTurnRoll: FirstTurnRollState = {
@@ -1044,6 +1059,9 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   pvpError: null,
   sessionError: null,
   battleStarting: false,
+  trailerLaunchPending: computeTrailerLaunchPending(
+    loadCompletedCampaignMissionIds()
+  ),
   pvpOpponentHeadquartersId: null,
   pvpOpponentNickname: null,
   pvpMatchPreviewLabel: null,
@@ -1540,21 +1558,37 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     const state = get();
 
     // Never interrupt an active battle (e.g. a restored session on reload).
-    if (state.battle) return;
-    if (loadTrailerSeen()) return;
+    if (state.battle) {
+      set({ trailerLaunchPending: false });
+      return;
+    }
+    if (loadTrailerSeen()) {
+      set({ trailerLaunchPending: false });
+      return;
+    }
 
     // A returning player who already has campaign progress skips the trailer.
     if (state.completedCampaignMissionIds.length > 0) {
       saveTrailerSeen();
+      set({ trailerLaunchPending: false });
       return;
     }
 
     const auto = getAutoLaunchMission();
-    if (!auto) return;
+    if (!auto) {
+      set({ trailerLaunchPending: false });
+      return;
+    }
 
     // Mark seen up front so a reload during the trailer doesn't relaunch it.
     saveTrailerSeen();
-    await get().startCampaignMission(auto.mission.id);
+    try {
+      await get().startCampaignMission(auto.mission.id);
+    } finally {
+      // Battle is set by now (or launch failed); either way release the gate so
+      // the menu/registration screen can show once the trailer is over.
+      set({ trailerLaunchPending: false });
+    }
   },
 
   findPvpMatch: async (deckCardIds) => {
