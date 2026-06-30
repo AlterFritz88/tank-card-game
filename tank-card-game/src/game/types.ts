@@ -246,7 +246,7 @@ export type TankCard = {
      */
     fetchToHand?: {
       /** Short label naming what is fetched, shown in the battle log. */
-      label: string;
+      label?: string;
       match: {
         namePrefixes?: string[];
         classes?: TankClass[];

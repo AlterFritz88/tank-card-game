@@ -1,6 +1,7 @@
 import type { HeadquartersId, Nation } from "./types";
 import { getHeadquartersDefinition } from "./headquarters";
 import { AVERAGE_VICTORY_XP } from "./economy";
+import { getCardOrNull } from "./cards";
 
 export type ResearchNation = Extract<Nation, "germany" | "ussr" | "usa">;
 
@@ -1263,6 +1264,10 @@ function buildCardResearchLevelMap(): Map<string, number> {
 }
 
 export function getCardResearchLevel(cardId: string): number {
+  const explicitLevel = getCardOrNull(cardId)?.level;
+
+  if (explicitLevel !== undefined) return explicitLevel;
+
   if (!cardResearchLevelMap) {
     cardResearchLevelMap = buildCardResearchLevelMap();
   }

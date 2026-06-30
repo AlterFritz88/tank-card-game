@@ -1267,6 +1267,7 @@ function applyFetchToHand(
 ) {
   const player = state[ownerId];
   const { match } = fetch;
+  const fetchLabel = fetch.label ? ` (${fetch.label})` : "";
 
   const candidates = player.deck.filter((instance) => {
     const card = getCard(instance.cardId);
@@ -1287,7 +1288,7 @@ function applyFetchToHand(
   if (candidates.length === 0) {
     addLog(
       state,
-      `${sourceCard.name}: пополнение (${fetch.label}) — подходящих карт в колоде нет.`
+      `${sourceCard.name}: пополнение${fetchLabel} — подходящих карт в колоде нет.`
     );
     return;
   }

@@ -408,13 +408,18 @@ function getAbilityKeywords(card: TankCard, language: Language): CardKeyword[] {
   }
 
   if (card.onPlayEffects?.fetchToHand) {
+    const label = card.onPlayEffects.fetchToHand.label;
     keywords.push({
       id: "fetchToHand",
       title: language === "en" ? "REINFORCEMENT" : "ПОПОЛНЕНИЕ",
       body:
         language === "en"
-          ? `On deployment, move a random "${card.onPlayEffects.fetchToHand.label}" card from your deck to your hand, if available.`
-          : `При выходе на поле боя вы переносите случайную карту «${card.onPlayEffects.fetchToHand.label}» из колоды в руку (если такая есть).`,
+          ? label
+            ? `On deployment, move a random "${label}" card from your deck to your hand, if available.`
+            : "On deployment, move a matching random card from your deck to your hand, if available."
+          : label
+            ? `При выходе на поле боя вы переносите случайную карту «${label}» из колоды в руку (если такая есть).`
+            : "При выходе на поле боя вы переносите подходящую случайную карту из колоды в руку (если такая есть).",
     });
   }
 
@@ -719,10 +724,15 @@ export function getCardAbilityTags(
   }
 
   if (card.onPlayEffects?.fetchToHand) {
+    const label = card.onPlayEffects.fetchToHand.label;
     tags.push(
       language === "en"
-        ? `Reinforcement (${card.onPlayEffects.fetchToHand.label})`
-        : `Пополнение (${card.onPlayEffects.fetchToHand.label})`
+        ? label
+          ? `Reinforcement (${label})`
+          : "Reinforcement"
+        : label
+          ? `Пополнение (${label})`
+          : "Пополнение"
     );
   }
 
