@@ -172,7 +172,7 @@ const rawCards: TankCard[] = [
     fuelGeneration: 0,
     initiative: 5,
     abilityText:
-      "Быстроходный кавалерийский танк: рвётся в прорыв.",
+      "",
     combatAbilities: { blitz: true, raidDraw: 1 },
   },
   {

@@ -23,6 +23,7 @@ import {
 } from "../assets/assetPreloader";
 import {
   getAutoLaunchMission,
+  getCampaignCompletionReward,
   getCampaignMission,
   isCampaignMissionUnlocked,
 } from "../game/campaigns";
@@ -1519,6 +1520,15 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
 
     try {
       if (!(await acquireGameSession("campaign"))) return;
+
+      // Warm the end-of-mission reward card art during the battle so the
+      // victory reveal (e.g. the SU-152 "Зверобой") shows instantly, fully
+      // loaded, instead of popping in.
+      const rewardId = campaignMission.mission.endRewardId;
+      const rewardCardId = rewardId
+        ? getCampaignCompletionReward(rewardId)?.cardId
+        : undefined;
+      if (rewardCardId) void preloadCardImages([rewardCardId]);
 
       await preloadBattleAssetsForState(battle);
 

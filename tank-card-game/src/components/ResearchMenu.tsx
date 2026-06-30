@@ -606,7 +606,8 @@ function ResearchNodeCard({
   const showBadge =
     node.stage !== "researchable" &&
     node.stage !== "researched" &&
-    !(node.cardId && node.stage === "owned");
+    !(node.cardId && node.stage === "owned") &&
+    !(node.type === "headquarters" && node.stage === "owned");
 
   return (
     <motion.div
