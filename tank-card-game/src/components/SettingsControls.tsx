@@ -348,6 +348,9 @@ export function SettingsControls({ side = "right" }: { side?: "left" | "right" }
         style={{
           ...styles.controlBar,
           ...(side === "left" ? styles.controlBarLeft : styles.controlBarRight),
+          ...(!battle && menuView === "research"
+            ? styles.controlBarResearch
+            : {}),
         }}
       >
         <button
@@ -406,6 +409,13 @@ const styles: Record<string, CSSProperties> = {
 
   controlBarLeft: {
     left: 12,
+  },
+
+  controlBarResearch: {
+    top: 10,
+    left: 12,
+    right: "auto",
+    zIndex: 80,
   },
 
   controlButton: {

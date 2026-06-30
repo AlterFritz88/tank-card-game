@@ -37,7 +37,7 @@ const rawCards: TankCard[] = [
   },
   {
     id: "su76",
-    name: "SU-76",
+    name: "СУ-76",
     nation: "ussr",
     class: "td",
     rarity: "common",
@@ -51,7 +51,7 @@ const rawCards: TankCard[] = [
     initiative: 2,
     onPlayEffects: { draw: 2 },
     abilityText:
-      "При выхде на поле добирает 2 карты",
+      "",
   },
   {
     id: "ms_1_t18",
@@ -691,7 +691,7 @@ const rawCards: TankCard[] = [
   },
   {
     id: "su_122",
-    name: "SU-122",
+    name: "СУ-122",
     nation: "ussr",
     class: "spg",
     rarity: "uncommon",
@@ -1641,7 +1641,7 @@ const rawCards: TankCard[] = [
     fuelGeneration: 1,
     initiative: 4,
     abilityText:
-      "Дизельный В-2: дальнобойный разведчик, добирает карту под огнём.",
+      "",
     combatAbilities: { blitz: true, drawWhenAttacked: 1 },
   },
   {
