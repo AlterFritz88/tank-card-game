@@ -289,6 +289,10 @@ const BOARD_COLUMNS = [0, 1, 2, 3, 4] as const;
  * «Сплочение» (СССР): instanceIds of a side's battlefield units that share a
  * fully-occupied vertical line — a column holding all three of the side's units
  * (rows 0–2). Each such unit gains the national defensive bonus.
+ *
+ * Only a single cohesion line can be active at a time: if several columns are
+ * fully occupied, the bonus is granted only to the line closest to the enemy
+ * headquarters (the most advanced column in the side's direction of attack).
  */
 export function getCohesionUnitIds(
   state: BattleState,
@@ -300,7 +304,15 @@ export function getCohesionUnitIds(
     return ids;
   }
 
-  for (const col of BOARD_COLUMNS) {
+  // The side attacks toward the enemy HQ: the player advances to higher columns,
+  // the bot to lower ones. Scan columns from the most-advanced one first so the
+  // first fully-occupied line we find is the one closest to the enemy HQ.
+  const columnsByAdvance =
+    playerId === "player"
+      ? [...BOARD_COLUMNS].sort((a, b) => b - a)
+      : [...BOARD_COLUMNS].sort((a, b) => a - b);
+
+  for (const col of columnsByAdvance) {
     const columnUnits = state.units.filter(
       (unit) =>
         unit.ownerId === playerId &&
@@ -311,6 +323,8 @@ export function getCohesionUnitIds(
 
     if (columnUnits.length >= 3) {
       for (const unit of columnUnits) ids.add(unit.instanceId);
+      // Only the most advanced line counts — stop at the first one found.
+      break;
     }
   }
 

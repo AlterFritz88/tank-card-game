@@ -1867,7 +1867,7 @@ const rawCards: TankCard[] = [
     cost: 2,
     attack: 0,
     armor: 0,
-    hp: 2,
+    hp: 7,
     range: 0,
     movement: 0,
     fuelGeneration: 0,
