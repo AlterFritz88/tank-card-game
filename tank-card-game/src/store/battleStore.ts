@@ -102,6 +102,18 @@ export type PvpAttackIntent = {
   durationMs: number;
 };
 
+export type PvpDeployBarrageIntent = {
+  intentId: string;
+  playerId: PlayerId;
+  cardInstanceId: string;
+  cardId: string;
+  source:
+    | { type: "battlefield"; position: { row: number; col: number } }
+    | { type: "support"; supportSlot: number };
+  shots: { targetId: string; damage: number; destroyed: boolean }[];
+  durationMs: number;
+};
+
 type BattleStore = {
   battle: ClientBattleState | null;
   mode: GameMode;
@@ -124,6 +136,7 @@ type BattleStore = {
   pvpTimer: PvpTimerState;
   pvpMovementIntent: PvpMovementIntent | null;
   pvpAttackIntent: PvpAttackIntent | null;
+  pvpDeployBarrageIntent: PvpDeployBarrageIntent | null;
   firstTurnRoll: FirstTurnRollState;
   selectedHeadquartersId: HeadquartersId;
   completedCampaignMissionIds: string[];
@@ -192,6 +205,7 @@ type BattleStore = {
   }) => void;
   applyPvpMovementIntent: (intent: PvpMovementIntent) => void;
   applyPvpAttackIntent: (intent: PvpAttackIntent) => void;
+  applyPvpDeployBarrageIntent: (intent: PvpDeployBarrageIntent) => void;
   surrenderBattle: () => void;
   surrenderPvpMatch: () => void;
   leavePvpMatch: () => void;
@@ -201,7 +215,12 @@ type BattleStore = {
   hideFirstTurnRoll: () => void;
   setSelectedHeadquartersId: (headquartersId: HeadquartersId) => void;
 
-  dispatch: (action: BattleAction) => void;
+  // `precomputedNext` lets a caller commit an already-simulated result instead of
+  // re-running `applyAction` here. Required for actions with randomised outcomes
+  // (e.g. «Огневой налёт» random targeting): the animation layer simulates the
+  // result once to know what to animate, and the store must commit that exact
+  // state — re-applying would roll the dice again and desync visuals from state.
+  dispatch: (action: BattleAction, precomputedNext?: BattleState) => void;
   reset: () => void;
 };
 
@@ -517,6 +536,7 @@ function applyFirstTurnRollMessage(
     pvpTimer: emptyPvpTimer,
     pvpMovementIntent: null,
     pvpAttackIntent: null,
+    pvpDeployBarrageIntent: null,
     pvpOpponentHeadquartersId: getOpponentHeadquartersIdFromBattle(
       message.battle,
       state.localPlayerId
@@ -577,6 +597,7 @@ function applyGameStartedMessage(
     pvpTimer: emptyPvpTimer,
     pvpMovementIntent: null,
     pvpAttackIntent: null,
+    pvpDeployBarrageIntent: null,
     pvpOpponentHeadquartersId: getOpponentHeadquartersIdFromBattle(
       message.battle,
       message.playerId
@@ -643,6 +664,7 @@ function getCleanMenuState() {
     pvpTimer: emptyPvpTimer,
     pvpMovementIntent: null,
     pvpAttackIntent: null,
+    pvpDeployBarrageIntent: null,
     selectedCardInstanceId: null,
     opponentSelectedCardInstanceId: null,
     selectedAttacker: null,
@@ -702,6 +724,7 @@ function setupPvpSubscriptions() {
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
           pvpAttackIntent: null,
+          pvpDeployBarrageIntent: null,
           selectedCardInstanceId: null,
           opponentSelectedCardInstanceId: null,
           selectedAttacker: null,
@@ -728,6 +751,7 @@ function setupPvpSubscriptions() {
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
           pvpAttackIntent: null,
+          pvpDeployBarrageIntent: null,
           firstTurnRoll: emptyFirstTurnRoll,
           selectedCardInstanceId: null,
           opponentSelectedCardInstanceId: null,
@@ -748,6 +772,7 @@ function setupPvpSubscriptions() {
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
           pvpAttackIntent: null,
+          pvpDeployBarrageIntent: null,
           selectedCardInstanceId: null,
           opponentSelectedCardInstanceId: null,
           selectedAttacker: null,
@@ -775,6 +800,7 @@ function setupPvpSubscriptions() {
           matchEndReason: null,
           pvpMovementIntent: null,
           pvpAttackIntent: null,
+          pvpDeployBarrageIntent: null,
           selectedCardInstanceId: null,
           opponentSelectedCardInstanceId: null,
           selectedAttacker: null,
@@ -829,6 +855,7 @@ function setupPvpSubscriptions() {
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
           pvpAttackIntent: null,
+          pvpDeployBarrageIntent: null,
           selectedCardInstanceId: null,
           opponentSelectedCardInstanceId: null,
           selectedAttacker: null,
@@ -859,6 +886,10 @@ function setupPvpSubscriptions() {
         store.applyPvpAttackIntent(message);
         break;
 
+      case "DEPLOY_BARRAGE_INTENT":
+        store.applyPvpDeployBarrageIntent(message);
+        break;
+
       case "MATCH_ENDED":
         store.applyMatchEnded(message.winner, message.reason);
         break;
@@ -884,6 +915,7 @@ function setupPvpSubscriptions() {
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
           pvpAttackIntent: null,
+          pvpDeployBarrageIntent: null,
           opponentSelectedCardInstanceId: null,
           firstTurnRoll: emptyFirstTurnRoll,
         });
@@ -898,6 +930,7 @@ function setupPvpSubscriptions() {
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
           pvpAttackIntent: null,
+          pvpDeployBarrageIntent: null,
           opponentSelectedCardInstanceId: null,
           firstTurnRoll: emptyFirstTurnRoll,
         });
@@ -927,6 +960,7 @@ function setupPvpSubscriptions() {
         pvpTimer: emptyPvpTimer,
         pvpMovementIntent: null,
         pvpAttackIntent: null,
+        pvpDeployBarrageIntent: null,
         firstTurnRoll: emptyFirstTurnRoll,
       });
 
@@ -944,6 +978,7 @@ function setupPvpSubscriptions() {
       pvpTimer: emptyPvpTimer,
       pvpMovementIntent: null,
       pvpAttackIntent: null,
+      pvpDeployBarrageIntent: null,
       firstTurnRoll: emptyFirstTurnRoll,
     });
   });
@@ -1019,6 +1054,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   pvpTimer: emptyPvpTimer,
   pvpMovementIntent: null,
   pvpAttackIntent: null,
+  pvpDeployBarrageIntent: null,
   firstTurnRoll: emptyFirstTurnRoll,
   selectedHeadquartersId: DEFAULT_PLAYER_HEADQUARTERS_ID,
   completedCampaignMissionIds: loadCompletedCampaignMissionIds(),
@@ -1326,6 +1362,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         pvpTimer: emptyPvpTimer,
         pvpMovementIntent: null,
         pvpAttackIntent: null,
+        pvpDeployBarrageIntent: null,
         firstTurnRoll: emptyFirstTurnRoll,
         selectedCardInstanceId: null,
         opponentSelectedCardInstanceId: null,
@@ -1377,6 +1414,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpTimer: emptyPvpTimer,
       pvpMovementIntent: null,
       pvpAttackIntent: null,
+      pvpDeployBarrageIntent: null,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
       opponentSelectedCardInstanceId: null,
@@ -1428,6 +1466,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
           pvpAttackIntent: null,
+          pvpDeployBarrageIntent: null,
           firstTurnRoll: emptyFirstTurnRoll,
           selectedCardInstanceId: null,
           opponentSelectedCardInstanceId: null,
@@ -1481,6 +1520,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         pvpTimer: emptyPvpTimer,
         pvpMovementIntent: null,
         pvpAttackIntent: null,
+        pvpDeployBarrageIntent: null,
         firstTurnRoll: emptyFirstTurnRoll,
         selectedCardInstanceId: null,
         opponentSelectedCardInstanceId: null,
@@ -1551,6 +1591,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         pvpTimer: emptyPvpTimer,
         pvpMovementIntent: null,
         pvpAttackIntent: null,
+        pvpDeployBarrageIntent: null,
         firstTurnRoll: emptyFirstTurnRoll,
         selectedCardInstanceId: null,
         opponentSelectedCardInstanceId: null,
@@ -1607,6 +1648,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         pvpTimer: emptyPvpTimer,
         pvpMovementIntent: null,
         pvpAttackIntent: null,
+        pvpDeployBarrageIntent: null,
         firstTurnRoll: emptyFirstTurnRoll,
         selectedCardInstanceId: null,
         opponentSelectedCardInstanceId: null,
@@ -1663,6 +1705,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         pvpTimer: emptyPvpTimer,
         pvpMovementIntent: null,
         pvpAttackIntent: null,
+        pvpDeployBarrageIntent: null,
         firstTurnRoll: emptyFirstTurnRoll,
         selectedCardInstanceId: null,
         opponentSelectedCardInstanceId: null,
@@ -1706,6 +1749,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpTimer: emptyPvpTimer,
       pvpMovementIntent: null,
       pvpAttackIntent: null,
+      pvpDeployBarrageIntent: null,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
       opponentSelectedCardInstanceId: null,
@@ -1727,6 +1771,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       ...(battle.status === "active" ? {} : { pvpTimer: emptyPvpTimer }),
       pvpMovementIntent: null,
       pvpAttackIntent: null,
+      pvpDeployBarrageIntent: null,
       ...(opponentIsActive ? {} : { opponentSelectedCardInstanceId: null }),
     });
   },
@@ -1743,6 +1788,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpTimer: emptyPvpTimer,
       pvpMovementIntent: null,
       pvpAttackIntent: null,
+      pvpDeployBarrageIntent: null,
       firstTurnRoll: emptyFirstTurnRoll,
       selectedCardInstanceId: null,
       opponentSelectedCardInstanceId: null,
@@ -1796,6 +1842,19 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
           state.pvpAttackIntent?.intentId === intent.intentId
             ? null
             : state.pvpAttackIntent,
+      }));
+    }, intent.durationMs);
+  },
+
+  applyPvpDeployBarrageIntent: (intent) => {
+    set({ pvpDeployBarrageIntent: intent });
+
+    window.setTimeout(() => {
+      set((state) => ({
+        pvpDeployBarrageIntent:
+          state.pvpDeployBarrageIntent?.intentId === intent.intentId
+            ? null
+            : state.pvpDeployBarrageIntent,
       }));
     }, intent.durationMs);
   },
@@ -1876,7 +1935,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({ sessionError: null });
   },
 
-  dispatch: (action) => {
+  dispatch: (action, precomputedNext) => {
     const { mode } = get();
 
     if (mode === "pvp") {
@@ -1914,7 +1973,9 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       ? getNextTutorialStepIndex(tutorialStepIndex, action, currentBattle)
       : tutorialStepIndex;
 
-    const nextBattle = applyAction(currentBattle, action);
+    // Reuse the caller's already-simulated result when provided so randomised
+    // effects are not rolled a second time (see the `dispatch` type comment).
+    const nextBattle = precomputedNext ?? applyAction(currentBattle, action);
 
     set({
       battle: nextBattle,

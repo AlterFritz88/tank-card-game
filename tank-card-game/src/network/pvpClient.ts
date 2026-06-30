@@ -61,6 +61,18 @@ export type PvpClientMessage =
       durationMs: number;
     }
   | {
+      type: "DEPLOY_BARRAGE_INTENT";
+      intentId: string;
+      playerId: PlayerId;
+      cardInstanceId: string;
+      cardId: string;
+      source:
+        | { type: "battlefield"; position: { row: number; col: number } }
+        | { type: "support"; supportSlot: number };
+      shots: { targetId: string; damage: number; destroyed: boolean }[];
+      durationMs: number;
+    }
+  | {
       type: "OPPONENT_CARD_SELECTION";
       playerId: PlayerId;
       cardInstanceId: string | null;

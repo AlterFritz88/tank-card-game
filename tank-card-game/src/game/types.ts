@@ -283,9 +283,9 @@ export type TankCard = {
      */
     camouflage?: boolean;
     /**
-     * «Огневой вал» (SPG only): the closer this unit stands to the enemy
-     * headquarters, the harder its shot lands. Adds `maxBonus` firepower at
-     * point-blank range, falling off by 1 per cell of distance to the enemy HQ.
+     * «Огневой вал» (SPG only): the unit keeps printed attack on its own spawn
+     * column and gains `maxBonus` firepower for every column advanced toward the
+     * enemy headquarters.
      */
     hqProximityBonus?: { maxBonus: number };
     /**

@@ -492,10 +492,10 @@ const rawCards: TankCard[] = [
     nation: "usa",
     class: "light",
     rarity: "common",
-    cost: 2,
-    attack: 1,
+    cost: 3,
+    attack: 4,
     armor: 0,
-    hp: 3,
+    hp: 4,
     range: 1,
     movement: 2,
     fuelGeneration: 1,
@@ -510,7 +510,7 @@ const rawCards: TankCard[] = [
     nation: "usa",
     class: "light",
     rarity: "common",
-    cost: 2,
+    cost: 1,
     attack: 1,
     armor: 0,
     hp: 2,
@@ -562,8 +562,8 @@ const rawCards: TankCard[] = [
     nation: "usa",
     class: "light",
     rarity: "common",
-    cost: 2,
-    attack: 2,
+    cost: 3,
+    attack: 3,
     armor: 0,
     hp: 3,
     range: 1,
@@ -1313,7 +1313,7 @@ const rawCards: TankCard[] = [
     class: "spg",
     rarity: "uncommon",
     cost: 4,
-    attack: 2,
+    attack: 1,
     armor: 0,
     hp: 3,
     range: 3,
@@ -1888,7 +1888,7 @@ const rawCards: TankCard[] = [
     class: "light",
     rarity: "common",
     cost: 2,
-    attack: 2,
+    attack: 1,
     armor: 1,
     hp: 3,
     range: 1,
@@ -1926,7 +1926,7 @@ const rawCards: TankCard[] = [
     hp: 2,
     range: 1,
     movement: 2,
-    fuelGeneration: 0,
+    fuelGeneration: 1,
     initiative: 4,
     abilityText: "",
     onPlayEffects: { draw: 1 },
@@ -1954,13 +1954,13 @@ const rawCards: TankCard[] = [
     nation: "usa",
     class: "medium",
     rarity: "common",
-    cost: 2,
+    cost: 3,
     attack: 2,
     armor: 1,
-    hp: 4,
+    hp: 5,
     range: 1,
     movement: 1,
-    fuelGeneration: 0,
+    fuelGeneration: 1,
     initiative: 3,
     abilityText: "",
   },
@@ -2020,10 +2020,10 @@ const rawCards: TankCard[] = [
     nation: "usa",
     class: "td",
     rarity: "common",
-    cost: 1,
-    attack: 3,
+    cost: 2,
+    attack: 2,
     armor: 0,
-    hp: 1,
+    hp: 2,
     range: 1,
     movement: 1,
     fuelGeneration: 1,
@@ -2039,7 +2039,7 @@ const rawCards: TankCard[] = [
     cost: 3,
     attack: 2,
     armor: 1,
-    hp: 4,
+    hp: 5,
     range: 3,
     movement: 1,
     fuelGeneration: 0,
@@ -2105,8 +2105,9 @@ const rawCards: TankCard[] = [
     supportRole: "artillery",
     supportEffects: {
       hqAttackBonus: 1,
+      returnFire: 1,
     },
-    abilityText: "Вьючная гаубица: +1 к атаке штаба.",
+    abilityText: "Вьючная гаубица: +1 к атаке штаба и самооборона.",
   },
   {
     id: "gun_105_m2a1",
@@ -2126,6 +2127,7 @@ const rawCards: TankCard[] = [
     supportRole: "artillery",
     supportEffects: {
       hqAttackBonus: 2,
+      supportLineCover: 1,
     },
     abilityText: "",
   },
@@ -2138,7 +2140,7 @@ const rawCards: TankCard[] = [
     cost: 1,
     attack: 0,
     armor: 0,
-    hp: 5,
+    hp: 3,
     range: 0,
     movement: 0,
     fuelGeneration: 0,
@@ -2146,9 +2148,10 @@ const rawCards: TankCard[] = [
     deploymentZone: "support",
     supportRole: "transport",
     supportEffects: {
+      fuelPerTurn: 1,
       drawEveryTurns: 2,
     },
-    abilityText: "Связная разведмашина: добор карты каждый второй ход.",
+    abilityText: "Связная разведмашина: +1 топлива и добор карты каждый второй ход.",
   },
 
   // === Пополнение: штабные машины и переходные модели (1940–1942) ===
@@ -2665,10 +2668,11 @@ const rawCards: TankCard[] = [
     id: "su_152",
     name: "СУ-152",
     nation: "ussr",
-    class: "spg",
+    class: "td",
     rarity: "rare",
+    level: 6,
     cost: 6,
-    attack: 7,
+    attack: 5,
     armor: 2,
     hp: 6,
     range: 2,
@@ -2972,7 +2976,7 @@ const rawCards: TankCard[] = [
     class: "armored_car",
     rarity: "uncommon",
     cost: 3,
-    attack: 3,
+    attack: 2,
     armor: 1,
     hp: 4,
     range: 1,
@@ -3133,7 +3137,13 @@ const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
   t26_1933: { combatAbilities: { drawWhenAttacked: 1 } },
   t26_1938: { combatAbilities: { armorVsClass: { class: "light", amount: 1 } } },
   t46_1: { onPlayEffects: { draw: 1 } },
-  m2a4: { onPlayEffects: { draw: 1 } },
+  m2a4: {
+    combatAbilities: { spawnDamageReduction: 1 },
+    onPlayEffects: { draw: 1 },
+  },
+  marmon_ctls: { combatAbilities: { camouflage: true } },
+  lvt1: { combatAbilities: { spawnDamageReduction: 1 } },
+  m5_stuart: { combatAbilities: { raidDraw: 1 } },
   t111: { combatAbilities: { spawnDamageReduction: 1 } },
   panzer_35t: { combatAbilities: { raidDraw: 1 } },
   pzkpfw_ii_ausf_f: { combatAbilities: { camouflage: true } },
@@ -3152,8 +3162,14 @@ const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
   t24: { onPlayEffects: { draw: 1 } },
   t28: { combatAbilities: { armorVsClass: { class: "light", amount: 1 } } },
   panzer_iv: { costModifiers: { ifClassPresent: "light", discount: 1 } },
-  m2_medium_tank: { onPlayEffects: { hqProtection: 1 } },
-  m3_lee: { onPlayEffects: { suppressEnemyIndirect: true } },
+  m2_medium_tank: {
+    combatAbilities: { armorVsClass: { class: "light", amount: 1 } },
+    onPlayEffects: { hqProtection: 1 },
+  },
+  m3_lee: {
+    combatAbilities: { armorVsClass: { class: "spg", amount: 1 } },
+    onPlayEffects: { suppressEnemyIndirect: true },
+  },
   tp14: { combatAbilities: { armorVsClass: { class: "medium", amount: 1 } } },
   pzkpfw_iii_ausf_d: { combatAbilities: { drawWhenAttacked: 1 } },
   pzkpfw_iii_ausf_e: { combatAbilities: { spawnDamageReduction: 1 } },
@@ -3170,7 +3186,10 @@ const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
       fetchToHand: { label: "Т-34", match: { namePrefixes: ["Т-34"] } },
     },
   },
-  sherman_early: { combatAbilities: { drawWhenAttacked: 1 } },
+  sherman_early: {
+    combatAbilities: { drawWhenAttacked: 1 },
+    costModifiers: { ifClassPresent: "light", discount: 1 },
+  },
 
   // ===== Тяжёлые танки ===== (база: KV-1, Churchill)
   t35: { combatAbilities: { armorVsClass: { class: "light", amount: 2 } } },
@@ -3187,8 +3206,18 @@ const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
   smk: { combatAbilities: { armorVsClass: { class: "td", amount: 2 } } },
   t100: { combatAbilities: { spawnDamageReduction: 2 } },
   kv2: { onPlayEffects: { deployDamage: { amount: 2, scope: "random" } } },
-  m6_heavy: { combatAbilities: { armorVsClass: { class: "medium", amount: 2 } } },
-  t14_assault: { combatAbilities: { frontalArmor: { amount: 2 } } },
+  m6_heavy: {
+    combatAbilities: {
+      armorVsClass: { class: "medium", amount: 2 },
+      frontalArmor: { amount: 1 },
+    },
+  },
+  t14_assault: {
+    combatAbilities: {
+      frontalArmor: { amount: 2 },
+      spawnDamageReduction: 1,
+    },
+  },
   kv1_1940: { combatAbilities: { frontalArmor: { amount: 2 } } },
 
   // ===== ПТ-САУ ===== (база: StuG III B, АТ-1)
@@ -3197,26 +3226,51 @@ const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
   tks_20mm: { combatAbilities: { drawWhenAttacked: 1 } },
   tks_d: { combatAbilities: { camouflage: true } },
   panzerjaeger_38t_early: { combatAbilities: { camouflage: true } },
-  m3_gmc: { combatAbilities: { drawWhenAttacked: 1 } },
-  m6_gmc_fargo: { combatAbilities: { camouflage: true } },
+  m3_gmc: {
+    combatAbilities: { drawWhenAttacked: 1 },
+    onPlayEffects: { deployDamage: { amount: 1, scope: "random" } },
+  },
+  m6_gmc_fargo: {
+    combatAbilities: {
+      camouflage: true,
+      raidDraw: 1,
+    },
+  },
   zis_30: { combatAbilities: { camouflage: true } },
 
+  // ===== Бронеавтомобили США: разведка, сопровождение и контрбатарея =====
+  m2_scout_car: { onPlayEffects: { hqProtection: 1 } },
+  m3_scout_car: { combatAbilities: { raidDraw: 1 } },
+  m3a1_scout_car: { combatAbilities: { tankDefenseAura: 1 } },
+  t13_armored_car: { onPlayEffects: { suppressEnemyIndirect: true } },
+
   // ===== САУ ===== (база: СУ-18, TKD) — остальные занимают огневую позицию;
-  // Bison I/II бьют тем сильнее, чем ближе к штабу врага («Огневой вал»)
+  // Bison I бьет тем сильнее, чем дальше ушел от своей клетки спавна к штабу врага («Огневой вал»)
   su_5_2: { combatAbilities: { cornerBonus: { attack: 1 } } },
   wespe: { combatAbilities: { cornerBonus: { attack: 1 } } },
   su_122: { combatAbilities: { cornerBonus: { hp: 2 } } },
-  sig_33_pzi: { combatAbilities: { hqProximityBonus: { maxBonus: 2 } } },
-  sig_33_pzii: { combatAbilities: { hqProximityBonus: { maxBonus: 3 } } },
+  sig_33_pzi: { combatAbilities: { hqProximityBonus: { maxBonus: 1 } } },
   su14: {
     onPlayEffects: { deployDamage: { amount: 1, scope: "classes", classes: ["light"] } },
   },
-  t18_hmc: { combatAbilities: { cornerBonus: { hp: 2 } } },
-  t19_hmc: { combatAbilities: { cornerBonus: { attack: 1 } } },
+  t18_hmc: {
+    combatAbilities: {
+      cornerBonus: { hp: 2 },
+      spawnDamageReduction: 1,
+    },
+  },
+  t19_hmc: {
+    combatAbilities: { cornerBonus: { attack: 1 } },
+    onPlayEffects: { deployDamage: { amount: 1, scope: "random" } },
+  },
 
   // ===== Миссия-трейлер (Курская дуга) =====
-  // СУ-152 «Зверобой»: огневой вал — выстрел крепче у штаба врага.
-  su_152: { combatAbilities: { hqProximityBonus: { maxBonus: 1 } } },
+  // СУ-152 «Зверобой»: при выходе накрывает тяжелые цели и ПТ-САУ.
+  su_152: {
+    onPlayEffects: {
+      deployDamage: { amount: 2, scope: "classes", classes: ["heavy", "td"] },
+    },
+  },
   // Ferdinand: непробиваемый лоб, фланг/тыл уязвимы.
   ferdinand: { combatAbilities: { frontalArmor: { amount: 2 } } },
 };

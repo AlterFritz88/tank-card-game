@@ -1351,7 +1351,7 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
       const mustClearSpawn = shouldMoveSpgToClearSpawn(state, unit);
       // «Огневая позиция»: an SPG with a corner bonus actively seeks a corner.
       const wantsCorner = !!cornerBonus && !isCornerCell(unit.position);
-      // «Огневой вал»: an SPG that hits harder up close pushes toward the enemy HQ.
+      // «Огневой вал»: an SPG that hits harder after advancing pushes forward.
       const wantsApproach = !!proximityBonus;
 
       if (!mustClearSpawn && !wantsCorner && !wantsApproach) continue;
@@ -1359,18 +1359,12 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
       const cornerValue = cornerBonus
         ? (cornerBonus.attack ?? 0) * 10 + (cornerBonus.hp ?? 0) * 6 + 16
         : 0;
-      // Reward cells closer to the enemy HQ by the firepower they would unlock.
+      // Reward cells farther from the bot spawn by the firepower they unlock.
       const proximityValue = (cell: Position) =>
         proximityBonus
-          ? Math.max(
-              0,
-              proximityBonus.maxBonus -
-                (getChebyshevDistance(
-                  cell,
-                  state.headquarters.player.position
-                ) -
-                  1)
-            ) * 14
+          ? Math.max(0, getFrontColumn("bot") - cell.col) *
+            proximityBonus.maxBonus *
+            14
           : 0;
       const scoreCell = (cell: Position) =>
         getSpgPositionScore(state, cell) +

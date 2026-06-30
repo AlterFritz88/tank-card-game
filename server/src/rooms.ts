@@ -75,6 +75,13 @@ type PendingAttack = {
   timeoutId: NodeJS.Timeout;
 };
 
+type PendingDeployBarrage = {
+  intentId: string;
+  playerId: PlayerId;
+  action: Extract<BattleAction, { type: "PLAY_CARD" | "PLAY_SUPPORT_CARD" }>;
+  timeoutId: NodeJS.Timeout;
+};
+
 type Room = {
   id: string;
   players: Partial<Record<PlayerId, RoomPlayer>>;
@@ -86,6 +93,7 @@ type Room = {
   pendingStartRoll: PendingStartRoll | null;
   pendingMovement: PendingMovement | null;
   pendingAttack: PendingAttack | null;
+  pendingDeployBarrage: PendingDeployBarrage | null;
   turnTimer: PvpTurnTimer | null;
   ended: boolean;
   winner: PlayerId | null;
@@ -121,6 +129,12 @@ const PVP_TURN_TIMER_BROADCAST_INTERVAL_MS = 500;
 const PVP_MOVE_INTENT_DURATION_MS = 520;
 const PVP_ATTACK_STRIKE_DURATION_MS = 960;
 const PVP_DESTROYED_CARD_ANIMATION_MS = 920;
+const PVP_DEPLOY_BARRAGE_SPAWN_MS = 620;
+const PVP_DEPLOY_BARRAGE_FIRST_SHOT_MS = 520;
+const PVP_DEPLOY_BARRAGE_SHOT_STAGGER_MS = 200;
+const PVP_DEPLOY_BARRAGE_DAMAGE_SETTLE_MS = 620;
+const PVP_DEPLOY_BARRAGE_DESTROY_START_DELAY_MS = 140;
+const PVP_DEPLOY_BARRAGE_DESTROYED_MS = PVP_DESTROYED_CARD_ANIMATION_MS;
 const ROOM_CLEANUP_DELAY_MS = 30_000;
 const PVP_REWARD_CLAIM_TTL_MS = 10 * 60_000;
 const DASHA_PROMO_CODE = "dasha";
@@ -387,6 +401,7 @@ export class RoomManager {
   private waitingRoomId: string | null = null;
   private movementIntentSequence = 0;
   private attackIntentSequence = 0;
+  private deployBarrageIntentSequence = 0;
   private accounts = new PlayerAccountManager();
   private profiles = new PlayerProfileManager();
   private promoRedemptions = new PromoRedemptionStore();
@@ -1734,6 +1749,7 @@ export class RoomManager {
       pendingStartRoll: null,
       pendingMovement: null,
       pendingAttack: null,
+      pendingDeployBarrage: null,
       turnTimer: null,
       ended: false,
       winner: null,
@@ -1958,7 +1974,7 @@ export class RoomManager {
 
     const safeAction = overwritePlayerId(action, playerId);
 
-    if (room.pendingMovement || room.pendingAttack) {
+    if (room.pendingMovement || room.pendingAttack || room.pendingDeployBarrage) {
       safeSend(socket, { type: "ERROR", message: "Дождитесь завершения текущей анимации" });
       return;
     }
@@ -1971,6 +1987,15 @@ export class RoomManager {
     if (safeAction.type === "ATTACK") {
       this.scheduleAttack(room, playerId, safeAction);
       return;
+    }
+
+    if (
+      safeAction.type === "PLAY_CARD" ||
+      safeAction.type === "PLAY_SUPPORT_CARD"
+    ) {
+      if (this.scheduleDeployBarrage(room, playerId, safeAction)) {
+        return;
+      }
     }
 
     this.commitGameAction(room, playerId, safeAction);
@@ -2157,6 +2182,117 @@ export class RoomManager {
 
     const { playerId, action } = room.pendingAttack;
     room.pendingAttack = null;
+
+    if (room.ended) return;
+    if (room.battle.status !== "active") return;
+    if (room.battle.activePlayer !== playerId) return;
+
+    this.commitGameAction(room, playerId, action);
+  }
+
+  private createHpSnapshot(battle: BattleState): Map<string, number> {
+    const hp = new Map<string, number>();
+
+    for (const unit of battle.units) {
+      hp.set(unit.instanceId, unit.currentHp - (unit.supplyHpApplied ?? 0));
+    }
+
+    hp.set("player_hq", battle.headquarters.player.hp);
+    hp.set("bot_hq", battle.headquarters.bot.hp);
+
+    return hp;
+  }
+
+  private scheduleDeployBarrage(
+    room: Room,
+    playerId: PlayerId,
+    action: Extract<BattleAction, { type: "PLAY_CARD" | "PLAY_SUPPORT_CARD" }>
+  ): boolean {
+    if (!room.battle) return false;
+
+    const playedInstance = room.battle[playerId].hand.find(
+      (item) => item.instanceId === action.cardInstanceId
+    );
+    if (!playedInstance) return false;
+
+    const playedCard = getCard(playedInstance.cardId);
+    if ((playedCard.onPlayEffects?.deployDamage?.amount ?? 0) <= 0) return false;
+
+    const before = this.createHpSnapshot(room.battle);
+    const nextBattle = applyAction(room.battle, action);
+    const after = this.createHpSnapshot(nextBattle);
+    const shots: { targetId: string; damage: number; destroyed: boolean }[] = [];
+
+    for (const [targetId, previousHp] of before.entries()) {
+      if (targetId === action.cardInstanceId) continue;
+
+      const currentHp = after.get(targetId) ?? 0;
+      if (currentHp >= previousHp) continue;
+
+      shots.push({
+        targetId,
+        damage: previousHp - currentHp,
+        destroyed: currentHp <= 0,
+      });
+    }
+
+    if (shots.length === 0) return false;
+
+    this.broadcastCardSelection(room, playerId, null);
+
+    this.deployBarrageIntentSequence += 1;
+    const intentId = `${room.id}-deploy-${this.deployBarrageIntentSequence}`;
+    const shotSequenceMs =
+      PVP_DEPLOY_BARRAGE_FIRST_SHOT_MS +
+      Math.max(0, shots.length - 1) * PVP_DEPLOY_BARRAGE_SHOT_STAGGER_MS;
+    const impactSequenceMs = shots.some((shot) => shot.destroyed)
+      ? PVP_DEPLOY_BARRAGE_DESTROY_START_DELAY_MS +
+        PVP_DEPLOY_BARRAGE_DESTROYED_MS
+      : PVP_DEPLOY_BARRAGE_DAMAGE_SETTLE_MS;
+    const durationMs =
+      PVP_DEPLOY_BARRAGE_SPAWN_MS +
+      shotSequenceMs +
+      impactSequenceMs;
+
+    room.pendingDeployBarrage = {
+      intentId,
+      playerId,
+      action,
+      timeoutId: setTimeout(() => {
+        this.commitDeployBarrage(room.id, intentId);
+      }, durationMs),
+    };
+
+    this.broadcastSame(room, {
+      type: "DEPLOY_BARRAGE_INTENT",
+      intentId,
+      playerId,
+      cardInstanceId: action.cardInstanceId,
+      cardId: playedInstance.cardId,
+      source:
+        action.type === "PLAY_CARD"
+          ? { type: "battlefield", position: action.position }
+          : { type: "support", supportSlot: action.supportSlot },
+      shots,
+      durationMs,
+    });
+
+    return true;
+  }
+
+  private commitDeployBarrage(roomId: string, intentId: string) {
+    const room = this.rooms.get(roomId);
+
+    if (!room || !room.battle) return;
+    if (
+      !room.pendingDeployBarrage ||
+      room.pendingDeployBarrage.intentId !== intentId
+    ) {
+      return;
+    }
+
+    const { playerId, action } = room.pendingDeployBarrage;
+    room.pendingDeployBarrage = null;
 
     if (room.ended) return;
     if (room.battle.status !== "active") return;
@@ -2527,6 +2663,7 @@ export class RoomManager {
     this.clearPendingStartRoll(room);
     this.clearPendingMovement(room);
     this.clearPendingAttack(room);
+    this.clearPendingDeployBarrage(room);
 
     if (this.waitingRoomId === room.id) {
       this.waitingRoomId = null;
@@ -2637,6 +2774,7 @@ export class RoomManager {
     this.clearPendingStartRoll(room);
     this.clearPendingMovement(room);
     this.clearPendingAttack(room);
+    this.clearPendingDeployBarrage(room);
     this.rememberCompletedPvpMatch(room, reason);
     this.broadcastBattleState(room);
     this.broadcastMatchEnded(room, winner, reason);
@@ -2674,6 +2812,13 @@ export class RoomManager {
     room.pendingAttack = null;
   }
 
+  private clearPendingDeployBarrage(room: Room) {
+    if (!room.pendingDeployBarrage) return;
+
+    clearTimeout(room.pendingDeployBarrage.timeoutId);
+    room.pendingDeployBarrage = null;
+  }
+
   private scheduleRoomCleanup(roomId: string) {
     const room = this.rooms.get(roomId);
     if (!room || room.cleanupTimer) return;
@@ -2686,6 +2831,7 @@ export class RoomManager {
       this.clearPendingStartRoll(currentRoom);
       this.clearPendingMovement(currentRoom);
       this.clearPendingAttack(currentRoom);
+      this.clearPendingDeployBarrage(currentRoom);
       this.clearRoomSessions(currentRoom);
       this.rooms.delete(roomId);
       console.log(`[PVP:${roomId}] room cleaned`);
@@ -2700,6 +2846,7 @@ export class RoomManager {
     this.clearPendingStartRoll(room);
     this.clearPendingMovement(room);
     this.clearPendingAttack(room);
+    this.clearPendingDeployBarrage(room);
 
     if (room.cleanupTimer) {
       clearTimeout(room.cleanupTimer);
@@ -2790,7 +2937,7 @@ export class RoomManager {
     if (room.battle.status !== "active") return;
     if (room.battle.activePlayer !== expectedPlayer) return;
 
-    if (room.pendingAttack) {
+    if (room.pendingAttack || room.pendingMovement || room.pendingDeployBarrage) {
       if (room.turnTimer) {
         room.turnTimer.timeoutId = setTimeout(() => {
           this.handleTurnTimeout(room.id, expectedPlayer);
@@ -2804,6 +2951,7 @@ export class RoomManager {
 
     this.clearPendingMovement(room);
     this.clearPendingAttack(room);
+    this.clearPendingDeployBarrage(room);
     this.broadcastCardSelection(room, expectedPlayer, null);
 
     room.battle = applyAction(room.battle, {

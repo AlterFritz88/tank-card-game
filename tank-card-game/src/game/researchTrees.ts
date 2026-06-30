@@ -1242,6 +1242,10 @@ export const RESEARCH_NATIONS: ResearchNation[] = ["ussr", "germany", "usa"];
  */
 let cardResearchLevelMap: Map<string, number> | null = null;
 
+const SPECIAL_CARD_RESEARCH_LEVELS: Partial<Record<string, number>> = {
+  su_152: 6,
+};
+
 function buildCardResearchLevelMap(): Map<string, number> {
   const map = new Map<string, number>();
 
@@ -1263,7 +1267,9 @@ export function getCardResearchLevel(cardId: string): number {
     cardResearchLevelMap = buildCardResearchLevelMap();
   }
 
-  return cardResearchLevelMap.get(cardId) ?? 1;
+  return (
+    SPECIAL_CARD_RESEARCH_LEVELS[cardId] ?? cardResearchLevelMap.get(cardId) ?? 1
+  );
 }
 
 /**

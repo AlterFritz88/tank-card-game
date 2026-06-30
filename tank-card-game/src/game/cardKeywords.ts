@@ -314,13 +314,14 @@ function getAbilityKeywords(card: TankCard, language: Language): CardKeyword[] {
   }
 
   if (card.combatAbilities?.hqProximityBonus) {
+    const bonus = card.combatAbilities.hqProximityBonus.maxBonus;
     keywords.push({
       id: "hqProximityBonus",
       title: language === "en" ? "ROLLING BARRAGE" : "ОГНЕВОЙ ВАЛ",
       body:
         language === "en"
-          ? `The closer this SPG is to the enemy headquarters, the harder it hits: up to +${card.combatAbilities.hqProximityBonus.maxBonus} firepower up close, reduced by 1 for each cell of distance.`
-          : `Чем ближе эта САУ к штабу противника, тем сильнее её удар: до +${card.combatAbilities.hqProximityBonus.maxBonus} к огневой мощи вплотную, и на 1 меньше за каждую клетку дистанции до вражеского штаба.`,
+          ? `On its own spawn cell this SPG uses printed firepower. For every cell advanced toward the enemy headquarters it gains +${bonus} firepower.`
+          : `На своей клетке спавна эта САУ бьёт с номинальной огневой мощью. За каждую клетку продвижения к штабу противника получает +${bonus} к огневой мощи.`,
     });
   }
 
@@ -677,8 +678,8 @@ export function getCardAbilityTags(
   if (card.combatAbilities?.hqProximityBonus) {
     tags.push(
       language === "en"
-        ? `Rolling barrage +${card.combatAbilities.hqProximityBonus.maxBonus}`
-        : `Огневой вал +${card.combatAbilities.hqProximityBonus.maxBonus}`
+        ? `Rolling barrage +${card.combatAbilities.hqProximityBonus.maxBonus}/cell`
+        : `Огневой вал +${card.combatAbilities.hqProximityBonus.maxBonus}/клетка`
     );
   }
 

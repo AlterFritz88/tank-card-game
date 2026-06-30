@@ -23,6 +23,7 @@ import {
   getUnitDisplayAttackValue,
   isBattlefieldUnit,
   isSupportUnit,
+  applyAction,
 } from "../game/engine";
 import type { AttackAnimationStrike } from "../game/engine";
 import type {
@@ -231,6 +232,22 @@ type SpawnCardEffect = {
   cardId: string;
   hiddenCardInstanceId: string;
 };
+
+type StagedDeployPreview =
+  | {
+      zone: "battlefield";
+      instanceId: string;
+      cardId: string;
+      ownerId: PlayerId;
+      position: Position;
+    }
+  | {
+      zone: "support";
+      instanceId: string;
+      cardId: string;
+      ownerId: PlayerId;
+      supportSlot: SupportSlot;
+    };
 
 type MovementArrowEffect = {
   id: number;
@@ -514,6 +531,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     pvpTimer,
     pvpMovementIntent,
     pvpAttackIntent,
+    pvpDeployBarrageIntent,
     matchEndReason,
     selectedCardInstanceId,
     opponentSelectedCardInstanceId,
@@ -1004,9 +1022,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const previousCohesionDefenseRef = useRef<Map<string, number> | null>(null);
   const suppressNextRemoteDamageEffectsRef = useRef(false);
   const lastPvpAttackIntentIdRef = useRef<string | null>(null);
+  const lastPvpDeployBarrageIntentIdRef = useRef<string | null>(null);
   const botTurnRunningRef = useRef(false);
   const [drawCardEffects, setDrawCardEffects] = useState<DrawCardEffect[]>([]);
   const [spawnCardEffects, setSpawnCardEffects] = useState<SpawnCardEffect[]>([]);
+  const [stagedDeployPreview, setStagedDeployPreview] =
+    useState<StagedDeployPreview | null>(null);
   const [movementArrowEffect, setMovementArrowEffect] =
     useState<MovementArrowEffect | null>(null);
   const [movementUnitEffect, setMovementUnitEffect] =
@@ -1208,6 +1229,18 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     playMoveIntentAnimationRef.current = playMoveIntentAnimation;
     playAndDispatchLocalMovementRef.current = playAndDispatchLocalMovement;
   });
+
+  useEffect(() => {
+    if (!stagedDeployPreview) return;
+
+    if (
+      battle.units.some(
+        (unit) => unit.instanceId === stagedDeployPreview.instanceId
+      )
+    ) {
+      setStagedDeployPreview(null);
+    }
+  }, [battle.units, stagedDeployPreview]);
 
   function setHandCardRef(owner: PlayerId, cardInstanceId: string) {
     return (element: HTMLElement | null) => {
@@ -2027,16 +2060,33 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
             (item) => item.instanceId === action.cardInstanceId
           );
 
-          if (cardInstance) {
+          if (
+            cardInstance &&
+            shouldSequenceDeployBarrage(currentBattle, action)
+          ) {
             await playSpawnCardAnimationRef.current(
               "bot",
               cardInstance.instanceId,
               cardInstance.cardId,
               action.position
             );
-          }
+            await dispatchDeployBarrageAfterNormalPlacement(
+              currentBattle,
+              action,
+              (options) => dispatchBattleActionRef.current(action, options)
+            );
+          } else {
+            if (cardInstance) {
+              await playSpawnCardAnimationRef.current(
+                "bot",
+                cardInstance.instanceId,
+                cardInstance.cardId,
+                action.position
+              );
+            }
 
-          dispatchBattleActionRef.current(action);
+            dispatchBattleActionRef.current(action);
+          }
           await delay(450);
           continue;
         }
@@ -2047,16 +2097,33 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
             (item) => item.instanceId === action.cardInstanceId
           );
 
-          if (cardInstance) {
+          if (
+            cardInstance &&
+            shouldSequenceDeployBarrage(currentBattle, action)
+          ) {
             await playSupportSpawnCardAnimationRef.current(
               "bot",
               cardInstance.instanceId,
               cardInstance.cardId,
               action.supportSlot
             );
-          }
+            await dispatchDeployBarrageAfterNormalPlacement(
+              currentBattle,
+              action,
+              (options) => dispatchBattleActionRef.current(action, options)
+            );
+          } else {
+            if (cardInstance) {
+              await playSupportSpawnCardAnimationRef.current(
+                "bot",
+                cardInstance.instanceId,
+                cardInstance.cardId,
+                action.supportSlot
+              );
+            }
 
-          dispatchBattleActionRef.current(action);
+            dispatchBattleActionRef.current(action);
+          }
           await delay(450);
           continue;
         }
@@ -2553,58 +2620,446 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
    * couple of frames so the gun's board element has mounted and registered its
    * ref before we read its position.
    */
-  function playDeployBarrageShot(sourceInstanceId: string, targetIds: string[]) {
-    if (targetIds.length === 0) return;
+  /**
+   * Snapshot of every on-board combatant's centre (relative to the board), keyed
+   * by instance id. Taken before a deploy resolves so «Огневой налёт» can still
+   * aim at a target that the barrage destroys and unmounts.
+   */
+  function getBattlefieldCellCenter(
+    position: Position
+  ): { x: number; y: number } | null {
+    const boardElement = boardRef.current;
+    const cellElement = cellRefs.current.get(positionKey(position));
+
+    if (!boardElement || !cellElement) return null;
+
+    return getElementCenterRelativeToBoard(boardElement, cellElement);
+  }
+
+  function getSupportCellCenter(
+    owner: PlayerId,
+    supportSlot: SupportSlot
+  ): { x: number; y: number } | null {
+    const boardElement = boardRef.current;
+    const cellElement = supportCellRefs.current.get(
+      supportCellKey(owner, supportSlot)
+    );
+
+    if (!boardElement || !cellElement) return null;
+
+    return getElementCenterRelativeToBoard(boardElement, cellElement);
+  }
+
+  function getCombatObjectCenter(
+    sourceBattle: ClientBattleState,
+    instanceId: string
+  ): { x: number; y: number } | null {
+    const boardElement = boardRef.current;
+    const objectElement = objectRefs.current.get(instanceId);
+
+    if (boardElement && objectElement) {
+      return getElementCenterRelativeToBoard(boardElement, objectElement);
+    }
+
+    const unit = sourceBattle.units.find((item) => item.instanceId === instanceId);
+
+    if (!unit) return null;
+
+    if (isSupportUnit(unit) && unit.supportSlot !== undefined) {
+      return getSupportCellCenter(unit.ownerId, unit.supportSlot);
+    }
+
+    return getBattlefieldCellCenter(unit.position);
+  }
+
+  function getDeployBarrageSourceCenter(
+    sourceBattle: ClientBattleState,
+    action: Extract<BattleAction, { type: "PLAY_CARD" | "PLAY_SUPPORT_CARD" }>
+  ): { x: number; y: number } | null {
+    if (action.type === "PLAY_SUPPORT_CARD") {
+      return getSupportCellCenter(action.playerId, action.supportSlot);
+    }
+
+    return (
+      getBattlefieldCellCenter(action.position) ??
+      getCombatObjectCenter(sourceBattle, action.cardInstanceId)
+    );
+  }
+
+  function captureUnitCenters(
+    sourceBattle: ClientBattleState
+  ): Map<string, { x: number; y: number }> {
+    const centers = new Map<string, { x: number; y: number }>();
+
+    for (const unit of sourceBattle.units) {
+      const center = getCombatObjectCenter(sourceBattle, unit.instanceId);
+      if (center) centers.set(unit.instanceId, center);
+    }
+
+    return centers;
+  }
+
+  function playDeployBarrageShot(
+    sourceInstanceId: string,
+    sourceFallback: { x: number; y: number } | null,
+    shots: { targetId: string; to: { x: number; y: number } }[]
+  ) {
+    if (shots.length === 0) return;
 
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         const boardElement = boardRef.current;
         const sourceElement = objectRefs.current.get(sourceInstanceId);
 
-        if (!boardElement || !sourceElement) return;
+        if (!boardElement && !sourceFallback) return;
 
-        const from = getElementCenterRelativeToBoard(boardElement, sourceElement);
-        let firedSound = false;
+        const from =
+          boardElement && sourceElement
+            ? getElementCenterRelativeToBoard(boardElement, sourceElement)
+            : sourceFallback;
 
-        for (const targetId of targetIds) {
-          const targetElement = objectRefs.current.get(targetId);
-          if (!targetElement) continue;
+        if (!from) return;
 
-          const to = getElementCenterRelativeToBoard(boardElement, targetElement);
+        // Each damaged target gets its own shot, staggered in time so a
+        // multi-unit «Огневой налёт» reads as a rapid barrage instead of
+        // collapsing into a single visible projectile (the projectile/explosion
+        // state is single-slot).
+        const SHOT_STAGGER_MS = 200;
 
-          if (!firedSound) {
+        shots.forEach(({ targetId, to }, index) => {
+          window.setTimeout(() => {
             playCannonShotSound();
-            firedSound = true;
-          }
 
-          projectileIdRef.current += 1;
-          const projectileId = projectileIdRef.current;
-          setProjectileEffect({ id: projectileId, from, to });
+            projectileIdRef.current += 1;
+            const projectileId = projectileIdRef.current;
+            setProjectileEffect({ id: projectileId, from, to });
 
-          window.setTimeout(() => {
-            explosionIdRef.current += 1;
-            setExplosionEffect({ id: explosionIdRef.current, position: to });
-            setAttackEffectId(targetId);
-          }, 220);
+            window.setTimeout(() => {
+              explosionIdRef.current += 1;
+              const explosionId = explosionIdRef.current;
+              setExplosionEffect({ id: explosionId, position: to });
+              setAttackEffectId(targetId);
 
-          window.setTimeout(() => {
-            setProjectileEffect((current) =>
-              current?.id === projectileId ? null : current
-            );
-          }, 260);
+              window.setTimeout(() => {
+                // Guard by id so a later shot's explosion isn't cleared early.
+                setExplosionEffect((current) =>
+                  current?.id === explosionId ? null : current
+                );
+                setAttackEffectId((current) =>
+                  current === targetId ? null : current
+                );
+              }, 720);
+            }, 220);
 
-          window.setTimeout(() => {
-            setExplosionEffect(null);
-            setAttackEffectId((current) => (current === targetId ? null : current));
-          }, 940);
-        }
+            window.setTimeout(() => {
+              setProjectileEffect((current) =>
+                current?.id === projectileId ? null : current
+              );
+            }, 260);
+          }, index * SHOT_STAGGER_MS);
+        });
       });
     });
   }
 
+  async function playDeployBarrageShotSequence(
+    sourceInstanceId: string,
+    sourceFallback: { x: number; y: number } | null,
+    shots: { targetId: string; to: { x: number; y: number } }[]
+  ): Promise<void> {
+    if (shots.length === 0) return;
+
+    await waitForNextFrame();
+    await waitForNextFrame();
+
+    const boardElement = boardRef.current;
+    const sourceElement = objectRefs.current.get(sourceInstanceId);
+
+    if (!boardElement && !sourceFallback) return;
+
+    const from =
+      boardElement && sourceElement
+        ? getElementCenterRelativeToBoard(boardElement, sourceElement)
+        : sourceFallback;
+
+    if (!from) return;
+
+    const shotStaggerMs = 200;
+
+    shots.forEach(({ targetId, to }, index) => {
+      window.setTimeout(() => {
+        playCannonShotSound();
+
+        projectileIdRef.current += 1;
+        const projectileId = projectileIdRef.current;
+        setProjectileEffect({ id: projectileId, from, to });
+
+        window.setTimeout(() => {
+          explosionIdRef.current += 1;
+          const explosionId = explosionIdRef.current;
+          setExplosionEffect({ id: explosionId, position: to });
+          setAttackEffectId(targetId);
+
+          window.setTimeout(() => {
+            setExplosionEffect((current) =>
+              current?.id === explosionId ? null : current
+            );
+            setAttackEffectId((current) =>
+              current === targetId ? null : current
+            );
+          }, 720);
+        }, 220);
+
+        window.setTimeout(() => {
+          setProjectileEffect((current) =>
+            current?.id === projectileId ? null : current
+          );
+        }, 260);
+      }, index * shotStaggerMs);
+    });
+
+    await delay((shots.length - 1) * shotStaggerMs + 520);
+  }
+
+  function getPlayedCardForAction(
+    sourceBattle: ClientBattleState,
+    action: Extract<BattleAction, { type: "PLAY_CARD" | "PLAY_SUPPORT_CARD" }>
+  ): TankCard | null {
+    const playedInstance = sourceBattle[action.playerId]?.hand.find(
+      (item) => item.instanceId === action.cardInstanceId
+    );
+
+    return playedInstance && !isHiddenCardInstance(playedInstance)
+      ? getCardOrNull(playedInstance.cardId)
+      : null;
+  }
+
+  function shouldSequenceDeployBarrage(
+    sourceBattle: ClientBattleState,
+    action: Extract<BattleAction, { type: "PLAY_CARD" | "PLAY_SUPPORT_CARD" }>
+  ): boolean {
+    const playedCard = getPlayedCardForAction(sourceBattle, action);
+    return (playedCard?.onPlayEffects?.deployDamage?.amount ?? 0) > 0;
+  }
+
+  function getDeployBarrageResolution(
+    beforeBattle: ClientBattleState,
+    afterBattle: ClientBattleState,
+    action: Extract<BattleAction, { type: "PLAY_CARD" | "PLAY_SUPPORT_CARD" }>
+  ): {
+    sourceCenter: { x: number; y: number } | null;
+    shots: {
+      targetId: string;
+      damage: number;
+      destroyed: boolean;
+      to: { x: number; y: number };
+    }[];
+  } {
+    const before = createHpSnapshot(beforeBattle, { baseHp: true });
+    const after = createHpSnapshot(afterBattle, { baseHp: true });
+    const targetPositions = captureUnitCenters(beforeBattle);
+    const sourceCenter =
+      getDeployBarrageSourceCenter(beforeBattle, action) ??
+      getCombatObjectCenter(afterBattle, action.cardInstanceId);
+    const shots: {
+      targetId: string;
+      damage: number;
+      destroyed: boolean;
+      to: { x: number; y: number };
+    }[] = [];
+
+    for (const [id, previousHp] of before.entries()) {
+      if (id === action.cardInstanceId) continue;
+
+      const currentHp = after.get(id) ?? 0;
+      if (currentHp >= previousHp) continue;
+
+      const to = targetPositions.get(id);
+      if (to) {
+        shots.push({
+          targetId: id,
+          damage: previousHp - currentHp,
+          destroyed: currentHp <= 0,
+          to,
+        });
+      }
+    }
+
+    return { sourceCenter, shots };
+  }
+
+  async function dispatchDeployBarrageAfterNormalPlacement(
+    beforeBattle: ClientBattleState,
+    action: Extract<BattleAction, { type: "PLAY_CARD" | "PLAY_SUPPORT_CARD" }>,
+    dispatchAction: (
+      options?: {
+        skipDamageEffects?: boolean;
+        skipAttackEffects?: boolean;
+        precomputedNextBattle?: BattleState;
+      }
+    ) => void
+  ): Promise<void> {
+    const playedCard = getPlayedCardForAction(beforeBattle, action);
+    if (!playedCard) return;
+
+    const afterBattle = applyAction(beforeBattle as BattleState, action);
+    const { sourceCenter, shots } = getDeployBarrageResolution(
+      beforeBattle,
+      afterBattle,
+      action
+    );
+
+    if (action.type === "PLAY_CARD") {
+      setStagedDeployPreview({
+        zone: "battlefield",
+        instanceId: action.cardInstanceId,
+        cardId: playedCard.id,
+        ownerId: action.playerId,
+        position: action.position,
+      });
+    } else {
+      setStagedDeployPreview({
+        zone: "support",
+        instanceId: action.cardInstanceId,
+        cardId: playedCard.id,
+        ownerId: action.playerId,
+        supportSlot: action.supportSlot,
+      });
+    }
+
+    await waitForNextFrame();
+
+    await playDeployBarrageShotSequence(
+      action.cardInstanceId,
+      sourceCenter,
+      shots.map((shot) => ({ targetId: shot.targetId, to: shot.to }))
+    );
+
+    for (const shot of shots) {
+      showHealthDamageEffect(shot.targetId, shot.damage);
+    }
+
+    const destroyedTargetIds = shots
+      .filter((shot) => shot.destroyed)
+      .map((shot) => shot.targetId);
+
+    if (destroyedTargetIds.length > 0) {
+      await delay(140);
+      await Promise.all(
+        destroyedTargetIds.map((targetId) =>
+          playDestroyedCardAnimation(targetId)
+        )
+      );
+    } else if (shots.length > 0) {
+      await delay(ATTACK_STRIKE_SETTLE_MS);
+    }
+
+    // Commit the very state we simulated above, so the unit destroyed in `state`
+    // is the one the barrage just animated against (random targeting must not be
+    // rolled again by the store).
+    dispatchAction({ skipDamageEffects: true, precomputedNextBattle: afterBattle });
+    setStagedDeployPreview((current) =>
+      current?.instanceId === action.cardInstanceId ? null : current
+    );
+  }
+
+  async function playPvpDeployBarrageIntent(
+    intent: NonNullable<typeof pvpDeployBarrageIntent>
+  ): Promise<void> {
+    const currentBattle = useBattleStore.getState().battle;
+    if (!currentBattle) return;
+
+    const targetPositions = captureUnitCenters(currentBattle);
+    const sourceCenter =
+      intent.source.type === "battlefield"
+        ? getBattlefieldCellCenter(intent.source.position)
+        : getSupportCellCenter(
+            intent.playerId,
+            intent.source.supportSlot as SupportSlot
+          );
+    if (intent.playerId !== humanPlayerIdRef.current) {
+      if (intent.source.type === "battlefield") {
+        await playSpawnCardAnimationRef.current(
+          intent.playerId,
+          intent.cardInstanceId,
+          intent.cardId,
+          intent.source.position
+        );
+      } else {
+        await playSupportSpawnCardAnimationRef.current(
+          intent.playerId,
+          intent.cardInstanceId,
+          intent.cardId,
+          intent.source.supportSlot as SupportSlot
+        );
+      }
+    }
+
+    setStagedDeployPreview(
+      intent.source.type === "battlefield"
+        ? {
+            zone: "battlefield",
+            instanceId: intent.cardInstanceId,
+            cardId: intent.cardId,
+            ownerId: intent.playerId,
+            position: intent.source.position,
+          }
+        : {
+            zone: "support",
+            instanceId: intent.cardInstanceId,
+            cardId: intent.cardId,
+            ownerId: intent.playerId,
+            supportSlot: intent.source.supportSlot as SupportSlot,
+          }
+    );
+
+    await waitForNextFrame();
+
+    const shots = intent.shots
+      .map((shot) => {
+        const to = targetPositions.get(shot.targetId);
+        return to ? { targetId: shot.targetId, to } : null;
+      })
+      .filter(
+        (shot): shot is { targetId: string; to: { x: number; y: number } } =>
+          shot !== null
+      );
+
+    await playDeployBarrageShotSequence(
+      intent.cardInstanceId,
+      sourceCenter,
+      shots
+    );
+
+    for (const shot of intent.shots) {
+      if (shot.damage > 0) {
+        showHealthDamageEffect(shot.targetId, shot.damage);
+      }
+    }
+
+    const destroyedTargetIds = intent.shots
+      .filter((shot) => shot.destroyed)
+      .map((shot) => shot.targetId);
+
+    if (destroyedTargetIds.length > 0) {
+      await delay(140);
+      await Promise.all(
+        destroyedTargetIds.map((targetId) =>
+          playDestroyedCardAnimation(targetId)
+        )
+      );
+    } else if (intent.shots.length > 0) {
+      await delay(ATTACK_STRIKE_SETTLE_MS);
+    }
+  }
+
   function dispatchBattleAction(
     action: BattleAction,
-    options: { skipDamageEffects?: boolean; skipAttackEffects?: boolean } = {}
+    options: {
+      skipDamageEffects?: boolean;
+      skipAttackEffects?: boolean;
+      precomputedNextBattle?: BattleState;
+    } = {}
   ) {
     const shouldShowDamage =
       action.type === "ATTACK" ||
@@ -2627,7 +3082,38 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     const beforeAttack =
       beforeBattle ? createAttackSnapshot(beforeBattle, includeAuraBonuses) : null;
 
-    dispatch(action);
+    // «Огневой налёт»: capture enemy board positions BEFORE the deploy resolves.
+    // A target the barrage destroys is removed from state (and unmounts), so its
+    // ref is gone by the time we'd animate — snapshot the centres up front so we
+    // can still fire a shot at a killed unit's last position.
+    let deployBarrageSource: string | null = null;
+    let deployBarrageSourceCenter: { x: number; y: number } | null = null;
+    let deployBarragePositions: Map<string, { x: number; y: number }> | null =
+      null;
+
+    if (
+      (action.type === "PLAY_CARD" || action.type === "PLAY_SUPPORT_CARD") &&
+      beforeBattle
+    ) {
+      const playedInstance = beforeBattle[action.playerId]?.hand.find(
+        (item) => item.instanceId === action.cardInstanceId
+      );
+      const playedCard =
+        playedInstance && !isHiddenCardInstance(playedInstance)
+          ? getCardOrNull(playedInstance.cardId)
+          : null;
+
+      if (playedCard?.onPlayEffects?.deployDamage) {
+        deployBarrageSource = action.cardInstanceId;
+        deployBarrageSourceCenter = getDeployBarrageSourceCenter(
+          beforeBattle,
+          action
+        );
+        deployBarragePositions = captureUnitCenters(beforeBattle);
+      }
+    }
+
+    dispatch(action, options.precomputedNextBattle);
 
     const afterBattle = useBattleStore.getState().battle;
     if (!afterBattle) return;
@@ -2646,28 +3132,22 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     showDamageEffectsFromSnapshots(before, after);
 
     // «Огневой налёт»: if a deployed card shelled enemy units, fire a visible
-    // shot from the new gun to every unit that just lost health.
-    if (action.type === "PLAY_CARD" || action.type === "PLAY_SUPPORT_CARD") {
-      const playedInstance = beforeBattle?.[action.playerId]?.hand.find(
-        (item) => item.instanceId === action.cardInstanceId
-      );
-      const playedCard =
-        playedInstance && !isHiddenCardInstance(playedInstance)
-          ? getCardOrNull(playedInstance.cardId)
-          : null;
+    // shot from the new gun to every unit that just lost health. Iterate the
+    // BEFORE snapshot so targets destroyed by the barrage (removed from `after`)
+    // are still counted — their last position was captured pre-dispatch.
+    if (deployBarrageSource && deployBarragePositions) {
+      const shots: { targetId: string; to: { x: number; y: number } }[] = [];
 
-      if (playedCard?.onPlayEffects?.deployDamage) {
-        const damagedIds: string[] = [];
-        for (const [id, currentHp] of after.entries()) {
-          if (id === action.cardInstanceId) continue;
-          const previousHp = before.get(id);
-          if (previousHp !== undefined && currentHp < previousHp) {
-            damagedIds.push(id);
-          }
-        }
+      for (const [id, previousHp] of before.entries()) {
+        if (id === deployBarrageSource) continue;
+        const currentHp = after.get(id) ?? 0; // missing from `after` ⇒ destroyed
+        if (currentHp >= previousHp) continue;
 
-        playDeployBarrageShot(action.cardInstanceId, damagedIds);
+        const to = deployBarragePositions.get(id);
+        if (to) shots.push({ targetId: id, to });
       }
+
+      playDeployBarrageShot(deployBarrageSource, deployBarrageSourceCenter, shots);
     }
   }
 
@@ -2697,7 +3177,11 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
   function dispatchQueuedBattleAction(
     action: BattleAction,
-    options: { skipDamageEffects?: boolean; skipAttackEffects?: boolean } = {}
+    options: {
+      skipDamageEffects?: boolean;
+      skipAttackEffects?: boolean;
+      precomputedNextBattle?: BattleState;
+    } = {}
   ) {
     const {
       selectedCardInstanceId: currentCard,
@@ -2776,7 +3260,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       cardInstanceId,
       cardId,
       targetCellElement
-    );
+    ).then(() => undefined);
   }
 
   function playSupportSpawnCardAnimation(
@@ -2794,7 +3278,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       cardInstanceId,
       cardId,
       targetCellElement
-    );
+    ).then(() => undefined);
   }
 
   function playSpawnCardAnimationToElement(
@@ -3226,6 +3710,22 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     void playAttackSequenceRef.current(pvpAttackIntent.strikes);
   }, [mode, pvpAttackIntent]);
 
+  useEffect(() => {
+    if (mode !== "pvp") return;
+    if (!pvpDeployBarrageIntent) return;
+    if (
+      lastPvpDeployBarrageIntentIdRef.current ===
+      pvpDeployBarrageIntent.intentId
+    ) {
+      return;
+    }
+
+    lastPvpDeployBarrageIntentIdRef.current = pvpDeployBarrageIntent.intentId;
+    suppressNextRemoteDamageEffectsRef.current = true;
+
+    void playPvpDeployBarrageIntent(pvpDeployBarrageIntent);
+  }, [mode, pvpDeployBarrageIntent]);
+
   function isCommandAnimationBusy() {
     return (
       attackSequenceRunningRef.current ||
@@ -3337,16 +3837,44 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     if (!cardInstance || isHiddenCardInstance(cardInstance)) return;
     if (getCard(cardInstance.cardId).deploymentZone === "support") return;
 
-    const dispatch = () =>
-      dispatchQueuedBattleAction({
-        type: "PLAY_CARD",
-        playerId: currentHumanPlayerId,
-        cardInstanceId: cardInstance.instanceId,
-        position,
-      });
+    const action: Extract<BattleAction, { type: "PLAY_CARD" }> = {
+      type: "PLAY_CARD",
+      playerId: currentHumanPlayerId,
+      cardInstanceId: cardInstance.instanceId,
+      position,
+    };
+
+    const dispatch = (options?: {
+      skipDamageEffects?: boolean;
+      skipAttackEffects?: boolean;
+    }) => dispatchQueuedBattleAction(action, options);
+
+    if (
+      modeRef.current !== "pvp" &&
+      shouldSequenceDeployBarrage(currentBattle, action)
+    ) {
+      // On a drag-and-drop play the ghost already carried the card to the cell,
+      // so skip the hand→cell fly-in (the staged preview shows the unit in place)
+      // and go straight to the barrage. A click play still plays the fly-in.
+      if (!options.skipSpawnAnimation) {
+        await playSpawnCardAnimationRef.current(
+          currentHumanPlayerId,
+          cardInstance.instanceId,
+          cardInstance.cardId,
+          position
+        );
+      }
+
+      await dispatchDeployBarrageAfterNormalPlacement(
+        currentBattle,
+        action,
+        dispatch
+      );
+      return;
+    }
 
     if (options.skipSpawnAnimation) {
-      placeUnitStatically(cardInstance.instanceId, dispatch);
+      placeUnitStatically(cardInstance.instanceId, () => dispatch());
       return;
     }
 
@@ -3384,16 +3912,44 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     if (!cardInstance || isHiddenCardInstance(cardInstance)) return;
     if (getCard(cardInstance.cardId).deploymentZone !== "support") return;
 
-    const dispatch = () =>
-      dispatchQueuedBattleAction({
-        type: "PLAY_SUPPORT_CARD",
-        playerId: currentHumanPlayerId,
-        cardInstanceId: cardInstance.instanceId,
-        supportSlot,
-      });
+    const action: Extract<BattleAction, { type: "PLAY_SUPPORT_CARD" }> = {
+      type: "PLAY_SUPPORT_CARD",
+      playerId: currentHumanPlayerId,
+      cardInstanceId: cardInstance.instanceId,
+      supportSlot,
+    };
+
+    const dispatch = (options?: {
+      skipDamageEffects?: boolean;
+      skipAttackEffects?: boolean;
+    }) => dispatchQueuedBattleAction(action, options);
+
+    if (
+      modeRef.current !== "pvp" &&
+      shouldSequenceDeployBarrage(currentBattle, action)
+    ) {
+      // On a drag-and-drop play the ghost already carried the card to the slot,
+      // so skip the hand→slot fly-in (the staged preview shows the unit in place)
+      // and go straight to the barrage. A click play still plays the fly-in.
+      if (!options.skipSpawnAnimation) {
+        await playSupportSpawnCardAnimationRef.current(
+          currentHumanPlayerId,
+          cardInstance.instanceId,
+          cardInstance.cardId,
+          supportSlot
+        );
+      }
+
+      await dispatchDeployBarrageAfterNormalPlacement(
+        currentBattle,
+        action,
+        dispatch
+      );
+      return;
+    }
 
     if (options.skipSpawnAnimation) {
-      placeUnitStatically(cardInstance.instanceId, dispatch);
+      placeUnitStatically(cardInstance.instanceId, () => dispatch());
       return;
     }
 
@@ -4196,6 +4752,13 @@ function renderEnemyDeckWithTimer() {
           const isStaticSpawn = unit
             ? staticSpawnUnitIds.has(unit.instanceId)
             : false;
+          const stagedSupportPreview =
+            !unit &&
+            stagedDeployPreview?.zone === "support" &&
+            stagedDeployPreview.ownerId === owner &&
+            stagedDeployPreview.supportSlot === supportSlot
+              ? stagedDeployPreview
+              : null;
 
           return (
             <motion.button
@@ -4214,7 +4777,7 @@ function renderEnemyDeckWithTimer() {
                 // Leave order 2 for the headquarters: slots 0,1 stay above it,
                 // slots 2,3 fall below it.
                 order: supportSlot < 2 ? supportSlot : supportSlot + 1,
-                ...(unit ? styles.supportUnitCell : {}),
+                ...(unit || stagedSupportPreview ? styles.supportUnitCell : {}),
                 ...(canPlace ? styles.supportCellAvailable : {}),
                 ...(canBeTarget ? styles.targetCell : {}),
                 ...(tutorialHighlights
@@ -4296,6 +4859,35 @@ function renderEnemyDeckWithTimer() {
               />
 
               <AnimatePresence initial={false}>
+                {stagedSupportPreview && (
+                  <motion.div
+                    key={stagedSupportPreview.instanceId}
+                    ref={setObjectRef(
+                      objectRefs,
+                      stagedSupportPreview.instanceId
+                    )}
+                    style={{
+                      ...styles.boardCardContent,
+                      ...styles.supportCardContent,
+                    }}
+                    initial={{ opacity: 1, scale: 1 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.72 }}
+                    transition={{ duration: 0 }}
+                  >
+                    <TankCardView
+                      card={getCard(stagedSupportPreview.cardId)}
+                      variant="board"
+                      ownerId={getVisualOwnerId(stagedSupportPreview.ownerId)}
+                      currentHp={getCard(stagedSupportPreview.cardId).hp}
+                      attackValue={getCard(stagedSupportPreview.cardId).attack}
+                      borderlessBoard
+                      alreadyMoved
+                      alreadyAttacked
+                      suppressExhaustedDim
+                    />
+                  </motion.div>
+                )}
                 {unit && card && (
                   <motion.div
                     key={unit.instanceId}
@@ -5286,6 +5878,67 @@ function renderEnemyDeckWithTimer() {
 
                         {isSelected && <SelectedCombatObjectGlow />}
                         {canBeTarget && <AttackTargetGlow />}
+                      </motion.button>
+                    );
+                  }
+
+                  const stagedBattlefieldPreview =
+                    stagedDeployPreview?.zone === "battlefield" &&
+                    samePosition(stagedDeployPreview.position, position)
+                      ? stagedDeployPreview
+                      : null;
+
+                  if (stagedBattlefieldPreview) {
+                    const previewCard = getCard(stagedBattlefieldPreview.cardId);
+
+                    return (
+                      <motion.button
+                        type="button"
+                        ref={setObjectRef(
+                          objectRefs,
+                          stagedBattlefieldPreview.instanceId
+                        )}
+                        key={stagedBattlefieldPreview.instanceId}
+                        style={{
+                          ...styles.cell,
+                          zIndex: 6,
+                          ...(ownSpawn ? styles.spawnCell : {}),
+                          ...(enemySpawn ? styles.botSpawnCell : {}),
+                          ...styles.occupiedCell,
+                          ...(stagedBattlefieldPreview.ownerId === humanPlayerId
+                            ? styles.playerUnit
+                            : styles.botUnit),
+                        }}
+                        initial={{ scale: 1, opacity: 1 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0.75, opacity: 0 }}
+                        transition={{ duration: 0 }}
+                      >
+                        {ownSpawn || enemySpawn ? (
+                          <span
+                            style={{
+                              ...styles.occupiedSpawnCellTint,
+                              ...(ownSpawn
+                                ? styles.occupiedFriendlySpawnCellTint
+                                : styles.occupiedEnemySpawnCellTint),
+                            }}
+                          />
+                        ) : null}
+
+                        <motion.div style={styles.boardCardContent}>
+                          <TankCardView
+                            card={previewCard}
+                            variant="board"
+                            ownerId={getVisualOwnerId(
+                              stagedBattlefieldPreview.ownerId
+                            )}
+                            currentHp={previewCard.hp}
+                            attackValue={previewCard.attack}
+                            borderlessBoard
+                            alreadyMoved={false}
+                            alreadyAttacked={false}
+                          />
+                        </motion.div>
                       </motion.button>
                     );
                   }

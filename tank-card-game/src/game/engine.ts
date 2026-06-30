@@ -1176,18 +1176,78 @@ function applyDeployDamage(
   }
 
   for (const target of targets) {
-    target.currentHp -= deployDamage.amount;
+    applyDeployStrike(state, ownerId, sourceCard, target, deployDamage.amount);
+  }
+}
 
-    addLog(
-      state,
-      `${sourceCard.name}: огневой налёт — ${
-        getCard(target.cardId).name
-      } получает ${deployDamage.amount} урона.`
-    );
+/**
+ * A single «Огневой налёт» shot, resolved exactly like indirect САУ fire: it can
+ * be intercepted by an anti-tank support screen («Противотанковый заслон») or a
+ * tank screen, and is softened by the target's armour (спецброня, защита
+ * плацдарма, стальной клин, сплочение, оборонительные ауры) — but NOT by
+ * «Лобовая броня», whose plate the arcing shell flies over. Being ranged fire,
+ * it never draws return fire or a counterattack.
+ */
+function applyDeployStrike(
+  state: BattleState,
+  ownerId: PlayerId,
+  sourceCard: TankCard,
+  initialTarget: BoardUnit,
+  amount: number
+) {
+  let target = initialTarget;
 
-    if (target.currentHp <= 0) {
-      destroyUnit(state, target, "уничтожен огневым налётом.", ownerId);
+  if (isSupportUnit(target)) {
+    // Ranged fire on the rear line hits the anti-tank screen first.
+    const coverUnit = getSupportCoverUnit(state, target.ownerId);
+
+    if (coverUnit && coverUnit.instanceId !== target.instanceId) {
+      addLog(
+        state,
+        `${getCard(coverUnit.cardId).name} принимает дистанционный удар на себя.`
+      );
+      target = coverUnit;
     }
+  } else if (isBattlefieldUnit(target)) {
+    // A tank screen redirects the first strike aimed at a protected tank.
+    const screen = findTankScreenUnit(state, target);
+
+    if (screen) {
+      screen.coverFiredThisTurn = true;
+
+      addLog(
+        state,
+        `${getCard(screen.cardId).name} принимает удар по ${
+          getCard(target.cardId).name
+        } на себя.`
+      );
+
+      target = screen;
+    }
+  }
+
+  // Defensive soak a САУ shot would face. «Лобовая броня» is intentionally
+  // excluded: indirect fire ignores the frontal plate.
+  const reduction =
+    getStationaryTankDefenseBonus(state, target) +
+    getTankDefenseAuraBonus(state, target) +
+    getSpawnDamageReduction(target) +
+    getArmorVsClassReduction(target, sourceCard.class) +
+    getHeavyArmorReduction(state, target) +
+    getCohesionDefenseBonus(state, target);
+
+  const damage = Math.max(0, amount - reduction);
+  target.currentHp -= damage;
+
+  addLog(
+    state,
+    `${sourceCard.name}: огневой налёт — ${
+      getCard(target.cardId).name
+    } получает ${damage} урона.`
+  );
+
+  if (target.currentHp <= 0) {
+    destroyUnit(state, target, "уничтожен огневым налётом.", ownerId);
   }
 }
 
@@ -1557,20 +1617,22 @@ export function getUnitDisplayAttackValue(
 }
 
 /**
- * «Огневой вал»: an SPG fires harder the closer it stands to the enemy
- * headquarters. The bonus is `maxBonus` at point-blank range (an adjacent cell)
- * and drops by 1 per extra cell of distance, never below zero.
+ * «Огневой вал»: an SPG keeps its printed attack on its own spawn column and
+ * gains the listed firepower for every column it advances toward the enemy HQ.
  */
-function getHqProximityBonus(state: BattleState, unit: BoardUnit): number {
+function getHqProximityBonus(_state: BattleState, unit: BoardUnit): number {
   const proximity = getCard(unit.cardId).combatAbilities?.hqProximityBonus;
 
   if (!proximity) return 0;
   if (!isBattlefieldUnit(unit)) return 0;
 
-  const enemyHq = state.headquarters[getOpponent(unit.ownerId)];
-  const distance = chebyshevDistance(unit.position, enemyHq.position);
+  const spawnColumn = getFrontColumn(unit.ownerId);
+  const stepsTowardEnemy =
+    unit.ownerId === "player"
+      ? unit.position.col - spawnColumn
+      : spawnColumn - unit.position.col;
 
-  return Math.max(0, proximity.maxBonus - (distance - 1));
+  return Math.max(0, stepsTowardEnemy) * proximity.maxBonus;
 }
 
 /**
