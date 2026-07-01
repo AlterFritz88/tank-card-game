@@ -50,6 +50,13 @@ state = applyAction(state, { type: "BEGIN_BATTLE", startingPlayer: "player" });
 check("Немецкая колода без контрбатареи (нет sdkfz_231)", !state.bot.deck.some((c) => c.cardId === "sdkfz_231"));
 check("Игрок ходит первым", state.activePlayer === "player");
 
+// Стартовая рука: разнообразна (не только Т-34), но с Т-34/76 для шага розыгрыша.
+const openingHand = state.player.hand.map((c) => c.cardId);
+const openingKinds = new Set(openingHand);
+check("В стартовой руке есть Т-34/76", openingHand.includes("t34_76"), openingHand.join(","));
+check("Стартовая рука не только из Т-34", openingHand.some((id) => !id.startsWith("t34")), openingHand.join(","));
+check("В стартовой руке минимум 3 разных карты", openingKinds.size >= 3, openingHand.join(","));
+
 const findUnit = (owner: "player" | "bot", cardId: string): BoardUnit | undefined =>
   state.units.find((u) => u.ownerId === owner && u.cardId === cardId);
 const freshSpg = (): BoardUnit | undefined =>

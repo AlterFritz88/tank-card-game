@@ -509,6 +509,9 @@ function createCampaignBattle(missionId: string): BattleState | null {
     playerBoardUnits: campaignMission.mission.playerBoardUnits,
     botBoardUnits: campaignMission.mission.botBoardUnits,
     startingHandSize: campaignMission.mission.startingHandSize,
+    // Guided demos need a deterministic opening hand so the scripted deploy step
+    // always finds its card (e.g. the Т-34/76 the «Поныри» tutorial asks for).
+    shuffleDecks: campaignMission.mission.guidedScriptId ? false : undefined,
   });
 }
 
