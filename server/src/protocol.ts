@@ -187,6 +187,11 @@ export type PvpClientMessage =
       type: "RELEASE_SESSION";
       accountId: string;
       instanceId: string;
+    }
+  | {
+      type: "SESSION_HEARTBEAT";
+      accountId: string;
+      instanceId: string;
     };
 
 export type MatchEndReason =

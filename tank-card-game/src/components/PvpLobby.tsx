@@ -281,6 +281,27 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
+type CapacitorWindow = Window & {
+  Capacitor?: {
+    getPlatform?: () => string;
+    isNativePlatform?: () => boolean;
+  };
+};
+
+function isNativeMobileApp(): boolean {
+  if (typeof window === "undefined") return false;
+
+  const capacitorWindow = window as CapacitorWindow;
+  const platform = capacitorWindow.Capacitor?.getPlatform?.();
+
+  return (
+    window.location.protocol === "capacitor:" ||
+    platform === "android" ||
+    platform === "ios" ||
+    capacitorWindow.Capacitor?.isNativePlatform?.() === true
+  );
+}
+
 const GOLD_TRACK_PRODUCTS = [
   { id: "gold-100" as const, gold: 100, label: "100 золотых траков" },
   { id: "gold-500" as const, gold: 500, label: "500 золотых траков" },
@@ -324,6 +345,7 @@ function getShopText(language: Language) {
       buy: "Buy",
       notEnoughGold: "Not enough gold",
       goldTracks: "gold tracks",
+      soon: "Soon",
     };
   }
 
@@ -349,6 +371,7 @@ function getShopText(language: Language) {
     buy: "Купить",
     notEnoughGold: "Не хватает золота",
     goldTracks: "золотых траков",
+    soon: "Скоро",
   };
 }
 
@@ -370,8 +393,6 @@ function LegalLinks({ compact = false }: { compact?: boolean }) {
           {index > 0 ? <span style={styles.legalLinksSeparator}> · </span> : null}
           <a
             href={link.href}
-            target="_blank"
-            rel="noreferrer"
             style={compact ? styles.legalLinkCompact : styles.legalLink}
           >
             {link.label}
@@ -562,9 +583,17 @@ function ShopMenu({
   // Гостю золото за деньги не продаём: для кассового чека самозанятого нужен
   // e-mail, который есть только у зарегистрированного аккаунта.
   const isGuest = !isRegisteredUserId();
+  const realMoneyPaymentsLocked = isNativeMobileApp();
 
   useEffect(() => {
     let cancelled = false;
+
+    if (realMoneyPaymentsLocked) {
+      setCatalogLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
 
     setCatalogLoading(true);
     void loadShopCatalogFromServer()
@@ -598,7 +627,7 @@ function ShopMenu({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [realMoneyPaymentsLocked, shopText.loadPricesFailed]);
 
   async function buyPremium(days: number) {
     setStatusMessage(null);
@@ -626,6 +655,8 @@ function ShopMenu({
   }
 
   async function buyGoldProduct(product: (typeof GOLD_TRACK_PRODUCTS)[number]) {
+    if (realMoneyPaymentsLocked) return;
+
     setStatusMessage(null);
     setPurchasingGoldProductId(product.id);
 
@@ -705,6 +736,7 @@ function ShopMenu({
                 const priceReady =
                   typeof priceRub === "number" && Number.isFinite(priceRub);
                 const disabled =
+                  realMoneyPaymentsLocked ||
                   isGuest ||
                   purchasingGoldProductId !== null ||
                   profileServerUnavailable ||
@@ -732,14 +764,18 @@ function ShopMenu({
                       {formatResourceValue(product.gold, language)} {shopText.goldTracks}
                     </strong>
                     <span style={styles.shopRubPrice}>
-                      {catalogLoading
+                      {realMoneyPaymentsLocked
+                        ? shopText.soon
+                        : catalogLoading
                         ? shopText.priceLoading
                         : priceReady
                           ? `${formatRubPrice(priceRub)} ₽`
                           : shopText.priceMissing}
                     </span>
                     <span>
-                      {isGuest
+                      {realMoneyPaymentsLocked
+                        ? shopText.soon
+                        : isGuest
                         ? shopText.signIn
                         : purchasingGoldProductId === product.id
                           ? shopText.creatingPayment
@@ -1270,7 +1306,7 @@ function GuestEntryScreen({
             </div>
 
             <label style={styles.guestEntryLabel} htmlFor="account-username">
-              {t("auth.login")}
+              {t("auth.loginLabel")}
             </label>
             <input
               id="account-username"
@@ -1568,7 +1604,7 @@ function ProfileRegisterModal({
                 style={styles.guestEntryLabel}
                 htmlFor="profile-register-username"
               >
-                {t("auth.login")}
+                {t("auth.loginLabel")}
               </label>
               <input
                 id="profile-register-username"

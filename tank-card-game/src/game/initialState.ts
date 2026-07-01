@@ -1566,6 +1566,8 @@ const DECK_CARD_IDS: Record<string, string[]> = {
   // Колода противника в трейлере: средние танки 9-й армии — Panzer III F и
   // Panzer IV G, плюс лёгкая поддержка (колоды кампаний режутся до 4 копий
   // карты). Тигр и Фердинанд уже на поле (подбитые) и в колоду не добираются.
+  // Разведбронеавтомобиль Sd.Kfz. 222 (без контрбатареи) вместо Sd.Kfz. 231:
+  // в учебной демо-миссии противник не должен глушить артиллерию и штаб игрока.
   german_9th_army_campaign: [
     "pzkpfw_iii_ausf_f",
     "pzkpfw_iii_ausf_f",
@@ -1575,8 +1577,8 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "panzer_iv",
     "panzer_iv",
     "panzer_iv",
-    "sdkfz_231",
-    "sdkfz_231",
+    "sdkfz_222",
+    "sdkfz_222",
     "sdkfz_251",
     "sdkfz_251",
     "leig_18",

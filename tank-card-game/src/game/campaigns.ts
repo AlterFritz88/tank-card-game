@@ -1,5 +1,6 @@
 import type { BattleBackgroundId } from "./battleBackgrounds";
 import type { PreplacedUnit } from "./initialState";
+import type { TutorialScriptId } from "./tutorial";
 import type { HeadquartersId } from "./types";
 
 export type CampaignMission = {
@@ -51,6 +52,12 @@ export type CampaignMission = {
   victoryDebrief?: string;
   /** Post-battle avatar line shown on defeat, before the result screen. */
   defeatDebrief?: string;
+  /**
+   * Run this mission as a fully guided, guaranteed-win demo: step-by-step
+   * instructions, highlighted targets, gated actions and a passive scripted bot
+   * (see the matching script in `tutorial.ts`).
+   */
+  guidedScriptId?: TutorialScriptId;
 };
 
 export type Campaign = {
@@ -101,6 +108,7 @@ export const CAMPAIGNS: Campaign[] = [
         botDeckId: "german_9th_army_campaign",
         playerDeckId: "welcome_kursk_player",
         backgroundId: "russian_1",
+        guidedScriptId: "welcome_kursk",
         autoLaunchOnFirstVisit: true,
         skipFirstTurnRoll: true,
         playerCommanderName: "Командир",

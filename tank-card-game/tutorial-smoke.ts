@@ -47,7 +47,7 @@ check(
 let stepIndex = 0;
 
 function advanceDialogue(expectedId: string) {
-  const step = getTutorialStep(stepIndex);
+  const step = getTutorialStep("training", stepIndex);
   check(
     `Диалог ${expectedId} на месте`,
     step?.kind === "dialogue" && step.id === expectedId,
@@ -57,12 +57,12 @@ function advanceDialogue(expectedId: string) {
 }
 
 function playerAct(label: string, action: BattleAction, expectAdvance = true) {
-  const allowed = isTutorialActionAllowed(stepIndex, action, state);
+  const allowed = isTutorialActionAllowed("training", stepIndex, action, state);
   check(`${label}: действие разрешено`, allowed);
   if (!allowed) return;
 
   const before = stepIndex;
-  stepIndex = getNextTutorialStepIndex(stepIndex, action, state);
+  stepIndex = getNextTutorialStepIndex("training", stepIndex, action, state);
   state = applyAction(state, action);
 
   if (expectAdvance) {
@@ -73,7 +73,7 @@ function playerAct(label: string, action: BattleAction, expectAdvance = true) {
 function expectBlocked(label: string, action: BattleAction) {
   check(
     `${label}: действие заблокировано`,
-    !isTutorialActionAllowed(stepIndex, action, state)
+    !isTutorialActionAllowed("training", stepIndex, action, state)
   );
 }
 
@@ -82,7 +82,7 @@ function runBotTurn(label: string) {
 
   while (state.status === "active" && state.activePlayer === "bot" && guard < 30) {
     guard += 1;
-    const action = getTutorialBotAction(state);
+    const action = getTutorialBotAction("training", state);
 
     if (!action) break;
 
@@ -127,6 +127,7 @@ advanceDialogue("hand-fuel");
 check(
   "Розыгрыш Т-24 на чужую клетку не засчитывается",
   getNextTutorialStepIndex(
+    "training",
     stepIndex,
     {
       type: "PLAY_CARD",
@@ -199,11 +200,12 @@ const intermediateMove: BattleAction = {
 };
 check(
   "Промежуточная клетка (2,2) разрешена",
-  isTutorialActionAllowed(stepIndex, intermediateMove, state)
+  isTutorialActionAllowed("training", stepIndex, intermediateMove, state)
 );
 check(
   "Промежуточная клетка (2,2) не завершает шаг",
-  getNextTutorialStepIndex(stepIndex, intermediateMove, state) === stepIndex
+  getNextTutorialStepIndex("training", stepIndex, intermediateMove, state) ===
+    stepIndex
 );
 
 playerAct("Движение БТ-7 вперёд", {
@@ -220,6 +222,7 @@ check("Осталось 3 топлива на САУ", state.player.resources ==
 check(
   "Розыгрыш САУ на чужую клетку не засчитывается",
   getNextTutorialStepIndex(
+    "training",
     stepIndex,
     {
       type: "PLAY_CARD",
@@ -273,7 +276,7 @@ playerAct(
   },
   false
 );
-check("Шаг kill-artillery ещё активен", getTutorialStep(stepIndex)?.id === "kill-artillery");
+check("Шаг kill-artillery ещё активен", getTutorialStep("training", stepIndex)?.id === "kill-artillery");
 
 playerAct("Атака артиллерии", {
   type: "ATTACK",
@@ -287,7 +290,7 @@ playerAct("Атака артиллерии", {
 check("Артиллерия уничтожена", !state.units.some((unit) => unit.cardId === "leig_18"));
 
 // Новый шаг: добить лёгкий танк выстрелом штаба.
-check("Шаг hq-finish-light активен", getTutorialStep(stepIndex)?.id === "hq-finish-light");
+check("Шаг hq-finish-light активен", getTutorialStep("training", stepIndex)?.id === "hq-finish-light");
 
 playerAct("Штаб добивает лёгкий танк", {
   type: "ATTACK",
@@ -321,7 +324,7 @@ playerAct("САУ уничтожает ПТ-САУ", {
 check("ПТ-САУ уничтожена", !findUnit("bot", "panzerjaeger_i"));
 
 advanceDialogue("finish-him");
-check("Дальше — свободная игра", isTutorialFreePlay(stepIndex));
+check("Дальше — свободная игра", isTutorialFreePlay("training", stepIndex));
 check("Все шаги пройдены по порядку", stepIndex === TUTORIAL_STEPS.length);
 
 // === Свободная игра до победы ===

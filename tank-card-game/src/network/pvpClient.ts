@@ -196,25 +196,25 @@ class PvpClient {
   }
 
   getSessionId() {
-    const existingSessionId = window.sessionStorage.getItem(PVP_SESSION_ID_KEY);
+    const existingSessionId = window.localStorage.getItem(PVP_SESSION_ID_KEY);
     if (existingSessionId) return existingSessionId;
 
     const nextSessionId = createSessionId();
-    window.sessionStorage.setItem(PVP_SESSION_ID_KEY, nextSessionId);
+    window.localStorage.setItem(PVP_SESSION_ID_KEY, nextSessionId);
     return nextSessionId;
   }
 
   getStoredRoomId() {
-    return window.sessionStorage.getItem(PVP_ROOM_ID_KEY);
+    return window.localStorage.getItem(PVP_ROOM_ID_KEY);
   }
 
   rememberRoom(roomId: string) {
-    window.sessionStorage.setItem(PVP_ROOM_ID_KEY, roomId);
+    window.localStorage.setItem(PVP_ROOM_ID_KEY, roomId);
   }
 
   clearSession() {
-    window.sessionStorage.removeItem(PVP_SESSION_ID_KEY);
-    window.sessionStorage.removeItem(PVP_ROOM_ID_KEY);
+    window.localStorage.removeItem(PVP_SESSION_ID_KEY);
+    window.localStorage.removeItem(PVP_ROOM_ID_KEY);
   }
 
   findMatch(headquartersId: HeadquartersId, deckCardIds?: string[]) {

@@ -37,6 +37,7 @@ import {
   getNextTutorialStepIndex,
   isTutorialActionAllowed,
 } from "../game/tutorial";
+import type { TutorialScriptId } from "../game/tutorial";
 import type {
   GameMode,
   MainMenuView,
@@ -153,6 +154,8 @@ type BattleStore = {
   selectedAttacker: SelectedAttacker;
 
   tutorialActive: boolean;
+  /** Which scripted battle drives the guided UI (training vs the «Поныри» demo). */
+  tutorialScriptId: TutorialScriptId;
   tutorialStepIndex: number;
   tutorialEpilogueSeen: boolean;
 
@@ -661,6 +664,7 @@ function getCleanMenuState() {
     battle: null,
     mode: "ai" as GameMode,
     tutorialActive: false,
+    tutorialScriptId: "training" as TutorialScriptId,
     tutorialStepIndex: 0,
     tutorialEpilogueSeen: false,
     menuView: "main" as MainMenuView,
@@ -1085,6 +1089,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   selectedAttacker: null,
 
   tutorialActive: false,
+  tutorialScriptId: "training",
   tutorialStepIndex: 0,
   tutorialEpilogueSeen: false,
 
@@ -1536,6 +1541,10 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       clearReconnectTimer();
       pvpClient.clearSession();
 
+      // Guided demo missions (e.g. the «Поныри» trailer) reuse the tutorial
+      // machinery: highlighted targets, gated actions and a passive scripted bot.
+      const guidedScriptId = campaignMission.mission.guidedScriptId;
+
       set({
         battle,
         mode: "campaign",
@@ -1555,6 +1564,10 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         selectedAttacker: null,
         currentCampaignMissionId: missionId,
         selectedCampaignId: campaignMission.campaign.id,
+        tutorialActive: Boolean(guidedScriptId),
+        tutorialScriptId: guidedScriptId ?? "training",
+        tutorialStepIndex: 0,
+        tutorialEpilogueSeen: false,
       });
 
       pvpClient.disconnect();
@@ -2002,19 +2015,31 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       return;
     }
 
-    const { tutorialActive, tutorialStepIndex } = get();
+    const { tutorialActive, tutorialScriptId, tutorialStepIndex } = get();
 
     if (tutorialActive) {
       // No idle pressure while the instructor is talking.
       if (action.type === "TIMER_TICK") return;
 
-      if (!isTutorialActionAllowed(tutorialStepIndex, action, currentBattle)) {
+      if (
+        !isTutorialActionAllowed(
+          tutorialScriptId,
+          tutorialStepIndex,
+          action,
+          currentBattle
+        )
+      ) {
         return;
       }
     }
 
     const nextTutorialStepIndex = tutorialActive
-      ? getNextTutorialStepIndex(tutorialStepIndex, action, currentBattle)
+      ? getNextTutorialStepIndex(
+          tutorialScriptId,
+          tutorialStepIndex,
+          action,
+          currentBattle
+        )
       : tutorialStepIndex;
 
     // Reuse the caller's already-simulated result when provided so randomised
@@ -2034,9 +2059,13 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   reset: async () => {
-    const { battle, currentCampaignMissionId, mode, tutorialActive } = get();
+    const { battle, currentCampaignMissionId, mode, tutorialActive, tutorialScriptId } =
+      get();
 
-    if (tutorialActive) {
+    // The standalone training tutorial returns to the menu; guided campaign
+    // demos (tutorialScriptId !== "training") fall through to the campaign path
+    // below so mission progress is still recorded.
+    if (tutorialActive && tutorialScriptId === "training") {
       releaseGameSession();
       set(getCleanMenuState());
       return;

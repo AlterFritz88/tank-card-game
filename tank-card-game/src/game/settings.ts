@@ -15,6 +15,7 @@ export type Settings = {
   musicVolume: number;
   effectsVolume: number;
   language: Language;
+  languageSource: "auto" | "manual";
 };
 
 export const AVAILABLE_LANGUAGES: { id: Language; label: string }[] = [
@@ -25,24 +26,21 @@ export const AVAILABLE_LANGUAGES: { id: Language; label: string }[] = [
 const STORAGE_KEY = "panzershrek.settings";
 
 function getBrowserLanguage(): Language {
-  if (typeof navigator === "undefined") return "ru";
+  if (typeof navigator === "undefined") return "en";
 
-  const languages =
+  const primaryLanguage =
     navigator.languages && navigator.languages.length > 0
-      ? navigator.languages
-      : [navigator.language];
+      ? navigator.languages[0]
+      : navigator.language;
 
-  return languages.some((language) =>
-    language.toLowerCase().startsWith("en")
-  )
-    ? "en"
-    : "ru";
+  return primaryLanguage.toLowerCase().startsWith("ru") ? "ru" : "en";
 }
 
 const DEFAULT_SETTINGS: Settings = {
   musicVolume: 1,
   effectsVolume: 1,
   language: getBrowserLanguage(),
+  languageSource: "auto",
 };
 
 function clamp01(value: number): number {
@@ -56,6 +54,9 @@ function loadSettings(): Settings {
     if (!raw) return { ...DEFAULT_SETTINGS };
 
     const parsed = JSON.parse(raw) as Partial<Settings>;
+    const languageSource =
+      parsed.languageSource === "manual" ? "manual" : "auto";
+
     return {
       musicVolume:
         typeof parsed.musicVolume === "number"
@@ -66,8 +67,11 @@ function loadSettings(): Settings {
           ? clamp01(parsed.effectsVolume)
           : DEFAULT_SETTINGS.effectsVolume,
       language: parsed.language === "en" || parsed.language === "ru"
-        ? parsed.language
+        ? languageSource === "manual"
+          ? parsed.language
+          : getBrowserLanguage()
         : DEFAULT_SETTINGS.language,
+      languageSource,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -112,7 +116,7 @@ export function setEffectsVolume(value: number) {
 }
 
 export function setLanguage(language: Language) {
-  update({ language });
+  update({ language, languageSource: "manual" });
 }
 
 export function subscribeSettings(onChange: () => void): () => void {

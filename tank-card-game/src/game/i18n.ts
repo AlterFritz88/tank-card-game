@@ -53,6 +53,7 @@ export type TranslationKey =
   | "auth.playAsGuest"
   | "auth.saving"
   | "auth.login"
+  | "auth.loginLabel"
   | "auth.register"
   | "auth.accountLogin"
   | "auth.password"
@@ -192,6 +193,7 @@ export const TRANSLATIONS: Record<Language, TranslationMap> = {
     "auth.playAsGuest": "Играть как гость",
     "auth.saving": "Сохранение...",
     "auth.login": "Войти",
+    "auth.loginLabel": "Логин",
     "auth.register": "Регистрация",
     "auth.accountLogin": "Вход в аккаунт",
     "auth.password": "Пароль",
@@ -335,6 +337,7 @@ export const TRANSLATIONS: Record<Language, TranslationMap> = {
     "auth.playAsGuest": "Play as guest",
     "auth.saving": "Saving...",
     "auth.login": "Log in",
+    "auth.loginLabel": "Login",
     "auth.register": "Register",
     "auth.accountLogin": "Account login",
     "auth.password": "Password",

@@ -2,7 +2,10 @@ import type { BattleReward, BattleRewardSource } from "../game/economy";
 import type { GameMode, MatchEndReason } from "../game/modes";
 import type { PlayerProgress, PlayerSavedDeck } from "../game/playerProgress";
 import type { HeadquartersId, PlayerId } from "../game/types";
-import { getDefaultWebSocketUrl } from "./webSocketUrl";
+import {
+  getConfiguredProfileHttpUrl,
+  getConfiguredProfileWebSocketUrl,
+} from "./webSocketUrl";
 
 type ProfileClientMessage =
   | { type: "GET_PROFILE"; requestId: string; playerId: string }
@@ -145,6 +148,11 @@ type ProfileClientMessage =
       type: "RELEASE_SESSION";
       accountId: string;
       instanceId: string;
+    }
+  | {
+      type: "SESSION_HEARTBEAT";
+      accountId: string;
+      instanceId: string;
     };
 
 type ProfileServerMessage =
@@ -207,11 +215,11 @@ export type SessionAcquireResult =
   | { status: "denied"; message: string }
   | { status: "unavailable" };
 
-// Every request/response message carries a requestId; RELEASE_SESSION is the
-// only fire-and-forget message and is sent directly, never through request().
+// Every request/response message carries a requestId; session release and
+// heartbeat are fire-and-forget messages sent directly, never through request().
 type ProfileRequestMessage = Exclude<
   ProfileClientMessage,
-  { type: "RELEASE_SESSION" }
+  { type: "RELEASE_SESSION" } | { type: "SESSION_HEARTBEAT" }
 >;
 type ProfileUpdatedMessage = Extract<
   ProfileServerMessage,
@@ -240,26 +248,13 @@ type ProfileConnectionListener = (
   snapshot: ProfileConnectionSnapshot
 ) => void;
 
-type ProfileImportMeta = ImportMeta & {
-  env?: {
-    VITE_PROFILE_SERVER_URL?: string;
-    VITE_PVP_SERVER_URL?: string;
-  };
-};
-
-const profileImportMetaEnv = (import.meta as ProfileImportMeta).env ?? {};
-const PROFILE_SERVER_URL =
-  profileImportMetaEnv.VITE_PROFILE_SERVER_URL ??
-  profileImportMetaEnv.VITE_PVP_SERVER_URL ??
-  getDefaultWebSocketUrl();
-const PROFILE_HTTP_SERVER_URL = PROFILE_SERVER_URL.replace(/^wss:/, "https:").replace(
-  /^ws:/,
-  "http:"
-);
+const PROFILE_SERVER_URL = getConfiguredProfileWebSocketUrl();
+const PROFILE_HTTP_SERVER_URL = getConfiguredProfileHttpUrl();
 const PROFILE_REQUEST_TIMEOUT_MS = 15_000;
 const PROFILE_AUTO_RECONNECT_MAX_ATTEMPTS = 15;
 const PROFILE_AUTO_RECONNECT_BASE_DELAY_MS = 1_000;
 const PROFILE_AUTO_RECONNECT_MAX_DELAY_MS = 5_000;
+const SESSION_HEARTBEAT_INTERVAL_MS = 15_000;
 const SESSION_INSTANCE_STORAGE_KEY = "tank-card-game:session-instance-id";
 // Bearer token proving ownership of a registered account. Stored so a page
 // reload re-binds the socket identity without re-entering the password.
@@ -437,6 +432,8 @@ class ProfileClient {
   private listeners = new Set<ProfileConnectionListener>();
   private autoReconnectAttempts = 0;
   private autoReconnectTimerId: number | null = null;
+  private activeGameSession: { accountId: string; kind: GameMode } | null = null;
+  private sessionHeartbeatTimerId: number | null = null;
 
   getConnectionSnapshot(): ProfileConnectionSnapshot {
     return this.connection;
@@ -749,9 +746,13 @@ class ProfileClient {
         kind,
       });
 
-      return response.type === "SESSION_GRANTED"
-        ? { status: "granted" }
-        : { status: "unavailable" };
+      if (response.type === "SESSION_GRANTED") {
+        this.activeGameSession = { accountId, kind };
+        this.startSessionHeartbeat();
+        return { status: "granted" };
+      }
+
+      return { status: "unavailable" };
     } catch (error) {
       if (error instanceof SessionDeniedError) {
         return { status: "denied", message: error.message };
@@ -764,6 +765,7 @@ class ProfileClient {
   }
 
   releaseSession(accountId: string): void {
+    this.stopSessionHeartbeat(accountId);
     if (this.socket?.readyState !== WebSocket.OPEN) return;
 
     this.socket.send(
@@ -771,6 +773,63 @@ class ProfileClient {
         type: "RELEASE_SESSION",
         accountId,
         instanceId: getSessionInstanceId(),
+      })
+    );
+  }
+
+  private startSessionHeartbeat(): void {
+    if (this.sessionHeartbeatTimerId !== null) {
+      this.sendSessionHeartbeat();
+      return;
+    }
+
+    this.sendSessionHeartbeat();
+    this.sessionHeartbeatTimerId = window.setInterval(() => {
+      this.sendSessionHeartbeat();
+    }, SESSION_HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopSessionHeartbeat(accountId?: string): void {
+    if (
+      accountId &&
+      this.activeGameSession &&
+      this.activeGameSession.accountId !== accountId
+    ) {
+      return;
+    }
+
+    this.activeGameSession = null;
+
+    if (this.sessionHeartbeatTimerId === null) return;
+
+    window.clearInterval(this.sessionHeartbeatTimerId);
+    this.sessionHeartbeatTimerId = null;
+  }
+
+  private sendSessionHeartbeat(): void {
+    if (!this.activeGameSession) return;
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+
+    this.socket.send(
+      JSON.stringify({
+        type: "SESSION_HEARTBEAT",
+        accountId: this.activeGameSession.accountId,
+        instanceId: getSessionInstanceId(),
+      })
+    );
+  }
+
+  private reacquireActiveGameSession(): void {
+    if (!this.activeGameSession) return;
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+
+    this.socket.send(
+      JSON.stringify({
+        type: "ACQUIRE_SESSION",
+        requestId: createRequestId(),
+        accountId: this.activeGameSession.accountId,
+        instanceId: getSessionInstanceId(),
+        kind: this.activeGameSession.kind,
       })
     );
   }
@@ -834,6 +893,7 @@ class ProfileClient {
    * action will require a fresh login; guest play is unaffected.
    */
   clearSession(): void {
+    this.stopSessionHeartbeat();
     writeSessionToken(null);
   }
 
@@ -894,6 +954,8 @@ class ProfileClient {
 
           this.connecting = null;
           this.setConnection("online", null);
+          this.reacquireActiveGameSession();
+          this.sendSessionHeartbeat();
           resolve();
         });
       });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type FocusEventHandler } from "react";
 
 /**
  * The mobile soft keyboard always opens in the *physical* device orientation.
@@ -29,6 +29,12 @@ type LockableOrientation = ScreenOrientation & {
   unlock?: () => void;
 };
 
+type CapacitorWindow = Window & {
+  Capacitor?: {
+    isNativePlatform?: () => boolean;
+  };
+};
+
 function isTouchPrimary(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -41,6 +47,31 @@ function getLockableOrientation(): LockableOrientation | null {
   if (typeof screen === "undefined") return null;
   const orientation = screen.orientation as LockableOrientation | undefined;
   return orientation?.lock ? orientation : null;
+}
+
+function isCapacitorNativeApp(): boolean {
+  if (typeof window === "undefined") return false;
+  const capacitorWindow = window as CapacitorWindow;
+
+  return (
+    window.location.protocol === "capacitor:" ||
+    capacitorWindow.Capacitor?.isNativePlatform?.() === true
+  );
+}
+
+function keepFocusedInputVisible(element: HTMLElement): void {
+  const reveal = () => {
+    if (document.activeElement !== element) return;
+
+    element.scrollIntoView({
+      block: "center",
+      inline: "nearest",
+      behavior: "smooth",
+    });
+  };
+
+  window.setTimeout(reveal, 80);
+  window.setTimeout(reveal, 320);
 }
 
 function getFullscreenElement(): Element | null {
@@ -100,8 +131,13 @@ export function useLandscapeKeyboardLock() {
     }
   }, []);
 
-  const onFocus = useCallback(() => {
+  const onFocus: FocusEventHandler<HTMLElement> = useCallback((event) => {
     if (!isTouchPrimary()) return;
+
+    keepFocusedInputVisible(event.currentTarget);
+
+    if (isCapacitorNativeApp()) return;
+
     const orientation = getLockableOrientation();
     if (!orientation) return; // iOS Safari and other unsupported browsers.
 

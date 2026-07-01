@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="640" viewBox="0 0 1024 640" role="img" aria-label="Panzershrek">
+  <defs>
+    <linearGradient id="steel" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#f4efe0"/>
+      <stop offset="0.18" stop-color="#9d9382"/>
+      <stop offset="0.43" stop-color="#f5e8c7"/>
+      <stop offset="0.62" stop-color="#625d55"/>
+      <stop offset="1" stop-color="#d7caa9"/>
+    </linearGradient>
+    <linearGradient id="brass" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#fff0aa"/>
+      <stop offset="0.28" stop-color="#c4973d"/>
+      <stop offset="0.58" stop-color="#705018"/>
+      <stop offset="1" stop-color="#f0d37a"/>
+    </linearGradient>
+    <linearGradient id="cardFace" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#3e453f"/>
+      <stop offset="0.48" stop-color="#171d1a"/>
+      <stop offset="1" stop-color="#0b0e0c"/>
+    </linearGradient>
+    <linearGradient id="redFace" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#7d1c16"/>
+      <stop offset="1" stop-color="#24100d"/>
+    </linearGradient>
+    <linearGradient id="oliveFace" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#55613e"/>
+      <stop offset="1" stop-color="#1b2116"/>
+    </linearGradient>
+    <filter id="heavyShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="16" stdDeviation="12" flood-color="#000000" flood-opacity="0.72"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="7" flood-color="#d5a745" flood-opacity="0.26"/>
+    </filter>
+    <filter id="innerWear" x="-10%" y="-10%" width="120%" height="120%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.025" numOctaves="3" seed="9"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.22"/>
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" mode="multiply"/>
+    </filter>
+    <filter id="textShadow" x="-10%" y="-25%" width="120%" height="150%">
+      <feDropShadow dx="0" dy="7" stdDeviation="3" flood-color="#000000" flood-opacity="0.86"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="#ffe39a" flood-opacity="0.25"/>
+    </filter>
+    <pattern id="scratches" width="70" height="70" patternUnits="userSpaceOnUse">
+      <path d="M9 18h34M42 9h20M16 51h44M3 64h19" stroke="#f6e0a6" stroke-opacity="0.16" stroke-width="2"/>
+      <path d="M50 33h18M25 36h28" stroke="#050504" stroke-opacity="0.22" stroke-width="2"/>
+    </pattern>
+  </defs>
+
+  <g filter="url(#heavyShadow)">
+    <g transform="translate(159 35) rotate(-9 132 204)">
+      <rect x="0" y="0" width="264" height="380" rx="28" fill="#050604" opacity="0.75"/>
+      <rect x="11" y="11" width="242" height="358" rx="22" fill="url(#cardFace)" stroke="#c6a66a" stroke-width="8"/>
+      <rect x="30" y="30" width="204" height="320" rx="13" fill="#141914" stroke="#62543a" stroke-width="3"/>
+      <path d="M132 104l24 44 49 8-35 35 8 49-46-23-45 23 8-49-36-35 50-8z" fill="#d8d0bd" opacity="0.22"/>
+      <path d="M42 300h180" stroke="#bda46a" stroke-opacity="0.35" stroke-width="7"/>
+    </g>
+    <g transform="translate(381 19)">
+      <rect x="0" y="0" width="272" height="392" rx="30" fill="#050604" opacity="0.78"/>
+      <rect x="12" y="12" width="248" height="368" rx="23" fill="url(#oliveFace)" stroke="#d4b36e" stroke-width="8"/>
+      <rect x="32" y="34" width="208" height="325" rx="14" fill="#20281c" stroke="#6d5d3c" stroke-width="3"/>
+      <path d="M59 252h166l22 22-19 34H51l-20-34z" fill="#3b432c" stroke="#1c1b12" stroke-width="7"/>
+      <path d="M86 236h82c25 0 45 14 52 34H65c5-20 12-34 21-34z" fill="#59623c" stroke="#1d2115" stroke-width="7"/>
+      <path d="M149 221h54l114-24c16-3 23 17 8 24l-117 52h-72z" fill="#59623c" stroke="#1d2115" stroke-width="7"/>
+      <circle cx="75" cy="310" r="17" fill="#0b0c09" stroke="#8d875d" stroke-width="5"/>
+      <circle cx="124" cy="310" r="17" fill="#0b0c09" stroke="#8d875d" stroke-width="5"/>
+      <circle cx="174" cy="310" r="17" fill="#0b0c09" stroke="#8d875d" stroke-width="5"/>
+      <circle cx="222" cy="310" r="17" fill="#0b0c09" stroke="#8d875d" stroke-width="5"/>
+      <path d="M66 126h140" stroke="#ece1c4" stroke-opacity="0.18" stroke-width="34"/>
+      <path d="M66 180h140" stroke="#8c1e19" stroke-opacity="0.24" stroke-width="34"/>
+    </g>
+    <g transform="translate(610 35) rotate(9 132 204)">
+      <rect x="0" y="0" width="264" height="380" rx="28" fill="#050604" opacity="0.75"/>
+      <rect x="11" y="11" width="242" height="358" rx="22" fill="url(#redFace)" stroke="#c6a66a" stroke-width="8"/>
+      <rect x="30" y="30" width="204" height="320" rx="13" fill="#32110e" stroke="#62543a" stroke-width="3"/>
+      <path d="M132 95l18 55 58-1-47 34 19 55-48-34-47 34 18-55-47-34 58 1z" fill="#f0cf6a" opacity="0.42"/>
+      <path d="M44 300h176" stroke="#e0c57a" stroke-opacity="0.33" stroke-width="7"/>
+    </g>
+  </g>
+
+  <g filter="url(#heavyShadow)" transform="translate(100 312)">
+    <path d="M52 41h678c34 0 63 21 76 50l40 90c7 16-5 34-22 34H23c-18 0-29-19-22-35l42-91c5-11 1-24 9-48z" fill="#111512" stroke="#3c3526" stroke-width="10"/>
+    <path d="M73 64h654c24 0 45 15 55 37l29 64H39l30-66c5-11 2-23 4-35z" fill="#21251d" stroke="#c09a4b" stroke-opacity="0.62" stroke-width="4"/>
+    <path d="M18 215h820v52H18z" fill="#070806"/>
+    <path d="M44 219h770v38H44z" fill="#181b15" stroke="#735827" stroke-width="4"/>
+    <rect x="0" y="0" width="846" height="272" fill="url(#scratches)" opacity="0.32"/>
+  </g>
+
+  <g filter="url(#heavyShadow)" transform="translate(90 235)">
+    <path d="M75 162h491l212-75c42-15 65 43 26 64l-213 111H74z" fill="#8a835e" stroke="#252315" stroke-width="12"/>
+    <path d="M18 175h210v72H18z" fill="#777457" stroke="#252315" stroke-width="12"/>
+    <path d="M0 188h47v46H0z" fill="#2a2b21"/>
+    <path d="M696 84h124c35 0 63 28 63 63v63h-42v-63c0-12-9-21-21-21H696z" fill="#39382b" opacity="0.82"/>
+    <path d="M80 211h523" stroke="#d2c491" stroke-opacity="0.28" stroke-width="10"/>
+  </g>
+
+  <g filter="url(#textShadow)">
+    <text x="512" y="532" text-anchor="middle"
+      font-family="Rajdhani, 'Arial Narrow', Impact, sans-serif"
+      font-size="116" font-weight="700" letter-spacing="7"
+      fill="#10100d" stroke="#050504" stroke-width="14">PANZERSHREK</text>
+    <text x="512" y="532" text-anchor="middle"
+      font-family="Rajdhani, 'Arial Narrow', Impact, sans-serif"
+      font-size="116" font-weight="700" letter-spacing="7"
+      fill="url(#steel)" stroke="#d7bd72" stroke-width="3">PANZER</text>
+    <text x="758" y="532" text-anchor="middle"
+      font-family="Rajdhani, 'Arial Narrow', Impact, sans-serif"
+      font-size="116" font-weight="700" letter-spacing="7"
+      fill="url(#brass)" stroke="#2a1e0b" stroke-width="3">SHREK</text>
+    <text x="512" y="583" text-anchor="middle"
+      font-family="Inter, Arial, sans-serif"
+      font-size="24" font-weight="800" letter-spacing="9"
+      fill="#d8bb68" opacity="0.82">TACTICAL CARD BATTLE</text>
+  </g>
+
+  <g opacity="0.55" filter="url(#innerWear)">
+    <rect x="0" y="0" width="1024" height="640" fill="url(#scratches)"/>
+  </g>
+</svg>

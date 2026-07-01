@@ -138,6 +138,9 @@ const PVP_DEPLOY_BARRAGE_DESTROYED_MS = PVP_DESTROYED_CARD_ANIMATION_MS;
 const ROOM_CLEANUP_DELAY_MS = 30_000;
 const PVP_REWARD_CLAIM_TTL_MS = 10 * 60_000;
 const DASHA_PROMO_CODE = "dasha";
+const GAME_SESSION_STALE_AFTER_MS = Number(
+  process.env.GAME_SESSION_STALE_AFTER_MS ?? 90_000
+);
 const DASHA_PROMO_GOLD_TRACKS = 700;
 const MAX_INCOMING_MESSAGE_BYTES = Number(
   process.env.WS_MAX_MESSAGE_BYTES ?? 1024 * 1024
@@ -417,7 +420,13 @@ export class RoomManager {
   // identifies the browser tab so the same tab can re-acquire after a reload.
   private activeGameSessions = new Map<
     string,
-    { socket: WebSocket; instanceId: string; kind: string; since: number }
+    {
+      socket: WebSocket;
+      instanceId: string;
+      kind: string;
+      since: number;
+      lastSeen: number;
+    }
   >();
   private socketToSessionAccount = new WeakMap<WebSocket, string>();
   // Periodically re-pairs waiting rooms whose tolerance bands have widened enough
@@ -510,6 +519,8 @@ export class RoomManager {
         `Handling ${message.type} (requestId ${message.requestId}, ${byteLength} bytes)`
       );
     }
+
+    this.touchGameSession(socket);
 
     switch (message.type) {
       case "FIND_MATCH":
@@ -612,6 +623,9 @@ export class RoomManager {
         break;
       case "RELEASE_SESSION":
         this.releaseGameSession(socket, message);
+        break;
+      case "SESSION_HEARTBEAT":
+        this.heartbeatGameSession(socket, message);
         break;
       case "REGISTER_ACCOUNT":
         this.registerAccount(socket, message);
@@ -836,6 +850,7 @@ export class RoomManager {
   ) {
     const accountId = message.accountId?.trim();
     const instanceId = message.instanceId?.trim();
+    const now = Date.now();
 
     if (!accountId || !instanceId) {
       safeSend(socket, {
@@ -872,12 +887,15 @@ export class RoomManager {
     const existingIsAlive =
       existing !== undefined &&
       existing.socket.readyState === existing.socket.OPEN;
+    const existingIsStale =
+      existing !== undefined &&
+      now - existing.lastSeen > GAME_SESSION_STALE_AFTER_MS;
     const existingIsOtherTab =
       existing !== undefined &&
       existing.socket !== socket &&
       existing.instanceId !== instanceId;
 
-    if (existing && existingIsAlive && existingIsOtherTab) {
+    if (existing && existingIsAlive && existingIsOtherTab && !existingIsStale) {
       safeSend(socket, {
         type: "SESSION_DENIED",
         requestId: message.requestId,
@@ -891,13 +909,17 @@ export class RoomManager {
     // over a session whose socket has already died.
     if (existing && existing.socket !== socket) {
       this.socketToSessionAccount.delete(existing.socket);
+      if (existingIsStale && existing.socket.readyState === WebSocket.OPEN) {
+        existing.socket.close(4000, "Game session taken over");
+      }
     }
 
     this.activeGameSessions.set(accountId, {
       socket,
       instanceId,
       kind: message.kind,
-      since: Date.now(),
+      since: now,
+      lastSeen: now,
     });
     this.socketToSessionAccount.set(socket, accountId);
 
@@ -918,6 +940,36 @@ export class RoomManager {
     ) {
       this.activeGameSessions.delete(accountId);
       this.socketToSessionAccount.delete(existing.socket);
+    }
+  }
+
+  private heartbeatGameSession(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "SESSION_HEARTBEAT" }>
+  ) {
+    const accountId = message.accountId?.trim();
+    const instanceId = message.instanceId?.trim();
+    if (!accountId || !instanceId) return;
+
+    const existing = this.activeGameSessions.get(accountId);
+    if (
+      !existing ||
+      existing.socket !== socket ||
+      existing.instanceId !== instanceId
+    ) {
+      return;
+    }
+
+    existing.lastSeen = Date.now();
+  }
+
+  private touchGameSession(socket: WebSocket) {
+    const accountId = this.socketToSessionAccount.get(socket);
+    if (!accountId) return;
+
+    const existing = this.activeGameSessions.get(accountId);
+    if (existing?.socket === socket) {
+      existing.lastSeen = Date.now();
     }
   }
 

@@ -6,6 +6,7 @@ import {
   preloadCriticalMenuAssets,
 } from "./components/LoadingScreen";
 import { SettingsControls } from "./components/SettingsControls";
+import { getConfiguredProfileHttpUrl } from "./network/webSocketUrl";
 import { useBattleStore } from "./store/battleStore";
 
 const BattleScreen = lazy(() =>
@@ -130,7 +131,7 @@ function LegalDocumentPage({ document }: { document: LegalDocumentRoute }) {
     setContent(null);
     setError(null);
 
-    void fetch(`/api/legal/${document.slug}`, {
+    void fetch(`${getConfiguredProfileHttpUrl()}/api/legal/${document.slug}`, {
       headers: { Accept: "application/json" },
     })
       .then(async (response) => {

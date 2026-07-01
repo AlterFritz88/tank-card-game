@@ -96,6 +96,21 @@ export const BT_FRONT_LINE_CELL: Position = { row: 2, col: 4 };
 /** Лёгкий танк бота, которого игрок добивает выстрелом штаба. */
 export const TUTORIAL_BOT_LIGHT_TANK_ID = "pzkpfw_i_ausf_b";
 
+/**
+ * Which scripted battle is active. `training` is the standalone tutorial;
+ * `welcome_kursk` is the auto-launched trailer mission «Поныри», run as a fully
+ * guided, guaranteed-win demo (highlights, gated actions, passive scripted bot).
+ */
+export type TutorialScriptId = "training" | "welcome_kursk";
+
+// ===== Демо-миссия «Поныри» (гид по трейлеру) =====
+// Юниты, уже стоящие на поле в welcome-kursk-1 (см. campaigns.ts).
+const WK_SPG_CARD_ID = "su_122";
+const WK_TANK_CARD_ID = "t34_76";
+const WK_TIGER_ID = "tiger_i";
+const WK_FERDINAND_ID = "ferdinand";
+const WK_PANZER_ID = "pzkpfw_iii_ausf_f";
+
 export type TutorialStep = {
   id: string;
   kind: "dialogue" | "task";
@@ -163,11 +178,16 @@ function isBtAdvanceTowardCell(
  * only the final cell of the current movement command.
  */
 export function getTutorialMoveTargetCell(
+  scriptId: TutorialScriptId,
   stepIndex: number,
   battle: BattleState
 ): Position | null {
-  const step = getTutorialStep(stepIndex);
+  const step = getTutorialStep(scriptId, stepIndex);
   if (!step || step.kind !== "task") return null;
+
+  if (scriptId === "welcome_kursk") {
+    return getWelcomeKurskMoveTargetCell(step, battle);
+  }
 
   let target: Position | null = null;
   let cardId = "bt_7";
@@ -561,8 +581,276 @@ export function getTutorialEpilogueText(
   return language === "en" ? TUTORIAL_EPILOGUE_TEXT_EN : TUTORIAL_EPILOGUE_TEXT;
 }
 
-export function isTutorialFreePlay(stepIndex: number): boolean {
-  return stepIndex >= TUTORIAL_STEPS.length;
+// ============================================================
+// Демо-миссия «Поныри»: пошаговый гид с гарантированной победой
+// ============================================================
+
+/** Battlefield SPG (СУ-122) of the player strikes a specific enemy unit. */
+function isWkSpgStrikeOn(
+  action: BattleAction,
+  battle: BattleState,
+  targetCardId: string
+): boolean {
+  if (action.type !== "ATTACK") return false;
+  if (action.attackerType !== "unit" || action.targetType !== "unit") return false;
+
+  const attacker = getUnit(battle, action.attackerId);
+  const target = getUnit(battle, action.targetId);
+
+  return Boolean(
+    attacker &&
+      attacker.ownerId === "player" &&
+      attacker.cardId === WK_SPG_CARD_ID &&
+      target &&
+      target.ownerId === "bot" &&
+      target.cardId === targetCardId &&
+      canPlayerUnitAttackTarget(battle, action.attackerId, action.targetId)
+  );
+}
+
+function isWkHqStrikeOnEnemyHq(
+  action: BattleAction,
+  battle: BattleState
+): boolean {
+  return (
+    action.type === "ATTACK" &&
+    action.playerId === "player" &&
+    action.attackerType === "headquarters" &&
+    action.targetType === "headquarters" &&
+    !battle.headquarters.player.alreadyAttacked
+  );
+}
+
+/** A straight forward move (toward the enemy) of the preplaced Т-34. */
+function isWkTankForwardMove(
+  action: BattleAction,
+  battle: BattleState
+): boolean {
+  if (action.type !== "MOVE_UNIT") return false;
+
+  const unit = getUnit(battle, action.unitId);
+  if (!unit || unit.ownerId !== "player" || unit.cardId !== WK_TANK_CARD_ID) {
+    return false;
+  }
+  if (!isValidPlayerUnitMove(action, battle)) return false;
+
+  return action.position.row === unit.position.row &&
+    action.position.col > unit.position.col;
+}
+
+function isWkTankStrikeOnPanzer(
+  action: BattleAction,
+  battle: BattleState
+): boolean {
+  if (action.type !== "ATTACK") return false;
+  if (action.attackerType !== "unit" || action.targetType !== "unit") return false;
+
+  const attacker = getUnit(battle, action.attackerId);
+  const target = getUnit(battle, action.targetId);
+
+  return Boolean(
+    attacker &&
+      attacker.ownerId === "player" &&
+      attacker.cardId === WK_TANK_CARD_ID &&
+      target &&
+      target.ownerId === "bot" &&
+      target.cardId === WK_PANZER_ID &&
+      canPlayerUnitAttackTarget(battle, action.attackerId, action.targetId)
+  );
+}
+
+/** Deploy a Т-34/76 from hand onto any free spawn cell. */
+function isWkPlayTank(action: BattleAction, battle: BattleState): boolean {
+  if (action.type !== "PLAY_CARD") return false;
+  if (action.playerId !== "player") return false;
+
+  const cardInstance = battle.player.hand.find(
+    (item) => item.instanceId === action.cardInstanceId
+  );
+  if (!cardInstance || cardInstance.cardId !== WK_TANK_CARD_ID) return false;
+
+  return isValidPlayerPlay(action, battle);
+}
+
+export const WELCOME_KURSK_STEPS: TutorialStep[] = [
+  {
+    id: "wk-spg-intro",
+    kind: "dialogue",
+    text:
+      "Тигр и Фердинанд подбиты, но их лобовая броня ещё держит удар. Не лезь на них в лоб! " +
+      "Наши СУ-122 — самоходные гаубицы: они бьют с закрытых позиций по любой цели и не получают ответного огня. С них и начнём.",
+    textEn:
+      "The Tiger and Ferdinand are damaged, but their frontal armor still holds. Don't attack them head-on. " +
+      "Our SU-122 self-propelled howitzers fire from cover at any target and take no return fire. Let's start with them.",
+  },
+  {
+    id: "wk-spg-tiger",
+    kind: "task",
+    text: "Выбери СУ-122 и ударь по подбитому «Тигру».",
+    textEn: "Select an SU-122 and strike the damaged Tiger.",
+    completes: (action, battle) => isWkSpgStrikeOn(action, battle, WK_TIGER_ID),
+  },
+  {
+    id: "wk-spg-ferdinand",
+    kind: "task",
+    text: "Второй СУ-122 накрой «Фердинанд».",
+    textEn: "With the second SU-122, hit the Ferdinand.",
+    completes: (action, battle) =>
+      isWkSpgStrikeOn(action, battle, WK_FERDINAND_ID),
+  },
+  {
+    id: "wk-hq-intro",
+    kind: "dialogue",
+    text:
+      "Штаб фронта тоже ведёт огонь — прямо по вражескому штабу. Каждое попадание приближает победу.",
+    textEn:
+      "Your headquarters can fire too — straight at the enemy headquarters. Every hit brings victory closer.",
+  },
+  {
+    id: "wk-hq-strike",
+    kind: "task",
+    text: "Выбери свой штаб и выстрели по штабу противника.",
+    textEn: "Select your headquarters and fire at the enemy headquarters.",
+    completes: isWkHqStrikeOnEnemyHq,
+  },
+  {
+    id: "wk-tank-intro",
+    kind: "dialogue",
+    text:
+      "Теперь в дело идут танки — они добьют подранков. Т-34 может за ход и переместиться, и выстрелить. Двинь его вперёд.",
+    textEn:
+      "Now the tanks finish the cripples. A T-34 can both move and fire in one turn. Push it forward.",
+  },
+  {
+    id: "wk-move-t34",
+    kind: "task",
+    text: "Выбери Т-34 и продвинь его вперёд на подсвеченную клетку.",
+    textEn: "Select the T-34 and advance it to the highlighted cell.",
+    completes: isWkTankForwardMove,
+    allows: isWkTankForwardMove,
+  },
+  {
+    id: "wk-t34-strike",
+    kind: "task",
+    text: "Т-34 вышел на дистанцию. Ударь им по немецкому Panzer III.",
+    textEn: "The T-34 is in range. Strike the German Panzer III with it.",
+    completes: isWkTankStrikeOnPanzer,
+    allows: isWkTankForwardMove,
+  },
+  {
+    id: "wk-end-turn",
+    kind: "task",
+    text: "Заверши ход — посмотрим, что предпримет враг.",
+    textEn: "End your turn and see what the enemy does.",
+    completes: (action) =>
+      action.type === "END_TURN" && action.playerId === "player",
+  },
+  {
+    id: "wk-deploy-intro",
+    kind: "dialogue",
+    text:
+      "Враг завяз и не рискует контратаковать. Нарасти удар: за топливо, что копит штаб, разыгрывай с руки свежие Т-34 на клетки плацдарма.",
+    textEn:
+      "The enemy is bogged down and won't counterattack. Press the assault: spend the fuel your headquarters stores to deploy fresh T-34s from hand onto the bridgehead cells.",
+  },
+  {
+    id: "wk-play-t34",
+    kind: "task",
+    text: "Разыграй Т-34/76 с руки на любую подсвеченную клетку спавна.",
+    textEn: "Deploy a T-34/76 from hand to any highlighted spawn cell.",
+    completes: isWkPlayTank,
+  },
+  {
+    id: "wk-finish",
+    kind: "dialogue",
+    text:
+      "Дальше — свобода действий, командир. Добивай штаб противника: бей штабом, СУ-122 и танками, разыгрывай карты. Удержи рубеж у Понырей и заслужи «Зверобой»!",
+    textEn:
+      "From here you're on your own, commander. Finish the enemy headquarters: fire with your headquarters, SU-122s and tanks, and deploy your cards. Hold the line at Ponyri and earn the SU-152!",
+  },
+];
+
+function getWelcomeKurskHighlights(
+  step: TutorialStep,
+  battle?: BattleState
+): TutorialHighlights | null {
+  // Highlight exactly one СУ-122 at a time: the next one that can still fire.
+  // On the Ferdinand step the first (already-fired) SPG stays dark.
+  const freshSpg = battle?.units.find(
+    (unit) =>
+      unit.ownerId === "player" &&
+      unit.cardId === WK_SPG_CARD_ID &&
+      isBattlefieldUnit(unit) &&
+      !unit.alreadyAttacked
+  );
+  const spgHighlight: Pick<TutorialHighlights, "unitCardIds" | "unitInstanceIds"> =
+    freshSpg
+      ? { unitInstanceIds: [freshSpg.instanceId] }
+      : { unitCardIds: [WK_SPG_CARD_ID] };
+
+  switch (step.id) {
+    case "wk-spg-tiger":
+      return { ...spgHighlight, enemyUnitCardIds: [WK_TIGER_ID] };
+    case "wk-spg-ferdinand":
+      return { ...spgHighlight, enemyUnitCardIds: [WK_FERDINAND_ID] };
+    case "wk-hq-strike":
+      return { playerHq: true, enemyHq: true, hqAttackSequence: true };
+    case "wk-move-t34":
+      return { unitCardIds: [WK_TANK_CARD_ID] };
+    case "wk-t34-strike":
+      return {
+        unitCardIds: [WK_TANK_CARD_ID],
+        enemyUnitCardIds: [WK_PANZER_ID],
+      };
+    case "wk-end-turn":
+      return { endTurn: true };
+    case "wk-play-t34":
+      return {
+        handCardIds: [WK_TANK_CARD_ID],
+        cells: battle ? getFreeSpawnCells(battle, "player") : undefined,
+      };
+    default:
+      return null;
+  }
+}
+
+/** Forward cell the demo highlights for the scripted Т-34 advance. */
+function getWelcomeKurskMoveTargetCell(
+  step: TutorialStep,
+  battle: BattleState
+): Position | null {
+  if (step.id !== "wk-move-t34") return null;
+
+  const unit = battle.units.find(
+    (item) =>
+      item.ownerId === "player" &&
+      item.cardId === WK_TANK_CARD_ID &&
+      isBattlefieldUnit(item)
+  );
+  if (!unit) return null;
+
+  const moveCells = getAvailableMoveCells(battle, "player", unit.instanceId);
+  const forwardCells = moveCells.filter(
+    (cell) => cell.row === unit.position.row && cell.col > unit.position.col
+  );
+  if (forwardCells.length === 0) return null;
+
+  // The single cell straight ahead (max reach along the row).
+  return forwardCells.reduce((furthest, cell) =>
+    cell.col > furthest.col ? cell : furthest
+  );
+}
+
+/** The ordered step list for a given scripted battle. */
+function getScriptSteps(scriptId: TutorialScriptId): TutorialStep[] {
+  return scriptId === "welcome_kursk" ? WELCOME_KURSK_STEPS : TUTORIAL_STEPS;
+}
+
+export function isTutorialFreePlay(
+  scriptId: TutorialScriptId,
+  stepIndex: number
+): boolean {
+  return stepIndex >= getScriptSteps(scriptId).length;
 }
 
 /**
@@ -579,6 +867,12 @@ export type TutorialHighlights = {
   cells?: Position[];
   /** Player units to highlight, by card id. */
   unitCardIds?: string[];
+  /**
+   * Player units to highlight by exact instance id. Use when several units
+   * share a card id but only one is the scripted actor (e.g. the second, still
+   * unfired СУ-122). Takes precedence over `unitCardIds` for matching.
+   */
+  unitInstanceIds?: string[];
   /** Highlight enemy support-line units. */
   enemySupport?: boolean;
   /** Enemy battlefield units to highlight, by card id. */
@@ -593,11 +887,17 @@ export type TutorialHighlights = {
 };
 
 export function getTutorialHighlights(
-  stepIndex: number
+  scriptId: TutorialScriptId,
+  stepIndex: number,
+  battle?: BattleState
 ): TutorialHighlights | null {
-  const step = getTutorialStep(stepIndex);
+  const step = getTutorialStep(scriptId, stepIndex);
 
   if (!step || step.kind !== "task") return null;
+
+  if (scriptId === "welcome_kursk") {
+    return getWelcomeKurskHighlights(step, battle);
+  }
 
   switch (step.id) {
     case "shoot-hq":
@@ -637,10 +937,11 @@ export function getTutorialHighlights(
 }
 
 export function getTutorialStep(
+  scriptId: TutorialScriptId,
   stepIndex: number,
   language: Language = getSettings().language
 ): TutorialStep | null {
-  const step = TUTORIAL_STEPS[stepIndex];
+  const step = getScriptSteps(scriptId)[stepIndex];
   if (!step) return null;
 
   return {
@@ -655,15 +956,16 @@ export function getTutorialStep(
  * END_TURN (deadlock protection) pass through.
  */
 export function isTutorialActionAllowed(
+  scriptId: TutorialScriptId,
   stepIndex: number,
   action: BattleAction,
   battle: BattleState
 ): boolean {
-  if (isTutorialFreePlay(stepIndex)) return true;
+  if (isTutorialFreePlay(scriptId, stepIndex)) return true;
   if (action.type === "BEGIN_BATTLE" || action.type === "TIMER_TICK") return true;
   if ("playerId" in action && action.playerId === "bot") return true;
 
-  const step = getTutorialStep(stepIndex);
+  const step = getTutorialStep(scriptId, stepIndex);
   if (!step) return true;
 
   if (step.kind === "dialogue") return false;
@@ -677,11 +979,12 @@ export function isTutorialActionAllowed(
 
 /** Returns the next step index after the player performed `action`. */
 export function getNextTutorialStepIndex(
+  scriptId: TutorialScriptId,
   stepIndex: number,
   action: BattleAction,
   battle: BattleState
 ): number {
-  const step = getTutorialStep(stepIndex);
+  const step = getTutorialStep(scriptId, stepIndex);
 
   if (!step || step.kind !== "task") return stepIndex;
 
@@ -855,9 +1158,19 @@ const BOT_END_TURN: BattleAction = { type: "END_TURN", playerId: "bot" };
  * getNextBotAction contract; every scripted intent is validated against the
  * current state and silently skipped when impossible.
  */
-export function getTutorialBotAction(battle: BattleState): BattleAction | null {
+export function getTutorialBotAction(
+  scriptId: TutorialScriptId,
+  battle: BattleState
+): BattleAction | null {
   if (battle.status !== "active") return null;
   if (battle.activePlayer !== "bot") return null;
+
+  // Демо-миссия «Поныри»: противник полностью пассивен — подбитые Тигр,
+  // Фердинанд и свежий Panzer III стоят на месте, а игрок гарантированно
+  // добивает штаб. Бот просто передаёт ход.
+  if (scriptId === "welcome_kursk") {
+    return BOT_END_TURN;
+  }
 
   const turn = battle.turn;
 

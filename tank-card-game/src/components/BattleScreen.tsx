@@ -548,12 +548,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
   const firstTurnRoll = battleStore.firstTurnRoll;
   const tutorialActive = battleStore.tutorialActive;
+  const tutorialScriptId = battleStore.tutorialScriptId;
   const tutorialStepIndex = battleStore.tutorialStepIndex;
   const tutorialEpilogueSeen = battleStore.tutorialEpilogueSeen;
   const advanceTutorialStep = battleStore.advanceTutorialStep;
   const completeTutorialEpilogue = battleStore.completeTutorialEpilogue;
   const tutorialStep = tutorialActive
-    ? getTutorialStep(tutorialStepIndex, language)
+    ? getTutorialStep(tutorialScriptId, tutorialStepIndex, language)
     : null;
 
   // Campaign mission briefing/debrief delivered by the commander avatar.
@@ -652,7 +653,11 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   // Active-task hints: what to highlight; everything else gets dimmed/blocked.
   const tutorialHighlights =
     tutorialActive && battle.status === "active"
-      ? getTutorialHighlights(tutorialStepIndex)
+      ? getTutorialHighlights(
+          tutorialScriptId,
+          tutorialStepIndex,
+          battle as BattleState
+        )
       : null;
 
   // Destination cells (spawn targets / scripted moves) blink only after the
@@ -707,14 +712,19 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     }
 
     const unitCardIds = tutorialHighlights.unitCardIds;
-    if (unitCardIds && unitCardIds.length > 0) {
+    const unitInstanceIds = tutorialHighlights.unitInstanceIds;
+    if (
+      (unitInstanceIds && unitInstanceIds.length > 0) ||
+      (unitCardIds && unitCardIds.length > 0)
+    ) {
       if (selectedAttacker?.type !== "unit") return false;
       const attackerId = selectedAttacker.id;
       return battle.units.some(
         (unit) =>
           unit.instanceId === attackerId &&
           unit.ownerId === "player" &&
-          unitCardIds.includes(unit.cardId)
+          (unitInstanceIds?.includes(unit.instanceId) ||
+            Boolean(unitCardIds?.includes(unit.cardId)))
       );
     }
 
@@ -722,6 +732,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }
 
   function isTutorialUnitHighlighted(unit: {
+    instanceId: string;
     ownerId: PlayerId;
     cardId: string;
     zone?: string;
@@ -729,11 +740,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     if (!tutorialHighlights) return false;
 
     if (unit.ownerId === "player") {
-      // Stage 1: the actor blinks only until it is picked.
-      return (
-        Boolean(tutorialHighlights.unitCardIds?.includes(unit.cardId)) &&
-        !isTutorialSourceSelected()
-      );
+      // Stage 1: the actor blinks only until it is picked. When instance ids are
+      // scripted (several units share a card id) they take precedence.
+      const instanceIds = tutorialHighlights.unitInstanceIds;
+      const matchesActor =
+        instanceIds && instanceIds.length > 0
+          ? instanceIds.includes(unit.instanceId)
+          : Boolean(tutorialHighlights.unitCardIds?.includes(unit.cardId));
+      return matchesActor && !isTutorialSourceSelected();
     }
 
     const isEnemyTarget =
@@ -778,7 +792,11 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   // move it to. Null/empty for every other step.
   const tutorialMoveCell: Position | null =
     tutorialActive && battle.status === "active"
-      ? getTutorialMoveTargetCell(tutorialStepIndex, battle as BattleState)
+      ? getTutorialMoveTargetCell(
+          tutorialScriptId,
+          tutorialStepIndex,
+          battle as BattleState
+        )
       : null;
   const tutorialMoveCells: Position[] = tutorialMoveCell ? [tutorialMoveCell] : [];
   // While the tutorial scripts a BT advance, only the highlighted target cell
@@ -1472,7 +1490,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       (battle.status === "bot_won" && humanPlayerId === "bot");
     let serverError: string | null = null;
 
-    if (tutorialActive) {
+    // Only the standalone training tutorial grants the local tutorial reward.
+    // Guided campaign demos use the normal campaign reward/debrief flow.
+    if (tutorialActive && tutorialScriptId === "training") {
       setRewardClaimStatus("pending");
       setRewardClaimError(
         serverError
@@ -2016,9 +2036,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         if (currentBattle.status !== "active") break;
         if (currentBattle.activePlayer !== "bot") break;
 
-        const tutorialNow = useBattleStore.getState().tutorialActive;
-        const action: BattleAction | null = tutorialNow
-          ? getTutorialBotAction(currentBattle)
+        const storeNow = useBattleStore.getState();
+        const action: BattleAction | null = storeNow.tutorialActive
+          ? getTutorialBotAction(storeNow.tutorialScriptId, currentBattle)
           : getNextBotAction(currentBattle);
 
         if (!action) break;
@@ -6444,11 +6464,20 @@ function renderEnemyDeckWithTimer() {
           text={tutorialStep.text}
           visible={battle.activePlayer === "player" && !startRollState.visible}
           onNext={advanceTutorialStep}
+          avatarSrc={
+            tutorialScriptId === "welcome_kursk"
+              ? campaignBriefingAvatar
+              : undefined
+          }
+          speakerName={
+            tutorialScriptId === "welcome_kursk" ? campaignSpeaker : undefined
+          }
           centered
         />
       ) : null}
 
       {tutorialActive &&
+      tutorialScriptId === "training" &&
       battle.status === "player_won" &&
       !tutorialEpilogueSeen ? (
         <TutorialOverlay
