@@ -5,6 +5,7 @@ export type MainMenuView =
   | "headquarters"
   | "campaign"
   | "missions"
+  | "tutorial"
   | "profile"
   | "research"
   | "collection"

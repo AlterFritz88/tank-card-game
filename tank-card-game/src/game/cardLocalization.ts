@@ -28,7 +28,7 @@ const CLASS_LABELS: Record<TankClass, LocaleText> = {
 const SUPPORT_ROLE_LABELS: Record<SupportRole, LocaleText> = {
   artillery: { ru: "Артиллерия", en: "Artillery" },
   medical: { ru: "Медицина", en: "Medical unit" },
-  transport: { ru: "Автотранспорт", en: "Transport" },
+  transport: { ru: "Транспорт", en: "Transport" },
 };
 
 const HEADQUARTERS_TYPE_TRANSLATIONS: Record<string, string> = {

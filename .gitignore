@@ -27,3 +27,14 @@ server/data/*.json
 # Logs
 *.log
 npm-debug.log*
+
+# Android release signing secrets
+**/keystore.properties
+**/*.jks
+**/*.keystore
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.crt
+**/*.cer

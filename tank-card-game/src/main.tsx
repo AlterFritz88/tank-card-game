@@ -4,6 +4,10 @@ import './index.css'
 import App from './App.tsx'
 import { GameStage } from './components/GameStage.tsx'
 
+if (/SamsungBrowser/i.test(window.navigator.userAgent)) {
+  document.documentElement.classList.add('samsung-internet')
+}
+
 const usesFullPageLayout =
   window.location.pathname.startsWith('/legal/') ||
   window.location.pathname === '/admin'

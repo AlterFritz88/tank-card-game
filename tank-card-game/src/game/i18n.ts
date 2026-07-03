@@ -33,6 +33,11 @@ export type TranslationKey =
   | "main.quickBattle"
   | "main.aiBattle"
   | "main.tutorial"
+  | "tutorial.selectMission"
+  | "tutorial.lesson"
+  | "tutorial.completed"
+  | "tutorial.available"
+  | "tutorial.locked"
   | "main.research"
   | "main.collection"
   | "main.shop"
@@ -172,6 +177,11 @@ export const TRANSLATIONS: Record<Language, TranslationMap> = {
     "main.quickBattle": "Быстрый бой",
     "main.aiBattle": "Бой против ИИ",
     "main.tutorial": "Обучение",
+    "tutorial.selectMission": "ШКОЛА БОЯ",
+    "tutorial.lesson": "Урок",
+    "tutorial.completed": "Пройдено",
+    "tutorial.available": "Доступно",
+    "tutorial.locked": "Пройди предыдущий урок",
     "main.research": "Исследования",
     "main.collection": "Коллекция",
     "main.shop": "Магазин",
@@ -316,6 +326,11 @@ export const TRANSLATIONS: Record<Language, TranslationMap> = {
     "main.quickBattle": "Quick Battle",
     "main.aiBattle": "Battle vs AI",
     "main.tutorial": "Tutorial",
+    "tutorial.selectMission": "COMBAT SCHOOL",
+    "tutorial.lesson": "Lesson",
+    "tutorial.completed": "Completed",
+    "tutorial.available": "Available",
+    "tutorial.locked": "Complete the previous lesson",
     "main.research": "Research",
     "main.collection": "Collection",
     "main.shop": "Shop",

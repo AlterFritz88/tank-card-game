@@ -598,6 +598,14 @@ function isArmoredCarUnit(unit: BoardUnit): boolean {
   return isBattlefieldUnit(unit) && getCard(unit.cardId).class === "armored_car";
 }
 
+function isSuppressedSpgUnit(unit: BoardUnit): boolean {
+  return (
+    unit.attackSuppressed === true &&
+    isBattlefieldUnit(unit) &&
+    getCard(unit.cardId).class === "spg"
+  );
+}
+
 export function calculateFuelGeneration(
   state: BattleState,
   playerId: PlayerId
@@ -1016,14 +1024,15 @@ function beginBattle(
     state.timers[owner].idleStreak = 0;
     state.timers[owner].actedThisStep = false;
 
-    state.headquarters[owner].alreadyAttacked = false;
+    state.headquarters[owner].alreadyAttacked =
+      state.headquarters[owner].attackSuppressed === true;
 
     resetAbilityTurnCounters(state, owner);
     getAbilityTracking(state, owner).destroyedUnitReturnedThisBattle = false;
   }
 
   for (const unit of state.units) {
-    unit.alreadyAttacked = isSupportUnit(unit);
+    unit.alreadyAttacked = isSupportUnit(unit) || isSuppressedSpgUnit(unit);
     unit.alreadyMoved = isSupportUnit(unit);
     unit.spawnedThisTurn = false;
     unit.deployedThisTurn = false;
@@ -1129,7 +1138,7 @@ function startTurn(state: BattleState, playerId: PlayerId) {
       unit.wasStationaryLastTurn =
         unit.moveCountThisTurn === 0 && !unit.deployedThisTurn;
 
-      unit.alreadyAttacked = isSupportUnit(unit);
+      unit.alreadyAttacked = isSupportUnit(unit) || isSuppressedSpgUnit(unit);
       unit.alreadyMoved = isSupportUnit(unit);
       unit.spawnedThisTurn = false;
       unit.deployedThisTurn = false;
@@ -1139,7 +1148,8 @@ function startTurn(state: BattleState, playerId: PlayerId) {
     }
   }
 
-  state.headquarters[playerId].alreadyAttacked = false;
+  state.headquarters[playerId].alreadyAttacked =
+    state.headquarters[playerId].attackSuppressed === true;
 }
 
 /**
@@ -1420,6 +1430,7 @@ function playCard(
       const opponent = getOpponent(owner);
 
       state.headquarters[opponent].attackSuppressed = true;
+      state.headquarters[opponent].alreadyAttacked = true;
 
       for (const enemyUnit of state.units) {
         if (
@@ -1428,6 +1439,7 @@ function playCard(
           getCard(enemyUnit.cardId).class === "spg"
         ) {
           enemyUnit.attackSuppressed = true;
+          enemyUnit.alreadyAttacked = true;
         }
       }
 

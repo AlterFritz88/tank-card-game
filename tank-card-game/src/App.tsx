@@ -271,9 +271,14 @@ const sessionNoticeStyles: Record<string, CSSProperties> = {
 
 const legalPageStyles: Record<string, CSSProperties> = {
   page: {
-    minHeight: "100vh",
     position: "relative",
+    height: "100%",
+    minHeight: "100vh",
     overflowX: "hidden",
+    overflowY: "auto",
+    overscrollBehaviorY: "contain",
+    WebkitOverflowScrolling: "touch",
+    touchAction: "pan-y",
     color: "#f4e5bf",
     background:
       "radial-gradient(circle at 50% 10%, rgba(179, 135, 58, 0.18), transparent 35%), linear-gradient(180deg, #20231d 0%, #070907 100%)",
@@ -343,6 +348,9 @@ const legalPageStyles: Record<string, CSSProperties> = {
     margin: 0,
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
+    userSelect: "text",
+    WebkitUserSelect: "text",
+    touchAction: "pan-y",
     color: "rgba(255, 246, 221, 0.9)",
     font: "600 15px/1.62 var(--font-body)",
   },

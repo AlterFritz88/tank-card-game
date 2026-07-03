@@ -36,6 +36,7 @@
 
   --text-shadow-emboss: 0 2px 0 rgba(0,0,0,0.95);
   --text-shadow-gold-glow: 0 2px 0 rgba(0,0,0,0.95), 0 0 22px rgba(247,215,116,0.26);
+  color-scheme: only light;
 }
 
 * {
@@ -58,6 +59,33 @@ body,
   height: 100%;
 }
 
+html {
+  overflow: hidden;
+}
+
+html.samsung-internet,
+html.samsung-internet body,
+html.samsung-internet #root {
+  color-scheme: only light;
+}
+
+html.samsung-internet img,
+html.samsung-internet svg,
+html.samsung-internet canvas,
+html.samsung-internet video {
+  forced-color-adjust: none;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+@supports (height: 100lvh) {
+  html,
+  body,
+  #root {
+    height: 100lvh;
+  }
+}
+
 body {
   margin: 0;
   font-family: var(--font-body);
@@ -69,6 +97,7 @@ body {
   -ms-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+  overflow-anchor: none;
 }
 
 input,

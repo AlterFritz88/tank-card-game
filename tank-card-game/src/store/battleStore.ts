@@ -30,14 +30,15 @@ import {
 import { calculateDeckWeight } from "../game/deckWeight";
 import { createInitialBattleState, getDeckCardIds } from "../game/initialState";
 import {
-  TUTORIAL_BOT_DECK,
   TUTORIAL_BOT_HEADQUARTERS_ID,
-  TUTORIAL_PLAYER_DECK,
   TUTORIAL_PLAYER_HEADQUARTERS_ID,
   getNextTutorialStepIndex,
+  getTutorialMissionDecks,
+  isStandaloneTutorialScript,
   isTutorialActionAllowed,
+  isTutorialMissionUnlocked,
 } from "../game/tutorial";
-import type { TutorialScriptId } from "../game/tutorial";
+import type { TutorialMissionId, TutorialScriptId } from "../game/tutorial";
 import type {
   GameMode,
   MainMenuView,
@@ -57,6 +58,7 @@ import type { PvpClientMessage } from "../network/pvpClient";
 import { profileClient } from "../network/profileClient";
 import { getDefaultWebSocketUrl } from "../network/webSocketUrl";
 import { getCurrentUserId } from "../game/playerIdentity";
+import { hasCompletedTutorial } from "../game/playerProgress";
 
 type SelectedAttacker = {
   type: "unit" | "headquarters";
@@ -158,8 +160,12 @@ type BattleStore = {
   tutorialScriptId: TutorialScriptId;
   tutorialStepIndex: number;
   tutorialEpilogueSeen: boolean;
+  /** Completed tutorial missions — unlocks the next mission on the tutorial screen. */
+  completedTutorialMissionIds: string[];
 
-  startTutorial: () => void;
+  openTutorialMenu: () => void;
+  closeTutorialMenu: () => void;
+  startTutorial: (missionId?: TutorialMissionId) => void;
   advanceTutorialStep: () => void;
   completeTutorialEpilogue: () => void;
 
@@ -235,8 +241,35 @@ type BattleStore = {
 const PVP_SERVER_URL =
   import.meta.env.VITE_PVP_SERVER_URL ?? getDefaultWebSocketUrl();
 const CAMPAIGN_PROGRESS_KEY = "tank-card-game:campaign-progress";
+const TUTORIAL_PROGRESS_KEY = "tank-card-game:tutorial-progress";
 /** Set once the welcome trailer has auto-launched, so it never repeats. */
 const TRAILER_SEEN_KEY = "tank-card-game:trailer-seen";
+
+function loadCompletedTutorialMissionIds(): string[] {
+  try {
+    const rawValue = window.localStorage.getItem(TUTORIAL_PROGRESS_KEY);
+    if (!rawValue) return [];
+
+    const parsed = JSON.parse(rawValue) as unknown;
+
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCompletedTutorialMissionIds(missionIds: string[]) {
+  try {
+    window.localStorage.setItem(
+      TUTORIAL_PROGRESS_KEY,
+      JSON.stringify(missionIds)
+    );
+  } catch {
+    // Ignore storage failures — at worst the unlock is lost on reload.
+  }
+}
 
 function loadTrailerSeen(): boolean {
   try {
@@ -697,6 +730,33 @@ function getCleanMenuState() {
   };
 }
 
+/**
+ * Записывает победу в текущей обучающей миссии (если она есть) и возвращает
+ * актуальный список пройденных миссий — следующая миссия разблокируется на
+ * экране обучения.
+ */
+function recordTutorialMissionCompletion(): string[] {
+  const {
+    battle,
+    tutorialActive,
+    tutorialScriptId,
+    completedTutorialMissionIds,
+  } = useBattleStore.getState();
+
+  if (!tutorialActive || !isStandaloneTutorialScript(tutorialScriptId)) {
+    return completedTutorialMissionIds;
+  }
+  if (battle?.status !== "player_won") return completedTutorialMissionIds;
+  if (completedTutorialMissionIds.includes(tutorialScriptId)) {
+    return completedTutorialMissionIds;
+  }
+
+  const nextCompleted = [...completedTutorialMissionIds, tutorialScriptId];
+  saveCompletedTutorialMissionIds(nextCompleted);
+
+  return nextCompleted;
+}
+
 // Single-session lock helpers. A battle (PVE or PVP) may only start if the
 // account isn't already playing elsewhere. The lock lives on the profile
 // server connection and auto-releases when that socket closes; we also release
@@ -1095,18 +1155,47 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   tutorialScriptId: "training",
   tutorialStepIndex: 0,
   tutorialEpilogueSeen: false,
+  completedTutorialMissionIds: loadCompletedTutorialMissionIds(),
 
-  startTutorial: async () => {
+  openTutorialMenu: () => {
+    set({
+      menuView: "tutorial",
+      mode: "ai",
+      pvpError: null,
+    });
+  },
+
+  closeTutorialMenu: () => {
+    set({
+      menuView: "main",
+      mode: "ai",
+      pvpError: null,
+    });
+  },
+
+  startTutorial: async (missionId: TutorialMissionId = "training") => {
+    // Профиль с уже пройденным старым обучением засчитывает первую миссию.
+    const completedMissionIds = hasCompletedTutorial()
+      ? Array.from(
+          new Set([...get().completedTutorialMissionIds, "training"])
+        )
+      : get().completedTutorialMissionIds;
+
+    if (!isTutorialMissionUnlocked(missionId, completedMissionIds)) {
+      return;
+    }
+
     clearFirstTurnRollTimers();
     clearReconnectTimer();
     clearPendingPvpStart();
     pvpClient.clearSession();
 
+    const decks = getTutorialMissionDecks(missionId);
     const battle = createInitialBattleState({
       playerHeadquartersId: TUTORIAL_PLAYER_HEADQUARTERS_ID,
       botHeadquartersId: TUTORIAL_BOT_HEADQUARTERS_ID,
-      playerDeckCardIds: [...TUTORIAL_PLAYER_DECK],
-      botDeckCardIds: [...TUTORIAL_BOT_DECK],
+      playerDeckCardIds: decks.playerDeck,
+      botDeckCardIds: decks.botDeck,
       backgroundId: getRandomBattleBackgroundId(),
       shuffleDecks: false,
     });
@@ -1117,6 +1206,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       ...getCleanMenuState(),
       battle,
       tutorialActive: true,
+      tutorialScriptId: missionId,
       tutorialStepIndex: 0,
       tutorialEpilogueSeen: false,
     });
@@ -1309,6 +1399,13 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   exitBattleToMenu: () => {
+    const { tutorialActive, tutorialScriptId } = get();
+    // Выход из обучающей миссии ведёт обратно на экран выбора миссий; победа
+    // при этом засчитывается, чтобы открылась следующая миссия.
+    const wasTutorialMission =
+      tutorialActive && isStandaloneTutorialScript(tutorialScriptId);
+    const completedTutorialMissionIds = recordTutorialMissionCompletion();
+
     releaseGameSession();
     clearFirstTurnRollTimers();
     clearReconnectTimer();
@@ -1316,7 +1413,11 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     pvpClient.selectCard(null);
     pvpClient.clearSession();
 
-    set(getCleanMenuState());
+    set({
+      ...getCleanMenuState(),
+      completedTutorialMissionIds,
+      ...(wasTutorialMission ? { menuView: "tutorial" as MainMenuView } : {}),
+    });
     pvpClient.disconnect();
   },
 
@@ -2065,12 +2166,19 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     const { battle, currentCampaignMissionId, mode, tutorialActive, tutorialScriptId } =
       get();
 
-    // The standalone training tutorial returns to the menu; guided campaign
-    // demos (tutorialScriptId !== "training") fall through to the campaign path
-    // below so mission progress is still recorded.
-    if (tutorialActive && tutorialScriptId === "training") {
+    // Standalone tutorial missions return to the tutorial mission screen (with
+    // the win recorded so the next mission unlocks); guided campaign demos
+    // (welcome_kursk) fall through to the campaign path below so mission
+    // progress is still recorded.
+    if (tutorialActive && isStandaloneTutorialScript(tutorialScriptId)) {
+      const completedTutorialMissionIds = recordTutorialMissionCompletion();
+
       releaseGameSession();
-      set(getCleanMenuState());
+      set({
+        ...getCleanMenuState(),
+        menuView: "tutorial",
+        completedTutorialMissionIds,
+      });
       return;
     }
 

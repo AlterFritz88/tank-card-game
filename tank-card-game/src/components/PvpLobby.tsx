@@ -64,6 +64,10 @@ import {
 import { getHeadquartersImageAsset } from "../game/headquartersImages";
 import { getDeckCardIds } from "../game/initialState";
 import {
+  TUTORIAL_MISSIONS,
+  isTutorialMissionUnlocked,
+} from "../game/tutorial";
+import {
   claimCampaignRewardFromServer,
   createGoldTracksPaymentOnServer,
   exchangeGoldForIronOnServer,
@@ -145,6 +149,8 @@ const MENU_CARD_HEIGHT = Math.round(HAND_CARD_BASE_HEIGHT * MENU_CARD_SCALE);
 // shown at once, so there's room to make the artwork the focus.
 const CAMPAIGN_CARD_WIDTH = Math.round(MENU_CARD_WIDTH * 1.5);
 const CAMPAIGN_CARD_HEIGHT = Math.round(MENU_CARD_HEIGHT * 1.5);
+const TUTORIAL_CARD_WIDTH = Math.round(MENU_CARD_WIDTH * 1.22);
+const TUTORIAL_CARD_HEIGHT = Math.round(MENU_CARD_HEIGHT * 1.22);
 const GUEST_SESSION_READY_KEY = GUEST_SESSION_READY_STORAGE_KEY;
 
 const NATION_FILTER_VALUES: Nation[] = [
@@ -2540,6 +2546,9 @@ export function PvpLobby() {
     startPvpFallbackAiBattle,
     startAiBattle,
     startTutorial,
+    openTutorialMenu,
+    closeTutorialMenu,
+    completedTutorialMissionIds,
     cancelMatchmaking,
   } = useBattleStore();
 
@@ -2577,6 +2586,7 @@ export function PvpLobby() {
   const mainMenuCarouselRef = useRef<HTMLDivElement>(null);
   const headquartersCarouselRef = useRef<HTMLDivElement>(null);
   const campaignsCarouselRef = useRef<HTMLDivElement>(null);
+  const tutorialCarouselRef = useRef<HTMLDivElement>(null);
   const missionsCarouselRef = useRef<HTMLDivElement>(null);
   const [, setProfileRevision] = useState(0);
   const playerProgress = loadPlayerProgress();
@@ -3663,6 +3673,130 @@ export function PvpLobby() {
     );
   }
 
+  if (menuView === "tutorial") {
+    // Старый флаг профиля «обучение пройдено» засчитывает первый урок, чтобы
+    // ветераны не проходили основы заново ради разблокировки новых миссий.
+    const completedTutorialIds =
+      playerProgress.tutorialCompleted &&
+      !completedTutorialMissionIds.includes("training")
+        ? [...completedTutorialMissionIds, "training"]
+        : completedTutorialMissionIds;
+    const nextMissionId = TUTORIAL_MISSIONS.find(
+      (mission) =>
+        !completedTutorialIds.includes(mission.id) &&
+        isTutorialMissionUnlocked(mission.id, completedTutorialIds)
+    )?.id;
+
+    return (
+      <main style={styles.page}>
+        <div style={styles.backgroundShade} />
+        <PlayerAccountPanel onOpenProfile={openProfileMenu} />
+        <PlayerResourcesPanel
+          onOpenShop={openShopMenu}
+          onOpenExchange={openExchangeMenu}
+        />
+        {renderProfileServerBanner()}
+
+        <section style={{ ...styles.menuLayer, ...styles.mainMenuLayer }}>
+          <header style={{ ...styles.header, ...styles.mainMenuHeader }}>
+            <h1 style={styles.title}>{t("tutorial.selectMission")}</h1>
+          </header>
+
+          <CarouselTapFrame
+            viewportRef={tutorialCarouselRef}
+            viewportStyle={{
+              ...styles.carouselViewport,
+              ...styles.tutorialCarouselViewport,
+            }}
+            ariaLabel={t("tutorial.selectMission")}
+            hideArrows
+          >
+            <div style={{ ...styles.mainMenuTrack, ...styles.tutorialMenuTrack }}>
+              {TUTORIAL_MISSIONS.map((mission, index) => {
+                const unlocked = isTutorialMissionUnlocked(
+                  mission.id,
+                  completedTutorialIds
+                );
+                const missionTitle =
+                  language === "en" ? mission.titleEn : mission.title;
+                const missionDescription =
+                  language === "en"
+                    ? mission.descriptionEn
+                    : mission.description;
+
+                return (
+                  <motion.button
+                    key={mission.id}
+                    type="button"
+                    className={
+                      mission.id === nextMissionId
+                        ? "main-menu-tutorial-pulse"
+                        : undefined
+                    }
+                    style={{
+                      ...styles.campaignEntryOption,
+                      ...styles.tutorialEntryOption,
+                      ...(unlocked ? {} : styles.tutorialMissionLocked),
+                    }}
+                    disabled={!unlocked || battleStarting}
+                    onClick={() => {
+                      if (unlocked) startTutorial(mission.id);
+                    }}
+                    whileHover={unlocked ? { y: -8, scale: 1.035 } : undefined}
+                    whileTap={unlocked ? { scale: 0.985 } : undefined}
+                    transition={{ type: "spring", stiffness: 360, damping: 28 }}
+                    aria-label={`${t("tutorial.lesson")} ${index + 1}: ${missionTitle}`}
+                  >
+                    <div style={{ ...styles.campaignEntryCard, ...styles.tutorialEntryCard }}>
+                      <img
+                        src="/ui/menu/education.webp"
+                        alt=""
+                        draggable={false}
+                        onError={(event) =>
+                          usePngFallback(event, "/ui/menu/education.png")
+                        }
+                        style={styles.campaignEntryImage}
+                      />
+                      <span style={styles.tutorialLessonNumber}>
+                        {t("tutorial.lesson")} {index + 1}
+                      </span>
+                      {!unlocked ? (
+                        <span style={styles.tutorialLockIcon} aria-hidden="true">
+                          🔒
+                        </span>
+                      ) : null}
+                      <span style={styles.tutorialMissionHint}>
+                        {unlocked ? missionDescription : t("tutorial.locked")}
+                      </span>
+                      <span
+                        style={{
+                          ...styles.campaignEntryTitleOverlay,
+                          ...styles.tutorialMissionTitleOverlay,
+                        }}
+                      >
+                        {missionTitle}
+                      </span>
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </CarouselTapFrame>
+
+          <div style={{ ...styles.menuActionsRow, ...styles.tutorialActionsRow }}>
+            <button
+              type="button"
+              style={styles.backButton}
+              onClick={closeTutorialMenu}
+            >
+              {t("common.back")}
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   if (menuView === "main" && !pvpBusy) {
     return (
       <main style={styles.page}>
@@ -3759,7 +3893,7 @@ export function PvpLobby() {
                   : undefined
               }
               style={styles.campaignEntryOption}
-              onClick={startTutorial}
+              onClick={openTutorialMenu}
               aria-label={t("main.tutorial")}
               whileHover={{ y: -8, scale: 1.035 }}
               whileTap={{ scale: 0.985 }}
@@ -5970,6 +6104,10 @@ const styles: Record<string, CSSProperties> = {
     touchAction: "none",
   },
 
+  tutorialCarouselViewport: {
+    padding: "30px 40px 16px",
+  },
+
   headquartersCarouselViewport: {
     padding: "30px 58px 8px",
   },
@@ -6026,6 +6164,10 @@ const styles: Record<string, CSSProperties> = {
     gap: 24,
     minWidth: "max-content",
     margin: "0 auto",
+  },
+
+  tutorialMenuTrack: {
+    gap: 30,
   },
 
   headquartersOption: {
@@ -6105,6 +6247,11 @@ const styles: Record<string, CSSProperties> = {
     boxSizing: "border-box",
   },
 
+  tutorialEntryOption: {
+    width: TUTORIAL_CARD_WIDTH + 44,
+    height: TUTORIAL_CARD_HEIGHT + 28,
+  },
+
   campaignEntryCard: {
     position: "relative",
     width: MENU_CARD_WIDTH,
@@ -6117,6 +6264,12 @@ const styles: Record<string, CSSProperties> = {
     border: "1px solid rgba(244, 209, 124, 0.42)",
     boxShadow:
       "0 18px 42px rgba(0,0,0,0.52), inset 0 0 36px rgba(255, 223, 128, 0.08)",
+  },
+
+  tutorialEntryCard: {
+    width: TUTORIAL_CARD_WIDTH,
+    height: TUTORIAL_CARD_HEIGHT,
+    borderRadius: 16,
   },
 
   deckBuilderEntryCard: {
@@ -6194,6 +6347,62 @@ const styles: Record<string, CSSProperties> = {
     textShadow:
       "0 2px 0 rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.9)",
     pointerEvents: "none",
+  },
+
+  tutorialMissionLocked: {
+    cursor: "default",
+    filter: "grayscale(0.85) brightness(0.72)",
+  },
+
+  tutorialLessonNumber: {
+    position: "absolute",
+    left: "9%",
+    top: "7%",
+    zIndex: 2,
+    color: "#f9e7b2",
+    fontFamily: "var(--font-display)",
+    fontSize: 16,
+    fontWeight: 900,
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.85)",
+    pointerEvents: "none",
+  },
+
+  tutorialLockIcon: {
+    position: "absolute",
+    left: "50%",
+    top: "40%",
+    zIndex: 2,
+    transform: "translate(-50%, -50%)",
+    fontSize: 46,
+    filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.85))",
+    pointerEvents: "none",
+  },
+
+  tutorialMissionHint: {
+    position: "absolute",
+    left: "10%",
+    right: "10%",
+    bottom: "24%",
+    zIndex: 2,
+    color: "#e8dcc0",
+    maxHeight: "22%",
+    overflow: "hidden",
+    fontSize: 13.5,
+    fontWeight: 600,
+    lineHeight: 1.22,
+    textAlign: "left",
+    textShadow: "0 2px 0 rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.85)",
+    pointerEvents: "none",
+  },
+
+  tutorialMissionTitleOverlay: {
+    bottom: "7%",
+    maxHeight: "17%",
+    overflow: "hidden",
+    fontSize: 24,
+    lineHeight: 1.05,
   },
 
   campaignEntryMark: {
@@ -6715,6 +6924,10 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateColumns: "minmax(0, 1fr)",
     gap: 12,
     margin: "0 auto",
+  },
+
+  tutorialActionsRow: {
+    margin: "auto auto",
   },
 
   singleMenuAction: {

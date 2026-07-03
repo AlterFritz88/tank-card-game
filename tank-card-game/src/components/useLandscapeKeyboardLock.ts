@@ -134,9 +134,9 @@ export function useLandscapeKeyboardLock() {
   const onFocus: FocusEventHandler<HTMLElement> = useCallback((event) => {
     if (!isTouchPrimary()) return;
 
-    keepFocusedInputVisible(event.currentTarget);
-
     if (isCapacitorNativeApp()) return;
+
+    keepFocusedInputVisible(event.currentTarget);
 
     const orientation = getLockableOrientation();
     if (!orientation) return; // iOS Safari and other unsupported browsers.

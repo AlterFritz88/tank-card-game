@@ -107,6 +107,7 @@ import {
   getTutorialHighlights,
   getTutorialMoveTargetCell,
   getTutorialStep,
+  isStandaloneTutorialScript,
 } from "../game/tutorial";
 import { TutorialOverlay } from "./TutorialOverlay";
 import apShellImage from "../assets/ap-shell.png";
@@ -4779,6 +4780,14 @@ function renderEnemyDeckWithTimer() {
             stagedDeployPreview.supportSlot === supportSlot
               ? stagedDeployPreview
               : null;
+          // Учебный шаг «выставь снабжение»: свободные тыловые слоты игрока
+          // мигают как цель размещения, когда карта снабжения уже выбрана.
+          const tutorialSupportSlotHighlighted = Boolean(
+            tutorialHighlights?.playerSupportSlots &&
+              isFriendly &&
+              !unit &&
+              isTutorialSourceSelected()
+          );
 
           return (
             <motion.button
@@ -4786,7 +4795,9 @@ function renderEnemyDeckWithTimer() {
               ref={setSupportCellRef(owner, supportSlot)}
               type="button"
               className={
-                tutorialHighlights && unit && isTutorialUnitHighlighted(unit)
+                tutorialHighlights &&
+                ((unit && isTutorialUnitHighlighted(unit)) ||
+                  tutorialSupportSlotHighlighted)
                   ? "tutorial-highlight-pulse"
                   : undefined
               }
@@ -4801,7 +4812,8 @@ function renderEnemyDeckWithTimer() {
                 ...(canPlace ? styles.supportCellAvailable : {}),
                 ...(canBeTarget ? styles.targetCell : {}),
                 ...(tutorialHighlights
-                  ? unit && isTutorialUnitHighlighted(unit)
+                  ? (unit && isTutorialUnitHighlighted(unit)) ||
+                    tutorialSupportSlotHighlighted
                     ? styles.tutorialHighlight
                     : styles.tutorialDimmedBoard
                   : {}),
@@ -6477,12 +6489,12 @@ function renderEnemyDeckWithTimer() {
       ) : null}
 
       {tutorialActive &&
-      tutorialScriptId === "training" &&
+      isStandaloneTutorialScript(tutorialScriptId) &&
       battle.status === "player_won" &&
       !tutorialEpilogueSeen ? (
         <TutorialOverlay
           kind="dialogue"
-          text={getTutorialEpilogueText(language)}
+          text={getTutorialEpilogueText(tutorialScriptId, language)}
           visible
           onNext={completeTutorialEpilogue}
           nextLabel={language === "en" ? "Rewards" : "К наградам"}

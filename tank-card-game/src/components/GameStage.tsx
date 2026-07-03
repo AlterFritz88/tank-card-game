@@ -20,6 +20,46 @@ import { createPortal } from "react-dom";
 const DESIGN_WIDTH = 1280;
 const DESIGN_HEIGHT = 720;
 
+type CapacitorWindow = Window & {
+  Capacitor?: {
+    isNativePlatform?: () => boolean;
+  };
+};
+
+function isCapacitorNativeApp(): boolean {
+  if (typeof window === "undefined") return false;
+  const capacitorWindow = window as CapacitorWindow;
+
+  return (
+    window.location.protocol === "capacitor:" ||
+    capacitorWindow.Capacitor?.isNativePlatform?.() === true
+  );
+}
+
+function getStableViewportSize() {
+  if (!isCapacitorNativeApp()) {
+    return {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+  }
+
+  const screenWidth = Math.round(window.screen.width || window.innerWidth);
+  const screenHeight = Math.round(window.screen.height || window.innerHeight);
+  const landscape =
+    window.matchMedia?.("(orientation: landscape)").matches ??
+    window.innerWidth >= window.innerHeight;
+
+  return {
+    width: landscape
+      ? Math.max(screenWidth, screenHeight)
+      : Math.min(screenWidth, screenHeight),
+    height: landscape
+      ? Math.min(screenWidth, screenHeight)
+      : Math.max(screenWidth, screenHeight),
+  };
+}
+
 // Live stage transform, updated whenever the viewport changes. Used to convert
 // pointer/getBoundingClientRect screen coordinates back into the stage's own
 // (design) coordinate space for absolutely/fixed-positioned overlays such as
@@ -114,9 +154,10 @@ export function screenDeltaToStage(dx: number, dy: number) {
  * maps to the design-box center regardless of scale/rotation.
  */
 export function screenPointToStage(px: number, py: number) {
+  const viewport = getStableViewportSize();
   const delta = screenDeltaToStage(
-    px - window.innerWidth / 2,
-    py - window.innerHeight / 2
+    px - viewport.width / 2,
+    py - viewport.height / 2
   );
   return {
     x: DESIGN_WIDTH / 2 + delta.x,
@@ -209,13 +250,26 @@ export function GameStage({ children }: { children: ReactNode }) {
   const [transform, setTransform] = useState<string>(
     "translate(-50%, -50%) scale(1)"
   );
+  const [viewportStyle, setViewportStyle] = useState<CSSProperties | null>(
+    null
+  );
   const [backdropNode, setBackdropNode] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
     function update() {
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
+      const viewport = getStableViewportSize();
+      const vw = viewport.width;
+      const vh = viewport.height;
       const portrait = vh > vw;
+
+      setViewportStyle(
+        isCapacitorNativeApp()
+          ? {
+              width: vw,
+              height: vh,
+            }
+          : null
+      );
 
       if (portrait) {
         // Rotate the landscape design 90° so it fills a portrait screen.
@@ -239,7 +293,7 @@ export function GameStage({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <div style={outerStyle}>
+    <div style={{ ...outerStyle, ...viewportStyle }}>
       <div ref={setBackdropNode} style={backdropHostStyle} />
       <div style={{ ...innerStyle, transform }}>
         <StageBackdropContext.Provider value={backdropNode}>
