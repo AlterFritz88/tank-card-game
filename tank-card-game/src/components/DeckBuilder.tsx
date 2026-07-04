@@ -27,7 +27,6 @@ import {
 import {
   CARD_COPY_LIMIT,
   DECK_UNIT_LIMIT,
-  NATION_FILTERS,
   UNIT_TYPE_FILTERS,
   createCustomDeckDraft,
   createUpdatedCustomDeckDraft,
@@ -41,8 +40,7 @@ import {
   type SavedDeck,
   type UnitTypeFilter,
 } from "../game/customDecks";
-import type { HeadquartersId, Nation, TankCard } from "../game/types";
-import { getNationFlagAsset } from "../assets/nationFlagAssets";
+import type { HeadquartersId, TankCard } from "../game/types";
 import classLightIcon from "../assets/icons/classes/class-light-player.webp";
 import classMediumIcon from "../assets/icons/classes/class-medium-player.webp";
 import classHeavyIcon from "../assets/icons/classes/class-heavy-player.webp";
@@ -56,10 +54,7 @@ import {
   getCardKeywords,
   getHeadquartersKeywords,
 } from "../game/cardKeywords";
-import {
-  getLocalizedNationFilterLabel,
-  getLocalizedUnitTypeFilterLabel,
-} from "../game/cardLocalization";
+import { getLocalizedUnitTypeFilterLabel } from "../game/cardLocalization";
 import { calculateDeckWeight, getCardLevel } from "../game/deckWeight";
 import {
   loadPlayerProgress,
@@ -74,7 +69,7 @@ import { useI18n } from "../game/i18n";
 
 const HAND_CARD_BASE_WIDTH = 175;
 const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
-const BUILDER_CARD_SCALE = 0.76;
+const BUILDER_CARD_SCALE = 0.92;
 const BUILDER_CARD_WIDTH = Math.round(HAND_CARD_BASE_WIDTH * BUILDER_CARD_SCALE);
 const BUILDER_CARD_HEIGHT = Math.round(HAND_CARD_BASE_HEIGHT * BUILDER_CARD_SCALE);
 
@@ -95,21 +90,6 @@ const UNIT_TYPE_FILTER_ICONS: Partial<Record<UnitTypeFilter, string>> = {
   armored_car: classArmoredCarIcon,
   support: classCarIcon,
 };
-
-function getNationFilterIcon(value: NationFilter): string | undefined {
-  if (value === "all") return undefined;
-  return getNationFlagAsset(value as Nation) ?? undefined;
-}
-
-function getNationFlagIconStyle(
-  value: NationFilter
-): CSSProperties | undefined {
-  // США: сдвигаем видимую часть флага влево
-  if (value === "usa") return { objectPosition: "25% center" };
-  // Британия и Франция: показываем флаг целиком, сжимая по ширине до квадрата
-  if (value === "uk" || value === "france") return { objectFit: "fill" };
-  return undefined;
-}
 
 function localizeDeckValidationMessage(
   message: string | null,
@@ -171,6 +151,9 @@ type DragGhost = {
 type DeckBuilderPreview =
   | { type: "card"; card: TankCard }
   | { type: "headquarters"; headquarters: HeadquartersDefinition };
+
+// Ordering applied to the available-card row. "none" keeps the default order.
+type CostSort = "none" | "asc" | "desc";
 
 function scrollRow(rowRef: RefObject<HTMLDivElement | null>, direction: -1 | 1) {
   const row = rowRef.current;
@@ -377,6 +360,8 @@ export function DeckBuilder({
   );
   const [unitTypeFilter, setUnitTypeFilter] = useState<UnitTypeFilter>("all");
   const [nationFilter, setNationFilter] = useState<NationFilter>("all");
+  // Optional ordering of the available cards by their fuel cost («стоимость»).
+  const [costSort, setCostSort] = useState<CostSort>("none");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [deckDropActive, setDeckDropActive] = useState(false);
   const [collectionDropActive, setCollectionDropActive] = useState(false);
@@ -399,6 +384,9 @@ export function DeckBuilder({
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
+  // Timestamp of the last preview open, used to ignore the backdrop-close that
+  // the long-press release would otherwise trigger the instant the peek opens.
+  const previewOpenedAtRef = useRef(0);
   // Floating card that follows the finger during a touch drag.
   const [dragGhost, setDragGhost] = useState<DragGhost | null>(null);
 
@@ -431,13 +419,19 @@ export function DeckBuilder({
   const availableCards = useMemo(() => {
     if (!selectedHeadquarters) return [];
 
-    return getAvailableDeckCards(
+    const cards = getAvailableDeckCards(
       selectedHeadquarters.id,
       unitTypeFilter,
       nationFilter,
       progress
     );
-  }, [nationFilter, progress, selectedHeadquarters, unitTypeFilter]);
+
+    if (costSort === "none") return cards;
+
+    // Array.sort is stable, so cards of equal cost keep their default order.
+    const direction = costSort === "asc" ? 1 : -1;
+    return [...cards].sort((a, b) => (a.cost - b.cost) * direction);
+  }, [costSort, nationFilter, progress, selectedHeadquarters, unitTypeFilter]);
 
   const groupedDeckCards = useMemo(
     () => getGroupedDeckCards(deckCardIds),
@@ -456,21 +450,6 @@ export function DeckBuilder({
           language === "en" ? "Type" : "Тип"
         ),
         icon: UNIT_TYPE_FILTER_ICONS[filter.value],
-      })),
-    [language]
-  );
-  const nationOptions = useMemo(
-    () =>
-      NATION_FILTERS.map((filter) => ({
-        ...filter,
-        label: getLocalizedNationFilterLabel(
-          filter.value,
-          language,
-          language === "en" ? "Nation" : "Нация"
-        ),
-        icon: getNationFilterIcon(filter.value),
-        iconShape: "cover" as const,
-        iconStyleOverride: getNationFlagIconStyle(filter.value),
       })),
     [language]
   );
@@ -522,6 +501,13 @@ export function DeckBuilder({
     setDeckCardIds([]);
     setUnitTypeFilter("all");
     setNationFilter("all");
+  }
+
+  // Cycles the cost ordering: off → ascending (→) → descending (←) → off.
+  function cycleCostSort() {
+    setCostSort((current) =>
+      current === "none" ? "asc" : current === "asc" ? "desc" : "none"
+    );
   }
 
   function addCard(cardId: string) {
@@ -600,11 +586,20 @@ export function DeckBuilder({
   function openCardPreview(event: MouseEvent, previewValue: DeckBuilderPreview) {
     event.preventDefault();
     event.stopPropagation();
+    previewOpenedAtRef.current = Date.now();
     setPreview(previewValue);
   }
 
   function closeCardPreview() {
     setPreview(null);
+  }
+
+  // The long-press release fires a synthesized mouse/touch event on the backdrop
+  // the moment the peek opens, which would slam it shut again. Ignoring closes
+  // for a short window after opening keeps the zoomed card on screen.
+  function closeCardPreviewFromBackdrop() {
+    if (Date.now() - previewOpenedAtRef.current < 450) return;
+    closeCardPreview();
   }
 
   function clearLongPressTimer() {
@@ -632,6 +627,7 @@ export function DeckBuilder({
         clearLongPressTimer();
         longPressTimerRef.current = window.setTimeout(() => {
           longPressTriggeredRef.current = true;
+          previewOpenedAtRef.current = Date.now();
           setPreview(previewValue);
         }, CARD_PREVIEW_LONG_PRESS_MS);
       },
@@ -1026,16 +1022,22 @@ export function DeckBuilder({
                 onChange={setUnitTypeFilter}
                 ariaLabel={language === "en" ? "Unit type filter" : "Фильтр по типу юнита"}
               />
-              <FilterDropdown
-                value={nationFilter}
-                options={nationOptions}
-                onChange={setNationFilter}
-                ariaLabel={language === "en" ? "Nation filter" : "Фильтр по нации"}
-              />
+              <button
+                type="button"
+                style={{
+                  ...styles.sortButton,
+                  ...(costSort !== "none" ? styles.sortButtonActive : null),
+                }}
+                onClick={cycleCostSort}
+                aria-pressed={costSort !== "none"}
+                aria-label={language === "en" ? "Sort by cost" : "Сортировка по стоимости"}
+              >
+                {language === "en" ? "Cost" : "Стоимость"}
+                {costSort === "asc" ? " →" : costSort === "desc" ? " ←" : ""}
+              </button>
             </div>
           ) : null}
           <div style={styles.deckCounter}>
-            <span>{language === "en" ? "Deck" : "Колода"}</span>
             <strong>{deckCardIds.length}/{DECK_UNIT_LIMIT}</strong>
           </div>
           <div style={styles.deckWeightBadge}>
@@ -1378,10 +1380,10 @@ export function DeckBuilder({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.16 }}
-              onMouseDown={closeCardPreview}
+              onMouseDown={closeCardPreviewFromBackdrop}
               onContextMenu={(event) => {
                 event.preventDefault();
-                closeCardPreview();
+                closeCardPreviewFromBackdrop();
               }}
             >
               <div style={{ ...stageOverlayTransform, display: "flex" }}>
@@ -1565,10 +1567,9 @@ const styles: Record<string, CSSProperties> = {
   },
 
   deckCounter: {
-    minWidth: 136,
-    display: "grid",
-    gridTemplateColumns: "auto auto",
-    columnGap: 10,
+    minWidth: 72,
+    display: "flex",
+    justifyContent: "center",
     alignItems: "baseline",
     padding: "9px 13px",
     borderRadius: 4,
@@ -1619,6 +1620,38 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "center",
     gap: 8,
+  },
+
+  // Cost-sort toggle, styled to match the collection menu's sort pills.
+  sortButton: {
+    // Fixed width so the arrow (→/←) appearing never shifts the neighbours.
+    width: 132,
+    height: 34,
+    padding: "0 12px",
+    textAlign: "center",
+    border: "1px solid rgba(194, 154, 77, 0.24)",
+    borderRadius: 0,
+    background:
+      "linear-gradient(180deg, rgba(49, 42, 29, 0.9), rgba(18, 16, 13, 0.92))",
+    color: "rgba(245, 224, 170, 0.82)",
+    cursor: "pointer",
+    fontFamily: "var(--font-body)",
+    fontSize: 11,
+    fontWeight: 900,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    textShadow: "0 2px 6px rgba(0,0,0,0.72)",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)",
+    whiteSpace: "nowrap",
+    boxSizing: "border-box",
+  },
+
+  sortButtonActive: {
+    borderColor: "rgba(236, 196, 98, 0.7)",
+    background:
+      "linear-gradient(180deg, rgba(116, 91, 42, 0.95), rgba(36, 29, 17, 0.96))",
+    color: "#fff2c7",
+    boxShadow: "0 0 15px rgba(226, 180, 67, 0.22)",
   },
 
   readyButton: {
@@ -1679,6 +1712,8 @@ const styles: Record<string, CSSProperties> = {
 
   dropdown: {
     position: "relative",
+    // Fixed width so picking a longer option never reflows the header controls.
+    width: 132,
     minWidth: 132,
   },
 

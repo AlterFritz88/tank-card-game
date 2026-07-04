@@ -52,6 +52,7 @@ import type {
   HeadquartersId,
   BattleStateView,
   ClientBattleState,
+  Nation,
   PlayerId,
 } from "../game/types";
 import { pvpClient } from "../network/pvpClient";
@@ -67,7 +68,15 @@ type SelectedAttacker = {
   id: string;
 } | null;
 
+type AiOpponentCandidate = {
+  headquartersId: HeadquartersId;
+  deckCardIds: string[];
+  distance: number;
+  nation: Nation;
+};
+
 const AI_CUSTOM_OPPONENT_DECK_CARD_COUNT = 40;
+const AI_CUSTOM_OPPONENT_CLOSEST_CANDIDATE_COUNT = 5;
 const PVP_MATCH_FOUND_PREVIEW_MS = 5_000;
 const PVP_CONNECT_TIMEOUT_MS = 6_000;
 const FIRST_TURN_ROLL_DURATION_MS = 2_800;
@@ -467,9 +476,10 @@ function getAiOpponentSetup(
   ).totalWeight;
 
   const opponent =
-    candidates
-      .map((headquartersId) => {
+    getRandomCloseAiOpponentCandidate(
+      candidates.map((headquartersId) => {
         const deckCardIds = getExpandedDefaultDeckCardIds(headquartersId);
+        const headquarters = getHeadquartersDefinition(headquartersId);
 
         return {
           headquartersId,
@@ -478,9 +488,10 @@ function getAiOpponentSetup(
             calculateDeckWeight(headquartersId, deckCardIds).totalWeight -
               playerWeight
           ),
+          nation: headquarters.nation,
         };
       })
-      .sort((left, right) => left.distance - right.distance)[0] ?? null;
+    ) ?? null;
 
   return opponent
     ? {
@@ -500,7 +511,6 @@ function getSameLevelOpponentHeadquartersIds(
   const candidates = getDeckBuildingHeadquarters()
     .filter(
       (headquarters) =>
-        headquarters.id !== playerHeadquartersId &&
         headquarters.level === playerHeadquarters.level &&
         headquarters.defaultDeckId.endsWith("_default") &&
         getDeckCardIds(headquarters.defaultDeckId).length > 0
@@ -519,17 +529,56 @@ function getRandomSameLevelOpponentHeadquartersId(
   const availableCandidates =
     sameLevelCandidates.length > 0
       ? sameLevelCandidates
-      : getTrainingHeadquartersIds().filter(
-          (headquartersId) => headquartersId !== playerHeadquartersId
-        );
+      : getTrainingHeadquartersIds();
 
   if (availableCandidates.length === 0) {
     return DEFAULT_BOT_HEADQUARTERS_ID;
   }
 
-  const randomIndex = Math.floor(Math.random() * availableCandidates.length);
+  return (
+    getRandomCandidateByNation(availableCandidates, (headquartersId) =>
+      getHeadquartersDefinition(headquartersId).nation
+    ) ?? DEFAULT_BOT_HEADQUARTERS_ID
+  );
+}
 
-  return availableCandidates[randomIndex];
+function getRandomCloseAiOpponentCandidate(
+  candidates: AiOpponentCandidate[]
+): AiOpponentCandidate | null {
+  const closeCandidates = [...candidates]
+    .sort((left, right) => left.distance - right.distance)
+    .slice(0, AI_CUSTOM_OPPONENT_CLOSEST_CANDIDATE_COUNT);
+
+  return getRandomCandidateByNation(
+    closeCandidates,
+    (candidate) => candidate.nation
+  );
+}
+
+function getRandomCandidateByNation<T>(
+  candidates: T[],
+  getNation: (candidate: T) => Nation
+): T | null {
+  const candidatesByNation = new Map<Nation, T[]>();
+
+  candidates.forEach((candidate) => {
+    const nation = getNation(candidate);
+    const nationCandidates = candidatesByNation.get(nation) ?? [];
+
+    nationCandidates.push(candidate);
+    candidatesByNation.set(nation, nationCandidates);
+  });
+
+  const nation = getRandomArrayItem(Array.from(candidatesByNation.keys()));
+  if (!nation) return null;
+
+  return getRandomArrayItem(candidatesByNation.get(nation) ?? []);
+}
+
+function getRandomArrayItem<T>(items: T[]): T | null {
+  if (items.length === 0) return null;
+
+  return items[Math.floor(Math.random() * items.length)] ?? null;
 }
 
 function getExpandedDefaultDeckCardIds(headquartersId: HeadquartersId): string[] {

@@ -181,8 +181,12 @@ export function getAvailableDeckCards(
         return card.deploymentZone === "support";
       }
 
-      if (unitTypeFilter !== "all" && card.class !== unitTypeFilter) {
-        return false;
+      if (unitTypeFilter !== "all") {
+        // Rear/support units carry a tank class too (e.g. an ambulance is
+        // class "light"), but they belong only under the "Тыл" filter — keep
+        // them out of the frontline class filters.
+        if (card.deploymentZone === "support") return false;
+        if (card.class !== unitTypeFilter) return false;
       }
 
       return true;
