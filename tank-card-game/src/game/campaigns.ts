@@ -544,13 +544,12 @@ export type CampaignCompletionReward = {
 
 export const CAMPAIGN_COMPLETION_REWARDS: CampaignCompletionReward[] = [
   // Миссия-трейлер: за удержание рубежа у Понырей — легендарный «Зверобой»
-  // СУ-152 и открытие штаба Центрального фронта для PvE/PvP.
+  // СУ-152. Штаб Центрального фронта остается только сценарным штабом миссии.
   {
     id: "welcome_zveroboy",
     missionIds: ["welcome-kursk-1"],
     cardId: "su_152",
     copies: 1,
-    unlockHeadquartersId: "soviet_central_front",
   },
   {
     id: "first_panzer_poland",

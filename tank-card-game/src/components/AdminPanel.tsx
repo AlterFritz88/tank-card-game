@@ -13,6 +13,7 @@ type AdminRuntimeStats = {
   connectedPvpPlayers: number;
   activeGameSessions: number;
   completedPvpRewardClaims: number;
+  completedPvpBattles?: number;
 };
 
 type AdminPlayerAccount = {
@@ -539,6 +540,10 @@ export function AdminPanel() {
               <MetricCard label="Аккаунты" value={overview.accounts.length} />
               <MetricCard label="Профили" value={overview.profiles.length} />
               <MetricCard label="Обращения" value={supportTickets.length} />
+              <MetricCard
+                label="PVP бои"
+                value={overview.runtime.completedPvpBattles ?? 0}
+              />
               <MetricCard
                 label="Платежи"
                 value={paymentsOverview?.payments.length ?? 0}

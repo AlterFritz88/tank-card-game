@@ -26,6 +26,7 @@ import goldTracksIcon from "../assets/icons/gold_tracks_transparent.webp";
 import silverTracksIcon from "../assets/icons/silver-tracks.webp";
 import { getMissionIllustrationAsset } from "../assets/missionIllustrationAssets";
 import { getNationFlagAsset } from "../assets/nationFlagAssets";
+import { RegistrationReminderOverlay } from "./RegistrationReminderOverlay";
 import { createRadarScanSoundPlayer, playMusic } from "../game/audio";
 import { calculateDeckWeight, getDefaultDeckWeight } from "../game/deckWeight";
 import {
@@ -91,7 +92,7 @@ import {
 } from "../game/playerProgress";
 import { getTankImage } from "../game/tankImages";
 import type { HeadquartersId, Nation, TankCard } from "../game/types";
-import type { PvpConnectionState } from "../game/modes";
+import type { MainMenuView, PvpConnectionState } from "../game/modes";
 import { useBattleStore } from "../store/battleStore";
 import { HandCardView } from "./HandCardView";
 import {
@@ -306,6 +307,26 @@ function isNativeMobileApp(): boolean {
     platform === "ios" ||
     capacitorWindow.Capacitor?.isNativePlatform?.() === true
   );
+}
+
+function getNativeBackTarget(menuView: MainMenuView): MainMenuView | null {
+  switch (menuView) {
+    case "missions":
+      return "campaign";
+    case "deckBuilder":
+      return "headquarters";
+    case "headquarters":
+    case "campaign":
+    case "tutorial":
+    case "profile":
+    case "research":
+    case "collection":
+    case "shop":
+    case "exchange":
+      return "main";
+    case "main":
+      return null;
+  }
 }
 
 const GOLD_TRACK_PRODUCTS = [
@@ -1755,13 +1776,29 @@ function ProfileRegisterModal({
 function PlayerProfileMenu({
   onBack,
   onProfileChanged,
+  openRegisterOnMount = false,
+  onRegisterIntentConsumed,
 }: {
   onBack: () => void;
   onProfileChanged?: () => void;
+  /** Open the login/registration form immediately (from the reminder CTA). */
+  openRegisterOnMount?: boolean;
+  onRegisterIntentConsumed?: () => void;
 }) {
   const { language, t } = useI18n();
   const [progress, setProgress] = useState(() => loadPlayerProgress());
-  const [registerOpen, setRegisterOpen] = useState(false);
+  const registeredUserOnMount = isRegisteredUserId(getCurrentUserId());
+  const [registerOpen, setRegisterOpen] = useState(
+    () => openRegisterOnMount && !registeredUserOnMount
+  );
+
+  useEffect(() => {
+    if (openRegisterOnMount) {
+      onRegisterIntentConsumed?.();
+    }
+    // Consume the one-shot intent once, on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [syncStatus, setSyncStatus] = useState<
     "idle" | "syncing" | "synced" | "failed"
   >("idle");
@@ -2550,6 +2587,11 @@ export function PvpLobby() {
     closeTutorialMenu,
     completedTutorialMissionIds,
     cancelMatchmaking,
+    registrationReminderVisible,
+    dismissRegistrationReminder,
+    profileRegisterIntent,
+    requestProfileRegistration,
+    clearProfileRegisterIntent,
   } = useBattleStore();
 
   const [previewHeadquartersId, setPreviewHeadquartersId] =
@@ -3123,6 +3165,87 @@ export function PvpLobby() {
     startCampaignMission(missionId);
   }
 
+  function closeNativeBackTarget(target: MainMenuView) {
+    switch (target) {
+      case "main":
+        if (menuView === "missions") {
+          closeCampaignMenu();
+        } else if (menuView === "deckBuilder") {
+          closeHeadquartersMenu();
+        } else if (menuView === "headquarters") {
+          closeHeadquartersMenu();
+        } else if (menuView === "campaign") {
+          closeCampaignMenu();
+        } else if (menuView === "tutorial") {
+          closeTutorialMenu();
+        } else if (menuView === "profile") {
+          closeProfileMenu();
+        } else if (menuView === "research") {
+          closeResearchMenu();
+        } else if (menuView === "collection") {
+          closeCollectionMenu();
+        } else if (menuView === "shop") {
+          closeShopMenu();
+        } else if (menuView === "exchange") {
+          closeExchangeMenu();
+        }
+        return;
+      case "campaign":
+        closeCampaignMissions();
+        return;
+      case "headquarters":
+        closeDeckBuilderMenu();
+        return;
+      default:
+        return;
+    }
+  }
+
+  function handleNativeAndroidBack() {
+    if (rewardCelebration) {
+      setRewardCelebration(null);
+      return;
+    }
+
+    if (previewUnitCard) {
+      setPreviewUnitCard(null);
+      return;
+    }
+
+    if (previewHeadquartersId || previewDeck) {
+      closeHeadquartersPreview();
+      return;
+    }
+
+    if (supportOpen) {
+      setSupportOpen(false);
+      return;
+    }
+
+    const target = getNativeBackTarget(menuView);
+    if (target) {
+      closeNativeBackTarget(target);
+    }
+  }
+
+  useEffect(() => {
+    if (!isNativeMobileApp()) return;
+
+    window.addEventListener("panzershrekAndroidBack", handleNativeAndroidBack);
+    return () =>
+      window.removeEventListener(
+        "panzershrekAndroidBack",
+        handleNativeAndroidBack
+      );
+  }, [
+    menuView,
+    previewDeck,
+    previewHeadquartersId,
+    previewUnitCard,
+    rewardCelebration,
+    supportOpen,
+  ]);
+
   useEffect(() => {
     if (!previewHeadquartersId && !previewDeck && !previewUnitCard) return;
 
@@ -3635,6 +3758,8 @@ export function PvpLobby() {
       <PlayerProfileMenu
         onBack={closeProfileMenu}
         onProfileChanged={() => setProfileRevision((revision) => revision + 1)}
+        openRegisterOnMount={profileRegisterIntent}
+        onRegisterIntentConsumed={clearProfileRegisterIntent}
       />
     );
   }
@@ -3723,6 +3848,7 @@ export function PvpLobby() {
                   language === "en"
                     ? mission.descriptionEn
                     : mission.description;
+                const missionImageSrc = `/ui/menu/tutorial/${mission.id}.webp`;
 
                 return (
                   <motion.button
@@ -3749,11 +3875,11 @@ export function PvpLobby() {
                   >
                     <div style={{ ...styles.campaignEntryCard, ...styles.tutorialEntryCard }}>
                       <img
-                        src="/ui/menu/education.webp"
+                        src={missionImageSrc}
                         alt=""
                         draggable={false}
                         onError={(event) =>
-                          usePngFallback(event, "/ui/menu/education.png")
+                          usePngFallback(event, "/ui/menu/education.webp")
                         }
                         style={styles.campaignEntryImage}
                       />
@@ -3805,6 +3931,14 @@ export function PvpLobby() {
         <PlayerResourcesPanel
           onOpenShop={openShopMenu}
           onOpenExchange={openExchangeMenu}
+        />
+        <RegistrationReminderOverlay
+          visible={registrationReminderVisible && !isRegisteredUserId()}
+          onRegister={() => {
+            requestProfileRegistration();
+            openProfileMenu();
+          }}
+          onDismiss={dismissRegistrationReminder}
         />
         {renderProfileServerBanner()}
 
@@ -6398,11 +6532,16 @@ const styles: Record<string, CSSProperties> = {
   },
 
   tutorialMissionTitleOverlay: {
+    left: "7%",
+    right: "7%",
     bottom: "7%",
-    maxHeight: "17%",
+    maxHeight: "22%",
     overflow: "hidden",
-    fontSize: 24,
-    lineHeight: 1.05,
+    fontSize: 22,
+    lineHeight: 1.02,
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+    hyphens: "auto",
   },
 
   campaignEntryMark: {

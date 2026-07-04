@@ -215,6 +215,8 @@ export function TankCardView({
 
         {isBoardExhausted && <div style={styles.boardExhaustedOverlay} />}
 
+        <div style={styles.boardTopShade} />
+
         {camouflaged && (
           <div
             style={styles.boardCamouflageBadge}
@@ -671,6 +673,18 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 0,
     background: "rgba(0, 0, 0, 0.28)",
     boxShadow: "inset 0 0 26px rgba(0,0,0,0.62)",
+    pointerEvents: "none",
+  },
+
+  boardTopShade: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    zIndex: 4,
+    height: 30,
+    background:
+      "linear-gradient(180deg, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.48) 48%, rgba(0,0,0,0) 100%)",
     pointerEvents: "none",
   },
 

@@ -2,6 +2,7 @@ import {
   DEFAULT_PLAYER_HEADQUARTERS_ID,
   HEADQUARTERS,
   getTrainingHeadquartersIds,
+  isPlayerSelectableHeadquartersId,
 } from "./headquarters";
 import { getCardOrNull, normalizeCardId } from "./cards";
 import {
@@ -439,6 +440,7 @@ export function applyBattleRewardToProgress(input: {
       progress,
       rewardHeadquartersId
     ),
+    premiumActive: isPremiumAccountActive(progress),
   });
 
   if (progress.claimedBattleRewardIds.includes(claimId)) {
@@ -575,9 +577,7 @@ function normalizePlayerProgress(
         ? progress.unlockedHeadquartersIds
         : []),
     ])
-  ).filter((headquartersId): headquartersId is HeadquartersId =>
-    Boolean(HEADQUARTERS[headquartersId as HeadquartersId])
-  );
+  ).filter(isPlayerSelectableHeadquartersId);
   const unlockedHeadquartersIds = Array.from(
     new Set([
       ...fallback.unlockedHeadquartersIds,
@@ -585,9 +585,7 @@ function normalizePlayerProgress(
         ? progress.unlockedHeadquartersIds
         : []),
     ])
-  ).filter((headquartersId): headquartersId is HeadquartersId =>
-    Boolean(HEADQUARTERS[headquartersId as HeadquartersId])
-  );
+  ).filter(isPlayerSelectableHeadquartersId);
   const researchedCardIds = Array.from(
     new Set([
       ...fallback.researchedCardIds,
@@ -780,7 +778,7 @@ export function getFavoriteHeadquartersId(
 ): HeadquartersId {
   if (
     progress.favoriteHeadquartersId &&
-    HEADQUARTERS[progress.favoriteHeadquartersId]
+    isPlayerSelectableHeadquartersId(progress.favoriteHeadquartersId)
   ) {
     return progress.favoriteHeadquartersId;
   }
@@ -788,7 +786,7 @@ export function getFavoriteHeadquartersId(
   const mostPlayedHeadquarters = Object.entries(progress.headquartersMatchCounts)
     .filter((entry): entry is [HeadquartersId, number] => {
       const [headquartersId, matchCount] = entry;
-      return headquartersId in HEADQUARTERS && matchCount > 0;
+      return isPlayerSelectableHeadquartersId(headquartersId) && matchCount > 0;
     })
     .sort(([, leftMatches], [, rightMatches]) => rightMatches - leftMatches)[0];
 
@@ -801,7 +799,9 @@ export async function setFavoriteHeadquartersIdOnServer(
   const progress = loadPlayerProgress();
   const nextProgress = {
     ...progress,
-    favoriteHeadquartersId: headquartersId in HEADQUARTERS ? headquartersId : null,
+    favoriteHeadquartersId: isPlayerSelectableHeadquartersId(headquartersId)
+      ? headquartersId
+      : null,
   };
 
   try {
@@ -1344,9 +1344,7 @@ function normalizeHeadquartersBattleStats(
 }
 
 function getValidHeadquartersId(value: unknown): HeadquartersId | null {
-  return typeof value === "string" && value in HEADQUARTERS
-    ? (value as HeadquartersId)
-    : null;
+  return isPlayerSelectableHeadquartersId(value) ? value : null;
 }
 
 function readLegacyString(key: string): string | null {

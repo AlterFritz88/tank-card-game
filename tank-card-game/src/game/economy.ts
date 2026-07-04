@@ -86,6 +86,8 @@ export type BattleReward = {
   reasonMultiplier: number;
   /** Scales the payout by relative deck strength — see {@link getOpponentStrengthMultiplier}. */
   opponentStrengthMultiplier: number;
+  /** Final premium-account multiplier applied to credited XP and iron tracks. */
+  premiumMultiplier?: number;
   fullyResearchedConversion: boolean;
   /** True when the reward was zeroed because the player barely participated. */
   insufficientActions: boolean;
@@ -101,10 +103,13 @@ type BattleRewardInput = {
   localDeckWeight?: number | null;
   /** Total deck weight of the opponent. Enables the strength bonus below. */
   opponentDeckWeight?: number | null;
+  /** Active premium account grants a bonus to credited XP and iron tracks. */
+  premiumActive?: boolean;
 };
 
 const FREE_XP_SHARE = 0.08;
 const FULLY_RESEARCHED_FREE_XP_CONVERSION = 0.65;
+export const PREMIUM_REWARD_MULTIPLIER = 1.5;
 
 // Relative-strength reward scaling (PvP wins only). Beating a heavier deck pays
 // proportionally more; beating a much lighter one pays slightly less, which also
@@ -171,6 +176,7 @@ export function calculateBattleReward({
   headquartersFullyResearched = false,
   localDeckWeight = null,
   opponentDeckWeight = null,
+  premiumActive = false,
 }: BattleRewardInput): BattleReward {
   const rewardMode = mode === "pvp" ? "pvp" : mode === "campaign" ? "campaign" : "ai";
   const opponentId: PlayerId = localPlayerId === "player" ? "bot" : "player";
@@ -207,6 +213,7 @@ export function calculateBattleReward({
     localDeckWeight,
     opponentDeckWeight
   );
+  const premiumMultiplier = premiumActive ? PREMIUM_REWARD_MULTIPLIER : 1;
   const rawHeadquartersXp = Math.round(
     modeReward.headquartersXp *
       modeReward.multiplier *
@@ -215,8 +222,8 @@ export function calculateBattleReward({
       activityMultiplier *
       opponentStrengthMultiplier
   );
-  const headquartersXp = headquartersFullyResearched ? 0 : rawHeadquartersXp;
-  const freeXp = Math.max(
+  const baseHeadquartersXp = headquartersFullyResearched ? 0 : rawHeadquartersXp;
+  const baseFreeXp = Math.max(
     1,
     Math.round(
       headquartersFullyResearched
@@ -224,6 +231,11 @@ export function calculateBattleReward({
         : rawHeadquartersXp * FREE_XP_SHARE
     )
   );
+  const headquartersXp = applyRewardMultiplier(
+    baseHeadquartersXp,
+    premiumMultiplier
+  );
+  const freeXp = applyRewardMultiplier(baseFreeXp, premiumMultiplier);
   const rawIronTracks = Math.max(
     1,
     Math.round(
@@ -239,7 +251,10 @@ export function calculateBattleReward({
     0,
     Math.round(rawIronTracks * (localWon ? 0.08 : 0.12))
   );
-  const ironTracks = Math.max(0, rawIronTracks + repairCost);
+  const ironTracks = Math.max(
+    0,
+    applyRewardMultiplier(rawIronTracks, premiumMultiplier) + repairCost
+  );
 
   // Anti-farm: if the local player barely participated, deny all rewards. The
   // mode/result/reason metadata is preserved so the result screen can still
@@ -264,9 +279,14 @@ export function calculateBattleReward({
     resultMultiplier,
     reasonMultiplier,
     opponentStrengthMultiplier,
+    premiumMultiplier,
     fullyResearchedConversion: headquartersFullyResearched,
     insufficientActions,
   };
+}
+
+export function applyRewardMultiplier(value: number, multiplier: number): number {
+  return Math.round(value * multiplier);
 }
 
 // Beating a stronger deck should pay proportionally more. Only PvP wins are

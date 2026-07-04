@@ -38,6 +38,20 @@ export function getDeckBuildingHeadquarters(): HeadquartersDefinition[] {
   return Object.values(HEADQUARTERS);
 }
 
+const PLAYER_LOCKED_HEADQUARTERS_IDS = new Set<HeadquartersId>([
+  "soviet_central_front",
+]);
+
+export function isPlayerSelectableHeadquartersId(
+  headquartersId: unknown
+): headquartersId is HeadquartersId {
+  return (
+    typeof headquartersId === "string" &&
+    Boolean(HEADQUARTERS[headquartersId as HeadquartersId]) &&
+    !PLAYER_LOCKED_HEADQUARTERS_IDS.has(headquartersId as HeadquartersId)
+  );
+}
+
 export function getTrainingHeadquartersIds(): HeadquartersId[] {
   return getMainMenuHeadquarters()
     .filter((headquarters) => headquarters.type === "Учебная часть")

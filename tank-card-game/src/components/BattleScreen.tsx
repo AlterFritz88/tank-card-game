@@ -29,6 +29,7 @@ import type { AttackAnimationStrike } from "../game/engine";
 import type {
   BattleAction,
   BattleState,
+  BoardUnit,
   CardInstance,
   ClientBattleState,
   ClientCardInstance,
@@ -196,6 +197,12 @@ type AttackChangeEffect = {
   id: number;
   amount: number;
   targetId: string;
+};
+
+type CounterBatteryCalloutEffect = {
+  id: number;
+  targetId: string;
+  ownerId: PlayerId;
 };
 
 // Floating «защита» indicator for the USSR «Сплочение» national ability — shown
@@ -437,28 +444,53 @@ function AttackTargetGlow() {
       style={styles.attackTargetGlow}
       initial={{ opacity: 0 }}
       animate={{
-        opacity: [0.42, 0.76, 0.5, 0.7, 0.42],
+        opacity: [0.62, 1, 0.72, 0.94, 0.62],
+        scale: [1, 1.045, 1.012, 1.035, 1],
         borderColor: [
-          "rgba(207, 72, 61, 0.64)",
-          "rgba(255, 133, 116, 0.9)",
-          "rgba(190, 54, 47, 0.7)",
-          "rgba(242, 102, 88, 0.84)",
-          "rgba(207, 72, 61, 0.64)",
+          "rgba(255, 76, 62, 0.9)",
+          "rgba(255, 194, 113, 1)",
+          "rgba(255, 62, 50, 0.94)",
+          "rgba(255, 144, 88, 1)",
+          "rgba(255, 76, 62, 0.9)",
         ],
         boxShadow: [
-          "0 0 3px rgba(194, 54, 47, 0.18)",
-          "0 0 8px rgba(255, 105, 91, 0.4)",
-          "0 0 4px rgba(190, 54, 47, 0.24)",
-          "0 0 7px rgba(242, 102, 88, 0.34)",
-          "0 0 3px rgba(194, 54, 47, 0.18)",
+          "0 0 0 1px rgba(255, 230, 160, 0.16), 0 0 10px rgba(255, 76, 62, 0.42), inset 0 0 12px rgba(255, 48, 38, 0.22)",
+          "0 0 0 2px rgba(255, 225, 145, 0.34), 0 0 24px rgba(255, 112, 76, 0.78), inset 0 0 20px rgba(255, 86, 58, 0.34)",
+          "0 0 0 1px rgba(255, 210, 132, 0.2), 0 0 14px rgba(255, 64, 54, 0.52), inset 0 0 14px rgba(255, 48, 38, 0.26)",
+          "0 0 0 2px rgba(255, 225, 145, 0.28), 0 0 20px rgba(255, 122, 76, 0.66), inset 0 0 18px rgba(255, 86, 58, 0.32)",
+          "0 0 0 1px rgba(255, 230, 160, 0.16), 0 0 10px rgba(255, 76, 62, 0.42), inset 0 0 12px rgba(255, 48, 38, 0.22)",
         ],
       }}
       transition={{
-        duration: 2.1,
+        duration: 1.45,
         ease: "easeInOut",
         repeat: Infinity,
       }}
     />
+  );
+}
+
+function CounterBatteryCallout({ friendly }: { friendly: boolean }) {
+  return (
+    <motion.span
+      style={{
+        ...styles.counterBatteryCallout,
+        ...(friendly
+          ? styles.counterBatteryCalloutFriendly
+          : styles.counterBatteryCalloutEnemy),
+      }}
+      initial={{ opacity: 0, x: "-50%", y: 8, scale: 0.72 }}
+      animate={{
+        opacity: [0, 1, 1, 0],
+        x: "-50%",
+        y: [8, -6, -12, -24],
+        scale: [0.72, 1.08, 1, 0.94],
+      }}
+      exit={{ opacity: 0, x: "-50%", y: -24, scale: 0.9 }}
+      transition={{ duration: 1.18, ease: "easeOut" }}
+    >
+      Контрбатарея
+    </motion.span>
   );
 }
 
@@ -545,6 +577,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     completeTrailerAndExit,
     surrenderBattle,
     leavePvpMatch,
+    recordBattleForReminder,
   } = battleStore;
 
   const firstTurnRoll = battleStore.firstTurnRoll;
@@ -775,9 +808,28 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       return Boolean(tutorialHighlights.enemyHq) && ownHqSelected;
     }
 
-    return owner === "player"
-      ? Boolean(tutorialHighlights.playerHq)
-      : Boolean(tutorialHighlights.enemyHq);
+    if (owner === "player") {
+      return Boolean(tutorialHighlights.playerHq);
+    }
+
+    // The enemy HQ is a stage-2 target: when the step also highlights an actor
+    // (a unit or a hand card), it blinks only after that actor is picked — so a
+    // single hint is on screen at any moment.
+    const stepHasActor = Boolean(
+      tutorialHighlights.handCardIds?.length ||
+        tutorialHighlights.unitCardIds?.length ||
+        tutorialHighlights.unitInstanceIds?.length
+    );
+
+    if (!stepHasActor) {
+      return Boolean(tutorialHighlights.enemyHq);
+    }
+
+    return (
+      Boolean(tutorialHighlights.enemyHq) &&
+      isTutorialSourceSelected() &&
+      tutorialMoveCells.length === 0
+    );
   }
 
   const humanPlayerId: PlayerId = mode === "pvp" ? localPlayerId : "player";
@@ -989,10 +1041,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const [attackChangeEffects, setAttackChangeEffects] = useState<
     AttackChangeEffect[]
   >([]);
+  const [counterBatteryCallouts, setCounterBatteryCallouts] = useState<
+    CounterBatteryCalloutEffect[]
+  >([]);
   const [defenseChangeEffects, setDefenseChangeEffects] = useState<
     DefenseChangeEffect[]
   >([]);
   const [hoveredAttackTarget, setHoveredAttackTarget] =
+    useState<HoveredAttackTarget>(null);
+  const [suppressedAttackTarget, setSuppressedAttackTarget] =
     useState<HoveredAttackTarget>(null);
   const [turnBannerText, setTurnBannerText] = useState<string | null>(null);
   const [thinkingCardIndex, setThinkingCardIndex] = useState<number | null>(
@@ -1005,6 +1062,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   });
   const previousBattleStatusRef = useRef<string | null>(null);
   const previousActivePlayerRef = useRef(battle.activePlayer);
+  const previousCounterBatteryUnitIdsRef = useRef(
+    new Set(battle.units.map((unit) => unit.instanceId))
+  );
   const boardRef = useRef<HTMLDivElement | null>(null);
   // Rear-strip cells must match the live battlefield cell size. The board is a
   // 5-column grid with a 4px gap, so a single cell is (width - 4*gap) / 5. We
@@ -1033,6 +1093,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const damageTextIdRef = useRef(0);
   const healthGainEffectIdRef = useRef(0);
   const attackChangeEffectIdRef = useRef(0);
+  const counterBatteryCalloutIdRef = useRef(0);
   const defenseChangeEffectIdRef = useRef(0);
   const previousHpSnapshotRef = useRef<Map<string, number> | null>(null);
   const previousAttackSnapshotRef = useRef<Map<string, number> | null>(null);
@@ -1169,6 +1230,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const [rewardSyncPending, setRewardSyncPending] = useState(false);
   const debugPausedRef = useRef(false);
   const rewardedBattleKeyRef = useRef<string | null>(null);
+  const reminderCountedBattleKeyRef = useRef<string | null>(null);
 
   const handCardRefs = useRef<Record<PlayerId, Map<string, HTMLElement>>>({
     player: new Map(),
@@ -1670,6 +1732,31 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     void claimCurrentBattleReward();
   }, [battle, humanPlayerId, matchEndReason, mode, pvpRoomId, tutorialActive]);
+
+  // Count every finished battle (any mode) once, so an unregistered player gets
+  // the «register to keep your progress» reminder every third battle. The ref
+  // resets when a new battle starts, so a fresh terminal state counts again.
+  useEffect(() => {
+    if (battle.status === "starting" || battle.status === "active") {
+      reminderCountedBattleKeyRef.current = null;
+      return;
+    }
+
+    if (battle.status !== "player_won" && battle.status !== "bot_won") return;
+
+    const countedKey = [
+      mode,
+      battle.status,
+      battle.turn,
+      battle.headquarters.player.hp,
+      battle.headquarters.bot.hp,
+    ].join(":");
+
+    if (reminderCountedBattleKeyRef.current === countedKey) return;
+
+    reminderCountedBattleKeyRef.current = countedKey;
+    recordBattleForReminder();
+  }, [battle, mode, recordBattleForReminder]);
 
   useEffect(() => {
     if (!cardPreview) return;
@@ -2218,6 +2305,43 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     );
   }
 
+  function shouldShowAttackTargetGlow(
+    targetType: "unit" | "headquarters",
+    targetId: string
+  ) {
+    return isTarget(targetType, targetId) && !suppressedAttackTarget;
+  }
+
+  useEffect(() => {
+    if (!suppressedAttackTarget) return;
+
+    if (
+      !selectedAttacker ||
+      battle.status !== "active" ||
+      battle.activePlayer !== humanPlayerId
+    ) {
+      setSuppressedAttackTarget(null);
+      return;
+    }
+
+    const stillTarget = selectedTargets.some(
+      (target) =>
+        target.type === suppressedAttackTarget.type &&
+        target.id === suppressedAttackTarget.id
+    );
+
+    if (!stillTarget) {
+      setSuppressedAttackTarget(null);
+    }
+  }, [
+    battle.activePlayer,
+    battle.status,
+    humanPlayerId,
+    selectedAttacker,
+    selectedTargets,
+    suppressedAttackTarget,
+  ]);
+
   function isMoveCell(position: Position) {
     return selectedMoveCells.some((cell) => samePosition(cell, position));
   }
@@ -2310,6 +2434,36 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         current.filter((item) => item.id !== effect.id)
       );
     }, 920);
+  }
+
+  function getCounterBatteryCallout(targetId: string) {
+    for (let index = counterBatteryCallouts.length - 1; index >= 0; index -= 1) {
+      const effect = counterBatteryCallouts[index];
+
+      if (effect.targetId === targetId) {
+        return effect;
+      }
+    }
+
+    return undefined;
+  }
+
+  function showCounterBatteryCallout(targetId: string, ownerId: PlayerId) {
+    counterBatteryCalloutIdRef.current += 1;
+
+    const effect: CounterBatteryCalloutEffect = {
+      id: counterBatteryCalloutIdRef.current,
+      targetId,
+      ownerId,
+    };
+
+    setCounterBatteryCallouts((current) => [...current, effect]);
+
+    window.setTimeout(() => {
+      setCounterBatteryCallouts((current) =>
+        current.filter((item) => item.id !== effect.id)
+      );
+    }, 1180);
   }
 
   function getDefenseChangeEffect(targetId: string) {
@@ -2500,6 +2654,29 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     return hp;
   }
 
+  function getVisibleHeadquartersAttackValue(
+    sourceBattle: ClientBattleState,
+    owner: PlayerId
+  ): number {
+    if (sourceBattle.headquarters[owner].attackSuppressed) return 0;
+
+    return getHeadquartersAttackValue(sourceBattle as BattleState, owner);
+  }
+
+  function getVisibleUnitAttackValue(
+    sourceBattle: ClientBattleState,
+    unit: BoardUnit,
+    includeAuraBonuses = true
+  ): number {
+    if (unit.attackSuppressed && getCard(unit.cardId).class === "spg") {
+      return 0;
+    }
+
+    return includeAuraBonuses
+      ? getUnitDisplayAttackValue(sourceBattle as BattleState, unit)
+      : getUnitAttackValue(sourceBattle as BattleState, unit);
+  }
+
   /**
    * Snapshot of every combatant's attack for the gain/loss flash diff.
    *
@@ -2516,19 +2693,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     includeAuraBonuses = false
   ): Map<string, number> {
     const attack = new Map<string, number>([
-      [
-        "player_hq",
-        getHeadquartersAttackValue(sourceBattle as BattleState, "player"),
-      ],
-      ["bot_hq", getHeadquartersAttackValue(sourceBattle as BattleState, "bot")],
+      ["player_hq", getVisibleHeadquartersAttackValue(sourceBattle, "player")],
+      ["bot_hq", getVisibleHeadquartersAttackValue(sourceBattle, "bot")],
     ]);
 
-    const unitAttackValue = includeAuraBonuses
-      ? getUnitDisplayAttackValue
-      : getUnitAttackValue;
-
     for (const unit of sourceBattle.units) {
-      attack.set(unit.instanceId, unitAttackValue(sourceBattle as BattleState, unit));
+      attack.set(
+        unit.instanceId,
+        getVisibleUnitAttackValue(sourceBattle, unit, includeAuraBonuses)
+      );
     }
 
     return attack;
@@ -2633,6 +2806,21 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     previousSupplyAppliedRef.current = nextSupply;
     previousCohesionDefenseRef.current = nextDefense;
+  }, [battle]);
+
+  useEffect(() => {
+    const previousUnitIds = previousCounterBatteryUnitIdsRef.current;
+    const nextUnitIds = new Set(battle.units.map((unit) => unit.instanceId));
+
+    for (const unit of battle.units) {
+      if (previousUnitIds.has(unit.instanceId)) continue;
+
+      if (getCard(unit.cardId).onPlayEffects?.suppressEnemyIndirect) {
+        showCounterBatteryCallout(unit.instanceId, unit.ownerId);
+      }
+    }
+
+    previousCounterBatteryUnitIdsRef.current = nextUnitIds;
   }, [battle]);
 
   /**
@@ -4339,6 +4527,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       targetId,
     };
 
+    flushSync(() => {
+      setSuppressedAttackTarget({ type: targetType, id: targetId });
+      setHoveredAttackTarget((current) =>
+        current?.type === targetType && current.id === targetId ? null : current
+      );
+    });
     enqueueBattleCommand(() => executeQueuedAttack(attackAction));
   }
 
@@ -4528,6 +4722,8 @@ function renderEnemyDeckWithTimer() {
     const hq = battle.headquarters[owner];
     const hqId = `${owner}_hq`;
     const canBeTarget = isTarget("headquarters", hqId);
+    const showTargetGlow = shouldShowAttackTargetGlow("headquarters", hqId);
+    const hqAttackValue = getVisibleHeadquartersAttackValue(battle, owner);
     const isAttacking = attackingId === hqId;
     const hitReaction =
       hitReactionEffect?.targetId === hqId ? hitReactionEffect : null;
@@ -4600,7 +4796,7 @@ function renderEnemyDeckWithTimer() {
             ownerId: owner,
             headquartersId: getHeadquartersIdForOwner(owner),
             hp: hq.hp,
-            attack: getHeadquartersAttackValue(battle as BattleState, owner),
+            attack: hqAttackValue,
             fuelGeneration: hq.fuelGeneration,
           })
         }
@@ -4609,7 +4805,7 @@ function renderEnemyDeckWithTimer() {
           ownerId: owner,
           headquartersId: getHeadquartersIdForOwner(owner),
           hp: hq.hp,
-          attack: getHeadquartersAttackValue(battle as BattleState, owner),
+          attack: hqAttackValue,
           fuelGeneration: hq.fuelGeneration,
         })}
         onClick={() => {
@@ -4681,7 +4877,7 @@ function renderEnemyDeckWithTimer() {
             ownerId={getVisualOwnerId(owner)}
             headquartersId={getHeadquartersIdForOwner(owner)}
             hp={hq.hp}
-            attack={getHeadquartersAttackValue(battle as BattleState, owner)}
+            attack={hqAttackValue}
             fuelGeneration={hq.fuelGeneration}
             alreadyAttacked={hq.alreadyAttacked}
             healthDamageEffect={getHealthDamageEffect(hqId)}
@@ -4710,7 +4906,7 @@ function renderEnemyDeckWithTimer() {
         <HqCommandFrame />
 
         {isSelected && <SelectedCombatObjectGlow />}
-        {canBeTarget && <AttackTargetGlow />}
+        {showTargetGlow && <AttackTargetGlow />}
       </motion.button>
     );
   }
@@ -4765,6 +4961,12 @@ function renderEnemyDeckWithTimer() {
 
           const card = unit ? getCard(unit.cardId) : null;
           const canBeTarget = unit ? isTarget("unit", unit.instanceId) : false;
+          const showTargetGlow = unit
+            ? shouldShowAttackTargetGlow("unit", unit.instanceId)
+            : false;
+          const counterBatteryCallout = unit
+            ? getCounterBatteryCallout(unit.instanceId)
+            : undefined;
           const isAttacking = unit ? attackingId === unit.instanceId : false;
           const hitReaction =
             unit && hitReactionEffect?.targetId === unit.instanceId
@@ -4961,10 +5163,7 @@ function renderEnemyDeckWithTimer() {
                       variant="board"
                       ownerId={getVisualOwnerId(unit.ownerId)}
                       currentHp={unit.currentHp}
-                      attackValue={getUnitDisplayAttackValue(
-                        battle as BattleState,
-                        unit
-                      )}
+                      attackValue={getVisibleUnitAttackValue(battle, unit)}
                       borderlessBoard
                       alreadyMoved
                       alreadyAttacked
@@ -4982,7 +5181,16 @@ function renderEnemyDeckWithTimer() {
                 )}
               </AnimatePresence>
 
-              {canBeTarget && <AttackTargetGlow />}
+              <AnimatePresence>
+                {counterBatteryCallout && (
+                  <CounterBatteryCallout
+                    key={counterBatteryCallout.id}
+                    friendly={counterBatteryCallout.ownerId === humanPlayerId}
+                  />
+                )}
+              </AnimatePresence>
+
+              {showTargetGlow && <AttackTargetGlow />}
             </motion.button>
           );
         })}
@@ -5654,6 +5862,13 @@ function renderEnemyDeckWithTimer() {
                   if (unit) {
                     const card = getCard(unit.cardId);
                     const canBeTarget = isTarget("unit", unit.instanceId);
+                    const showTargetGlow = shouldShowAttackTargetGlow(
+                      "unit",
+                      unit.instanceId
+                    );
+                    const counterBatteryCallout = getCounterBatteryCallout(
+                      unit.instanceId
+                    );
                     const combo = combinationByUnitId.get(unit.instanceId);
                     const defenseChange = getDefenseChangeEffect(
                       unit.instanceId
@@ -5766,10 +5981,6 @@ function renderEnemyDeckWithTimer() {
                           if (battle.status !== "active") return;
                           if (battle.activePlayer !== humanPlayerId) return;
 
-                          if (selectedAttacker?.type === "headquarters") {
-                            selectAttacker(null);
-                          }
-
                           if (canBeTarget) {
                             void handleAttackTarget("unit", unit.instanceId);
                             return;
@@ -5811,10 +6022,7 @@ function renderEnemyDeckWithTimer() {
                             variant="board"
                             ownerId={getVisualOwnerId(unit.ownerId)}
                             currentHp={unit.currentHp}
-                            attackValue={getUnitDisplayAttackValue(
-                              battle as BattleState,
-                              unit
-                            )}
+                            attackValue={getVisibleUnitAttackValue(battle, unit)}
                             // Тыловые/слотовые юниты рисуются без рамки —
                             // боевые юниты на поле выглядели иначе из-за тёмной
                             // окантовки (2px бордюр + чёрная тень-гало). Убираем
@@ -5867,6 +6075,17 @@ function renderEnemyDeckWithTimer() {
                         )}
 
                         <AnimatePresence>
+                          {counterBatteryCallout && (
+                            <CounterBatteryCallout
+                              key={counterBatteryCallout.id}
+                              friendly={
+                                counterBatteryCallout.ownerId === humanPlayerId
+                              }
+                            />
+                          )}
+                        </AnimatePresence>
+
+                        <AnimatePresence>
                           {defenseChange && (
                             <motion.span
                               key={defenseChange.id}
@@ -5909,7 +6128,7 @@ function renderEnemyDeckWithTimer() {
                         </AnimatePresence>
 
                         {isSelected && <SelectedCombatObjectGlow />}
-                        {canBeTarget && <AttackTargetGlow />}
+                        {showTargetGlow && <AttackTargetGlow />}
                       </motion.button>
                     );
                   }
@@ -6645,6 +6864,32 @@ const styles: Record<string, React.CSSProperties> = {
     "0 3px 0 rgba(0,0,0,0.95), 0 0 14px rgba(255,77,77,0.95), 0 0 34px rgba(255,77,77,0.65)",
 },
 
+  counterBatteryCallout: {
+    position: "absolute",
+    left: "50%",
+    top: -18,
+    zIndex: 62,
+    fontSize: 13,
+    fontWeight: 1000,
+    letterSpacing: 1.3,
+    lineHeight: 1,
+    textTransform: "uppercase",
+    whiteSpace: "nowrap",
+    pointerEvents: "none",
+  },
+
+  counterBatteryCalloutFriendly: {
+    color: "#7dff8a",
+    textShadow:
+      "0 2px 0 rgba(0,0,0,0.95), 0 0 10px rgba(125,255,138,0.95), 0 0 22px rgba(125,255,138,0.62)",
+  },
+
+  counterBatteryCalloutEnemy: {
+    color: "#ff4d4d",
+    textShadow:
+      "0 2px 0 rgba(0,0,0,0.95), 0 0 10px rgba(255,77,77,0.95), 0 0 22px rgba(255,77,77,0.62)",
+  },
+
   gameTable: {
   position: "relative",
   zIndex: 1,
@@ -7241,10 +7486,12 @@ actionSideColumn: {
 
   attackTargetGlow: {
     position: "absolute",
-    inset: 1,
-    zIndex: 19,
-    border: "1px solid rgba(207, 72, 61, 0.68)",
+    inset: -2,
+    zIndex: 24,
+    border: "2px solid rgba(255, 76, 62, 0.9)",
     borderRadius: 0,
+    background:
+      "radial-gradient(circle at center, rgba(255, 82, 60, 0.16), rgba(255, 82, 60, 0.06) 45%, transparent 72%)",
     pointerEvents: "none",
   },
 

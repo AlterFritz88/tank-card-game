@@ -127,12 +127,22 @@ export function ResultScreen({
   const headquarters = reward
     ? getHeadquartersDefinition(reward.headquartersId)
     : null;
-  const baseHeadquartersXp = reward?.headquartersXp ?? 0;
+  const rewardPremiumMultiplier = reward?.premiumMultiplier ?? 1;
+  const toBaseRewardValue = (value: number) =>
+    rewardPremiumMultiplier > 1
+      ? Math.round(value / rewardPremiumMultiplier)
+      : value;
+  const earnedHeadquartersXp = reward?.headquartersXp ?? 0;
+  const baseHeadquartersXp = toBaseRewardValue(earnedHeadquartersXp);
   const rawHeadquartersXp = reward?.rawHeadquartersXp ?? baseHeadquartersXp;
   const freeXp = reward?.freeXp ?? 0;
+  const baseFreeXp = toBaseRewardValue(freeXp);
   const rawIronTracks = reward?.rawIronTracks ?? reward?.ironTracks ?? 0;
   const repairCost = reward?.repairCost ?? 0;
   const netIronTracks = reward?.ironTracks ?? Math.max(0, rawIronTracks + repairCost);
+  const baseNetIronTracks = reward?.insufficientActions
+    ? 0
+    : Math.max(0, rawIronTracks + repairCost);
   const ratingDelta = getRatingDelta(localPlayerWon, matchEndReason);
   const ratingText = ratingDelta > 0 ? `+${ratingDelta}` : `${ratingDelta}`;
 
@@ -169,7 +179,7 @@ export function ResultScreen({
               <RewardTicker icon={silverTracksIcon} value={netIronTracks} animated />
               <RewardTicker
                 icon={experienceIcon}
-                value={baseHeadquartersXp + freeXp}
+                value={earnedHeadquartersXp + freeXp}
                 color={accentColor}
                 animated
               />
@@ -246,18 +256,18 @@ export function ResultScreen({
                           ? resultText.fullyResearchedConversion
                           : resultText.headquartersXpTotal,
                         value: reward?.fullyResearchedConversion
-                          ? freeXp
+                          ? baseFreeXp
                           : baseHeadquartersXp,
                         premiumValue: getPremiumValue(
                           reward?.fullyResearchedConversion
-                            ? freeXp
+                            ? baseFreeXp
                             : baseHeadquartersXp
                         ),
                       },
                       {
                         label: resultText.freeXp,
-                        value: freeXp,
-                        premiumValue: getPremiumValue(freeXp),
+                        value: baseFreeXp,
+                        premiumValue: getPremiumValue(baseFreeXp),
                       },
                     ]}
                   />
@@ -281,11 +291,13 @@ export function ResultScreen({
                       },
                       {
                         label: resultText.totalEarned,
-                        value: netIronTracks,
-                        premiumValue: Math.max(
-                          0,
-                          getPremiumValue(rawIronTracks) + repairCost
-                        ),
+                        value: baseNetIronTracks,
+                        premiumValue: reward?.insufficientActions
+                          ? 0
+                          : Math.max(
+                              0,
+                              getPremiumValue(rawIronTracks) + repairCost
+                            ),
                       },
                     ]}
                   />

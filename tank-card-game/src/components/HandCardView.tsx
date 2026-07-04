@@ -361,7 +361,9 @@ export function HandCardView({
 
   const fuelGenerationValue = isHeadquarters
     ? headquarters!.fuelGeneration
-    : card!.fuelGeneration;
+    : card!.deploymentZone === "support"
+      ? card!.supportEffects?.fuelPerTurn ?? 0
+      : card!.fuelGeneration;
 
   const abilityText = isHeadquarters
     ? getLocalizedHeadquartersDescription(headquartersDefinition, language)

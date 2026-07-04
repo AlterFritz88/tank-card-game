@@ -9,6 +9,8 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 
+import androidx.activity.OnBackPressedCallback;
+
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -16,6 +18,15 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         enableImmersiveFullscreen();
+        getOnBackPressedDispatcher().addCallback(
+            this,
+            new OnBackPressedCallback(true) {
+                @Override
+                public void handleOnBackPressed() {
+                    dispatchAndroidBackToWeb();
+                }
+            }
+        );
     }
 
     @Override
@@ -30,6 +41,17 @@ public class MainActivity extends BridgeActivity {
 
         if (hasFocus) {
             enableImmersiveFullscreen();
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        dispatchAndroidBackToWeb();
+    }
+
+    private void dispatchAndroidBackToWeb() {
+        if (getBridge() != null) {
+            getBridge().triggerWindowJSEvent("panzershrekAndroidBack");
         }
     }
 

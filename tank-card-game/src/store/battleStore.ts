@@ -33,6 +33,7 @@ import {
   TUTORIAL_BOT_HEADQUARTERS_ID,
   TUTORIAL_PLAYER_HEADQUARTERS_ID,
   getNextTutorialStepIndex,
+  getTutorialEarlyVictoryLog,
   getTutorialMissionDecks,
   isStandaloneTutorialScript,
   isTutorialActionAllowed,
@@ -59,6 +60,7 @@ import { profileClient } from "../network/profileClient";
 import { getDefaultWebSocketUrl } from "../network/webSocketUrl";
 import { getCurrentUserId } from "../game/playerIdentity";
 import { hasCompletedTutorial } from "../game/playerProgress";
+import { recordBattleForRegistrationReminder } from "../game/registrationReminder";
 
 type SelectedAttacker = {
   type: "unit" | "headquarters";
@@ -162,6 +164,26 @@ type BattleStore = {
   tutorialEpilogueSeen: boolean;
   /** Completed tutorial missions — unlocks the next mission on the tutorial screen. */
   completedTutorialMissionIds: string[];
+
+  /**
+   * True when an unregistered player should see the «register to keep your
+   * progress» reminder on the main menu (raised after every third finished
+   * battle, any mode). Cleared when the reminder is dismissed or acted on.
+   */
+  registrationReminderVisible: boolean;
+  /** Counts a finished battle and raises the registration reminder every 3rd one. */
+  recordBattleForReminder: () => void;
+  dismissRegistrationReminder: () => void;
+
+  /**
+   * True while the profile menu should open straight into the registration form
+   * (set when the player taps «Register» on the reminder). The profile screen
+   * consumes and clears it on mount.
+   */
+  profileRegisterIntent: boolean;
+  /** Opens the profile menu with the registration form already showing. */
+  requestProfileRegistration: () => void;
+  clearProfileRegisterIntent: () => void;
 
   openTutorialMenu: () => void;
   closeTutorialMenu: () => void;
@@ -1157,6 +1179,34 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   tutorialEpilogueSeen: false,
   completedTutorialMissionIds: loadCompletedTutorialMissionIds(),
 
+  registrationReminderVisible: false,
+
+  recordBattleForReminder: () => {
+    if (recordBattleForRegistrationReminder()) {
+      set({ registrationReminderVisible: true });
+    }
+  },
+
+  dismissRegistrationReminder: () => {
+    set({ registrationReminderVisible: false });
+  },
+
+  profileRegisterIntent: false,
+
+  requestProfileRegistration: () => {
+    set({
+      menuView: "profile",
+      mode: "ai",
+      pvpError: null,
+      registrationReminderVisible: false,
+      profileRegisterIntent: true,
+    });
+  },
+
+  clearProfileRegisterIntent: () => {
+    set({ profileRegisterIntent: false });
+  },
+
   openTutorialMenu: () => {
     set({
       menuView: "tutorial",
@@ -2149,6 +2199,20 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     // Reuse the caller's already-simulated result when provided so randomised
     // effects are not rolled a second time (see the `dispatch` type comment).
     const nextBattle = precomputedNext ?? applyAction(currentBattle, action);
+
+    // Досрочная победа учебных миссий: боевая задача урока выполнена — бой
+    // окончен, не дожидаясь уничтожения штаба противника.
+    if (tutorialActive && nextBattle.status === "active") {
+      const earlyVictoryLog = getTutorialEarlyVictoryLog(
+        tutorialScriptId,
+        nextBattle
+      );
+
+      if (earlyVictoryLog) {
+        nextBattle.status = "player_won";
+        nextBattle.log = [earlyVictoryLog, ...nextBattle.log].slice(0, 12);
+      }
+    }
 
     set({
       battle: nextBattle,

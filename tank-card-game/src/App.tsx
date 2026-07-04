@@ -69,6 +69,7 @@ function GameApp() {
   const trailerLaunchPending = useBattleStore(
     (state) => state.trailerLaunchPending
   );
+  const battleStarting = useBattleStore((state) => state.battleStarting);
   const sessionError = useBattleStore((state) => state.sessionError);
   const clearSessionError = useBattleStore((state) => state.clearSessionError);
   const [bootReady, setBootReady] = useState(false);
@@ -104,6 +105,11 @@ function GameApp() {
   // being auto-launched, so the registration/menu screen doesn't flash (or get
   // stuck) in the gap before the trailer battle starts.
   if (trailerLaunchPending && !battle) return <LoadingScreen />;
+
+  // Battle startup may spend a moment acquiring the server-side session lock and
+  // preloading assets. Keep the player on the loading screen instead of showing
+  // a blocked menu while the click is being processed.
+  if (battleStarting) return <LoadingScreen />;
 
   return (
     <>

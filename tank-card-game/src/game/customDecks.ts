@@ -1,5 +1,5 @@
 import { cards, getCardOrNull, normalizeCardId } from "./cards";
-import { HEADQUARTERS } from "./headquarters";
+import { HEADQUARTERS, isPlayerSelectableHeadquartersId } from "./headquarters";
 import { loadPlayerProgress, savePlayerProgress, type PlayerProgress } from "./playerProgress";
 import { getCurrentUserId } from "./playerIdentity";
 import { profileClient } from "../network/profileClient";
@@ -199,7 +199,7 @@ export function validateDeck(
   cardIds: string[],
   progress?: PlayerProgress
 ): DeckValidationResult {
-  if (!headquartersId || !(headquartersId in HEADQUARTERS)) {
+  if (!isPlayerSelectableHeadquartersId(headquartersId)) {
     return { valid: false, message: "Выберите штаб" };
   }
 

@@ -6,13 +6,18 @@ import {
   type BattleReward,
   type BattleRewardSource,
 } from "../../tank-card-game/src/game/economy";
-import { getHeadquartersDefinition, HEADQUARTERS } from "../../tank-card-game/src/game/headquarters";
+import {
+  getHeadquartersDefinition,
+  HEADQUARTERS,
+  isPlayerSelectableHeadquartersId,
+} from "../../tank-card-game/src/game/headquarters";
 import type { GameMode, MatchEndReason } from "../../tank-card-game/src/game/modes";
 import {
   canSpendResearchExperience,
   addPremiumDaysToProgress,
   createInitialPlayerProgress,
   isHeadquartersFullyResearched,
+  isPremiumAccountActive,
   mergeOwnedCardCopiesWithFloor,
   spendResearchExperience,
   type PlayerProgress,
@@ -81,7 +86,9 @@ const MAX_SAVED_DECKS = 80;
 // headquarters and the full card collection unlocked — a play/test account that
 // can field and build any deck. Regular players still unlock everything beyond
 // the three training headquarters through progression.
-const ALL_HEADQUARTERS_IDS = Object.keys(HEADQUARTERS) as HeadquartersId[];
+const ALL_HEADQUARTERS_IDS = Object.keys(HEADQUARTERS).filter(
+  isPlayerSelectableHeadquartersId
+);
 const ALL_CARD_IDS = cards.map((card) => card.id);
 
 function masterUsernameToUserId(username: string): string {
@@ -335,8 +342,7 @@ function normalizeHeadquartersIdList(values: unknown): HeadquartersId[] {
   return Array.from(
     new Set(
       values.filter((headquartersId): headquartersId is HeadquartersId =>
-        typeof headquartersId === "string" &&
-        Boolean(HEADQUARTERS[headquartersId as HeadquartersId])
+        isPlayerSelectableHeadquartersId(headquartersId)
       )
     )
   );
@@ -601,7 +607,7 @@ function getUnlockedFavoriteHeadquartersId(
 ): HeadquartersId | null {
   if (
     typeof headquartersId === "string" &&
-    headquartersId in HEADQUARTERS &&
+    isPlayerSelectableHeadquartersId(headquartersId) &&
     profile.unlockedHeadquartersIds.includes(headquartersId as HeadquartersId)
   ) {
     return headquartersId as HeadquartersId;
@@ -1033,7 +1039,7 @@ function claimCampaignRewardOnProfile(
   // the 4th Tank Brigade selectable in PvE/PvP).
   const unlockHeadquartersId =
     reward.unlockHeadquartersId &&
-    HEADQUARTERS[reward.unlockHeadquartersId as HeadquartersId]
+    isPlayerSelectableHeadquartersId(reward.unlockHeadquartersId)
       ? (reward.unlockHeadquartersId as HeadquartersId)
       : null;
 
@@ -1068,6 +1074,10 @@ function purchaseHeadquartersOnProfile(
   progress: PlayerProgress,
   headquartersId: HeadquartersId
 ): PlayerProgress {
+  if (!isPlayerSelectableHeadquartersId(headquartersId)) {
+    throw new Error("Этот штаб недоступен игрокам");
+  }
+
   if (!progress.researchedHeadquartersIds.includes(headquartersId)) {
     throw new Error("Сначала исследуйте штаб");
   }
@@ -1169,6 +1179,28 @@ export class PlayerProfileManager {
 
         return rightMatches - leftMatches;
       });
+  }
+
+  countClaimedPvpBattleRooms(): number {
+    const db = readDb();
+    const roomIds = new Set<string>();
+
+    for (const profile of Object.values(db)) {
+      const rewardIds = Array.isArray(profile.claimedBattleRewardIds)
+        ? profile.claimedBattleRewardIds
+        : [];
+
+      for (const rewardId of rewardIds) {
+        if (!rewardId.startsWith("pvp:")) continue;
+
+        const [, roomId] = rewardId.split(":");
+        if (roomId) {
+          roomIds.add(roomId);
+        }
+      }
+    }
+
+    return roomIds.size;
   }
 
   adminCreditTracks({
@@ -1300,6 +1332,7 @@ export class PlayerProfileManager {
           ),
           localDeckWeight: input.localDeckWeight ?? null,
           opponentDeckWeight: input.opponentDeckWeight ?? null,
+          premiumActive: isPremiumAccountActive(profile),
         }),
       };
     }
@@ -1319,6 +1352,7 @@ export class PlayerProfileManager {
       ),
       localDeckWeight: input.localDeckWeight ?? null,
       opponentDeckWeight: input.opponentDeckWeight ?? null,
+      premiumActive: isPremiumAccountActive(profile),
     });
     const localPlayerWon = getBattleWinner(input.battle, input.localPlayerId);
     const nextProfile = {

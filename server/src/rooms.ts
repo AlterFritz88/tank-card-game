@@ -10,6 +10,7 @@ import {
   DEFAULT_PLAYER_HEADQUARTERS_ID,
   HEADQUARTERS,
   getHeadquartersDefinition,
+  isPlayerSelectableHeadquartersId,
 } from "../../tank-card-game/src/game/headquarters";
 import { calculateDeckWeight, getDefaultDeckWeight } from "../../tank-card-game/src/game/deckWeight";
 import { getRandomBattleBackgroundId } from "./battleBackgrounds";
@@ -29,6 +30,7 @@ import { PlayerAccountManager } from "./playerAccounts";
 import { PlayerProfileManager } from "./playerProfiles";
 import { createSessionToken, verifySessionToken } from "./authTokens";
 import { PromoRedemptionStore } from "./promoCodes";
+import { PvpStatsStore } from "./pvpStats";
 
 const REGISTERED_USER_PREFIX = "user:";
 
@@ -119,6 +121,7 @@ export type AdminRuntimeStats = {
   connectedPvpPlayers: number;
   activeGameSessions: number;
   completedPvpRewardClaims: number;
+  completedPvpBattles: number;
 };
 
 const START_ROLL_DURATION_MS = 2800;
@@ -335,7 +338,7 @@ function normalizeHeadquartersId(
   headquartersId: HeadquartersId | undefined,
   fallback: HeadquartersId
 ): HeadquartersId {
-  return headquartersId && headquartersId in HEADQUARTERS ? headquartersId : fallback;
+  return isPlayerSelectableHeadquartersId(headquartersId) ? headquartersId : fallback;
 }
 
 function normalizeCustomDeckCardIds(
@@ -408,6 +411,7 @@ export class RoomManager {
   private accounts = new PlayerAccountManager();
   private profiles = new PlayerProfileManager();
   private promoRedemptions = new PromoRedemptionStore();
+  private pvpStats = new PvpStatsStore();
   // Token buckets for CLAIM_BATTLE_REWARD, keyed by profile id. See
   // REWARD_CLAIM_* constants.
   private rewardClaimBuckets = new Map<
@@ -470,6 +474,10 @@ export class RoomManager {
       }
     }
 
+    const completedPvpBattles = this.pvpStats.ensureCompletedBattlesAtLeast(
+      this.profiles.countClaimedPvpBattleRooms()
+    ).completedBattles;
+
     return {
       roomsTotal: this.rooms.size,
       matchmakingRooms,
@@ -478,6 +486,7 @@ export class RoomManager {
       connectedPvpPlayers,
       activeGameSessions: this.activeGameSessions.size,
       completedPvpRewardClaims: this.completedPvpMatches.size,
+      completedPvpBattles,
     };
   }
 
@@ -2759,6 +2768,8 @@ export class RoomManager {
     const previousMatch = this.completedPvpMatches.get(room.id);
     if (previousMatch) {
       clearTimeout(previousMatch.timeoutId);
+    } else {
+      this.pvpStats.recordCompletedBattle();
     }
 
     const timeoutId = setTimeout(() => {

@@ -156,6 +156,8 @@ export function HeadquartersCardView({
         }}
       />
 
+      <div style={styles.topShade} />
+
       <div style={styles.titleArea}>
         <div style={styles.titleRow}>
           {headquartersClassIcon ? (
@@ -268,6 +270,18 @@ const styles: Record<string, React.CSSProperties> = {
   enemyGradient: {
     background:
       "linear-gradient(315deg, rgba(255, 70, 55, 0.30) 0%, rgba(255, 70, 55, 0.12) 25%, rgba(255, 70, 55, 0.03) 48%, rgba(255, 70, 55, 0) 72%), radial-gradient(circle at 100% 100%, rgba(255,70,55,0.13), transparent 48%)",
+  },
+
+  topShade: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    zIndex: 4,
+    height: 30,
+    background:
+      "linear-gradient(180deg, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.48) 48%, rgba(0,0,0,0) 100%)",
+    pointerEvents: "none",
   },
 
   titleArea: {
