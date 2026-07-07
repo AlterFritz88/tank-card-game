@@ -29,6 +29,13 @@ import type {
 } from "./types";
 
 export type Side = "player" | "bot";
+export type BotDifficulty = "easy" | "medium" | "hard" | "full";
+
+type BotDecisionOptions = {
+  difficulty?: BotDifficulty;
+};
+
+const HEADQUARTERS_PRESSURE_SHOT_WINDOW = 4;
 
 function getDistance(a: Position, b: Position): number {
   return Math.abs(a.row - b.row) + Math.abs(a.col - b.col);
@@ -544,6 +551,7 @@ function isDevelopmentCard(card: TankCard): boolean {
 }
 
 function shouldDevelopBeforeCombat(state: BattleState): boolean {
+  if (shouldPressHeadquarters(state)) return false;
   if (state.turn <= 4) return true;
   if (getEconomyGap(state) > 0) return true;
   if (state.bot.hand.length <= 2 && state.bot.deck.length > 0) return true;
@@ -618,6 +626,111 @@ function getAttackOutcome(
   };
 }
 
+function getAvailableHeadquartersAttackCandidates(
+  state: BattleState
+): { action: AttackAction; outcome: AttackOutcome }[] {
+  const candidates: { action: AttackAction; outcome: AttackOutcome }[] = [];
+  const botUnits = state.units.filter(
+    (unit) => unit.ownerId === "bot" && isBattlefieldUnit(unit)
+  );
+
+  for (const unit of botUnits) {
+    if (unit.alreadyAttacked) continue;
+
+    const targets = getTargetsInRange(state, "bot", "unit", unit.instanceId);
+    const headquartersTarget = targets.find(
+      (target) => target.type === "headquarters" && target.id === "player_hq"
+    );
+
+    if (!headquartersTarget) continue;
+
+    const action: AttackAction = {
+      type: "ATTACK",
+      playerId: "bot",
+      attackerType: "unit",
+      attackerId: unit.instanceId,
+      targetType: "headquarters",
+      targetId: headquartersTarget.id,
+    };
+    const outcome = getAttackOutcome(state, action);
+
+    if (!outcome || !outcome.attackerStruck || outcome.targetDamage <= 0) {
+      continue;
+    }
+
+    candidates.push({ action, outcome });
+  }
+
+  if (!state.headquarters.bot.alreadyAttacked) {
+    const targets = getTargetsInRange(state, "bot", "headquarters", "bot_hq");
+    const headquartersTarget = targets.find(
+      (target) => target.type === "headquarters" && target.id === "player_hq"
+    );
+
+    if (headquartersTarget) {
+      const action: AttackAction = {
+        type: "ATTACK",
+        playerId: "bot",
+        attackerType: "headquarters",
+        attackerId: "bot_hq",
+        targetType: "headquarters",
+        targetId: headquartersTarget.id,
+      };
+      const outcome = getAttackOutcome(state, action);
+
+      if (outcome && outcome.attackerStruck && outcome.targetDamage > 0) {
+        candidates.push({ action, outcome });
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function getAvailableHeadquartersDamage(state: BattleState): number {
+  return getAvailableHeadquartersAttackCandidates(state).reduce(
+    (total, candidate) => total + candidate.outcome.targetDamage,
+    0
+  );
+}
+
+function getHeadquartersDamageClock(state: BattleState): number {
+  const damage = getAvailableHeadquartersDamage(state);
+
+  if (damage <= 0) return Number.POSITIVE_INFINITY;
+
+  return Math.ceil(state.headquarters.player.hp / damage);
+}
+
+function shouldPressHeadquarters(state: BattleState): boolean {
+  return getHeadquartersDamageClock(state) <= HEADQUARTERS_PRESSURE_SHOT_WINDOW;
+}
+
+function getProjectedHeadquartersAttackPower(state: BattleState): number {
+  const unitDamage = state.units
+    .filter(
+      (unit) =>
+        unit.ownerId === "bot" && isBattlefieldUnit(unit) && unit.currentHp > 0
+    )
+    .reduce((total, unit) => total + getCard(unit.cardId).attack, 0);
+
+  return unitDamage + state.headquarters.bot.attack;
+}
+
+function shouldAdvanceOnHeadquarters(state: BattleState): boolean {
+  if (shouldPressHeadquarters(state)) return true;
+  if (state.turn < 5) return false;
+
+  const projectedDamage = getProjectedHeadquartersAttackPower(state);
+
+  if (projectedDamage <= 0) return false;
+
+  return (
+    Math.ceil(state.headquarters.player.hp / projectedDamage) <=
+    HEADQUARTERS_PRESSURE_SHOT_WINDOW
+  );
+}
+
 function scoreAttackAction(
   state: BattleState,
   action: AttackAction
@@ -633,6 +746,8 @@ function scoreAttackAction(
   let score = outcome.targetDamage * 5 - outcome.attackerDamage * 4;
 
   if (action.targetType === "headquarters") {
+    const headquartersDamageClock = getHeadquartersDamageClock(state);
+
     if (action.attackerType === "unit") {
       const attacker = getBotUnitById(state, action.attackerId);
 
@@ -653,6 +768,13 @@ function scoreAttackAction(
     }
 
     score += 8;
+
+    if (headquartersDamageClock <= HEADQUARTERS_PRESSURE_SHOT_WINDOW) {
+      score +=
+        54 +
+        (HEADQUARTERS_PRESSURE_SHOT_WINDOW + 1 - headquartersDamageClock) * 18 +
+        outcome.targetDamage * 7;
+    }
   } else {
     const enemyUnit = getEnemyUnitById(state, action.targetId);
 
@@ -849,11 +971,39 @@ function shouldSpgAttackHeadquarters(
   if (!isBattlefieldSpg(card)) return true;
 
   if (state.headquarters.player.hp <= card.attack) return true;
+  if (shouldPressHeadquarters(state)) return true;
   if (getAvailableSpgHeadquartersDamage(state) >= state.headquarters.player.hp) {
     return true;
   }
 
   return !hasWorthySpgTarget(state, attacker);
+}
+
+function getHeadquartersPressureAttackAction(
+  state: BattleState
+): BattleAction | null {
+  if (!shouldPressHeadquarters(state)) return null;
+
+  const candidates = getAvailableHeadquartersAttackCandidates(state)
+    .map((candidate) => {
+      const score = scoreAttackAction(state, candidate.action);
+
+      if (score === null) return null;
+
+      return {
+        action: candidate.action,
+        score:
+          score +
+          candidate.outcome.targetDamage * 10 +
+          (candidate.outcome.targetDestroyed ? 200 : 0),
+      };
+    })
+    .filter((candidate): candidate is { action: AttackAction; score: number } =>
+      Boolean(candidate)
+    )
+    .sort((a, b) => b.score - a.score);
+
+  return candidates[0]?.action ?? null;
 }
 
 function getLethalAttackAction(state: BattleState): BattleAction | null {
@@ -1026,6 +1176,10 @@ function enemyHasBattlefieldUnits(state: BattleState): boolean {
   );
 }
 
+function isLineFormationAbility(ability: NationalAbility | null): boolean {
+  return ability?.id === "cohesion" || ability?.id === "supply_line";
+}
+
 function getBotBattlefieldUnits(
   state: BattleState,
   excludeId: string | null
@@ -1055,12 +1209,12 @@ function getNationalFormationCellValue(
 ): number {
   if (!ability) return 0;
 
-  // «Линия снабжения» is a pure health buff that only matters while the bot's
-  // line is under enemy fire. With no enemy unit left on the board there is
-  // nothing to defend against, so assembling the formation is wasted tempo — the
-  // bot should instead rush the now-open enemy headquarters. Suppress the supply
-  // incentive in that case so advancing toward the HQ wins the move/spawn scoring.
-  if (ability.id === "supply_line" && !enemyHasBattlefieldUnits(state)) {
+  // Line formations are useful while contesting the board, but should not freeze
+  // the bot in place once the enemy HQ is exposed or under a short damage clock.
+  if (
+    isLineFormationAbility(ability) &&
+    (!enemyHasBattlefieldUnits(state) || shouldAdvanceOnHeadquarters(state))
+  ) {
     return 0;
   }
 
@@ -1266,7 +1420,11 @@ function getStrategicPlayCardAction(state: BattleState): BattleAction | null {
   return bestCard ? getPlayActionForCandidate(state, bestCard) : null;
 }
 
-function getNormalAttackAction(state: BattleState): BattleAction | null {
+function getNormalAttackAction(
+  state: BattleState,
+  options: { allowHeadquartersTargets?: boolean } = {}
+): BattleAction | null {
+  const allowHeadquartersTargets = options.allowHeadquartersTargets ?? true;
   const botUnits = state.units.filter(
     (unit) => unit.ownerId === "bot" && isBattlefieldUnit(unit)
   );
@@ -1282,6 +1440,8 @@ function getNormalAttackAction(state: BattleState): BattleAction | null {
     const targets = getTargetsInRange(state, "bot", "unit", unit.instanceId);
 
     for (const target of targets) {
+      if (!allowHeadquartersTargets && target.type === "headquarters") continue;
+
       const action: AttackAction = {
         type: "ATTACK",
         playerId: "bot",
@@ -1298,7 +1458,7 @@ function getNormalAttackAction(state: BattleState): BattleAction | null {
     }
   }
 
-  if (!state.headquarters.bot.alreadyAttacked) {
+  if (allowHeadquartersTargets && !state.headquarters.bot.alreadyAttacked) {
     const targets = getTargetsInRange(state, "bot", "headquarters", "bot_hq");
 
     for (const target of targets) {
@@ -1323,9 +1483,83 @@ function getNormalAttackAction(state: BattleState): BattleAction | null {
   return candidates[0]?.action ?? null;
 }
 
+function getEasyBotAction(state: BattleState): BattleAction | null {
+  if (shouldPrioritizeSpawn(state)) {
+    const playCardAction = getStrategicPlayCardAction(state);
+    if (playCardAction) return playCardAction;
+  }
+
+  const normalAttack = getNormalAttackAction(state, {
+    allowHeadquartersTargets: false,
+  });
+  if (normalAttack) return normalAttack;
+
+  const moveAction = getStrategicMoveAction(state);
+  if (moveAction) return moveAction;
+
+  const playCardAction = getStrategicPlayCardAction(state);
+  if (playCardAction) return playCardAction;
+
+  return null;
+}
+
+function getMediumBotAction(state: BattleState): BattleAction | null {
+  const lethalAttack = getLethalAttackAction(state);
+  if (lethalAttack) return lethalAttack;
+
+  const killUnitAttack = getKillUnitAttackAction(state);
+  if (killUnitAttack) return killUnitAttack;
+
+  if (shouldPrioritizeSpawn(state)) {
+    const playCardAction = getStrategicPlayCardAction(state);
+    if (playCardAction) return playCardAction;
+  }
+
+  const normalAttack = getNormalAttackAction(state, {
+    allowHeadquartersTargets: false,
+  });
+  if (normalAttack) return normalAttack;
+
+  const moveAction = getStrategicMoveAction(state);
+  if (moveAction) return moveAction;
+
+  const playCardAction = getStrategicPlayCardAction(state);
+  if (playCardAction) return playCardAction;
+
+  return null;
+}
+
+function getHardBotAction(state: BattleState): BattleAction | null {
+  const lethalAttack = getLethalAttackAction(state);
+  if (lethalAttack) return lethalAttack;
+
+  const headquartersPressureAttack = getHeadquartersPressureAttackAction(state);
+  if (headquartersPressureAttack) return headquartersPressureAttack;
+
+  const killUnitAttack = getKillUnitAttackAction(state);
+  if (killUnitAttack) return killUnitAttack;
+
+  if (shouldPrioritizeSpawn(state)) {
+    const playCardAction = getStrategicPlayCardAction(state);
+    if (playCardAction) return playCardAction;
+  }
+
+  const normalAttack = getNormalAttackAction(state);
+  if (normalAttack) return normalAttack;
+
+  const moveAction = getStrategicMoveAction(state);
+  if (moveAction) return moveAction;
+
+  const playCardAction = getStrategicPlayCardAction(state);
+  if (playCardAction) return playCardAction;
+
+  return null;
+}
+
 function getStrategicMoveAction(state: BattleState): BattleAction | null {
   const mostDangerousEnemy = getMostDangerousEnemyUnit(state);
   const nationalAbility = getBotNationalAbility(state);
+  const advancingOnHeadquarters = shouldAdvanceOnHeadquarters(state);
 
   const botUnits = state.units.filter(
     (unit) =>
@@ -1403,7 +1637,15 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
     );
 
     // Если юнит уже может атаковать, движение обычно не нужно.
-    if (!unit.alreadyAttacked && currentTargets.length > 0) {
+    const currentCanAttackHeadquarters = currentTargets.some(
+      (target) => target.type === "headquarters" && target.id === "player_hq"
+    );
+
+    if (
+      !unit.alreadyAttacked &&
+      currentTargets.length > 0 &&
+      (!advancingOnHeadquarters || currentCanAttackHeadquarters)
+    ) {
       continue;
     }
 
@@ -1439,6 +1681,11 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
             ? currentThreatDistance - getDistance(cell, mostDangerousEnemy.position)
             : 0;
         const enablesAttack = moveEnablesAttack(state, card, cell);
+        const canAttackHeadquartersFromCell = canCardAttackPosition(
+          card.id,
+          cell,
+          playerHq
+        );
         const spgProtectionBonus = getSpgProtectionPositionScore(
           state,
           card,
@@ -1446,13 +1693,28 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
         );
         const raidBonus =
           raidDraw > 0 && isEnemySpawnCell(cell) ? raidDraw * 12 + 10 : 0;
-        const formationDelta =
+        const formationDeltaRaw =
           getNationalFormationCellValue(
             state,
             nationalAbility,
             unit.instanceId,
             cell
           ) - currentFormationValue;
+        const formationDelta =
+          isLineFormationAbility(nationalAbility) && formationDeltaRaw < 0
+            ? Math.ceil(formationDeltaRaw / 3)
+            : formationDeltaRaw;
+        const lineInitiativeBonus =
+          isLineFormationAbility(nationalAbility) && distanceGain > 0
+            ? advancingOnHeadquarters
+              ? 12
+              : 7
+            : 0;
+        const headquartersPositionBonus = canAttackHeadquartersFromCell
+          ? advancingOnHeadquarters
+            ? 30
+            : 16
+          : 0;
 
         return {
           cell,
@@ -1460,11 +1722,13 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
           threatDistanceGain,
           enablesAttack,
           score:
-            distanceGain * 3 +
+            distanceGain * (advancingOnHeadquarters ? 7 : 3) +
             threatDistanceGain * (enemyPressure > 0 ? 7 : 2) +
             (enablesAttack ? 12 : 0) +
+            headquartersPositionBonus +
             spgProtectionBonus +
             raidBonus +
+            lineInitiativeBonus +
             formationDelta,
         };
       })
@@ -1481,7 +1745,8 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
       card.class === "light" &&
       (unit.moveCountThisTurn ?? 0) > 0 &&
       !bestCell.enablesAttack &&
-      !(enemyPressure > 0 && bestCell.threatDistanceGain > 0)
+      !(enemyPressure > 0 && bestCell.threatDistanceGain > 0) &&
+      !(advancingOnHeadquarters && bestCell.distanceGain > 0)
     ) {
       continue;
     }
@@ -1503,6 +1768,8 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
 }
 
 function shouldPrioritizeSpawn(state: BattleState): boolean {
+  if (shouldPressHeadquarters(state)) return false;
+
   const bestCard = getBestPlayableCard(state);
 
   if (!bestCard) return false;
@@ -1530,13 +1797,38 @@ function shouldPrioritizeSpawn(state: BattleState): boolean {
   return false;
 }
 
-export function getNextBotAction(state: BattleState): BattleAction | null {
+export function getNextBotAction(
+  state: BattleState,
+  options: BotDecisionOptions = {}
+): BattleAction | null {
   if (state.status !== "active") return null;
   if (state.activePlayer !== "bot") return null;
+
+  const difficulty = options.difficulty ?? "full";
+  const difficultyAction =
+    difficulty === "easy"
+      ? getEasyBotAction(state)
+      : difficulty === "medium"
+        ? getMediumBotAction(state)
+        : difficulty === "hard"
+          ? getHardBotAction(state)
+          : null;
+
+  if (difficulty !== "full") {
+    return (
+      difficultyAction ?? {
+        type: "END_TURN",
+        playerId: "bot",
+      }
+    );
+  }
 
   // 1. Если можно немедленно победить — атакуем штаб.
   const lethalAttack = getLethalAttackAction(state);
   if (lethalAttack) return lethalAttack;
+
+  const headquartersPressureAttack = getHeadquartersPressureAttackAction(state);
+  if (headquartersPressureAttack) return headquartersPressureAttack;
 
   const developmentPlay = getDevelopmentPlayAction(state);
   if (developmentPlay) return developmentPlay;
@@ -1586,6 +1878,333 @@ export function runBotTurn(state: BattleState): BattleState {
   }
 
   return nextState;
+}
+
+// ============================================================
+// Fake PvP opponent styles
+// ============================================================
+//
+// Server-driven "fake" opponents impersonate real players when matchmaking
+// fails to find a human in time. Each fake gets a difficulty tier (reusing the
+// easy/medium/hard/full ladder above) and one of several playstyles. A style is
+// just a different ordering/filtering of the existing action generators, so the
+// fake visibly favours a plan — sprinting the HQ, raiding the rear, farming the
+// board, turtling, or all-out attack — instead of always playing the same
+// optimal line. `sloppiness` layers in human-like mistakes on top.
+
+export type FakeStyle =
+  | "hq_rush"
+  | "rear_raid"
+  | "board_control"
+  | "balanced"
+  | "defensive"
+  | "aggressive";
+
+/** Best attack that targets the enemy headquarters, ignoring the pressure gate. */
+function getAnyHeadquartersAttackAction(state: BattleState): BattleAction | null {
+  const candidates = getAvailableHeadquartersAttackCandidates(state)
+    .map((candidate) => {
+      const score = scoreAttackAction(state, candidate.action);
+      return score === null ? null : { action: candidate.action, score };
+    })
+    .filter((item): item is { action: AttackAction; score: number } => Boolean(item))
+    .sort((a, b) => b.score - a.score);
+
+  return candidates[0]?.action ?? null;
+}
+
+/** Best attack against an enemy support/rear unit — the raider's preferred prey. */
+function getRearStrikeAttackAction(state: BattleState): BattleAction | null {
+  const candidates: { action: BattleAction; score: number }[] = [];
+
+  const consider = (action: AttackAction) => {
+    const enemy = getEnemyUnitById(state, action.targetId);
+    if (!enemy) return;
+
+    const isRear =
+      enemy.zone === "support" || getSupportUnitValue(getCard(enemy.cardId)) > 0;
+    if (!isRear) return;
+
+    const score = scoreAttackAction(state, action);
+    if (score === null) return;
+
+    candidates.push({ action, score: score + 40 });
+  };
+
+  const botUnits = state.units.filter(
+    (unit) => unit.ownerId === "bot" && isBattlefieldUnit(unit)
+  );
+
+  for (const unit of botUnits) {
+    if (unit.alreadyAttacked) continue;
+
+    for (const target of getTargetsInRange(state, "bot", "unit", unit.instanceId)) {
+      if (target.type !== "unit") continue;
+      consider({
+        type: "ATTACK",
+        playerId: "bot",
+        attackerType: "unit",
+        attackerId: unit.instanceId,
+        targetType: "unit",
+        targetId: target.id,
+      });
+    }
+  }
+
+  if (!state.headquarters.bot.alreadyAttacked) {
+    for (const target of getTargetsInRange(state, "bot", "headquarters", "bot_hq")) {
+      if (target.type !== "unit") continue;
+      consider({
+        type: "ATTACK",
+        playerId: "bot",
+        attackerType: "headquarters",
+        attackerId: "bot_hq",
+        targetType: "unit",
+        targetId: target.id,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+
+  return candidates[0]?.action ?? null;
+}
+
+/**
+ * Highest-value attack that does not sacrifice the attacker (unless it trades
+ * for a kill). Used by the defensive style, which will not throw units away.
+ */
+function getSafeAttackAction(
+  state: BattleState,
+  options: { allowHeadquartersTargets?: boolean } = {}
+): BattleAction | null {
+  const allowHeadquartersTargets = options.allowHeadquartersTargets ?? false;
+  const candidates: { action: BattleAction; score: number }[] = [];
+
+  const push = (action: AttackAction) => {
+    const outcome = getAttackOutcome(state, action);
+    if (!outcome || !outcome.attackerStruck || outcome.targetDamage <= 0) return;
+    if (outcome.attackerDestroyed && !outcome.targetDestroyed) return;
+
+    const score = scoreAttackAction(state, action);
+    if (score === null) return;
+
+    candidates.push({ action, score });
+  };
+
+  const botUnits = state.units.filter(
+    (unit) => unit.ownerId === "bot" && isBattlefieldUnit(unit)
+  );
+
+  for (const unit of botUnits) {
+    if (unit.alreadyAttacked) continue;
+
+    for (const target of getTargetsInRange(state, "bot", "unit", unit.instanceId)) {
+      if (!allowHeadquartersTargets && target.type === "headquarters") continue;
+      push({
+        type: "ATTACK",
+        playerId: "bot",
+        attackerType: "unit",
+        attackerId: unit.instanceId,
+        targetType: target.type,
+        targetId: target.id,
+      });
+    }
+  }
+
+  if (!state.headquarters.bot.alreadyAttacked) {
+    for (const target of getTargetsInRange(state, "bot", "headquarters", "bot_hq")) {
+      if (!allowHeadquartersTargets && target.type === "headquarters") continue;
+      push({
+        type: "ATTACK",
+        playerId: "bot",
+        attackerType: "headquarters",
+        attackerId: "bot_hq",
+        targetType: target.type,
+        targetId: target.id,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+
+  return candidates[0]?.action ?? null;
+}
+
+/**
+ * A deliberately imperfect action: a random legal move or card play, or an early
+ * end of turn. Lets a fake opponent "тупить" — shuffle around, misplay, or pass
+ * when it still had options — the way a distracted human might.
+ */
+function getRandomLegalAction(state: BattleState): BattleAction | null {
+  const options: BattleAction[] = [];
+
+  for (const candidate of getPlayableCardCandidates(state).slice(0, 4)) {
+    const action = getPlayActionForCandidate(state, candidate);
+    if (action) options.push(action);
+  }
+
+  const movable = state.units.filter(
+    (unit) =>
+      unit.ownerId === "bot" && isBattlefieldUnit(unit) && !unit.alreadyMoved
+  );
+
+  for (const unit of movable.slice(0, 4)) {
+    const cells = getAvailableMoveCells(state, "bot", unit.instanceId);
+    if (cells.length === 0) continue;
+
+    const cell = cells[Math.floor(Math.random() * cells.length)];
+    options.push({
+      type: "MOVE_UNIT",
+      playerId: "bot",
+      unitId: unit.instanceId,
+      position: cell,
+    });
+  }
+
+  if (options.length === 0) return null;
+
+  // Sometimes just pass despite having options — a human moment of hesitation.
+  if (Math.random() < 0.25) return { type: "END_TURN", playerId: "bot" };
+
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+function getHqRushStyleAction(state: BattleState): BattleAction | null {
+  const hqAttack = getAnyHeadquartersAttackAction(state);
+  if (hqAttack) return hqAttack;
+
+  if (shouldPrioritizeSpawn(state)) {
+    const play = getStrategicPlayCardAction(state);
+    if (play) return play;
+  }
+
+  const move = getStrategicMoveAction(state);
+  if (move) return move;
+
+  const attack = getNormalAttackAction(state, { allowHeadquartersTargets: true });
+  if (attack) return attack;
+
+  return getStrategicPlayCardAction(state);
+}
+
+function getRearRaidStyleAction(state: BattleState): BattleAction | null {
+  const rear = getRearStrikeAttackAction(state);
+  if (rear) return rear;
+
+  const kill = getKillUnitAttackAction(state);
+  if (kill) return kill;
+
+  const move = getStrategicMoveAction(state);
+  if (move) return move;
+
+  if (shouldPrioritizeSpawn(state)) {
+    const play = getStrategicPlayCardAction(state);
+    if (play) return play;
+  }
+
+  const attack = getNormalAttackAction(state, { allowHeadquartersTargets: true });
+  if (attack) return attack;
+
+  return getStrategicPlayCardAction(state);
+}
+
+function getBoardControlStyleAction(state: BattleState): BattleAction | null {
+  const kill = getKillUnitAttackAction(state);
+  if (kill) return kill;
+
+  const pressure = getHeadquartersPressureAttackAction(state);
+  if (pressure) return pressure;
+
+  if (shouldPrioritizeSpawn(state)) {
+    const play = getStrategicPlayCardAction(state);
+    if (play) return play;
+  }
+
+  const attack = getNormalAttackAction(state, { allowHeadquartersTargets: false });
+  if (attack) return attack;
+
+  const move = getStrategicMoveAction(state);
+  if (move) return move;
+
+  return getStrategicPlayCardAction(state);
+}
+
+function getDefensiveStyleAction(state: BattleState): BattleAction | null {
+  const develop = getDevelopmentPlayAction(state);
+  if (develop) return develop;
+
+  const kill = getKillUnitAttackAction(state);
+  if (kill) return kill;
+
+  const safe = getSafeAttackAction(state, { allowHeadquartersTargets: false });
+  if (safe) return safe;
+
+  // Turtle: no forward advances — hold the line and keep developing the rear.
+  return getStrategicPlayCardAction(state);
+}
+
+function getAggressiveStyleAction(state: BattleState): BattleAction | null {
+  const pressure = getHeadquartersPressureAttackAction(state);
+  if (pressure) return pressure;
+
+  const kill = getKillUnitAttackAction(state);
+  if (kill) return kill;
+
+  if (shouldPrioritizeSpawn(state)) {
+    const play = getStrategicPlayCardAction(state);
+    if (play) return play;
+  }
+
+  const attack = getNormalAttackAction(state, { allowHeadquartersTargets: true });
+  if (attack) return attack;
+
+  const move = getStrategicMoveAction(state);
+  if (move) return move;
+
+  return getStrategicPlayCardAction(state);
+}
+
+/**
+ * One action for a server-driven fake opponent. `difficulty` sets the baseline
+ * competence (also folded into `sloppiness`), `style` picks the plan. Returns
+ * null when only ending the turn remains — the caller ends the turn.
+ */
+export function getFakeBotAction(
+  state: BattleState,
+  options: { difficulty: BotDifficulty; style: FakeStyle; sloppiness?: number }
+): BattleAction | null {
+  if (state.status !== "active") return null;
+  if (state.activePlayer !== "bot") return null;
+
+  const sloppiness = options.sloppiness ?? 0;
+
+  // A free win is (almost) always taken — but a very sloppy opponent can whiff it.
+  const lethal = getLethalAttackAction(state);
+  if (lethal && !(sloppiness > 0 && Math.random() < sloppiness * 0.4)) {
+    return lethal;
+  }
+
+  if (sloppiness > 0 && Math.random() < sloppiness) {
+    const random = getRandomLegalAction(state);
+    if (random) return random;
+  }
+
+  switch (options.style) {
+    case "hq_rush":
+      return getHqRushStyleAction(state);
+    case "rear_raid":
+      return getRearRaidStyleAction(state);
+    case "board_control":
+      return getBoardControlStyleAction(state);
+    case "defensive":
+      return getDefensiveStyleAction(state);
+    case "aggressive":
+      return getAggressiveStyleAction(state);
+    case "balanced":
+    default:
+      return getNextBotAction(state, { difficulty: options.difficulty });
+  }
 }
 
 // ============================================================

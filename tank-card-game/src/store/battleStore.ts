@@ -46,6 +46,7 @@ import type {
   MatchEndReason,
   PvpConnectionState,
 } from "../game/modes";
+import type { BotDifficulty } from "../game/bot";
 import type {
   BattleAction,
   BattleState,
@@ -60,7 +61,7 @@ import type { PvpClientMessage } from "../network/pvpClient";
 import { profileClient } from "../network/profileClient";
 import { getDefaultWebSocketUrl } from "../network/webSocketUrl";
 import { getCurrentUserId } from "../game/playerIdentity";
-import { hasCompletedTutorial } from "../game/playerProgress";
+import { hasCompletedTutorial, loadPlayerProgress } from "../game/playerProgress";
 import { recordBattleForRegistrationReminder } from "../game/registrationReminder";
 
 type SelectedAttacker = {
@@ -82,6 +83,17 @@ const PVP_CONNECT_TIMEOUT_MS = 6_000;
 const FIRST_TURN_ROLL_DURATION_MS = 2_800;
 const FIRST_TURN_ROLL_RESULT_DELAY_MS = 350;
 const FIRST_TURN_ROLL_FINISH_DELAY_MS = 650;
+
+function getAiDifficultyForPveBattleCount(pveBattleCount: number): BotDifficulty {
+  if (pveBattleCount < 5) return "easy";
+  if (pveBattleCount < 10) return "medium";
+  if (pveBattleCount < 15) return "hard";
+  return "full";
+}
+
+function getCurrentPveAiDifficulty(): BotDifficulty {
+  return getAiDifficultyForPveBattleCount(loadPlayerProgress().pveBattleCount);
+}
 
 export type FirstTurnRollState = {
   visible: boolean;
@@ -152,6 +164,7 @@ type BattleStore = {
   pvpSearchDeadlineAt: number | null;
   pvpFallbackDeckCardIds: string[] | null;
   matchEndReason: MatchEndReason | null;
+  currentAiDifficulty: BotDifficulty;
   pvpTimer: PvpTimerState;
   pvpMovementIntent: PvpMovementIntent | null;
   pvpAttackIntent: PvpAttackIntent | null;
@@ -362,6 +375,10 @@ let pendingGameStartedMessage: Extract<
   PvpClientMessage,
   { type: "GAME_STARTED" }
 > | null = null;
+let pendingGameStateMessage: Extract<
+  PvpClientMessage,
+  { type: "GAME_STATE" }
+> | null = null;
 
 function loadCompletedCampaignMissionIds(): string[] {
   try {
@@ -444,6 +461,7 @@ function clearPendingPvpStart() {
   clearMatchFoundPreviewTimer();
   pendingFirstTurnRollMessage = null;
   pendingGameStartedMessage = null;
+  pendingGameStateMessage = null;
 }
 
 function getAiOpponentSetup(
@@ -635,6 +653,31 @@ function getOpponentHeadquartersIdFromBattle(
   return battle[getOpponentPlayerId(localPlayerId)].headquartersId;
 }
 
+function isPvpStartSequenceBlockingRemoteState(
+  store: BattleStore = useBattleStore.getState()
+): boolean {
+  return (
+    store.pvpStatus === "matchPreview" ||
+    store.pvpStatus === "rolling" ||
+    store.firstTurnRoll.visible ||
+    pendingFirstTurnRollMessage !== null ||
+    pendingGameStartedMessage !== null
+  );
+}
+
+function applyPendingGameStateMessage() {
+  const message = pendingGameStateMessage;
+  if (!message) return;
+
+  pendingGameStateMessage = null;
+
+  const store = useBattleStore.getState();
+  if (store.pvpRoomId && store.pvpRoomId !== message.roomId) return;
+
+  startBattleAssetPreloadForState(message.battle);
+  store.applyRemoteBattleState(message.battle);
+}
+
 function applyFirstTurnRollMessage(
   message: Extract<PvpClientMessage, { type: "FIRST_TURN_ROLL" }>
 ) {
@@ -651,10 +694,11 @@ function applyFirstTurnRollMessage(
       : FIRST_TURN_ROLL_DURATION_MS + FIRST_TURN_ROLL_RESULT_DELAY_MS;
   const hideDelay = revealDelay + FIRST_TURN_ROLL_FINISH_DELAY_MS + 250;
 
-  useBattleStore.setState((state) => ({
+  useBattleStore.setState({
     battle: message.battle,
     mode: "pvp",
     menuView: "main",
+    localPlayerId: message.playerId,
     pvpRoomId: message.roomId,
     pvpStatus: "rolling",
     pvpError: null,
@@ -665,7 +709,7 @@ function applyFirstTurnRollMessage(
     pvpDeployBarrageIntent: null,
     pvpOpponentHeadquartersId: getOpponentHeadquartersIdFromBattle(
       message.battle,
-      state.localPlayerId
+      message.playerId
     ),
     pvpOpponentNickname: message.opponentNickname ?? null,
     pvpMatchPreviewLabel: null,
@@ -683,7 +727,7 @@ function applyFirstTurnRollMessage(
       revealAt: message.revealAt,
       finalRotation: getStartRollFinalRotation(message.firstPlayer),
     },
-  }));
+  });
 
   firstTurnRollResultTimer = window.setTimeout(() => {
     useBattleStore.setState((state) => ({
@@ -701,7 +745,25 @@ function applyFirstTurnRollMessage(
       const gameStartedMessage = pendingGameStartedMessage;
       pendingGameStartedMessage = null;
       applyGameStartedMessage(gameStartedMessage);
+    } else {
+      // GAME_STARTED is sent by the server the same beat the roll finishes, so it
+      // is usually still one network hop away when this timer fires. Leave the
+      // "rolling" phase now anyway — the started battle is already in the store
+      // from FIRST_TURN_ROLL — so a late GAME_STARTED / GAME_STATE and any move,
+      // attack or deploy intents are applied instead of being blocked forever
+      // (which would leave the player unable to play cards or fire the HQ).
+      const state = useBattleStore.getState();
+      if (state.mode === "pvp" && state.pvpStatus === "rolling") {
+        useBattleStore.setState({
+          pvpStatus:
+            state.battle && state.battle.status !== "active"
+              ? "finished"
+              : "inBattle",
+        });
+      }
     }
+
+    applyPendingGameStateMessage();
   }, hideDelay);
 }
 
@@ -711,6 +773,7 @@ function applyGameStartedMessage(
   clearReconnectTimer();
   pvpClient.rememberRoom(message.roomId);
   startBattleAssetPreloadForState(message.battle);
+  const currentTimer = useBattleStore.getState().pvpTimer;
   useBattleStore.setState({
     battle: message.battle,
     mode: "pvp",
@@ -720,7 +783,7 @@ function applyGameStartedMessage(
     pvpStatus: "inBattle",
     pvpError: null,
     matchEndReason: null,
-    pvpTimer: emptyPvpTimer,
+    pvpTimer: currentTimer,
     pvpMovementIntent: null,
     pvpAttackIntent: null,
     pvpDeployBarrageIntent: null,
@@ -788,6 +851,7 @@ function getCleanMenuState() {
     pvpSearchDeadlineAt: null,
     pvpFallbackDeckCardIds: null,
     matchEndReason: null,
+    currentAiDifficulty: "full" as BotDifficulty,
     pvpTimer: emptyPvpTimer,
     pvpMovementIntent: null,
     pvpAttackIntent: null,
@@ -935,33 +999,9 @@ function setupPvpSubscriptions() {
 
       case "FIRST_TURN_ROLL": {
         clearReconnectTimer();
-        pvpClient.rememberRoom(message.roomId);
-        pendingFirstTurnRollMessage = message;
-
-        useBattleStore.setState((state) => ({
-          battle: null,
-          mode: "pvp",
-          menuView: "headquarters",
-          pvpRoomId: message.roomId,
-          pvpStatus: "matchPreview",
-          pvpError: null,
-          pvpOpponentHeadquartersId: getOpponentHeadquartersIdFromBattle(
-            message.battle,
-            state.localPlayerId
-          ),
-          pvpOpponentNickname: message.opponentNickname ?? null,
-          pvpMatchPreviewLabel: null,
-          matchEndReason: null,
-          pvpMovementIntent: null,
-          pvpAttackIntent: null,
-          pvpDeployBarrageIntent: null,
-          selectedCardInstanceId: null,
-          opponentSelectedCardInstanceId: null,
-          selectedAttacker: null,
-          firstTurnRoll: emptyFirstTurnRoll,
-        }));
-
-        schedulePendingPvpStart();
+        clearMatchFoundPreviewTimer();
+        pendingFirstTurnRollMessage = null;
+        applyFirstTurnRollMessage(message);
 
         break;
       }
@@ -969,7 +1009,7 @@ function setupPvpSubscriptions() {
       case "GAME_STARTED":
         startBattleAssetPreloadForState(message.battle);
 
-        if (pendingFirstTurnRollMessage || store.pvpStatus === "matchPreview") {
+        if (isPvpStartSequenceBlockingRemoteState(store)) {
           pendingGameStartedMessage = message;
           useBattleStore.setState({
             pvpOpponentHeadquartersId: getOpponentHeadquartersIdFromBattle(
@@ -979,7 +1019,9 @@ function setupPvpSubscriptions() {
             pvpOpponentNickname: message.opponentNickname ?? null,
             pvpMatchPreviewLabel: null,
           });
-          schedulePendingPvpStart();
+          if (store.pvpStatus === "matchPreview") {
+            schedulePendingPvpStart();
+          }
           break;
         }
 
@@ -988,6 +1030,10 @@ function setupPvpSubscriptions() {
 
       case "GAME_STATE":
         startBattleAssetPreloadForState(message.battle);
+        if (isPvpStartSequenceBlockingRemoteState(store)) {
+          pendingGameStateMessage = message;
+          break;
+        }
         store.applyRemoteBattleState(message.battle);
         break;
 
@@ -1033,14 +1079,17 @@ function setupPvpSubscriptions() {
         break;
 
       case "MOVE_INTENT":
+        if (isPvpStartSequenceBlockingRemoteState(store)) break;
         store.applyPvpMovementIntent(message);
         break;
 
       case "ATTACK_INTENT":
+        if (isPvpStartSequenceBlockingRemoteState(store)) break;
         store.applyPvpAttackIntent(message);
         break;
 
       case "DEPLOY_BARRAGE_INTENT":
+        if (isPvpStartSequenceBlockingRemoteState(store)) break;
         store.applyPvpDeployBarrageIntent(message);
         break;
 
@@ -1208,6 +1257,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   pvpSearchDeadlineAt: null,
   pvpFallbackDeckCardIds: null,
   matchEndReason: null,
+  currentAiDifficulty: "full",
   pvpTimer: emptyPvpTimer,
   pvpMovementIntent: null,
   pvpAttackIntent: null,
@@ -1564,6 +1614,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       clearPendingPvpStart();
       pvpClient.clearSession();
 
+      const currentAiDifficulty = getCurrentPveAiDifficulty();
       const battle = createFreshBattle(
         get().selectedHeadquartersId,
         undefined,
@@ -1586,6 +1637,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         pvpSearchDeadlineAt: null,
         pvpFallbackDeckCardIds: null,
         matchEndReason: null,
+        currentAiDifficulty,
         pvpTimer: emptyPvpTimer,
         pvpMovementIntent: null,
         pvpAttackIntent: null,
@@ -1616,6 +1668,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       state.selectedHeadquartersId,
       deckCardIds
     );
+    const currentAiDifficulty = getCurrentPveAiDifficulty();
 
     pvpClient.cancelMatchmaking();
     clearFirstTurnRollTimers();
@@ -1638,6 +1691,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpSearchDeadlineAt: null,
       pvpFallbackDeckCardIds: null,
       matchEndReason: null,
+      currentAiDifficulty,
       pvpTimer: emptyPvpTimer,
       pvpMovementIntent: null,
       pvpAttackIntent: null,
@@ -1690,6 +1744,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
           pvpSearchDeadlineAt: null,
           pvpFallbackDeckCardIds: null,
           matchEndReason: null,
+          currentAiDifficulty,
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
           pvpAttackIntent: null,
@@ -1757,6 +1812,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         pvpStatus: "idle",
         pvpError: null,
         matchEndReason: null,
+        currentAiDifficulty: "full",
         pvpTimer: emptyPvpTimer,
         pvpMovementIntent: null,
         pvpAttackIntent: null,
@@ -2036,12 +2092,18 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     });
   },
 
-  applyMatchEnded: (_winner, reason) => {
+  applyMatchEnded: (winner, reason) => {
     clearFirstTurnRollTimers();
     clearReconnectTimer();
     clearPendingPvpStart();
 
-    set({
+    set((state) => ({
+      battle: state.battle
+        ? {
+            ...state.battle,
+            status: winner === "player" ? "player_won" : "bot_won",
+          }
+        : state.battle,
       pvpStatus: "finished",
       pvpError: null,
       matchEndReason: reason,
@@ -2053,7 +2115,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       selectedCardInstanceId: null,
       opponentSelectedCardInstanceId: null,
       selectedAttacker: null,
-    });
+    }));
   },
 
   applyOpponentCardSelection: (playerId, cardInstanceId) => {
@@ -2185,9 +2247,12 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   setPvpError: (message) => {
+    const state = get();
+
     set({
       pvpError: message,
-      pvpStatus: message ? "error" : get().pvpStatus,
+      pvpStatus:
+        message && state.pvpStatus !== "inBattle" ? "error" : state.pvpStatus,
     });
   },
 

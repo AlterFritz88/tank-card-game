@@ -88,6 +88,7 @@ import {
   setFavoriteHeadquartersIdOnServer,
   setPlayerNicknameOnServer,
   syncPlayerProgressFromServer,
+  type DailyLoginReward,
   type PlayerProgress,
 } from "../game/playerProgress";
 import { getTankImage } from "../game/tankImages";
@@ -277,6 +278,67 @@ function formatResourceValue(value: number, language?: Language) {
   return new Intl.NumberFormat(language === "en" ? "en-US" : "ru-RU").format(value);
 }
 
+function getSeenDailyLoginRewardId(): string | null {
+  try {
+    return window.localStorage.getItem(DAILY_LOGIN_REWARD_SEEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function markDailyLoginRewardSeen(rewardId: string) {
+  try {
+    window.localStorage.setItem(DAILY_LOGIN_REWARD_SEEN_STORAGE_KEY, rewardId);
+  } catch {
+    // Private-mode storage failures should not block claiming the server reward.
+  }
+}
+
+function getDailyLoginRewardCelebration(
+  reward: DailyLoginReward,
+  language: Language
+): RewardCelebrationCard {
+  const isEnglish = language === "en";
+
+  switch (reward.kind) {
+    case "ironTracks":
+      return {
+        kind: "resource",
+        icon: silverTracksIcon,
+        title: `+${formatResourceValue(reward.amount, language)}`,
+        subtitle: isEnglish ? "Iron tracks" : "Железные траки",
+      };
+    case "goldTracks":
+      return {
+        kind: "resource",
+        icon: goldTracksIcon,
+        title: `+${formatResourceValue(reward.amount, language)}`,
+        subtitle: isEnglish ? "Gold tracks" : "Золотые траки",
+      };
+    case "freeXp":
+      return {
+        kind: "resource",
+        icon: experienceIcon,
+        title: `+${formatResourceValue(reward.amount, language)}`,
+        subtitle: isEnglish ? "Free XP" : "Свободный опыт",
+      };
+    case "premium":
+      return {
+        kind: "resource",
+        icon: goldTracksIcon,
+        title: isEnglish ? "Premium" : "Премиум",
+        subtitle:
+          reward.amount === 1
+            ? isEnglish
+              ? "1 day"
+              : "1 день"
+            : isEnglish
+              ? `${reward.amount} days`
+              : `${reward.amount} дн.`,
+      };
+  }
+}
+
 function formatRubPrice(value: number) {
   return new Intl.NumberFormat("ru-RU", {
     maximumFractionDigits: 0,
@@ -335,6 +397,8 @@ const GOLD_TRACK_PRODUCTS = [
   { id: "gold-1500" as const, gold: 1500, label: "1500 золотых траков" },
 ];
 const LEGAL_ACCEPTED_STORAGE_KEY = "panzershrek.legalAccepted.v2026-06-20";
+const DAILY_LOGIN_REWARD_SEEN_STORAGE_KEY =
+  "panzershrek.dailyLoginReward.seen";
 const LEGAL_LINKS = [
   { href: "/legal/user-agreement", label: "Пользовательское соглашение" },
   { href: "/legal/offer", label: "Оферта" },
@@ -1776,11 +1840,13 @@ function ProfileRegisterModal({
 function PlayerProfileMenu({
   onBack,
   onProfileChanged,
+  onDailyLoginReward,
   openRegisterOnMount = false,
   onRegisterIntentConsumed,
 }: {
   onBack: () => void;
   onProfileChanged?: () => void;
+  onDailyLoginReward?: (progress: PlayerProgress) => void;
   /** Open the login/registration form immediately (from the reminder CTA). */
   openRegisterOnMount?: boolean;
   onRegisterIntentConsumed?: () => void;
@@ -1842,6 +1908,7 @@ function PlayerProfileMenu({
       setSyncStatus(
         serverProgress.pendingRewardClaims.length > 0 ? "failed" : "synced"
       );
+      onDailyLoginReward?.(serverProgress);
       onProfileChanged?.();
     } catch {
       setSyncStatus("failed");
@@ -1883,6 +1950,7 @@ function PlayerProfileMenu({
     });
     window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
     setProgress(nextProgress);
+    onDailyLoginReward?.(nextProgress);
     onProfileChanged?.();
   }
 
@@ -1894,6 +1962,7 @@ function PlayerProfileMenu({
     });
     window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
     setProgress(nextProgress);
+    onDailyLoginReward?.(nextProgress);
     onProfileChanged?.();
   }
 
@@ -2623,6 +2692,7 @@ export function PvpLobby() {
   const [rewardCelebration, setRewardCelebration] = useState<{
     id: number;
     cards: RewardCelebrationCard[];
+    label: string;
   } | null>(null);
   const focusTargetRef = useRef<HTMLElement | null>(null);
   const mainMenuCarouselRef = useRef<HTMLDivElement>(null);
@@ -2679,8 +2749,11 @@ export function PvpLobby() {
     void Promise.allSettled([
       syncPlayerProgressFromServer(),
       syncSavedDecksFromServer(),
-    ]).then(() => {
+    ]).then(([progressResult]) => {
       if (!cancelled) {
+        if (progressResult.status === "fulfilled") {
+          showDailyLoginRewardIfNew(progressResult.value);
+        }
         setProfileRevision((revision) => revision + 1);
       }
     });
@@ -2689,6 +2762,19 @@ export function PvpLobby() {
       cancelled = true;
     };
   }, []);
+
+  function showDailyLoginRewardIfNew(progress: PlayerProgress) {
+    const reward = progress.dailyLoginReward;
+    if (!reward) return;
+    if (getSeenDailyLoginRewardId() === reward.id) return;
+
+    markDailyLoginRewardSeen(reward.id);
+    setRewardCelebration({
+      id: Date.now(),
+      cards: [getDailyLoginRewardCelebration(reward, language)],
+      label: language === "en" ? "Daily reward" : "Ежедневная награда",
+    });
+  }
 
   async function claimCampaignReward(rewardId: string) {
     if (!profileServerReady) {
@@ -2715,6 +2801,7 @@ export function PvpLobby() {
               kind: "card",
               card: rewardCard,
             })),
+            label: t("campaign.reward"),
           });
         }
       } else {
@@ -2749,10 +2836,13 @@ export function PvpLobby() {
       throw new Error("Необходимо ознакомиться с документами и принять условия");
     }
 
-    await setPlayerNicknameOnServer(nickname);
+    const nextProgress = await setPlayerNicknameOnServer(nickname);
     window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
     window.localStorage.setItem(LEGAL_ACCEPTED_STORAGE_KEY, "true");
     setGuestSessionReady(true);
+    if (nextProgress) {
+      showDailyLoginRewardIfNew(nextProgress);
+    }
     setProfileRevision((revision) => revision + 1);
   }
 
@@ -2821,13 +2911,14 @@ export function PvpLobby() {
   }
 
   async function loginAccount(username: string, password: string) {
-    await loginPlayerAccount({
+    const nextProgress = await loginPlayerAccount({
       username,
       password,
       mergeGuestProgress: false,
     });
     window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
     setGuestSessionReady(true);
+    showDailyLoginRewardIfNew(nextProgress);
     setProfileRevision((revision) => revision + 1);
   }
 
@@ -2838,7 +2929,7 @@ export function PvpLobby() {
     legalAccepted: boolean,
     promoCode?: string
   ) {
-    await registerPlayerAccount({
+    const nextProgress = await registerPlayerAccount({
       username,
       email,
       password,
@@ -2849,6 +2940,7 @@ export function PvpLobby() {
     window.localStorage.setItem(GUEST_SESSION_READY_KEY, "true");
     window.localStorage.setItem(LEGAL_ACCEPTED_STORAGE_KEY, "true");
     setGuestSessionReady(true);
+    showDailyLoginRewardIfNew(nextProgress);
     setProfileRevision((revision) => revision + 1);
   }
 
@@ -3369,6 +3461,20 @@ export function PvpLobby() {
     document.body
   );
 
+  const rewardCelebrationOverlay = (
+    <AnimatePresence>
+      {rewardCelebration ? (
+        <RewardCelebrationOverlay
+          key={rewardCelebration.id}
+          cards={rewardCelebration.cards}
+          label={rewardCelebration.label}
+          tone="reward"
+          onClose={() => setRewardCelebration(null)}
+        />
+      ) : null}
+    </AnimatePresence>
+  );
+
   const battleDeckOptions = headquartersList.flatMap((headquarters) => {
     const headquartersId = headquarters.id as HeadquartersId;
     const nation = HEADQUARTERS[headquartersId].nation;
@@ -3722,17 +3828,7 @@ export function PvpLobby() {
           </div>
         </section>
         {standaloneUnitCardPreview}
-        <AnimatePresence>
-          {rewardCelebration ? (
-            <RewardCelebrationOverlay
-              key={rewardCelebration.id}
-              cards={rewardCelebration.cards}
-              label={t("campaign.reward")}
-              tone="reward"
-              onClose={() => setRewardCelebration(null)}
-            />
-          ) : null}
-        </AnimatePresence>
+        {rewardCelebrationOverlay}
       </main>
     );
   }
@@ -3755,12 +3851,16 @@ export function PvpLobby() {
 
   if (menuView === "profile") {
     return (
-      <PlayerProfileMenu
-        onBack={closeProfileMenu}
-        onProfileChanged={() => setProfileRevision((revision) => revision + 1)}
-        openRegisterOnMount={profileRegisterIntent}
-        onRegisterIntentConsumed={clearProfileRegisterIntent}
-      />
+      <>
+        <PlayerProfileMenu
+          onBack={closeProfileMenu}
+          onProfileChanged={() => setProfileRevision((revision) => revision + 1)}
+          onDailyLoginReward={showDailyLoginRewardIfNew}
+          openRegisterOnMount={profileRegisterIntent}
+          onRegisterIntentConsumed={clearProfileRegisterIntent}
+        />
+        {rewardCelebrationOverlay}
+      </>
     );
   }
 
@@ -4170,6 +4270,7 @@ export function PvpLobby() {
             </form>
           </div>
         ) : null}
+        {rewardCelebrationOverlay}
       </main>
     );
   }
@@ -6820,7 +6921,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     justifyContent: "center",
     alignItems: "flex-start",
-    gap: 28,
+    gap: 34,
     minWidth: "max-content",
     margin: "0 auto",
   },
@@ -6828,9 +6929,9 @@ const styles: Record<string, CSSProperties> = {
   missionCardOption: {
     position: "relative",
     flex: "0 0 auto",
-    width: 286,
-    minHeight: 352,
-    padding: 12,
+    width: 332,
+    minHeight: 408,
+    padding: 14,
     border: "none",
     outline: "none",
     background: "transparent",
@@ -6850,9 +6951,9 @@ const styles: Record<string, CSSProperties> = {
   missionArtCard: {
     position: "relative",
     zIndex: 2,
-    height: 328,
+    height: 380,
     display: "grid",
-    gridTemplateRows: "126px 1fr",
+    gridTemplateRows: "146px 1fr",
     overflow: "hidden",
     borderRadius: 14,
     border: "1px solid rgba(244, 209, 124, 0.42)",
@@ -6932,8 +7033,8 @@ const styles: Record<string, CSSProperties> = {
   missionArtContent: {
     display: "grid",
     gridTemplateRows: "auto auto auto 1fr auto",
-    gap: 5,
-    padding: "12px 14px 13px",
+    gap: 7,
+    padding: "15px 17px 16px",
   },
 
   campaignPanel: {
@@ -7008,17 +7109,17 @@ const styles: Record<string, CSSProperties> = {
 
   missionNumber: {
     color: "#d7b665",
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: 1000,
     letterSpacing: 2,
   },
 
   missionChapter: {
-    minHeight: 22,
+    minHeight: 28,
     color: "rgba(244, 229, 191, 0.74)",
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: 800,
-    lineHeight: 1.12,
+    lineHeight: 1.16,
     letterSpacing: 0.45,
     textTransform: "uppercase",
   },
@@ -7029,9 +7130,9 @@ const styles: Record<string, CSSProperties> = {
     overflow: "hidden",
     WebkitBoxOrient: "vertical",
     WebkitLineClamp: 2,
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: 1000,
-    lineHeight: 1.08,
+    lineHeight: 1.05,
     textTransform: "uppercase",
   },
 
@@ -7041,13 +7142,13 @@ const styles: Record<string, CSSProperties> = {
     WebkitBoxOrient: "vertical",
     WebkitLineClamp: 4,
     color: "rgba(244, 229, 191, 0.78)",
-    fontSize: 12,
+    fontSize: 14,
     lineHeight: 1.25,
   },
 
   missionState: {
     color: "#d7b665",
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: 900,
     letterSpacing: 1.2,
     textTransform: "uppercase",

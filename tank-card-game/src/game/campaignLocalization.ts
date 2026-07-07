@@ -34,6 +34,12 @@ const CAMPAIGN_TEXT_EN: Record<string, CampaignText> = {
     description:
       "Autumn 1941. Lead the finest tank ace of the war and his 4th Tank Brigade from Mtsensk ambushes to the defense of Moscow.",
   },
+  "raseiniai-kv": {
+    title: "The Lone KV",
+    description:
+      "Lithuania, June 1941. The first days of the war: the 2nd Tank Division meets the 4th Panzer Group at Raseiniai, and then a single KV cuts a whole Wehrmacht battle group off its supply road for two days.",
+    briefingSpeaker: "KV Commander",
+  },
 };
 
 const MISSION_TEXT_EN: Record<string, MissionText> = {
@@ -229,6 +235,36 @@ const MISSION_TEXT_EN: Record<string, MissionText> = {
     title: "Goryuny, December 18",
     description:
       "December 18, 1941, Goryuny. The ace's final battle.",
+  },
+  "raseiniai-1": {
+    chapter: "Lithuania 1941 · Border Battles",
+    title: "Border in Flames",
+    description:
+      "June 22, 1941. The division is on the march toward the breakthrough. A German vanguard recon detachment blocks the road.",
+  },
+  "raseiniai-2": {
+    chapter: "Lithuania 1941 · Border Battles",
+    title: "Steel Ram at Skaudvilė",
+    description:
+      "June 23, 1941. The 2nd Tank Division counterattacks: KVs charge Kampfgruppe Seckendorff, and 37mm shells bounce off their armor.",
+  },
+  "raseiniai-3": {
+    chapter: "Raseiniai · One Against a Division",
+    title: "The Crossroads",
+    description:
+      "June 24, 1941. A lone KV takes position on the Raseiniai–Dubysa road and cuts Kampfgruppe Raus off its supplies.",
+  },
+  "raseiniai-4": {
+    chapter: "Raseiniai · One Against a Division",
+    title: "Night of the Sappers",
+    description:
+      "Night of June 25, 1941. German sappers creep toward the motionless tank with demolition charges.",
+  },
+  "raseiniai-5": {
+    chapter: "Raseiniai · One Against a Division",
+    title: "Eight-Eight",
+    description:
+      "June 25, 1941. Pz 35(t)s circle as a distraction while 8.8cm guns deploy in the rear — the lone KV's last stand.",
   },
 };
 

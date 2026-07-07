@@ -321,7 +321,7 @@ function getAbilityKeywords(card: TankCard, language: Language): CardKeyword[] {
       body:
         language === "en"
           ? `On its own spawn cell this SPG uses printed firepower. For every cell advanced toward the enemy headquarters it gains +${bonus} firepower.`
-          : `На своей клетке спавна эта САУ бьёт с номинальной огневой мощью. За каждую клетку продвижения к штабу противника получает +${bonus} к огневой мощи.`,
+          : `На своём плацдарме эта САУ бьёт с номинальной огневой мощью. За каждую клетку продвижения к штабу противника получает +${bonus} к огневой мощи.`,
     });
   }
 
@@ -332,7 +332,7 @@ function getAbilityKeywords(card: TankCard, language: Language): CardKeyword[] {
       body:
         language === "en"
           ? `While this unit is on your bridgehead spawn cell, each hit against it is reduced by ${card.combatAbilities.spawnDamageReduction}.`
-          : `Пока этот юнит находится на вашем плацдарме (клетке спавна), каждый удар по нему слабее на ${card.combatAbilities.spawnDamageReduction}.`,
+          : `Пока этот юнит находится на вашем плацдарме, каждый удар по нему слабее на ${card.combatAbilities.spawnDamageReduction}.`,
     });
   }
 

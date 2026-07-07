@@ -24,6 +24,7 @@ export type PvpClientMessage =
   | {
       type: "FIRST_TURN_ROLL";
       roomId: string;
+      playerId: PlayerId;
       firstPlayer: PlayerId;
       startsAt: number;
       revealAt: number;

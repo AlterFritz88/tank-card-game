@@ -1397,6 +1397,7 @@ function playCard(
   };
 
   state.units.push(unit);
+  applyCornerHpBonus(unit);
 
   // Apply on-play effects (new mechanics for low-stat units)
   if (card.onPlayEffects) {

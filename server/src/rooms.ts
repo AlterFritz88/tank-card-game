@@ -26,6 +26,12 @@ import type {
 } from "../../tank-card-game/src/game/types";
 import { createBattleViewForPlayer } from "./battleView";
 import type { MatchEndReason, PvpClientMessage, PvpServerMessage } from "./protocol";
+import type { BotDifficulty, FakeStyle } from "../../tank-card-game/src/game/bot";
+import { getFakeBotAction } from "../../tank-card-game/src/game/bot";
+import {
+  createFakeOpponentConfig,
+  getSloppinessForDifficulty,
+} from "./fakeOpponent";
 import { PlayerAccountManager } from "./playerAccounts";
 import { PlayerProfileManager } from "./playerProfiles";
 import { createSessionToken, verifySessionToken } from "./authTokens";
@@ -44,6 +50,13 @@ type RoomPlayer = {
   socket: WebSocket | null;
   disconnectTimer: NodeJS.Timeout | null;
   disconnectedAt: number | null;
+  // Set for server-driven fake opponents (no socket; the server plays their
+  // turns). The real player is never told any of this.
+  isFake?: boolean;
+  nicknameOverride?: string | null;
+  fakeDifficulty?: BotDifficulty;
+  fakeStyle?: FakeStyle;
+  fakeSloppiness?: number;
 };
 
 type PendingStartRoll = {
@@ -81,6 +94,7 @@ type PendingDeployBarrage = {
   intentId: string;
   playerId: PlayerId;
   action: Extract<BattleAction, { type: "PLAY_CARD" | "PLAY_SUPPORT_CARD" }>;
+  nextBattle: BattleState;
   timeoutId: NodeJS.Timeout;
 };
 
@@ -91,12 +105,18 @@ type Room = {
   // When this room entered the public matchmaking queue. Drives the widening
   // tolerance band. Null for private (CREATE_ROOM/JOIN_ROOM) rooms.
   matchmakingStartedAt: number | null;
+  // Deadline after which a still-unmatched public room is handed a fake
+  // opponent. Null for private rooms and once a match has started.
+  fakeMatchAt: number | null;
   battle: BattleState | null;
   pendingStartRoll: PendingStartRoll | null;
   pendingMovement: PendingMovement | null;
   pendingAttack: PendingAttack | null;
   pendingDeployBarrage: PendingDeployBarrage | null;
   turnTimer: PvpTurnTimer | null;
+  // Scheduled next move of a fake opponent, and its per-turn action budget.
+  fakeTurnTimer: NodeJS.Timeout | null;
+  fakeActionsThisTurn: number;
   ended: boolean;
   winner: PlayerId | null;
   endReason: MatchEndReason | null;
@@ -117,11 +137,15 @@ export type AdminRuntimeStats = {
   roomsTotal: number;
   matchmakingRooms: number;
   activeBattles: number;
+  // Subset of activeBattles being played against a server-driven fake opponent.
+  activeFakeBattles: number;
   finishedRooms: number;
   connectedPvpPlayers: number;
   activeGameSessions: number;
   completedPvpRewardClaims: number;
   completedPvpBattles: number;
+  // Subset of completedPvpBattles that were against a fake opponent.
+  completedFakePvpBattles: number;
 };
 
 const START_ROLL_DURATION_MS = 2800;
@@ -211,6 +235,31 @@ const PVP_MATCH_SWEEP_INTERVAL_MS = Number(
   process.env.PVP_MATCH_SWEEP_INTERVAL_MS ?? 1_000
 );
 
+// If no human opponent turns up within a random window in this band, the room is
+// quietly handed a server-driven fake opponent. Randomised per room so the wait
+// never feels like a fixed timeout.
+const FAKE_MATCH_MIN_WAIT_MS = Number(
+  process.env.PVP_FAKE_MATCH_MIN_WAIT_MS ?? 12_000
+);
+const FAKE_MATCH_MAX_WAIT_MS = Number(
+  process.env.PVP_FAKE_MATCH_MAX_WAIT_MS ?? 25_000
+);
+// Human-like "thinking" pause the fake takes between its own actions.
+const FAKE_THINK_MIN_MS = Number(process.env.PVP_FAKE_THINK_MIN_MS ?? 500);
+const FAKE_THINK_MAX_MS = Number(process.env.PVP_FAKE_THINK_MAX_MS ?? 1_700);
+// Safety cap on actions a fake may take in one turn, guarding against any
+// pathological loop in the styled AI.
+const FAKE_MAX_ACTIONS_PER_TURN = 30;
+// Below this many completed battles a player only faces level-1 (training)
+// headquarters among fake opponents.
+const NEW_PLAYER_BATTLE_THRESHOLD = Number(
+  process.env.PVP_FAKE_TRAINING_ONLY_BATTLES ?? 35
+);
+
+function getFakeMatchWaitMs(): number {
+  return randomInt(FAKE_MATCH_MIN_WAIT_MS, FAKE_MATCH_MAX_WAIT_MS + 1);
+}
+
 // Fraction of deck weight two players may differ by after `elapsedMs` of waiting.
 function getMatchToleranceFraction(elapsedMs: number): number {
   const cappedElapsed = Math.min(
@@ -233,14 +282,18 @@ function normalizePromoCode(promoCode: string | undefined): string {
   return promoCode?.trim().toLowerCase() ?? "";
 }
 
-function getStraightTwoCellIntermediate(
+// The first cell of a straight multi-cell move (light tanks sweep up to two
+// cells, armored cars up to three). Movement commits cell by cell so both
+// clients animate the unit rolling through every cell, matching the PvE
+// animation. Diagonal or single-cell moves have no intermediate.
+function getStraightMoveIntermediate(
   from: { row: number; col: number },
   to: { row: number; col: number }
 ): { row: number; col: number } | null {
   const rowDistance = Math.abs(from.row - to.row);
   const colDistance = Math.abs(from.col - to.col);
 
-  if (rowDistance + colDistance !== 2) return null;
+  if (rowDistance + colDistance < 2) return null;
   if (rowDistance > 0 && colDistance > 0) return null;
 
   return {
@@ -441,7 +494,9 @@ export class RoomManager {
 
   constructor() {
     this.matchmakingSweepTimer = setInterval(() => {
+      // Real pairing runs first so a human opponent always wins over a fake.
       this.sweepMatchmaking();
+      this.sweepFakeMatches();
     }, PVP_MATCH_SWEEP_INTERVAL_MS);
     // Don't keep the process alive just for the sweep.
     this.matchmakingSweepTimer.unref?.();
@@ -450,6 +505,7 @@ export class RoomManager {
   getAdminRuntimeStats(): AdminRuntimeStats {
     let matchmakingRooms = 0;
     let activeBattles = 0;
+    let activeFakeBattles = 0;
     let finishedRooms = 0;
     let connectedPvpPlayers = 0;
 
@@ -460,6 +516,9 @@ export class RoomManager {
 
       if (room.battle?.status === "active") {
         activeBattles += 1;
+        if (room.players.bot?.isFake) {
+          activeFakeBattles += 1;
+        }
       }
 
       if (room.ended) {
@@ -474,19 +533,21 @@ export class RoomManager {
       }
     }
 
-    const completedPvpBattles = this.pvpStats.ensureCompletedBattlesAtLeast(
+    const pvpStats = this.pvpStats.ensureCompletedBattlesAtLeast(
       this.profiles.countClaimedPvpBattleRooms()
-    ).completedBattles;
+    );
 
     return {
       roomsTotal: this.rooms.size,
       matchmakingRooms,
       activeBattles,
+      activeFakeBattles,
       finishedRooms,
       connectedPvpPlayers,
       activeGameSessions: this.activeGameSessions.size,
       completedPvpRewardClaims: this.completedPvpMatches.size,
-      completedPvpBattles,
+      completedPvpBattles: pvpStats.completedBattles,
+      completedFakePvpBattles: pvpStats.completedFakeBattles,
     };
   }
 
@@ -1757,6 +1818,211 @@ export class RoomManager {
     this.startFirstTurnRoll(host);
   }
 
+  // Hands a fake opponent to any public room that has waited past its deadline
+  // without a human match. Runs after the real-pairing sweep every tick.
+  private sweepFakeMatches() {
+    const now = Date.now();
+
+    for (const room of this.rooms.values()) {
+      if (!room.publicMatchmaking) continue;
+      if (room.fakeMatchAt === null || now < room.fakeMatchAt) continue;
+      if (!this.isWaitingForOpponent(room)) continue;
+
+      const socket = room.players.player?.socket;
+      if (!socket || socket.readyState !== socket.OPEN) continue;
+
+      this.spawnFakeOpponent(room);
+    }
+  }
+
+  // Total battles (PvE + PvP) the player has completed, or 0 for a guest with no
+  // profile — used to keep newcomers on training-only opponents.
+  private getPlayerBattleCount(profilePlayerId: string | null): number {
+    if (!profilePlayerId) return 0;
+
+    try {
+      const { battleStats } = this.profiles.getProfile(profilePlayerId, {
+        touchActivity: false,
+      });
+      return (battleStats?.wins ?? 0) + (battleStats?.losses ?? 0);
+    } catch {
+      return 0;
+    }
+  }
+
+  // Nicknames currently in use by active fake opponents, so a fresh fake does not
+  // collide with one already on screen elsewhere.
+  private getActiveFakeNicknames(): Set<string> {
+    const names = new Set<string>();
+
+    for (const room of this.rooms.values()) {
+      const nickname = room.players.bot?.isFake
+        ? room.players.bot.nicknameOverride
+        : null;
+      if (nickname) names.add(nickname);
+    }
+
+    return names;
+  }
+
+  private spawnFakeOpponent(room: Room) {
+    const player = room.players.player;
+    const socket = player?.socket;
+
+    if (!player || !socket || socket.readyState !== socket.OPEN) return;
+    if (room.players.bot) return;
+    if (!this.isWaitingForOpponent(room)) return;
+
+    // New players (fewer than NEW_PLAYER_BATTLE_THRESHOLD battles) only ever face
+    // level-1 training headquarters, so early matchmaking stays gentle.
+    const trainingHqOnly =
+      this.getPlayerBattleCount(player.profilePlayerId) <
+      NEW_PLAYER_BATTLE_THRESHOLD;
+
+    const config = createFakeOpponentConfig(player.deckWeight, {
+      excludeNicknames: this.getActiveFakeNicknames(),
+      trainingHqOnly,
+    });
+
+    const botPlayer: RoomPlayer = {
+      id: "bot",
+      profilePlayerId: null,
+      headquartersId: config.headquartersId,
+      deckCardIds: config.deckCardIds,
+      deckWeight: config.deckWeight,
+      sessionId: `fake:${room.id}`,
+      socket: null,
+      disconnectTimer: null,
+      disconnectedAt: null,
+      isFake: true,
+      nicknameOverride: config.nickname,
+      fakeDifficulty: config.difficulty,
+      fakeStyle: config.style,
+      fakeSloppiness: config.sloppiness,
+    };
+
+    room.players.bot = botPlayer;
+    room.publicMatchmaking = false;
+    room.matchmakingStartedAt = null;
+    room.fakeMatchAt = null;
+    if (this.waitingRoomId === room.id) {
+      this.waitingRoomId = null;
+    }
+
+    console.log(
+      `[PVP:${room.id}] no human opponent found; starting fake match vs "${config.nickname}" ` +
+        `(hq=${config.headquartersId}, diff=${config.difficulty}, style=${config.style}, ` +
+        `weight=${config.deckWeight}, sloppiness=${config.sloppiness.toFixed(2)})`
+    );
+
+    this.startFirstTurnRoll(room);
+  }
+
+  // Schedules the fake opponent's next action after a human-like pause, if it is
+  // the fake's turn and nothing is mid-animation.
+  private maybeRunFakeTurn(room: Room) {
+    if (room.ended || !room.battle || room.battle.status !== "active") return;
+
+    const bot = room.players.bot;
+    if (!bot?.isFake) return;
+    if (room.battle.activePlayer !== "bot") return;
+    if (room.pendingMovement || room.pendingAttack || room.pendingDeployBarrage) {
+      return;
+    }
+    if (room.fakeTurnTimer) return;
+
+    const delay = randomInt(FAKE_THINK_MIN_MS, FAKE_THINK_MAX_MS + 1);
+    room.fakeTurnTimer = setTimeout(() => {
+      room.fakeTurnTimer = null;
+      this.stepFakeTurn(room.id);
+    }, delay);
+    room.fakeTurnTimer.unref?.();
+  }
+
+  private stepFakeTurn(roomId: string) {
+    const room = this.rooms.get(roomId);
+    if (!room || room.ended || !room.battle || room.battle.status !== "active") {
+      return;
+    }
+
+    const bot = room.players.bot;
+    if (!bot?.isFake) return;
+    if (room.battle.activePlayer !== "bot") return;
+    if (room.pendingMovement || room.pendingAttack || room.pendingDeployBarrage) {
+      this.maybeRunFakeTurn(room);
+      return;
+    }
+
+    room.fakeActionsThisTurn += 1;
+    const overCap = room.fakeActionsThisTurn > FAKE_MAX_ACTIONS_PER_TURN;
+
+    const action = overCap
+      ? null
+      : getFakeBotAction(room.battle, {
+          difficulty: bot.fakeDifficulty ?? "medium",
+          style: bot.fakeStyle ?? "balanced",
+          sloppiness:
+            bot.fakeSloppiness ??
+            getSloppinessForDifficulty(bot.fakeDifficulty ?? "medium"),
+        });
+
+    if (!action || action.type === "END_TURN") {
+      this.commitGameAction(room, "bot", { type: "END_TURN", playerId: "bot" });
+      return;
+    }
+
+    const progressed = this.dispatchFakeAction(room, action);
+
+    // A rejected action would otherwise stall the fake until the turn timer
+    // fires; pass instead so play stays snappy.
+    if (!progressed) {
+      this.commitGameAction(room, "bot", { type: "END_TURN", playerId: "bot" });
+    }
+  }
+
+  // Runs a fake opponent's action through the exact same scheduling path a real
+  // player's action takes, so the human sees identical move/attack/deploy
+  // animations. Returns whether the action was actually applied or scheduled.
+  private dispatchFakeAction(room: Room, action: BattleAction): boolean {
+    if (!room.battle) return false;
+    if (room.battle.activePlayer !== "bot") return false;
+    if (room.pendingMovement || room.pendingAttack || room.pendingDeployBarrage) {
+      return false;
+    }
+
+    const safeAction = overwritePlayerId(action, "bot");
+
+    if (safeAction.type === "MOVE_UNIT") {
+      this.scheduleMovement(room, "bot", safeAction);
+      return room.pendingMovement !== null;
+    }
+
+    if (safeAction.type === "ATTACK") {
+      this.scheduleAttack(room, "bot", safeAction);
+      return room.pendingAttack !== null;
+    }
+
+    if (
+      safeAction.type === "PLAY_CARD" ||
+      safeAction.type === "PLAY_SUPPORT_CARD"
+    ) {
+      if (this.scheduleDeployBarrage(room, "bot", safeAction)) {
+        return true;
+      }
+    }
+
+    this.commitGameAction(room, "bot", safeAction);
+    return true;
+  }
+
+  private clearFakeTurn(room: Room) {
+    if (room.fakeTurnTimer) {
+      clearTimeout(room.fakeTurnTimer);
+      room.fakeTurnTimer = null;
+    }
+    room.fakeActionsThisTurn = 0;
+  }
+
   private createRoom(
     socket: WebSocket,
     sessionId: string,
@@ -1806,12 +2072,17 @@ export class RoomManager {
       },
       publicMatchmaking: Boolean(options?.makePublicWaiting),
       matchmakingStartedAt: options?.makePublicWaiting ? Date.now() : null,
+      fakeMatchAt: options?.makePublicWaiting
+        ? Date.now() + getFakeMatchWaitMs()
+        : null,
       battle: null,
       pendingStartRoll: null,
       pendingMovement: null,
       pendingAttack: null,
       pendingDeployBarrage: null,
       turnTimer: null,
+      fakeTurnTimer: null,
+      fakeActionsThisTurn: 0,
       ended: false,
       winner: null,
       endReason: null,
@@ -1944,7 +2215,9 @@ export class RoomManager {
   private startFirstTurnRoll(room: Room) {
     if (room.ended) return;
     if (!room.players.player || !room.players.bot) return;
-    if (!room.players.player.socket || !room.players.bot.socket) return;
+    if (!room.players.player.socket) return;
+    // A fake opponent has no socket; only a real opponent must be connected.
+    if (!room.players.bot.socket && !room.players.bot.isFake) return;
 
     const firstPlayer = getRandomStartingPlayer();
     const startsAt = Date.now();
@@ -1995,7 +2268,10 @@ export class RoomManager {
     this.sendGameStarted(room, "player");
     this.sendGameStarted(room, "bot");
 
+    room.fakeActionsThisTurn = 0;
     this.restartTurnTimer(room);
+    // If a fake opponent won the coin toss, it must take the first turn itself.
+    this.maybeRunFakeTurn(room);
   }
 
   private applyGameAction(socket: WebSocket, action: BattleAction) {
@@ -2062,13 +2338,26 @@ export class RoomManager {
     this.commitGameAction(room, playerId, safeAction);
   }
 
-  private commitGameAction(room: Room, playerId: PlayerId, action: BattleAction) {
+  private commitGameAction(
+    room: Room,
+    playerId: PlayerId,
+    action: BattleAction,
+    precomputedNextBattle?: BattleState
+  ) {
     if (!room.battle) return;
 
     const previousActivePlayer = room.battle.activePlayer;
+    const previousActionCount =
+      playerId === "player"
+        ? room.battle.stats.actionsByPlayer
+        : room.battle.stats.actionsByBot;
     this.broadcastCardSelection(room, playerId, null);
 
-    room.battle = applyAction(room.battle, action);
+    room.battle = precomputedNextBattle ?? applyAction(room.battle, action);
+    const nextActionCount =
+      playerId === "player"
+        ? room.battle.stats.actionsByPlayer
+        : room.battle.stats.actionsByBot;
 
     this.broadcastBattleState(room);
 
@@ -2080,10 +2369,18 @@ export class RoomManager {
 
     if (
       action.type === "END_TURN" ||
-      room.battle.activePlayer !== previousActivePlayer
+      room.battle.activePlayer !== previousActivePlayer ||
+      nextActionCount > previousActionCount
     ) {
       this.restartTurnTimer(room);
     }
+
+    // Reset the fake's action budget the moment the turn hands over to it, then
+    // let it act (or continue acting on its own turn).
+    if (previousActivePlayer !== "bot" && room.battle.activePlayer === "bot") {
+      room.fakeActionsThisTurn = 0;
+    }
+    this.maybeRunFakeTurn(room);
   }
 
   private scheduleMovement(
@@ -2110,9 +2407,10 @@ export class RoomManager {
       return;
     }
 
+    const unitClass = getCard(unitBeforeMove.cardId).class;
     const intermediate =
-      getCard(unitBeforeMove.cardId).class === "light"
-        ? getStraightTwoCellIntermediate(
+      unitClass === "light" || unitClass === "armored_car"
+        ? getStraightMoveIntermediate(
             unitBeforeMove.position,
             action.position
           )
@@ -2277,39 +2575,51 @@ export class RoomManager {
     if (!playedInstance) return false;
 
     const playedCard = getCard(playedInstance.cardId);
-    if ((playedCard.onPlayEffects?.deployDamage?.amount ?? 0) <= 0) return false;
-
     const before = this.createHpSnapshot(room.battle);
     const nextBattle = applyAction(room.battle, action);
+    const spawnedUnit = nextBattle.units.find(
+      (unit) => unit.instanceId === action.cardInstanceId
+    );
+    const cardLeftHand = !nextBattle[playerId].hand.some(
+      (item) => item.instanceId === action.cardInstanceId
+    );
+
+    if (!spawnedUnit || !cardLeftHand) return false;
+
     const after = this.createHpSnapshot(nextBattle);
     const shots: { targetId: string; damage: number; destroyed: boolean }[] = [];
+    const hasDeployBarrage =
+      (playedCard.onPlayEffects?.deployDamage?.amount ?? 0) > 0;
 
-    for (const [targetId, previousHp] of before.entries()) {
-      if (targetId === action.cardInstanceId) continue;
+    if (hasDeployBarrage) {
+      for (const [targetId, previousHp] of before.entries()) {
+        if (targetId === action.cardInstanceId) continue;
 
-      const currentHp = after.get(targetId) ?? 0;
-      if (currentHp >= previousHp) continue;
+        const currentHp = after.get(targetId) ?? 0;
+        if (currentHp >= previousHp) continue;
 
-      shots.push({
-        targetId,
-        damage: previousHp - currentHp,
-        destroyed: currentHp <= 0,
-      });
+        shots.push({
+          targetId,
+          damage: previousHp - currentHp,
+          destroyed: currentHp <= 0,
+        });
+      }
     }
-
-    if (shots.length === 0) return false;
 
     this.broadcastCardSelection(room, playerId, null);
 
     this.deployBarrageIntentSequence += 1;
     const intentId = `${room.id}-deploy-${this.deployBarrageIntentSequence}`;
-    const shotSequenceMs =
-      PVP_DEPLOY_BARRAGE_FIRST_SHOT_MS +
-      Math.max(0, shots.length - 1) * PVP_DEPLOY_BARRAGE_SHOT_STAGGER_MS;
-    const impactSequenceMs = shots.some((shot) => shot.destroyed)
-      ? PVP_DEPLOY_BARRAGE_DESTROY_START_DELAY_MS +
-        PVP_DEPLOY_BARRAGE_DESTROYED_MS
-      : PVP_DEPLOY_BARRAGE_DAMAGE_SETTLE_MS;
+    const shotSequenceMs = shots.length
+      ? PVP_DEPLOY_BARRAGE_FIRST_SHOT_MS +
+        Math.max(0, shots.length - 1) * PVP_DEPLOY_BARRAGE_SHOT_STAGGER_MS
+      : 0;
+    const impactSequenceMs = shots.length
+      ? shots.some((shot) => shot.destroyed)
+        ? PVP_DEPLOY_BARRAGE_DESTROY_START_DELAY_MS +
+          PVP_DEPLOY_BARRAGE_DESTROYED_MS
+        : PVP_DEPLOY_BARRAGE_DAMAGE_SETTLE_MS
+      : 0;
     const durationMs =
       PVP_DEPLOY_BARRAGE_SPAWN_MS +
       shotSequenceMs +
@@ -2319,6 +2629,7 @@ export class RoomManager {
       intentId,
       playerId,
       action,
+      nextBattle,
       timeoutId: setTimeout(() => {
         this.commitDeployBarrage(room.id, intentId);
       }, durationMs),
@@ -2352,14 +2663,14 @@ export class RoomManager {
       return;
     }
 
-    const { playerId, action } = room.pendingDeployBarrage;
+    const { playerId, action, nextBattle } = room.pendingDeployBarrage;
     room.pendingDeployBarrage = null;
 
     if (room.ended) return;
     if (room.battle.status !== "active") return;
     if (room.battle.activePlayer !== playerId) return;
 
-    this.commitGameAction(room, playerId, action);
+    this.commitGameAction(room, playerId, action, nextBattle);
   }
 
   private updateCardSelection(socket: WebSocket, cardInstanceId: string | null) {
@@ -2615,9 +2926,15 @@ export class RoomManager {
 
   private getOpponentNickname(room: Room, playerId: PlayerId): string | null {
     const opponent = room.players[this.getOpponent(playerId)];
+    // Fake opponents carry their own display name and have no profile.
+    if (opponent?.nicknameOverride) return opponent.nicknameOverride;
     if (!opponent?.profilePlayerId) return null;
 
-    return this.profiles.getProfile(opponent.profilePlayerId).nickname ?? null;
+    return (
+      this.profiles.getProfile(opponent.profilePlayerId, {
+        touchActivity: false,
+      }).nickname ?? null
+    );
   }
 
   private isWaitingForOpponent(room: Room): boolean {
@@ -2721,6 +3038,7 @@ export class RoomManager {
   private cancelWaitingRoom(room: Room, notifySocket?: WebSocket) {
     room.publicMatchmaking = false;
     this.clearTurnTimer(room);
+    this.clearFakeTurn(room);
     this.clearPendingStartRoll(room);
     this.clearPendingMovement(room);
     this.clearPendingAttack(room);
@@ -2769,7 +3087,7 @@ export class RoomManager {
     if (previousMatch) {
       clearTimeout(previousMatch.timeoutId);
     } else {
-      this.pvpStats.recordCompletedBattle();
+      this.pvpStats.recordCompletedBattle(Boolean(room.players.bot?.isFake));
     }
 
     const timeoutId = setTimeout(() => {
@@ -2807,6 +3125,7 @@ export class RoomManager {
     room.ended = true;
     room.winner = winner;
     room.endReason = null;
+    this.clearFakeTurn(room);
     this.rememberCompletedPvpMatch(room, null);
     this.scheduleRoomCleanup(room.id);
   }
@@ -2834,6 +3153,7 @@ export class RoomManager {
     };
 
     this.clearTurnTimer(room);
+    this.clearFakeTurn(room);
     this.clearPendingStartRoll(room);
     this.clearPendingMovement(room);
     this.clearPendingAttack(room);
@@ -2891,6 +3211,7 @@ export class RoomManager {
       if (!currentRoom) return;
 
       this.clearTurnTimer(currentRoom);
+      this.clearFakeTurn(currentRoom);
       this.clearPendingStartRoll(currentRoom);
       this.clearPendingMovement(currentRoom);
       this.clearPendingAttack(currentRoom);
@@ -2906,6 +3227,7 @@ export class RoomManager {
 
     room.publicMatchmaking = false;
     this.clearTurnTimer(room);
+    this.clearFakeTurn(room);
     this.clearPendingStartRoll(room);
     this.clearPendingMovement(room);
     this.clearPendingAttack(room);
@@ -3025,7 +3347,11 @@ export class RoomManager {
     this.broadcastBattleState(room);
 
     if (room.battle.status === "active") {
+      if (room.battle.activePlayer === "bot") {
+        room.fakeActionsThisTurn = 0;
+      }
       this.restartTurnTimer(room);
+      this.maybeRunFakeTurn(room);
     } else {
       this.clearTurnTimer(room);
       this.finishNaturallyCompletedBattle(room);
@@ -3062,6 +3388,7 @@ export class RoomManager {
     safeSend(player.socket, {
       type: "FIRST_TURN_ROLL",
       roomId: room.id,
+      playerId,
       firstPlayer,
       startsAt,
       revealAt,

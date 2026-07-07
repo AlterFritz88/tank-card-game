@@ -47,6 +47,7 @@ type ResearchNodeContext = {
   node: ResearchNode;
   branchNodes: ResearchNode[];
   index: number;
+  starterHeadquartersId: HeadquartersId;
 };
 
 type ClaimBattleRewardInput = {
@@ -72,6 +73,17 @@ const PREMIUM_DAY_OFFERS: Record<number, number> = {
   21: 1500,
   50: 4199,
 };
+const DAILY_LOGIN_PREMIUM_DAYS = 1;
+const DAILY_LOGIN_DAY_OFFSET_MS = 3 * 60 * 60 * 1000;
+const DAILY_LOGIN_REWARD_OPTIONS: Array<{
+  kind: NonNullable<PlayerProgress["dailyLoginReward"]>["kind"];
+  amount: number;
+}> = [
+  { kind: "ironTracks", amount: 200 },
+  { kind: "goldTracks", amount: 10 },
+  { kind: "freeXp", amount: 100 },
+  { kind: "premium", amount: DAILY_LOGIN_PREMIUM_DAYS },
+];
 
 console.log(`Player profiles database path: ${PROFILE_DB_PATH}`);
 const profileStore = new JsonDocumentStore<ProfileDb>(
@@ -256,6 +268,7 @@ function mergeProgressForAccount(
       accountProfile.battleStats,
       guestProfile.battleStats
     ),
+    pveBattleCount: accountProfile.pveBattleCount + guestProfile.pveBattleCount,
     ironTracks: Math.max(accountProfile.ironTracks, guestProfile.ironTracks),
     goldTracks: Math.max(accountProfile.goldTracks, guestProfile.goldTracks),
     freeXp: Math.max(accountProfile.freeXp, guestProfile.freeXp),
@@ -406,6 +419,42 @@ function normalizeClaimedRewardIds(value: unknown): string[] {
     .slice(0, 500);
 }
 
+function normalizeDailyLoginReward(
+  value: unknown
+): PlayerProgress["dailyLoginReward"] {
+  if (!value || typeof value !== "object") return null;
+
+  const reward = value as Partial<NonNullable<PlayerProgress["dailyLoginReward"]>>;
+  const kind = reward.kind;
+  if (
+    kind !== "ironTracks" &&
+    kind !== "goldTracks" &&
+    kind !== "freeXp" &&
+    kind !== "premium"
+  ) {
+    return null;
+  }
+
+  if (typeof reward.id !== "string" || typeof reward.dayKey !== "string") {
+    return null;
+  }
+
+  const id = reward.id.replace(/[^a-zA-Z0-9:_-]/g, "").slice(0, 120);
+  const dayKey = reward.dayKey.replace(/[^0-9-]/g, "").slice(0, 16);
+  if (!id || !dayKey) return null;
+
+  return {
+    id,
+    dayKey,
+    kind,
+    claimedAt:
+      typeof reward.claimedAt === "number" && Number.isFinite(reward.claimedAt)
+        ? Math.max(0, Math.floor(reward.claimedAt))
+        : 0,
+    amount: getPositiveInteger(reward.amount),
+  };
+}
+
 function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProgress {
   const fallback = createInitialPlayerProgress();
   if (!profile) return fallback;
@@ -452,6 +501,18 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
       : null;
   const hasLegacyPremium =
     profile.accountType === "premium" && profile.premiumUntil == null;
+  const battleStats = mergeBattleStats(
+    fallback.battleStats,
+    {
+      wins: getPositiveInteger(profile.battleStats?.wins),
+      losses: getPositiveInteger(profile.battleStats?.losses),
+    }
+  );
+  const pveBattleCount =
+    typeof profile.pveBattleCount === "number" &&
+    Number.isFinite(profile.pveBattleCount)
+      ? getPositiveInteger(profile.pveBattleCount)
+      : battleStats.wins + battleStats.losses;
 
   return {
     ...fallback,
@@ -465,16 +526,12 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
         ? profile.tutorialCompleted
         : fallback.tutorialCompleted,
     favoriteHeadquartersId,
-    battleStats: mergeBattleStats(
-      fallback.battleStats,
-      {
-        wins: getPositiveInteger(profile.battleStats?.wins),
-        losses: getPositiveInteger(profile.battleStats?.losses),
-      }
-    ),
+    battleStats,
+    pveBattleCount,
     ironTracks: getPositiveInteger(profile.ironTracks),
     goldTracks: getPositiveInteger(profile.goldTracks),
     freeXp: getPositiveInteger(profile.freeXp),
+    dailyLoginReward: normalizeDailyLoginReward(profile.dailyLoginReward),
     headquartersXp: normalizeHeadquartersNumberMap(profile.headquartersXp),
     headquartersMatchCounts: normalizeHeadquartersNumberMap(
       profile.headquartersMatchCounts
@@ -687,7 +744,8 @@ function getBattleWinner(battle: BattleRewardSource, localPlayerId: PlayerId) {
 function applyReward(
   progress: PlayerProgress,
   reward: BattleReward,
-  localPlayerWon: boolean
+  localPlayerWon: boolean,
+  mode?: GameMode
 ): PlayerProgress {
   const currentHeadquartersXp =
     progress.headquartersXp[reward.headquartersId] ?? 0;
@@ -724,6 +782,8 @@ function applyReward(
       wins: progress.battleStats.wins + (localPlayerWon ? 1 : 0),
       losses: progress.battleStats.losses + (localPlayerWon ? 0 : 1),
     },
+    pveBattleCount:
+      progress.pveBattleCount + (mode === "ai" ? 1 : 0),
   };
 }
 
@@ -734,6 +794,8 @@ function getAllResearchNodeContexts(): ResearchNodeContext[] {
         node,
         branchNodes: branch.nodes,
         index,
+        starterHeadquartersId:
+          tree.starterHeadquarters.headquartersId as HeadquartersId,
       }))
     )
   );
@@ -783,17 +845,67 @@ function canReachResearchNode(
   progress: PlayerProgress
 ): boolean {
   const { node, branchNodes, index } = context;
+  const isGraph = branchNodes.some(
+    (branchNode) => branchNode.requires && branchNode.requires.length > 0
+  );
 
-  if (node.requires && node.requires.length > 0) {
-    return node.requires.every((requiredId) => {
+  if (isGraph) {
+    const requires = node.requires ?? [];
+    if (requires.length === 0) return true;
+
+    const tierMembers = getResearchTierMembers(branchNodes);
+    const interchangeable = requires.length === 1;
+
+    return requires.every((requiredId) => {
       const required = branchNodes.find((candidate) => candidate.id === requiredId);
-      return required ? isResearchGateSatisfied(required, progress) : true;
+      if (!required) return true;
+
+      return interchangeable
+        ? isInterchangeableResearchGateSatisfied(
+            required,
+            progress,
+            tierMembers
+          )
+        : isResearchGateSatisfied(required, progress);
     });
   }
 
   if (index <= 0) return true;
 
   return isResearchGateSatisfied(branchNodes[index - 1], progress);
+}
+
+function getResearchTierMembers(
+  branchNodes: ResearchNode[]
+): Map<number, ResearchNode[]> {
+  const tierMembers = new Map<number, ResearchNode[]>();
+
+  branchNodes.forEach((node) => {
+    const tier = node.tier ?? -1;
+    const members = tierMembers.get(tier) ?? [];
+
+    members.push(node);
+    tierMembers.set(tier, members);
+  });
+
+  return tierMembers;
+}
+
+function isInterchangeableResearchGateSatisfied(
+  required: ResearchNode,
+  progress: PlayerProgress,
+  tierMembers: Map<number, ResearchNode[]>
+): boolean {
+  if (isResearchGateSatisfied(required, progress)) return true;
+
+  const siblings = tierMembers.get(required.tier ?? -1) ?? [];
+  return siblings.some(
+    (sibling) =>
+      sibling.id !== required.id &&
+      sibling.type === required.type &&
+      sibling.goldCost === undefined &&
+      isResearchGateSatisfied(sibling, progress)
+  );
 }
 
 function isResearchGateSatisfied(
@@ -809,6 +921,115 @@ function isResearchGateSatisfied(
   }
 
   return true;
+}
+
+type ResearchSourceCandidate = {
+  headquartersId: HeadquartersId;
+  tier: number;
+  index: number;
+  depth: number;
+};
+
+function isHeadquartersNodeOwned(
+  node: ResearchNode,
+  progress: PlayerProgress
+): boolean {
+  return Boolean(
+    node.headquartersId &&
+      progress.unlockedHeadquartersIds.includes(node.headquartersId)
+  );
+}
+
+function pickLatestResearchSource(
+  candidates: ResearchSourceCandidate[]
+): ResearchSourceCandidate | null {
+  return (
+    [...candidates].sort((left, right) => {
+      if (right.tier !== left.tier) return right.tier - left.tier;
+      if (right.depth !== left.depth) return right.depth - left.depth;
+      return right.index - left.index;
+    })[0] ?? null
+  );
+}
+
+function getGraphResearchSourceHeadquartersId(
+  context: ResearchNodeContext,
+  progress: PlayerProgress
+): HeadquartersId {
+  const nodeById = new Map(
+    context.branchNodes.map((branchNode) => [branchNode.id, branchNode])
+  );
+  const indexById = new Map(
+    context.branchNodes.map((branchNode, index) => [branchNode.id, index])
+  );
+
+  function collectOwnedHeadquartersAncestors(
+    current: ResearchNode,
+    depth: number,
+    visited: Set<string>
+  ): ResearchSourceCandidate[] {
+    const candidates: ResearchSourceCandidate[] = [];
+
+    for (const requiredId of current.requires ?? []) {
+      if (visited.has(requiredId)) continue;
+      visited.add(requiredId);
+
+      const required = nodeById.get(requiredId);
+      if (!required) continue;
+
+      if (
+        required.type === "headquarters" &&
+        required.headquartersId &&
+        isHeadquartersNodeOwned(required, progress)
+      ) {
+        candidates.push({
+          headquartersId: required.headquartersId,
+          tier: required.tier ?? -1,
+          index: indexById.get(required.id) ?? -1,
+          depth,
+        });
+      }
+
+      candidates.push(
+        ...collectOwnedHeadquartersAncestors(required, depth + 1, visited)
+      );
+    }
+
+    return candidates;
+  }
+
+  return (
+    pickLatestResearchSource(
+      collectOwnedHeadquartersAncestors(context.node, 1, new Set())
+    )?.headquartersId ?? context.starterHeadquartersId
+  );
+}
+
+function getResearchSourceHeadquartersId(
+  context: ResearchNodeContext,
+  progress: PlayerProgress
+): HeadquartersId {
+  const isGraph = context.branchNodes.some(
+    (branchNode) => branchNode.requires && branchNode.requires.length > 0
+  );
+
+  if (isGraph) {
+    return getGraphResearchSourceHeadquartersId(context, progress);
+  }
+
+  for (let index = context.index - 1; index >= 0; index -= 1) {
+    const previous = context.branchNodes[index];
+
+    if (
+      previous.type === "headquarters" &&
+      previous.headquartersId &&
+      isHeadquartersNodeOwned(previous, progress)
+    ) {
+      return previous.headquartersId;
+    }
+  }
+
+  return context.starterHeadquartersId;
 }
 
 function researchCardOnProfile(
@@ -828,13 +1049,23 @@ function researchCardOnProfile(
     throw new Error("Сначала исследуйте предыдущий узел ветки");
   }
 
-  if (!canSpendResearchExperience(progress, sourceHeadquartersId, node.experienceCost)) {
+  const researchSourceHeadquartersId = context
+    ? getResearchSourceHeadquartersId(context, progress)
+    : sourceHeadquartersId;
+
+  if (
+    !canSpendResearchExperience(
+      progress,
+      researchSourceHeadquartersId,
+      node.experienceCost
+    )
+  ) {
     throw new Error("Не хватает опыта для исследования карты");
   }
 
   const nextProgress = spendResearchExperience(
     progress,
-    sourceHeadquartersId,
+    researchSourceHeadquartersId,
     node.experienceCost
   );
 
@@ -850,6 +1081,10 @@ function researchHeadquartersOnProfile(
   headquartersId: HeadquartersId,
   sourceHeadquartersId: HeadquartersId
 ): PlayerProgress {
+  if (!isPlayerSelectableHeadquartersId(headquartersId)) {
+    throw new Error("Этот штаб недоступен игрокам");
+  }
+
   if (progress.researchedHeadquartersIds.includes(headquartersId)) {
     return progress;
   }
@@ -864,13 +1099,23 @@ function researchHeadquartersOnProfile(
     throw new Error("Сначала исследуйте предыдущий узел ветки");
   }
 
-  if (!canSpendResearchExperience(progress, sourceHeadquartersId, node.experienceCost)) {
+  const researchSourceHeadquartersId = context
+    ? getResearchSourceHeadquartersId(context, progress)
+    : sourceHeadquartersId;
+
+  if (
+    !canSpendResearchExperience(
+      progress,
+      researchSourceHeadquartersId,
+      node.experienceCost
+    )
+  ) {
     throw new Error("Не хватает опыта для исследования штаба");
   }
 
   const nextProgress = spendResearchExperience(
     progress,
-    sourceHeadquartersId,
+    researchSourceHeadquartersId,
     node.experienceCost
   );
 
@@ -1035,14 +1280,6 @@ function claimCampaignRewardOnProfile(
   const ownedCopies = progress.ownedCardCopies[cardId] ?? 0;
   const nextCopies = Math.min(CARD_COPY_LIMIT, ownedCopies + reward.copies);
 
-  // Optional headquarters unlock (e.g. completing the Lavrinenko campaign makes
-  // the 4th Tank Brigade selectable in PvE/PvP).
-  const unlockHeadquartersId =
-    reward.unlockHeadquartersId &&
-    isPlayerSelectableHeadquartersId(reward.unlockHeadquartersId)
-      ? (reward.unlockHeadquartersId as HeadquartersId)
-      : null;
-
   return {
     ...progress,
     researchedCardIds: Array.from(
@@ -1053,16 +1290,6 @@ function claimCampaignRewardOnProfile(
       ...progress.ownedCardCopies,
       [cardId]: nextCopies,
     },
-    researchedHeadquartersIds: unlockHeadquartersId
-      ? Array.from(
-          new Set([...progress.researchedHeadquartersIds, unlockHeadquartersId])
-        )
-      : progress.researchedHeadquartersIds,
-    unlockedHeadquartersIds: unlockHeadquartersId
-      ? Array.from(
-          new Set([...progress.unlockedHeadquartersIds, unlockHeadquartersId])
-        )
-      : progress.unlockedHeadquartersIds,
     claimedBattleRewardIds: [claimKey, ...progress.claimedBattleRewardIds].slice(
       0,
       500
@@ -1105,6 +1332,68 @@ function purchaseHeadquartersOnProfile(
   };
 }
 
+function getDailyLoginDayKey(timestamp: number): string {
+  return new Date(timestamp + DAILY_LOGIN_DAY_OFFSET_MS)
+    .toISOString()
+    .slice(0, 10);
+}
+
+function createDailyLoginRewardId(playerId: string, dayKey: string): string {
+  return `daily:${playerId}:${dayKey}`.replace(/[^a-zA-Z0-9:_-]/g, "");
+}
+
+function applyDailyLoginReward(
+  progress: PlayerProgress,
+  playerId: string,
+  now = Date.now()
+): PlayerProgress {
+  const dayKey = getDailyLoginDayKey(now);
+
+  if (progress.dailyLoginReward?.dayKey === dayKey) {
+    return progress;
+  }
+
+  const reward =
+    DAILY_LOGIN_REWARD_OPTIONS[
+      Math.floor(Math.random() * DAILY_LOGIN_REWARD_OPTIONS.length)
+    ] ?? DAILY_LOGIN_REWARD_OPTIONS[0];
+  const dailyLoginReward: NonNullable<PlayerProgress["dailyLoginReward"]> = {
+    id: createDailyLoginRewardId(playerId, dayKey),
+    dayKey,
+    claimedAt: now,
+    kind: reward.kind,
+    amount: reward.amount,
+  };
+  const nextProgress = {
+    ...progress,
+    dailyLoginReward,
+  };
+
+  switch (reward.kind) {
+    case "ironTracks":
+      return {
+        ...nextProgress,
+        ironTracks: progress.ironTracks + reward.amount,
+      };
+    case "goldTracks":
+      return {
+        ...nextProgress,
+        goldTracks: progress.goldTracks + reward.amount,
+      };
+    case "freeXp":
+      return {
+        ...nextProgress,
+        freeXp: progress.freeXp + reward.amount,
+      };
+    case "premium":
+      return addPremiumDaysToProgress(
+        nextProgress,
+        DAILY_LOGIN_PREMIUM_DAYS,
+        now
+      );
+  }
+}
+
 export class PlayerProfileManager {
   private persistProfile(
     playerId: string,
@@ -1134,13 +1423,18 @@ export class PlayerProfileManager {
     if (!safePlayerId) return createInitialPlayerProgress();
 
     const db = readDb();
-    const profile = normalizeProfileForPlayer(safePlayerId, {
+    const now = Date.now();
+    const normalizedProfile = normalizeProfileForPlayer(safePlayerId, {
       ...db[safePlayerId],
       lastActivityAt:
         options.touchActivity === false
           ? db[safePlayerId]?.lastActivityAt
-          : Date.now(),
+          : now,
     });
+    const profile =
+      options.touchActivity === false
+        ? normalizedProfile
+        : applyDailyLoginReward(normalizedProfile, safePlayerId, now);
 
     db[safePlayerId] = profile;
     writeDb(db);
@@ -1290,7 +1584,9 @@ export class PlayerProfileManager {
     }
 
     const accountProfile = this.getProfile(safeUserPlayerId);
-    const guestProfile = this.getProfile(safeGuestPlayerId);
+    const guestProfile = this.getProfile(safeGuestPlayerId, {
+      touchActivity: false,
+    });
     return this.persistProfile(
       safeUserPlayerId,
       mergeProgressForAccount(accountProfile, guestProfile)
@@ -1356,7 +1652,7 @@ export class PlayerProfileManager {
     });
     const localPlayerWon = getBattleWinner(input.battle, input.localPlayerId);
     const nextProfile = {
-      ...applyReward(profile, reward, localPlayerWon),
+      ...applyReward(profile, reward, localPlayerWon, input.mode),
       claimedBattleRewardIds: [
         claimId,
         ...profile.claimedBattleRewardIds,

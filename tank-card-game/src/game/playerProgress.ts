@@ -50,6 +50,20 @@ export type PlayerSavedDeck = {
   updatedAt: number;
 };
 
+export type DailyLoginRewardKind =
+  | "ironTracks"
+  | "goldTracks"
+  | "freeXp"
+  | "premium";
+
+export type DailyLoginReward = {
+  id: string;
+  dayKey: string;
+  claimedAt: number;
+  kind: DailyLoginRewardKind;
+  amount: number;
+};
+
 export type PendingPlayerRewardClaim =
   | {
       type: "battle";
@@ -73,9 +87,11 @@ export type PlayerProfile = {
   tutorialCompleted: boolean;
   favoriteHeadquartersId: HeadquartersId | null;
   battleStats: PlayerBattleStats;
+  pveBattleCount: number;
   ironTracks: number;
   goldTracks: number;
   freeXp: number;
+  dailyLoginReward: DailyLoginReward | null;
   headquartersXp: Partial<Record<HeadquartersId, number>>;
   headquartersMatchCounts: Partial<Record<HeadquartersId, number>>;
   headquartersBattleStats: Partial<Record<HeadquartersId, PlayerBattleStats>>;
@@ -370,7 +386,8 @@ function getBattleWinner(battle: ClientBattleState, localPlayerId: PlayerId) {
 function applyRewardToProgress(
   progress: PlayerProgress,
   reward: BattleReward,
-  localPlayerWon: boolean
+  localPlayerWon: boolean,
+  mode?: GameMode
 ): PlayerProgress {
   const currentHeadquartersXp =
     progress.headquartersXp[reward.headquartersId] ?? 0;
@@ -408,6 +425,8 @@ function applyRewardToProgress(
       wins: progress.battleStats.wins + (localPlayerWon ? 1 : 0),
       losses: progress.battleStats.losses + (localPlayerWon ? 0 : 1),
     },
+    pveBattleCount:
+      progress.pveBattleCount + (mode === "ai" ? 1 : 0),
   };
 }
 
@@ -468,7 +487,7 @@ export function applyBattleRewardToProgress(input: {
           ),
         ];
   const nextProgress: PlayerProgress = {
-    ...applyRewardToProgress(progress, reward, localPlayerWon),
+    ...applyRewardToProgress(progress, reward, localPlayerWon, mode),
     claimedBattleRewardIds: [
       claimId,
       ...progress.claimedBattleRewardIds,
@@ -540,9 +559,11 @@ export function createInitialPlayerProgress(): PlayerProgress {
       wins: 0,
       losses: 0,
     },
+    pveBattleCount: 0,
     ironTracks: STARTING_IRON_TRACKS,
     goldTracks: 0,
     freeXp: 0,
+    dailyLoginReward: null,
     headquartersXp: {},
     headquartersMatchCounts: {},
     headquartersBattleStats: {},
@@ -622,6 +643,12 @@ function normalizePlayerProgress(
       : null;
   const hasLegacyPremium =
     progress.accountType === "premium" && progress.premiumUntil == null;
+  const battleStats = normalizeBattleStats(progress.battleStats);
+  const pveBattleCount =
+    typeof progress.pveBattleCount === "number" &&
+    Number.isFinite(progress.pveBattleCount)
+      ? getPositiveInteger(progress.pveBattleCount)
+      : battleStats.wins + battleStats.losses;
 
   return {
     nickname:
@@ -642,10 +669,12 @@ function normalizePlayerProgress(
     favoriteHeadquartersId:
       getValidHeadquartersId(progress.favoriteHeadquartersId) ??
       fallback.favoriteHeadquartersId,
-    battleStats: normalizeBattleStats(progress.battleStats),
+    battleStats,
+    pveBattleCount,
     ironTracks: getPositiveInteger(progress.ironTracks),
     goldTracks: getPositiveInteger(progress.goldTracks),
     freeXp: getPositiveInteger(progress.freeXp),
+    dailyLoginReward: normalizeDailyLoginReward(progress.dailyLoginReward),
     headquartersXp:
       typeof progress.headquartersXp === "object" && progress.headquartersXp
         ? progress.headquartersXp
@@ -679,6 +708,40 @@ function normalizePlayerProgress(
     pendingRewardClaims: Array.isArray(progress.pendingRewardClaims)
       ? normalizePendingRewardClaims(progress.pendingRewardClaims)
       : fallback.pendingRewardClaims,
+  };
+}
+
+function normalizeDailyLoginReward(value: unknown): DailyLoginReward | null {
+  if (!value || typeof value !== "object") return null;
+
+  const reward = value as Partial<DailyLoginReward>;
+  const kind = reward.kind;
+  if (
+    kind !== "ironTracks" &&
+    kind !== "goldTracks" &&
+    kind !== "freeXp" &&
+    kind !== "premium"
+  ) {
+    return null;
+  }
+
+  if (typeof reward.id !== "string" || typeof reward.dayKey !== "string") {
+    return null;
+  }
+
+  const id = reward.id.replace(/[^a-zA-Z0-9:_-]/g, "").slice(0, 120);
+  const dayKey = reward.dayKey.replace(/[^0-9-]/g, "").slice(0, 16);
+  if (!id || !dayKey) return null;
+
+  return {
+    id,
+    dayKey,
+    kind,
+    claimedAt:
+      typeof reward.claimedAt === "number" && Number.isFinite(reward.claimedAt)
+        ? Math.max(0, Math.floor(reward.claimedAt))
+        : 0,
+    amount: getPositiveInteger(reward.amount),
   };
 }
 

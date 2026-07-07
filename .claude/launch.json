@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "tank-card-game", "run", "dev", "--", "--port", "5199"],
       "port": 5199
+    },
+    {
+      "name": "tank-pvp",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "tank-card-game", "run", "dev", "--", "--port", "4173", "--strictPort"],
+      "port": 4173
     }
   ]
 }

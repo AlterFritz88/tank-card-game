@@ -9,11 +9,13 @@ type AdminRuntimeStats = {
   roomsTotal: number;
   matchmakingRooms: number;
   activeBattles: number;
+  activeFakeBattles?: number;
   finishedRooms: number;
   connectedPvpPlayers: number;
   activeGameSessions: number;
   completedPvpRewardClaims: number;
   completedPvpBattles?: number;
+  completedFakePvpBattles?: number;
 };
 
 type AdminPlayerAccount = {
@@ -534,15 +536,33 @@ export function AdminPanel() {
             <section style={styles.metricsGrid}>
               <MetricCard label="Играют сейчас" value={overview.runtime.activeGameSessions} />
               <MetricCard label="PVP игроки" value={overview.runtime.connectedPvpPlayers} />
-              <MetricCard label="Активные бои" value={overview.runtime.activeBattles} />
+              <MetricCard
+                label="Активные бои (реальн.)"
+                value={
+                  overview.runtime.activeBattles -
+                  (overview.runtime.activeFakeBattles ?? 0)
+                }
+              />
+              <MetricCard
+                label="Активные бои (фейк)"
+                value={overview.runtime.activeFakeBattles ?? 0}
+              />
               <MetricCard label="В очереди" value={overview.runtime.matchmakingRooms} />
               <MetricCard label="Комнат всего" value={overview.runtime.roomsTotal} />
               <MetricCard label="Аккаунты" value={overview.accounts.length} />
               <MetricCard label="Профили" value={overview.profiles.length} />
               <MetricCard label="Обращения" value={supportTickets.length} />
               <MetricCard
-                label="PVP бои"
-                value={overview.runtime.completedPvpBattles ?? 0}
+                label="PVP бои (реальн.)"
+                value={Math.max(
+                  0,
+                  (overview.runtime.completedPvpBattles ?? 0) -
+                    (overview.runtime.completedFakePvpBattles ?? 0)
+                )}
+              />
+              <MetricCard
+                label="PVP бои (фейк)"
+                value={overview.runtime.completedFakePvpBattles ?? 0}
               />
               <MetricCard
                 label="Платежи"

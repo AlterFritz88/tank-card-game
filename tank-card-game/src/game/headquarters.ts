@@ -725,6 +725,78 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     defaultDeckId: "winter_blocking_force_campaign",
     availableInMainMenu: false,
   },
+
+  // === Кампания «Одинокий КВ» (Расейняй, июнь 1941) ===
+
+  soviet_2nd_tank_division: {
+    id: "soviet_2nd_tank_division",
+    title: "2-я танковая",
+    subtitle: "2-я танковая дивизия (ген. Е. Н. Солянкин)",
+    type: "Танковая дивизия",
+    description:
+      "Неуязвимая броня: тяжёлые танки и ПТ-САУ дивизии получают на 1 урона " +
+      "меньше от каждого попадания — снаряды 37-мм пушек отскакивают от КВ.",
+    ability: {
+      name: "Неуязвимая броня",
+      heavyArmorReduction: 1,
+    },
+    faction: "Красная армия",
+    nation: "ussr",
+    hp: 22,
+    attack: 1,
+    range: 99,
+    fuelGeneration: 4,
+    level: 4,
+    defaultDeckId: "soviet_2nd_td_campaign",
+    availableInMainMenu: false,
+  },
+
+  kv_crew: {
+    id: "kv_crew",
+    title: "Экипаж КВ",
+    subtitle: "Одинокий КВ на дороге Расейняй — Дубиса",
+    type: "Танковый экипаж",
+    description:
+      "Одинокий бастион: танк, не двигавшийся в этом ходу, бьёт на +1 урона и " +
+      "крепче держит удар (−1 к входящему урону). Экипаж врос в перекрёсток.",
+    ability: {
+      name: "Одинокий бастион",
+      stationaryTankAttackBonus: 1,
+      stationaryTankHpBonus: 1,
+    },
+    faction: "Красная армия",
+    nation: "ussr",
+    hp: 20,
+    attack: 2,
+    range: 99,
+    fuelGeneration: 3,
+    level: 5,
+    defaultDeckId: "kv_crew_default",
+    availableInMainMenu: false,
+  },
+
+  german_6_panzer: {
+    id: "german_6_panzer",
+    title: "6. Panzer-Div.",
+    subtitle: "6-я танковая дивизия · Kampfgruppe Raus",
+    type: "Танковая дивизия",
+    description:
+      "Стремительный марш: все лёгкие машины дивизии получают «Блиц» — рой " +
+      "",
+    ability: {
+      name: "Стремительный марш",
+      lightUnitsBlitz: true,
+    },
+    faction: "Wehrmacht",
+    nation: "germany",
+    hp: 21,
+    attack: 2,
+    range: 99,
+    fuelGeneration: 5,
+    level: 4,
+    defaultDeckId: "german_6_panzer_campaign",
+    availableInMainMenu: false,
+  },
 };
 
 export const DEFAULT_PLAYER_HEADQUARTERS_ID: HeadquartersId = "training_unit";

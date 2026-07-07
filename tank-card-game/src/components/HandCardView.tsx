@@ -1,4 +1,10 @@
-import { useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import type React from "react";
 import { getHeadquartersDefinition } from "../game/headquarters";
 import {
@@ -290,6 +296,80 @@ function getHeadquartersTitleFontSize(title: string): number {
   return 8.5;
 }
 
+function FitMultilineText({
+  children,
+  maxFontSize,
+  minFontSize,
+  style,
+  title,
+}: {
+  children: string;
+  maxFontSize: number;
+  minFontSize: number;
+  style?: CSSProperties;
+  title?: string;
+}) {
+  const elementRef = useRef<HTMLParagraphElement>(null);
+
+  const fit = useCallback(() => {
+    const element = elementRef.current;
+    if (!element) return;
+
+    let fontSize = maxFontSize;
+    element.style.fontSize = `${fontSize}px`;
+
+    while (
+      fontSize > minFontSize &&
+      (element.scrollHeight > element.clientHeight + 1 ||
+        element.scrollWidth > element.clientWidth + 1)
+    ) {
+      fontSize -= 0.5;
+      element.style.fontSize = `${fontSize}px`;
+    }
+  }, [maxFontSize, minFontSize]);
+
+  useLayoutEffect(() => {
+    fit();
+
+    const element = elementRef.current;
+    if (!element) return;
+
+    const observer =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => fit())
+        : null;
+    observer?.observe(element);
+
+    let cancelled = false;
+    if (typeof document !== "undefined" && document.fonts?.ready) {
+      document.fonts.ready.then(() => {
+        if (!cancelled) fit();
+      });
+    }
+
+    return () => {
+      cancelled = true;
+      observer?.disconnect();
+    };
+  }, [children, fit]);
+
+  return (
+    <p
+      ref={elementRef}
+      title={title}
+      style={{
+        display: "block",
+        height: "100%",
+        maxHeight: "100%",
+        overflow: "hidden",
+        ...style,
+        fontSize: maxFontSize,
+      }}
+    >
+      {children}
+    </p>
+  );
+}
 
 export function HandCardView({
   card,
@@ -672,15 +752,17 @@ export function HandCardView({
 
       <div style={styles.descriptionPanel}>
         {descriptionText && (
-          <p
+          <FitMultilineText
+            maxFontSize={scaled(11)}
+            minFontSize={5}
+            title={descriptionText}
             style={{
               ...styles.abilityText,
-              fontSize: scaled(11),
               lineHeight: 1.18,
             }}
           >
             {descriptionText}
-          </p>
+          </FitMultilineText>
         )}
       </div>
     </div>
@@ -1130,7 +1212,8 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 5,
     display: "flex",
     flexDirection: "column",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
+    overflow: "hidden",
     pointerEvents: "none",
   },
 
@@ -1142,6 +1225,8 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 0.8,
     textShadow: "0 1px 0 rgba(0,0,0,0.95)",
     textAlign: "left",
+    maxHeight: "100%",
+    overflow: "hidden",
     overflowWrap: "break-word",
     wordBreak: "normal",
   },

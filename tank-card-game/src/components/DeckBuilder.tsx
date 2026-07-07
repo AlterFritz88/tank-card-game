@@ -990,12 +990,12 @@ export function DeckBuilder({
         <button type="button" style={styles.backButton} onClick={onBack}>
           ‹
         </button>
-        <div>
+        <div style={styles.titleBlock}>
           <h1 style={styles.title}>
             {editingDeck
               ? language === "en"
                 ? "Edit Deck"
-                : "Редактирование колоды"
+                : "Редактор колоды"
               : language === "en"
                 ? "Create Deck"
                 : "Создание колоды"}
@@ -1479,12 +1479,12 @@ const styles: Record<string, CSSProperties> = {
     // Above the workspace (zIndex 2) so the open filter dropdown is not covered
     // by the card rows below it.
     zIndex: 40,
-    height: 82,
+    height: "clamp(92px, 12cqh, 124px)",
     display: "grid",
-    gridTemplateColumns: "64px 1fr auto",
+    gridTemplateColumns: "54px minmax(82px, 112px) minmax(0, 1fr)",
     alignItems: "center",
-    gap: 18,
-    padding: "12px 30px",
+    gap: 8,
+    padding: "7px 12px",
     background: "transparent",
     boxShadow: "none",
     boxSizing: "border-box",
@@ -1557,48 +1557,62 @@ const styles: Record<string, CSSProperties> = {
   },
 
   title: {
-    margin: "2px 0 0",
+    margin: 0,
     color: "#f7e8b8",
-    fontSize: 31,
-    lineHeight: 1,
-    letterSpacing: 1.2,
+    fontSize: "clamp(15px, 1.7cqw, 20px)",
+    lineHeight: 0.96,
+    letterSpacing: 0.8,
     textTransform: "uppercase",
     textShadow: "0 2px 10px rgba(0,0,0,0.9)",
+    whiteSpace: "normal",
+    textWrap: "balance",
+  },
+
+  titleBlock: {
+    minWidth: 0,
+    maxWidth: 112,
   },
 
   deckCounter: {
-    minWidth: 72,
+    minWidth: 58,
     display: "flex",
     justifyContent: "center",
     alignItems: "baseline",
-    padding: "9px 13px",
+    padding: "7px 9px",
     borderRadius: 4,
     background: "rgba(13, 16, 13, 0.48)",
+    boxSizing: "border-box",
   },
 
   deckWeightBadge: {
-    minWidth: 112,
+    minWidth: 86,
     display: "grid",
     gridTemplateColumns: "auto auto",
-    columnGap: 10,
+    columnGap: 6,
     alignItems: "baseline",
-    padding: "9px 13px",
+    padding: "7px 9px",
     borderRadius: 4,
     background:
       "linear-gradient(180deg, rgba(24, 52, 30, 0.48), rgba(10, 18, 11, 0.46))",
     color: "#c8efaa",
     boxShadow: "none",
+    boxSizing: "border-box",
   },
 
   headerActions: {
     display: "flex",
+    flexWrap: "wrap",
     alignItems: "center",
-    gap: 12,
+    alignContent: "center",
+    justifyContent: "flex-start",
+    gap: "5px 6px",
+    minWidth: 0,
+    maxWidth: "100%",
   },
 
   deckNameInput: {
-    width: 230,
-    height: 38,
+    width: "clamp(112px, 11cqw, 150px)",
+    height: 34,
     padding: "0 12px",
     border: "none",
     borderRadius: 4,
@@ -1618,14 +1632,16 @@ const styles: Record<string, CSSProperties> = {
 
   filters: {
     display: "flex",
+    flex: "0 1 auto",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
+    minWidth: 0,
   },
 
   // Cost-sort toggle, styled to match the collection menu's sort pills.
   sortButton: {
     // Fixed width so the arrow (→/←) appearing never shifts the neighbours.
-    width: 132,
+    width: 126,
     height: 34,
     padding: "0 12px",
     textAlign: "center",
@@ -1655,9 +1671,12 @@ const styles: Record<string, CSSProperties> = {
   },
 
   readyButton: {
-    height: 48,
-    minWidth: 122,
-    padding: "0 22px 2px",
+    marginLeft: "auto",
+    marginRight: 130,
+    flex: "0 0 auto",
+    height: 42,
+    minWidth: 96,
+    padding: "0 14px 2px",
     border: "none",
     borderRadius: 0,
     backgroundColor: "transparent",
@@ -1678,7 +1697,7 @@ const styles: Record<string, CSSProperties> = {
   workspace: {
     position: "relative",
     zIndex: 2,
-    height: "calc(100cqh - 82px)",
+    height: "calc(100cqh - clamp(92px, 12cqh, 124px))",
     width: "100%",
     minWidth: 0,
     display: "grid",
@@ -1713,13 +1732,13 @@ const styles: Record<string, CSSProperties> = {
   dropdown: {
     position: "relative",
     // Fixed width so picking a longer option never reflows the header controls.
-    width: 132,
-    minWidth: 132,
+    width: 104,
+    minWidth: 100,
   },
 
   dropdownTrigger: {
     width: "100%",
-    minWidth: 132,
+    minWidth: 100,
     height: 34,
     display: "flex",
     alignItems: "center",

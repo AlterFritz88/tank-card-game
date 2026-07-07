@@ -521,6 +521,132 @@ export const CAMPAIGNS: Campaign[] = [
       },
     ],
   },
+
+  {
+    id: "raseiniai-kv",
+    title: "Одинокий КВ",
+    description:
+      "Литва, июнь 1941. Первые дни войны: 2-я танковая дивизия встречает 4-ю танковую группу под Расейняем, а потом один-единственный КВ на двое суток перерезает дорогу целой боевой группе вермахта.",
+    playerHeadquartersId: "soviet_2nd_tank_division",
+    playerDeckId: "soviet_2nd_td_campaign",
+    menuArtUrl: "/ui/menu/raseiniai_kv.webp",
+    briefingAvatarId: "kv_crew",
+    briefingSpeaker: "Командир КВ",
+    missions: [
+      {
+        id: "raseiniai-1",
+        chapter: "Литва 1941 · Приграничное сражение",
+        title: "Граница в огне",
+        description:
+          "22 июня 1941. Дивизия поднята по тревоге и идёт навстречу прорыву. На марше — передовой разведотряд немцев.",
+        briefing:
+          "Война, ребята. Дивизия выдвигается к Расейняю, а поперёк дороги уже крутится немецкая разведка — броневики и мотоциклы. Наши КВ им не по зубам: держи тяжёлые машины впереди, лёгкими прикрывай фланги.",
+        victoryDebrief:
+          "Разведку смели, дорога наша. Но это только передовой отряд — главные силы Рейнхардта уже переправляются через Дубису.",
+        defeatDebrief:
+          "Замешкались на марше — и разведка нас связала боем. Соберись: впереди бои потяжелее.",
+        botHeadquartersId: "first_panzer_division",
+        botDeckId: "first_panzer_border_campaign",
+        playerDeckId: "soviet_2nd_td_campaign",
+        backgroundId: "base_1",
+        illustrationId: "raseiniai_m1",
+        // Дивизия уже развёрнута: КВ-1 на спавне, два расчёта 45-мм 53-К в тылу.
+        playerBoardUnits: [
+          { cardId: "kv1", position: { row: 1, col: 0 } },
+          { cardId: "gun_53k", zone: "support", supportSlot: 0 },
+          { cardId: "gun_53k", zone: "support", supportSlot: 1 },
+        ],
+      },
+      {
+        id: "raseiniai-2",
+        chapter: "Литва 1941 · Приграничное сражение",
+        title: "Стальной таран у Скаудвиле",
+        description:
+          "23 июня 1941. Контрудар 2-й танковой дивизии: КВ идут на боевую группу Зекендорфа, и снаряды 37-мм пушек отскакивают от брони.",
+        briefing:
+          "Перед нами 6-я танковая дивизия немцев — чешские Pz 35(t) и 37-мм «колотушки». Их снаряды отскакивают от наших КВ, как горох. Не жди — дави: тарань пушки, топчи танкетки. Пусть запомнят, что такое КВ.",
+        victoryDebrief:
+          "Группа Зекендорфа смята, немцы впервые пятятся. Но горючее и снаряды на исходе, а корпус берёт нас в клещи. Дивизия отходит… кроме одного танка.",
+        defeatDebrief:
+          "Даже КВ не всесилен, когда лезет без прикрытия. Перегруппируемся и ударим снова.",
+        botHeadquartersId: "german_6_panzer",
+        botDeckId: "german_6_panzer_campaign",
+        playerDeckId: "soviet_2nd_td_campaign",
+        backgroundId: "russian_1",
+        illustrationId: "raseiniai_m2",
+        // Остриё контрудара уже развёрнуто: КВ-2 стоит на спавне.
+        playerBoardUnits: [
+          { cardId: "kv2", position: { row: 1, col: 0 } },
+        ],
+      },
+      {
+        id: "raseiniai-3",
+        chapter: "Расейняй · Один против дивизии",
+        title: "Перекрёсток",
+        description:
+          "24 июня 1941. Одинокий КВ встаёт на дорогу Расейняй — Дубиса и отрезает боевую группу Рауса от снабжения.",
+        briefing:
+          "Мы одни: машина исправна, боекомплект полный, позади — никого. Встанем здесь, на перекрёстке. Ни одна колонна не пройдёт: жги грузовики, а подтянут противотанковую батарею — расстреляем и её.",
+        victoryDebrief:
+          "Двенадцать грузовиков горят вдоль обочин, батарея Pak 38 разбита в упор. Группа Рауса сидит без горючего и боеприпасов. Дорога закрыта.",
+        defeatDebrief:
+          "Колонна прорвалась. Но танк цел, а дорога длинная — займём позицию снова.",
+        botHeadquartersId: "german_6_panzer",
+        botDeckId: "raus_supply_campaign",
+        playerHeadquartersId: "soviet_2nd_tank_division",
+        playerDeckId: "kv_crew_ba10_campaign",
+        backgroundId: "base_1",
+        illustrationId: "raseiniai_m3",
+        playerBoardUnits: [
+          { cardId: "kv1_raseiniai", position: { row: 1, col: 2 } },
+        ],
+      },
+      {
+        id: "raseiniai-4",
+        chapter: "Расейняй · Один против дивизии",
+        title: "Ночь сапёров",
+        description:
+          "Ночь на 25 июня 1941. Немецкие сапёры подбираются к неподвижному танку с подрывными зарядами.",
+        briefing:
+          "Ночь. Слышишь? Сапёры ползут с зарядами, а за ними пехотные пушки бьют вслепую по вспышкам. Стоим на месте — врылись и держим. Каждый, кто подойдёт к броне, пожалеет.",
+        victoryDebrief:
+          "Заряды сорвали гусеничную полку, но танк жив, экипаж цел. Утром немцы опять увидят нас на том же месте — и опять встанут.",
+        defeatDebrief:
+          "Подпустили сапёров слишком близко. Ночью главное — не дать им дойти до брони.",
+        botHeadquartersId: "german_6_panzer",
+        botDeckId: "raus_pioneers_campaign",
+        playerHeadquartersId: "soviet_2nd_tank_division",
+        playerDeckId: "kv_crew_ba10_campaign",
+        backgroundId: "german_1",
+        illustrationId: "raseiniai_m4",
+        playerBoardUnits: [
+          { cardId: "kv1_raseiniai", position: { row: 1, col: 2 } },
+        ],
+      },
+      {
+        id: "raseiniai-5",
+        chapter: "Расейняй · Один против дивизии",
+        title: "Восемь-восемь",
+        description:
+          "25 июня 1941. Pz 35(t) кружат и отвлекают, а с тыла разворачиваются зенитки 8,8 cm — последний бой одинокого КВ.",
+        briefing:
+          "Танки кружат со всех сторон — но это отвлекающий манёвр, я его вижу. Где-то сзади разворачивают «ахт-ахт» — единственную пушку, что нас пробьёт. Найди её и разбей раньше, чем она сделает первый выстрел.",
+        victoryDebrief:
+          "Двое суток один танк держал дивизию. Немцы вытащили наших ребят из машины и похоронили с воинскими почестями — враг, и тот снял фуражку. Помни этот перекрёсток.",
+        defeatDebrief:
+          "«Ахт-ахт» успела дать залп… Но и так экипаж выиграл для фронта двое суток. Попробуй ещё раз — разбей её первой.",
+        botHeadquartersId: "german_6_panzer",
+        botDeckId: "raus_flak88_campaign",
+        playerHeadquartersId: "soviet_2nd_tank_division",
+        playerDeckId: "kv_crew_campaign",
+        backgroundId: "russian_1",
+        illustrationId: "raseiniai_m5",
+        playerBoardUnits: [
+          { cardId: "kv1_raseiniai", position: { row: 1, col: 1 } },
+        ],
+      },
+    ],
+  },
 ];
 
 /**
@@ -535,11 +661,6 @@ export type CampaignCompletionReward = {
   missionIds: string[];
   cardId: string;
   copies: number;
-  /**
-   * Optional headquarters unlocked alongside the card reward. Granted by the
-   * server when the reward is claimed, which makes it selectable in PvE/PvP.
-   */
-  unlockHeadquartersId?: HeadquartersId;
 };
 
 export const CAMPAIGN_COMPLETION_REWARDS: CampaignCompletionReward[] = [
@@ -601,8 +722,26 @@ export const CAMPAIGN_COMPLETION_REWARDS: CampaignCompletionReward[] = [
     ],
     cardId: "t34_lavrinenko",
     copies: 1,
-    // Пройдя кампанию, игрок открывает штаб 4-й танковой бригады для PvE/PvP.
-    unlockHeadquartersId: "lavrinenko_tank_brigade",
+  },
+  // Кампания «Одинокий КВ»: за контрудар у Скаудвиле — КВ-2 в коллекцию.
+  {
+    id: "raseiniai_skaudvile",
+    missionIds: ["raseiniai-1", "raseiniai-2"],
+    cardId: "kv2",
+    copies: 1,
+  },
+  // За всю кампанию — уникальный экранированный КВ-1Э.
+  {
+    id: "raseiniai_lone_kv",
+    missionIds: [
+      "raseiniai-1",
+      "raseiniai-2",
+      "raseiniai-3",
+      "raseiniai-4",
+      "raseiniai-5",
+    ],
+    cardId: "kv1_raseiniai",
+    copies: 1,
   },
 ];
 

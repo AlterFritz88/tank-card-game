@@ -16,6 +16,12 @@ export type RewardCelebrationCard =
       kind: "headquarters";
       headquartersId: HeadquartersId;
       headquarters: { hp: number; attack: number; fuelGeneration: number };
+    }
+  | {
+      kind: "resource";
+      icon: string;
+      title: string;
+      subtitle: string;
     };
 
 export type RewardCelebrationTone = "research" | "purchase" | "reward";
@@ -149,12 +155,26 @@ export function RewardCelebrationOverlay({
                 />
                 {item.kind === "card" ? (
                   <HandCardView card={item.card} displayMode="preview" />
-                ) : (
+                ) : item.kind === "headquarters" ? (
                   <HandCardView
                     headquartersId={item.headquartersId}
                     headquarters={item.headquarters}
                     displayMode="preview"
                   />
+                ) : (
+                  <div style={styles.resourceRewardCard}>
+                    <div style={styles.resourceRewardGlow} />
+                    <img
+                      src={item.icon}
+                      alt=""
+                      aria-hidden="true"
+                      style={styles.resourceRewardIcon}
+                    />
+                    <div style={styles.resourceRewardTitle}>{item.title}</div>
+                    <div style={styles.resourceRewardSubtitle}>
+                      {item.subtitle}
+                    </div>
+                  </div>
                 )}
               </motion.div>
             ))}
@@ -272,6 +292,62 @@ const styles: Record<string, CSSProperties> = {
     opacity: 0.92,
     transform: "translateZ(-18px) rotateY(180deg)",
     boxShadow: "0 18px 36px rgba(0,0,0,0.68)",
+  },
+
+  resourceRewardCard: {
+    position: "relative",
+    width: "100%",
+    aspectRatio: "0.72",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    padding: "34px 24px",
+    overflow: "hidden",
+    borderRadius: 18,
+    border: "2px solid rgba(255, 225, 150, 0.74)",
+    color: "#ffe8ad",
+    textAlign: "center",
+    textTransform: "uppercase",
+    background:
+      "linear-gradient(145deg, rgba(43, 34, 24, 0.98), rgba(12, 11, 9, 0.98))",
+    boxShadow:
+      "inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 -42px 90px rgba(110,72,25,0.46), 0 24px 54px rgba(0,0,0,0.72)",
+  },
+
+  resourceRewardGlow: {
+    position: "absolute",
+    inset: "-28%",
+    background:
+      "radial-gradient(circle, rgba(255, 219, 122, 0.34), transparent 56%)",
+    pointerEvents: "none",
+  },
+
+  resourceRewardIcon: {
+    position: "relative",
+    width: "48%",
+    maxWidth: 170,
+    objectFit: "contain",
+    filter: "drop-shadow(0 12px 20px rgba(0,0,0,0.75))",
+  },
+
+  resourceRewardTitle: {
+    position: "relative",
+    fontSize: 38,
+    lineHeight: 1,
+    fontWeight: 1000,
+    textShadow: "0 4px 0 rgba(0,0,0,0.74)",
+  },
+
+  resourceRewardSubtitle: {
+    position: "relative",
+    maxWidth: "90%",
+    fontSize: 18,
+    lineHeight: 1.2,
+    fontWeight: 900,
+    color: "#d8c39b",
+    textShadow: "0 2px 0 rgba(0,0,0,0.7)",
   },
 
   label: {

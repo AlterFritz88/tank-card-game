@@ -33,7 +33,10 @@ export type HeadquartersId =
   | "german_winter_panzer"
   | "winter_blocking_force"
   | "soviet_central_front"
-  | "german_9th_army";
+  | "german_9th_army"
+  | "soviet_2nd_tank_division"
+  | "kv_crew"
+  | "german_6_panzer";
 
 export type Position = {
   row: number;

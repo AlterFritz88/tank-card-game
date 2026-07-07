@@ -287,6 +287,31 @@ type MovementPath = {
   height: number;
 };
 
+/**
+ * On-screen starting point of a remote (PvP) movement step, captured the moment
+ * its MOVE_INTENT arrives. The animation itself may start much later (steps
+ * queue up behind each other), by which time the real unit element has already
+ * been re-rendered on a further cell of the sweep.
+ */
+type RemoteMoveStart = {
+  from: CellCenter;
+  width: number;
+  height: number;
+  unit: {
+    cardId: string;
+    ownerId: PlayerId;
+    currentHp: number;
+    alreadyMoved: boolean;
+    alreadyAttacked: boolean;
+  };
+};
+
+type RemoteMoveTarget = {
+  to: CellCenter;
+  width: number;
+  height: number;
+};
+
 type DestroyedCardEffect = {
   id: number;
   targetId: string;
@@ -561,6 +586,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     localPlayerId,
     pvpRoomId,
     pvpOpponentNickname,
+    pvpError,
     pvpTimer,
     pvpMovementIntent,
     pvpAttackIntent,
@@ -597,9 +623,21 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     mode === "campaign" && currentCampaignMissionId
       ? getCampaignMission(currentCampaignMissionId)
       : null;
-  const campaignBriefingAvatar = campaignMission?.campaign.briefingAvatarId
-    ? getAvatarAssetById(campaignMission.campaign.briefingAvatarId) ?? undefined
-    : undefined;
+  // The briefing/debrief portrait follows the headquarters the player commands
+  // in this mission (mission override or campaign default); the campaign-level
+  // briefingAvatarId is only a fallback for headquarters without avatar art.
+  const missionPlayerHeadquartersId = campaignMission
+    ? campaignMission.mission.playerHeadquartersId ??
+      campaignMission.campaign.playerHeadquartersId
+    : null;
+  const campaignBriefingAvatar =
+    (missionPlayerHeadquartersId
+      ? getHeadquartersAvatarAsset(missionPlayerHeadquartersId)
+      : null) ??
+    (campaignMission?.campaign.briefingAvatarId
+      ? getAvatarAssetById(campaignMission.campaign.briefingAvatarId)
+      : null) ??
+    undefined;
   const campaignSpeaker = campaignMission
     ? getLocalizedCampaignSpeaker(campaignMission.campaign, language) ?? undefined
     : undefined;
@@ -860,6 +898,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     battle.status === "active" && battle.activePlayer === humanPlayerId;
   const playerHand = battle.player.hand;
   const botHand = battle.bot.hand;
+  const suppressPvpBattleEntryMotion = mode === "pvp";
 
   function getVisualOwnerId(owner: PlayerId): PlayerId {
     return owner === humanPlayerId ? "player" : "bot";
@@ -898,7 +937,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         // clipped by the page's overflow:hidden left edge. Push it back to the
         // right via Framer's `x` (a CSS `transform` here would be overridden by
         // Framer's own transform from the `y` animation).
-        initial={{ opacity: 0, y: placement === "player" ? 14 : -10, x: placement === "player" ? 26 : 0 }}
+        initial={
+          suppressPvpBattleEntryMotion
+            ? false
+            : {
+                opacity: 0,
+                y: placement === "player" ? 14 : -10,
+                x: placement === "player" ? 26 : 0,
+              }
+        }
         animate={{ opacity: 1, y: 0, x: placement === "player" ? 26 : 0 }}
         transition={{ duration: 0.28, ease: "easeOut" }}
       >
@@ -1018,6 +1065,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const DRAW_CARD_ANIMATION_MS = 760;
   const DRAW_CARD_REVEAL_DELAY_MS = 80;
   const SPAWN_CARD_ANIMATION_MS = 620;
+  const PVP_SPAWN_CONFIRM_TIMEOUT_MS = 6_000;
   const MOVE_ARROW_LEAD_MS = 340;
   const MOVE_ARROW_FOLLOW_MS = 280;
   const ATTACK_STRIKE_SETTLE_MS = 620;
@@ -1062,6 +1110,11 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   });
   const previousBattleStatusRef = useRef<string | null>(null);
   const previousActivePlayerRef = useRef(battle.activePlayer);
+  // Tracks the PvP first-turn roll so the "your turn / enemy turn" banner can be
+  // announced the moment the roll finishes (PvE sets it explicitly at BEGIN_
+  // BATTLE; PvP battles arrive already active, so the generic transition effect
+  // never fires for the first turn).
+  const pvpRollWasVisibleRef = useRef(false);
   const previousCounterBatteryUnitIdsRef = useRef(
     new Set(battle.units.map((unit) => unit.instanceId))
   );
@@ -1103,6 +1156,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const suppressNextRemoteDamageEffectsRef = useRef(false);
   const lastPvpAttackIntentIdRef = useRef<string | null>(null);
   const lastPvpDeployBarrageIntentIdRef = useRef<string | null>(null);
+  const lastPvpMovementIntentIdRef = useRef<string | null>(null);
+  /** FIFO chain for remote movement steps; keeps multi-cell sweeps in order. */
+  const pvpMoveAnimationQueueRef = useRef<Promise<void>>(Promise.resolve());
+  /** Queued-but-unfinished remote movement steps per unit (see the finally). */
+  const pendingPvpMoveStepsRef = useRef<Map<string, number>>(new Map());
+  const pvpMoveVisualStartsRef = useRef<Map<string, RemoteMoveStart>>(new Map());
+  const pvpMoveVisualSnapshotsRef = useRef<Map<string, RemoteMoveStart>>(
+    new Map()
+  );
   const botTurnRunningRef = useRef(false);
   const [drawCardEffects, setDrawCardEffects] = useState<DrawCardEffect[]>([]);
   const [spawnCardEffects, setSpawnCardEffects] = useState<SpawnCardEffect[]>([]);
@@ -1118,12 +1180,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const [hiddenDestroyedObjectIds, setHiddenDestroyedObjectIds] = useState<
     Set<string>
   >(new Set());
+  const pvpDestroyedAwaitingStateRef = useRef<Set<string>>(new Set());
   const [hiddenMovingUnitIds, setHiddenMovingUnitIds] = useState<Set<string>>(
     new Set()
   );
   const [hiddenSpawningCardIds, setHiddenSpawningCardIds] = useState<Set<string>>(
     new Set()
   );
+  const pvpSpawningAwaitingStateRef = useRef<Set<string>>(new Set());
+  const pvpSpawnFallbackTimersRef = useRef<Map<string, number>>(new Map());
   // Units that have just landed from a spawn animation. Their board cell mounts
   // statically (no scale/opacity pop-in) so the destination cell never blinks
   // out before the unit image appears — the flying card overlay hands off
@@ -1311,6 +1376,40 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     playAndDispatchLocalMovementRef.current = playAndDispatchLocalMovement;
   });
 
+  useLayoutEffect(() => {
+    if (mode !== "pvp") {
+      pvpMoveVisualSnapshotsRef.current.clear();
+      return;
+    }
+
+    const boardElement = boardRef.current;
+    if (!boardElement) return;
+
+    const nextSnapshots = new Map<string, RemoteMoveStart>();
+
+    for (const unit of battle.units) {
+      if (!isBattlefieldUnit(unit)) continue;
+
+      const unitElement = objectRefs.current.get(unit.instanceId);
+      if (!unitElement) continue;
+
+      nextSnapshots.set(unit.instanceId, {
+        from: getElementCenterRelativeToBoard(boardElement, unitElement),
+        width: unitElement.offsetWidth,
+        height: unitElement.offsetHeight,
+        unit: {
+          cardId: unit.cardId,
+          ownerId: unit.ownerId,
+          currentHp: unit.currentHp,
+          alreadyMoved: unit.alreadyMoved,
+          alreadyAttacked: unit.alreadyAttacked,
+        },
+      });
+    }
+
+    pvpMoveVisualSnapshotsRef.current = nextSnapshots;
+  }, [battle.units, mode]);
+
   useEffect(() => {
     if (!stagedDeployPreview) return;
 
@@ -1322,6 +1421,81 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       setStagedDeployPreview(null);
     }
   }, [battle.units, stagedDeployPreview]);
+
+  useEffect(() => {
+    if (mode !== "pvp") {
+      pvpDestroyedAwaitingStateRef.current.clear();
+      clearAllPvpSpawnHidden();
+      return;
+    }
+
+    if (pvpDestroyedAwaitingStateRef.current.size === 0) return;
+
+    const liveUnitIds = new Set(battle.units.map((unit) => unit.instanceId));
+    const confirmedRemovedIds: string[] = [];
+
+    for (const targetId of pvpDestroyedAwaitingStateRef.current) {
+      if (!liveUnitIds.has(targetId)) {
+        confirmedRemovedIds.push(targetId);
+      }
+    }
+
+    if (confirmedRemovedIds.length === 0) return;
+
+    for (const targetId of confirmedRemovedIds) {
+      pvpDestroyedAwaitingStateRef.current.delete(targetId);
+    }
+
+    setHiddenDestroyedObjectIds((current) => {
+      const next = new Set(current);
+      for (const targetId of confirmedRemovedIds) {
+        next.delete(targetId);
+      }
+      return next;
+    });
+  }, [battle.units, mode]);
+
+  useEffect(() => {
+    if (mode !== "pvp") return;
+    if (pvpSpawningAwaitingStateRef.current.size === 0) return;
+
+    const handCardIds = new Set<string>();
+    for (const owner of ["player", "bot"] as const) {
+      for (const card of battle[owner].hand) {
+        handCardIds.add(card.instanceId);
+      }
+    }
+
+    const confirmedPlayedIds: string[] = [];
+
+    for (const cardInstanceId of pvpSpawningAwaitingStateRef.current) {
+      if (!handCardIds.has(cardInstanceId)) {
+        confirmedPlayedIds.push(cardInstanceId);
+      }
+    }
+
+    if (confirmedPlayedIds.length === 0) return;
+
+    for (const cardInstanceId of confirmedPlayedIds) {
+      releasePvpSpawnHidden(cardInstanceId);
+    }
+  }, [battle, mode]);
+
+  useEffect(() => {
+    if (mode !== "pvp" || !pvpError) return;
+    clearAllPvpSpawnHidden();
+  }, [mode, pvpError]);
+
+  useEffect(
+    () => () => {
+      for (const timeoutId of pvpSpawnFallbackTimersRef.current.values()) {
+        window.clearTimeout(timeoutId);
+      }
+      pvpSpawnFallbackTimersRef.current.clear();
+      pvpSpawningAwaitingStateRef.current.clear();
+    },
+    []
+  );
 
   function setHandCardRef(owner: PlayerId, cardInstanceId: string) {
     return (element: HTMLElement | null) => {
@@ -1889,7 +2063,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         (card) => !previousIds.has(card.instanceId)
       );
 
-      if (battle.status === "active" && newCards.length > 0) {
+      const suppressPvpStartHandAnimation =
+        mode === "pvp" && Boolean(firstTurnRoll?.visible);
+
+      if (
+        battle.status === "active" &&
+        newCards.length > 0 &&
+        !suppressPvpStartHandAnimation
+      ) {
         setHiddenDrawnCardIds((current) => {
           const next = new Set(current);
 
@@ -1918,6 +2099,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }, [
     battle.status,
     botHand,
+    firstTurnRoll?.visible,
+    mode,
     playerHand,
   ]);
 
@@ -2071,18 +2254,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       position: to,
     });
 
-    const impactDistance = Math.max(1, Math.hypot(to.x - from.x, to.y - from.y));
-
-    hitReactionIdRef.current += 1;
-
-    const hitReaction: HitReactionEffect = {
-      id: hitReactionIdRef.current,
-      targetId,
-      x: ((to.x - from.x) / impactDistance) * 17,
-      y: ((to.y - from.y) / impactDistance) * 17,
-    };
-
-    setHitReactionEffect(hitReaction);
+    showHitReaction(targetId, from, to);
 
     window.setTimeout(() => {
       setAttackingId(null);
@@ -2094,11 +2266,6 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       setExplosionEffect(null);
     }, 940);
 
-    window.setTimeout(() => {
-      setHitReactionEffect((current) =>
-        current?.id === hitReaction.id ? null : current
-      );
-    }, 360);
   }
 
   useEffect(() => {
@@ -2127,7 +2294,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         const storeNow = useBattleStore.getState();
         const action: BattleAction | null = storeNow.tutorialActive
           ? getTutorialBotAction(storeNow.tutorialScriptId, currentBattle)
-          : getNextBotAction(currentBattle);
+          : getNextBotAction(currentBattle, {
+              difficulty:
+                storeNow.mode === "ai" ? storeNow.currentAiDifficulty : "full",
+            });
 
         if (!action) break;
 
@@ -2256,10 +2426,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     };
   }, [botAiEnabled, battle.activePlayer, battle.status, debugPaused]);
 
+  // The local player's side always renders on the left, so for the second PvP
+  // player («bot») the column order is flipped. Rows are never flipped — the
+  // old 180° rotation also mirrored the board vertically, which made the same
+  // cell read as «top» for one player and «bottom» for the other.
   const rows = [0, 1, 2] as const;
   const cols = [0, 1, 2, 3, 4] as const;
-  const visualRows: readonly number[] =
-    humanPlayerId === "player" ? rows : [...rows].reverse();
   const visualCols: readonly number[] =
     humanPlayerId === "player" ? cols : [...cols].reverse();
 
@@ -2374,6 +2546,27 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         current.filter((item) => item.id !== effect.id)
       );
     }, 980);
+  }
+
+  function showHitReaction(
+    targetId: string,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    strength = 17
+  ) {
+    const impactDistance = Math.max(1, Math.hypot(to.x - from.x, to.y - from.y));
+
+    hitReactionIdRef.current += 1;
+
+    const hitReaction: HitReactionEffect = {
+      id: hitReactionIdRef.current,
+      targetId,
+      x: ((to.x - from.x) / impactDistance) * strength,
+      y: ((to.y - from.y) / impactDistance) * strength,
+    };
+
+    setHitReactionEffect(hitReaction);
+
   }
 
   function getHealthGainEffect(targetId: string) {
@@ -2548,6 +2741,18 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     setDestroyedCardEffects((current) =>
       current.filter((item) => item.id !== effect.id)
     );
+
+    if (
+      modeRef.current === "pvp" &&
+      targetId !== "player_hq" &&
+      targetId !== "bot_hq" &&
+      useBattleStore
+        .getState()
+        .battle?.units.some((unit) => unit.instanceId === targetId)
+    ) {
+      pvpDestroyedAwaitingStateRef.current.add(targetId);
+      return;
+    }
 
     setHiddenDestroyedObjectIds((current) => {
       const next = new Set(current);
@@ -2948,6 +3153,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
               const explosionId = explosionIdRef.current;
               setExplosionEffect({ id: explosionId, position: to });
               setAttackEffectId(targetId);
+              showHitReaction(targetId, from, to);
 
               window.setTimeout(() => {
                 // Guard by id so a later shot's explosion isn't cleared early.
@@ -3008,6 +3214,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           const explosionId = explosionIdRef.current;
           setExplosionEffect({ id: explosionId, position: to });
           setAttackEffectId(targetId);
+          showHitReaction(targetId, from, to);
 
           window.setTimeout(() => {
             setExplosionEffect((current) =>
@@ -3178,6 +3385,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     const currentBattle = useBattleStore.getState().battle;
     if (!currentBattle) return;
 
+    keepPvpSpawnHiddenUntilState(intent.cardInstanceId);
+
     const targetPositions = captureUnitCenters(currentBattle);
     const sourceCenter =
       intent.source.type === "battlefield"
@@ -3186,22 +3395,24 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
             intent.playerId,
             intent.source.supportSlot as SupportSlot
           );
-    if (intent.playerId !== humanPlayerIdRef.current) {
-      if (intent.source.type === "battlefield") {
-        await playSpawnCardAnimationRef.current(
-          intent.playerId,
-          intent.cardInstanceId,
-          intent.cardId,
-          intent.source.position
-        );
-      } else {
-        await playSupportSpawnCardAnimationRef.current(
-          intent.playerId,
-          intent.cardInstanceId,
-          intent.cardId,
-          intent.source.supportSlot as SupportSlot
-        );
-      }
+    // Play the hand→cell fly-in for both sides. The deploy-barrage intent is the
+    // single source of the spawn animation in PvP (the local player no longer
+    // animates its own play before dispatching), so skipping it for the local
+    // player would make its own units pop onto the board with no motion.
+    if (intent.source.type === "battlefield") {
+      await playSpawnCardAnimationRef.current(
+        intent.playerId,
+        intent.cardInstanceId,
+        intent.cardId,
+        intent.source.position
+      );
+    } else {
+      await playSupportSpawnCardAnimationRef.current(
+        intent.playerId,
+        intent.cardInstanceId,
+        intent.cardId,
+        intent.source.supportSlot as SupportSlot
+      );
     }
 
     setStagedDeployPreview(
@@ -3542,6 +3753,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           });
 
           setHiddenSpawningCardIds((current) => {
+            if (pvpSpawningAwaitingStateRef.current.has(cardInstanceId)) {
+              return current;
+            }
+
             const next = new Set(current);
             next.delete(cardInstanceId);
             return next;
@@ -3777,8 +3992,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   async function playRemoteMoveIntentAnimation(
     owner: PlayerId,
     unitId: string,
-    position: Position,
-    durationMs: number
+    durationMs: number,
+    start: RemoteMoveStart | null,
+    target: RemoteMoveTarget | null
   ) {
     while (movementAnimationRunningRef.current) {
       await delay(20);
@@ -3791,26 +4007,25 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       await waitForNextFrame();
       await delay(30);
 
-      const currentBattle = useBattleStore.getState().battle as BattleState | null;
-      const movingUnit = currentBattle?.units.find(
-        (item) => item.instanceId === unitId
-      );
       const boardElement = boardRef.current;
-      const unitElement = objectRefs.current.get(unitId);
-      const targetCellElement = cellRefs.current.get(positionKey(position));
 
-      if (!boardElement || !unitElement || !targetCellElement || !movingUnit) {
+      if (!boardElement || !start || !target) {
         await delay(durationMs + MOVE_ARROW_FOLLOW_MS);
         return;
       }
+
+      const movingUnit = start.unit;
 
       playCardDistributionSound();
 
       movementArrowEffectIdRef.current += 1;
       effectId = movementArrowEffectIdRef.current;
 
-      const from = getElementCenterRelativeToBoard(boardElement, unitElement);
-      const to = getElementCenterRelativeToBoard(boardElement, targetCellElement);
+      // The start point was captured when the MOVE_INTENT arrived. By now the
+      // server may already have committed this (or even a later) step of a
+      // multi-cell sweep, so the live unit element sits further along the path.
+      const from = start.from;
+      const to = target.to;
       const arrowTo = { ...to };
       const dx = arrowTo.x - from.x;
       const dy = arrowTo.y - from.y;
@@ -3820,8 +4035,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       const isDiagonalMove = Math.abs(dx) > 1 && Math.abs(dy) > 1;
       const targetEdgeOffset = isDiagonalMove
         ? 0
-        : ((Math.abs(unitX) * targetCellElement.offsetWidth +
-            Math.abs(unitY) * targetCellElement.offsetHeight) /
+        : ((Math.abs(unitX) * target.width +
+            Math.abs(unitY) * target.height) /
             2) *
           0.85;
 
@@ -3844,8 +4059,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           alreadyAttacked: movingUnit.alreadyAttacked,
           from,
           to,
-          width: unitElement.offsetWidth,
-          height: unitElement.offsetHeight,
+          width: start.width,
+          height: start.height,
           phase: "waiting",
         });
         setMovementArrowEffect({
@@ -3884,14 +4099,31 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
       await delay(MOVE_ARROW_FOLLOW_MS);
     } finally {
-      setMovementUnitEffect((current) =>
-        current?.unitId === unitId ? null : current
-      );
-      setHiddenMovingUnitIds((current) => {
-        const next = new Set(current);
-        next.delete(unitId);
-        return next;
-      });
+      const pendingSteps = pendingPvpMoveStepsRef.current;
+      const remaining = (pendingSteps.get(unitId) ?? 1) - 1;
+
+      if (remaining > 0) {
+        pendingSteps.set(unitId, remaining);
+      } else {
+        pendingSteps.delete(unitId);
+      }
+
+      // While further steps of the same multi-cell sweep are queued, keep the
+      // real unit hidden and leave the clone standing on this step's target
+      // cell. The next step re-uses it as the starting point, so the unit
+      // never flashes at the already-committed final cell mid-sweep.
+      if (remaining <= 0) {
+        pvpMoveVisualStartsRef.current.delete(unitId);
+        setMovementUnitEffect((current) =>
+          current?.unitId === unitId ? null : current
+        );
+        setHiddenMovingUnitIds((current) => {
+          const next = new Set(current);
+          next.delete(unitId);
+          return next;
+        });
+      }
+
       movementAnimationRunningRef.current = false;
     }
   }
@@ -3899,12 +4131,96 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   useEffect(() => {
     if (mode !== "pvp") return;
     if (!pvpMovementIntent) return;
+    if (lastPvpMovementIntentIdRef.current === pvpMovementIntent.intentId) {
+      return;
+    }
 
-    void playRemoteMoveIntentAnimation(
-      pvpMovementIntent.playerId,
-      pvpMovementIntent.unitId,
-      pvpMovementIntent.position,
-      pvpMovementIntent.durationMs
+    lastPvpMovementIntentIdRef.current = pvpMovementIntent.intentId;
+
+    const { playerId, unitId, position, durationMs } = pvpMovementIntent;
+
+    // Capture the moving unit's on-screen start right now. The animations run
+    // behind the server's per-cell commits (each step animates ~830ms while the
+    // server commits every 520ms), so by the time a later step of a multi-cell
+    // sweep actually plays, the real unit element has already re-rendered
+    // several cells further along the path. At intent arrival the last
+    // committed GAME_STATE always has the unit on this step's starting cell.
+    const boardElement = boardRef.current;
+    const unitElement = objectRefs.current.get(unitId);
+    const targetCellElement = cellRefs.current.get(positionKey(position));
+    const currentBattle = useBattleStore.getState().battle as BattleState | null;
+    const movingUnit = currentBattle?.units.find(
+      (item) => item.instanceId === unitId
+    );
+    const queuedVisualStart = pvpMoveVisualStartsRef.current.get(unitId);
+    const snapshotVisualStart =
+      pvpMoveVisualSnapshotsRef.current.get(unitId) ?? null;
+    const liveVisualStart: RemoteMoveStart | null =
+      boardElement && unitElement && movingUnit
+        ? {
+            from: getElementCenterRelativeToBoard(boardElement, unitElement),
+            width: unitElement.offsetWidth,
+            height: unitElement.offsetHeight,
+            unit: {
+              cardId: movingUnit.cardId,
+              ownerId: movingUnit.ownerId,
+              currentHp: movingUnit.currentHp,
+              alreadyMoved: movingUnit.alreadyMoved,
+              alreadyAttacked: movingUnit.alreadyAttacked,
+            },
+          }
+        : null;
+    const start: RemoteMoveStart | null =
+      queuedVisualStart ??
+      (snapshotVisualStart && movingUnit
+        ? {
+            ...snapshotVisualStart,
+            unit: {
+              cardId: movingUnit.cardId,
+              ownerId: movingUnit.ownerId,
+              currentHp: movingUnit.currentHp,
+              alreadyMoved: movingUnit.alreadyMoved,
+              alreadyAttacked: movingUnit.alreadyAttacked,
+            },
+          }
+        : null) ??
+      liveVisualStart;
+
+    const targetElement =
+      targetCellElement ??
+      (movingUnit && samePosition(movingUnit.position, position)
+        ? unitElement
+        : undefined);
+    const target: RemoteMoveTarget | null =
+      boardElement && targetElement
+        ? {
+            to: getElementCenterRelativeToBoard(boardElement, targetElement),
+            width: targetElement.offsetWidth,
+            height: targetElement.offsetHeight,
+          }
+        : null;
+
+    if (target && start) {
+      pvpMoveVisualStartsRef.current.set(unitId, {
+        ...start,
+        from: target.to,
+      });
+    }
+
+    const pendingSteps = pendingPvpMoveStepsRef.current;
+    pendingSteps.set(unitId, (pendingSteps.get(unitId) ?? 0) + 1);
+
+    // Strict FIFO: the 20ms polling on movementAnimationRunningRef alone could
+    // wake queued steps out of order once more than one is waiting.
+    pvpMoveAnimationQueueRef.current = pvpMoveAnimationQueueRef.current.then(
+      () =>
+        playRemoteMoveIntentAnimation(
+          playerId,
+          unitId,
+          durationMs,
+          start,
+          target
+        )
     );
   }, [mode, pvpMovementIntent]);
 
@@ -3997,7 +4313,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   // Place a freshly played unit straight onto the board with no hand→cell fly
   // animation, marking it static so its board cell mounts without a pop-in — the
   // drag ghost already carried the card to the target.
-  function placeUnitStatically(cardInstanceId: string, dispatch: () => void) {
+  function placeUnitStatically(
+    cardInstanceId: string,
+    dispatch: () => void
+  ): Promise<void> {
     playCardDistributionSound();
 
     flushSync(() => {
@@ -4010,16 +4329,78 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     dispatch();
 
-    window.requestAnimationFrame(() => {
+    return new Promise((resolve) => {
       window.requestAnimationFrame(() => {
-        setStaticSpawnUnitIds((current) => {
-          if (!current.has(cardInstanceId)) return current;
-          const next = new Set(current);
-          next.delete(cardInstanceId);
-          return next;
+        window.requestAnimationFrame(() => {
+          setStaticSpawnUnitIds((current) => {
+            if (!current.has(cardInstanceId)) return current;
+            const next = new Set(current);
+            next.delete(cardInstanceId);
+            return next;
+          });
+          resolve();
         });
       });
     });
+  }
+
+  function clearPvpSpawnFallbackTimer(cardInstanceId: string) {
+    const timeoutId = pvpSpawnFallbackTimersRef.current.get(cardInstanceId);
+    if (timeoutId === undefined) return;
+
+    window.clearTimeout(timeoutId);
+    pvpSpawnFallbackTimersRef.current.delete(cardInstanceId);
+  }
+
+  function releasePvpSpawnHidden(cardInstanceId: string) {
+    clearPvpSpawnFallbackTimer(cardInstanceId);
+    pvpSpawningAwaitingStateRef.current.delete(cardInstanceId);
+    setHiddenSpawningCardIds((current) => {
+      if (!current.has(cardInstanceId)) return current;
+
+      const next = new Set(current);
+      next.delete(cardInstanceId);
+      return next;
+    });
+  }
+
+  function clearAllPvpSpawnHidden() {
+    for (const timeoutId of pvpSpawnFallbackTimersRef.current.values()) {
+      window.clearTimeout(timeoutId);
+    }
+    pvpSpawnFallbackTimersRef.current.clear();
+
+    const hiddenIds = new Set(pvpSpawningAwaitingStateRef.current);
+    pvpSpawningAwaitingStateRef.current.clear();
+
+    if (hiddenIds.size === 0) return;
+
+    setHiddenSpawningCardIds((current) => {
+      const next = new Set(current);
+      for (const cardInstanceId of hiddenIds) {
+        next.delete(cardInstanceId);
+      }
+      return next;
+    });
+  }
+
+  function keepPvpSpawnHiddenUntilState(cardInstanceId: string) {
+    if (modeRef.current !== "pvp") return;
+
+    clearPvpSpawnFallbackTimer(cardInstanceId);
+    pvpSpawningAwaitingStateRef.current.add(cardInstanceId);
+    setHiddenSpawningCardIds((current) => {
+      const next = new Set(current);
+      next.add(cardInstanceId);
+      return next;
+    });
+
+    const timeoutId = window.setTimeout(() => {
+      if (!pvpSpawningAwaitingStateRef.current.has(cardInstanceId)) return;
+      releasePvpSpawnHidden(cardInstanceId);
+    }, PVP_SPAWN_CONFIRM_TIMEOUT_MS);
+
+    pvpSpawnFallbackTimersRef.current.set(cardInstanceId, timeoutId);
   }
 
   async function executeQueuedPlayCard(
@@ -4058,10 +4439,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       skipAttackEffects?: boolean;
     }) => dispatchQueuedBattleAction(action, options);
 
-    if (
-      modeRef.current !== "pvp" &&
-      shouldSequenceDeployBarrage(currentBattle, action)
-    ) {
+    if (modeRef.current === "pvp") {
+      clearAllPvpSpawnHidden();
+      dispatch();
+      return;
+    }
+
+    if (shouldSequenceDeployBarrage(currentBattle, action)) {
       // On a drag-and-drop play the ghost already carried the card to the cell,
       // so skip the hand→cell fly-in (the staged preview shows the unit in place)
       // and go straight to the barrage. A click play still plays the fly-in.
@@ -4083,10 +4467,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     }
 
     if (options.skipSpawnAnimation) {
-      placeUnitStatically(cardInstance.instanceId, () => dispatch());
+      keepPvpSpawnHiddenUntilState(cardInstance.instanceId);
+      await placeUnitStatically(cardInstance.instanceId, () => dispatch());
       return;
     }
 
+    keepPvpSpawnHiddenUntilState(cardInstance.instanceId);
     await playSpawnCardAnimationRef.current(
       currentHumanPlayerId,
       cardInstance.instanceId,
@@ -4133,10 +4519,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       skipAttackEffects?: boolean;
     }) => dispatchQueuedBattleAction(action, options);
 
-    if (
-      modeRef.current !== "pvp" &&
-      shouldSequenceDeployBarrage(currentBattle, action)
-    ) {
+    if (modeRef.current === "pvp") {
+      clearAllPvpSpawnHidden();
+      dispatch();
+      return;
+    }
+
+    if (shouldSequenceDeployBarrage(currentBattle, action)) {
       // On a drag-and-drop play the ghost already carried the card to the slot,
       // so skip the hand→slot fly-in (the staged preview shows the unit in place)
       // and go straight to the barrage. A click play still plays the fly-in.
@@ -4158,10 +4547,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     }
 
     if (options.skipSpawnAnimation) {
-      placeUnitStatically(cardInstance.instanceId, () => dispatch());
+      keepPvpSpawnHiddenUntilState(cardInstance.instanceId);
+      await placeUnitStatically(cardInstance.instanceId, () => dispatch());
       return;
     }
 
+    keepPvpSpawnHiddenUntilState(cardInstance.instanceId);
     await playSupportSpawnCardAnimationRef.current(
       currentHumanPlayerId,
       cardInstance.instanceId,
@@ -4550,13 +4941,42 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         ? pvpTimer.activePlayer ?? battle.activePlayer
         : battle.activePlayer;
     const timer = battle.timers?.[activeOwner];
+    const pvpTimerMatchesActiveOwner = pvpTimer.activePlayer === activeOwner;
     const pvpTimeLeftMs =
-      pvpTimer.activePlayer === activeOwner ? pvpTimer.remainingMs : null;
+      pvpTimerMatchesActiveOwner
+        ? pvpTimer.remainingMs
+        : timer?.stepTimeLeftMs ?? null;
     const displayedTimeLeftMs =
-      mode === "pvp" ? pvpTimeLeftMs : timer?.stepTimeLeftMs ?? null;
+      mode === "pvp"
+        ? pvpTimeLeftMs ?? timer?.stepTimeLeftMs ?? 0
+        : timer?.stepTimeLeftMs ?? null;
     const isLocalPlayer = activeOwner === humanPlayerId;
 
-    if (displayedTimeLeftMs === null) return null;
+    if (displayedTimeLeftMs === null) {
+      if (mode === "pvp" && placement === "column") {
+        return (
+          <div
+            aria-hidden="true"
+            style={{
+              ...styles.turnControlPanelInline,
+              ...styles.turnControlPanelPlaceholder,
+            }}
+          >
+            <div style={styles.turnControlLabel}>{t("battle.playerTurn")}</div>
+            <BattleTimerPanel
+              active={false}
+              showPlayerReminder={false}
+              timeLeftMs={0}
+            />
+            <button type="button" tabIndex={-1} style={styles.endTurnButton}>
+              {t("battle.endTurn")}
+            </button>
+          </div>
+        );
+      }
+
+      return null;
+    }
 
     return (
       <div
@@ -4582,7 +5002,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         </div>
 
         <BattleTimerPanel
-          active
+          active={mode !== "pvp" || pvpTimerMatchesActiveOwner}
           showPlayerReminder={false}
           timeLeftMs={displayedTimeLeftMs}
         />
@@ -4856,7 +5276,8 @@ function renderEnemyDeckWithTimer() {
             if (!flag) return null;
 
             // Planted behind the HQ card art (zIndex below the card) so it only
-            // peeks out to the left.
+            // peeks out to the left — the local HQ strip always sits on the
+            // left board edge.
             return (
               <img
                 src={flag}
@@ -4943,6 +5364,9 @@ function renderEnemyDeckWithTimer() {
       <div
         style={{
           ...styles.supportLine,
+          // The local player's rear strip hugs the left board edge, the
+          // opponent's the right one — matching the flipped column order that
+          // keeps the local side on the left for both PvP clients.
           ...(isFriendly
             ? { left: -rearStripOffset }
             : { right: -rearStripOffset }),
@@ -5219,6 +5643,36 @@ function renderEnemyDeckWithTimer() {
 
     return playRotatingCartridgeSound(START_ROLL_DURATION_MS);
   }, [visibleStartRollState.visible, visibleStartRollState.finalRotation]);
+
+  // Announce the first turn once the PvP roll finishes (mirrors the PvE
+  // BEGIN_BATTLE banner). The battle is already active during the roll, so the
+  // generic activePlayer-transition effect never fires for the opening turn.
+  useEffect(() => {
+    const isVisible = Boolean(firstTurnRoll?.visible);
+    const wasVisible = pvpRollWasVisibleRef.current;
+    pvpRollWasVisibleRef.current = isVisible;
+
+    if (mode !== "pvp") return;
+    if (!wasVisible || isVisible) return;
+    if (battle.status !== "active") return;
+
+    previousActivePlayerRef.current = battle.activePlayer;
+    setTurnBannerText(
+      battle.activePlayer === humanPlayerId
+        ? t("battle.yourTurn")
+        : t("battle.enemyTurn")
+    );
+    playTurnStartSound();
+
+    const timeout = window.setTimeout(() => setTurnBannerText(null), 1300);
+    return () => window.clearTimeout(timeout);
+  }, [
+    mode,
+    firstTurnRoll?.visible,
+    battle.status,
+    battle.activePlayer,
+    humanPlayerId,
+  ]);
 
   const localHand = getVisibleHand(humanPlayerId);
   const selectedHandCard = selectedCardInstanceId
@@ -5843,7 +6297,7 @@ function renderEnemyDeckWithTimer() {
                 )}
               </AnimatePresence>
 
-              {visualRows.flatMap((row) => visualCols.map((col) => (
+              {rows.flatMap((row) => visualCols.map((col) => (
                 <div key={`${row}-${col}`} style={{ display: "contents" }}>
                   {(() => {
                   const position: Position = { row, col };
@@ -6440,7 +6894,11 @@ function renderEnemyDeckWithTimer() {
                         : {}),
                       ...(tutorialCardBlocked ? styles.tutorialDimmedBoard : {}),
                     }}
-                    initial={{ opacity: 0, y: 16, x: slotX }}
+                    initial={
+                      suppressPvpBattleEntryMotion
+                        ? false
+                        : { opacity: 0, y: 16, x: slotX }
+                    }
                     animate={{
                       opacity:
                         isHiddenDrawnCard || isHiddenSpawningCard
@@ -7325,6 +7783,7 @@ actionSideColumn: {
     opacity: 0.95,
   },
 
+  // Peeks out past the left board edge (the local player's rear strip).
   hqBattleFlagFriendly: {
     left: "-46%",
     transform: "scaleX(-1) rotate(31deg)",
@@ -7873,6 +8332,10 @@ actionSideColumn: {
     // чтобы они встали у нижней границы экрана симметрично нику/аватару игрока.
     transform: "translateY(154px)",
     pointerEvents: "auto",
+  },
+  turnControlPanelPlaceholder: {
+    visibility: "hidden",
+    pointerEvents: "none",
   },
   turnControlLabel: {
     fontFamily: "var(--font-display)",

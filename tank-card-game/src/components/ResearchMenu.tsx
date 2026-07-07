@@ -73,6 +73,7 @@ type ResearchNodeStage =
 type ResearchNodeView = ResearchNode & {
   stage: ResearchNodeStage;
   statusLabel: string;
+  sourceHeadquartersId?: HeadquartersId;
   actionKind?: "owned" | "research" | "purchase" | "experience";
   costIcon?: string;
   costValue?: number;
@@ -423,6 +424,77 @@ function isInterchangeablePrerequisiteSatisfied(
   );
 }
 
+type ResearchSourceCandidate = {
+  headquartersId: HeadquartersId;
+  tier: number;
+  index: number;
+  depth: number;
+};
+
+function pickLatestResearchSource(
+  candidates: ResearchSourceCandidate[]
+): ResearchSourceCandidate | null {
+  return (
+    [...candidates].sort((left, right) => {
+      if (right.tier !== left.tier) return right.tier - left.tier;
+      if (right.depth !== left.depth) return right.depth - left.depth;
+      return right.index - left.index;
+    })[0] ?? null
+  );
+}
+
+function getGraphResearchSourceHeadquartersId(
+  node: ResearchNode,
+  nodes: ResearchNode[],
+  progress: PlayerProgress,
+  fallbackHeadquartersId: HeadquartersId
+): HeadquartersId {
+  const nodeById = new Map(nodes.map((branchNode) => [branchNode.id, branchNode]));
+  const indexById = new Map(nodes.map((branchNode, index) => [branchNode.id, index]));
+
+  function collectOwnedHeadquartersAncestors(
+    current: ResearchNode,
+    depth: number,
+    visited: Set<string>
+  ): ResearchSourceCandidate[] {
+    const requires = current.requires ?? [];
+    const candidates: ResearchSourceCandidate[] = [];
+
+    for (const requiredId of requires) {
+      if (visited.has(requiredId)) continue;
+      visited.add(requiredId);
+
+      const required = nodeById.get(requiredId);
+      if (!required) continue;
+
+      if (
+        required.type === "headquarters" &&
+        required.headquartersId &&
+        isNodeOwned(required, progress)
+      ) {
+        candidates.push({
+          headquartersId: required.headquartersId,
+          tier: required.tier ?? -1,
+          index: indexById.get(required.id) ?? -1,
+          depth,
+        });
+      }
+
+      candidates.push(
+        ...collectOwnedHeadquartersAncestors(required, depth + 1, visited)
+      );
+    }
+
+    return candidates;
+  }
+
+  return (
+    pickLatestResearchSource(
+      collectOwnedHeadquartersAncestors(node, 1, new Set())
+    )?.headquartersId ?? fallbackHeadquartersId
+  );
+}
+
 function createBranchNodeViews({
   nodes,
   progress,
@@ -470,13 +542,20 @@ function createBranchNodeViews({
         );
       const reachable = !blocking;
 
+      const nodeSourceHeadquartersId = getGraphResearchSourceHeadquartersId(
+        node,
+        nodes,
+        progress,
+        sourceHeadquartersId
+      );
       const view = createNodeView({
         node,
         progress,
-        sourceHeadquartersId,
+        sourceHeadquartersId: nodeSourceHeadquartersId,
         previousComplete: reachable,
         previousNodeTitle: blocking?.title,
       });
+      view.sourceHeadquartersId = nodeSourceHeadquartersId;
 
       // The path into a node is "lit" once every prerequisite is satisfied
       // (units researched, headquarters purchased).
@@ -494,15 +573,17 @@ function createBranchNodeViews({
   // The trunk feeding the first node of a branch is always considered laid,
   // so the path visibly originates from the branch header.
   let previousAcquired = true;
+  let currentSourceHeadquartersId = sourceHeadquartersId;
 
   return nodes.map((node) => {
     const view = createNodeView({
       node,
       progress,
-      sourceHeadquartersId,
+      sourceHeadquartersId: currentSourceHeadquartersId,
       previousComplete,
       previousNodeTitle,
     });
+    view.sourceHeadquartersId = currentSourceHeadquartersId;
 
     view.incomingPathComplete = previousAcquired;
 
@@ -512,6 +593,14 @@ function createBranchNodeViews({
       node.status === "unlocked";
     previousAcquired = isAcquiredStage(view.stage);
     previousNodeTitle = node.title;
+
+    if (
+      node.type === "headquarters" &&
+      node.headquartersId &&
+      isNodeOwned(node, progress)
+    ) {
+      currentSourceHeadquartersId = node.headquartersId;
+    }
 
     return view;
   });
@@ -1097,9 +1186,12 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
     }
   }
 
-  function getResearchShortage(cost: number) {
-    const headquartersXp = sourceHeadquartersId
-      ? progress.headquartersXp[sourceHeadquartersId] ?? 0
+  function getResearchShortage(
+    cost: number,
+    researchSourceHeadquartersId = sourceHeadquartersId
+  ) {
+    const headquartersXp = researchSourceHeadquartersId
+      ? progress.headquartersXp[researchSourceHeadquartersId] ?? 0
       : 0;
     const availableExperience = headquartersXp + progress.freeXp;
     return Math.max(0, cost - availableExperience);
@@ -1120,6 +1212,8 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
 
     let nextProgress: PlayerProgress | null = null;
     let celebrationLabel: ResearchCelebration["label"] | null = null;
+    const researchSourceHeadquartersId =
+      node.sourceHeadquartersId ?? sourceHeadquartersId;
 
     if (node.stage === "planned") {
       showFeedback("Эта ветка пока недоступна");
@@ -1170,7 +1264,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
 
       if (experienceCost > 0 && node.statusLabel === "Не хватает опыта") {
         showFeedback(
-          `Не хватает опыта: ${formatNumber(getResearchShortage(experienceCost))}`
+          `Не хватает опыта: ${formatNumber(getResearchShortage(experienceCost, researchSourceHeadquartersId))}`
         );
       } else {
         showFeedback("Сначала исследуйте предыдущий узел ветки");
@@ -1181,17 +1275,25 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
     if (node.stage === "researchable") {
       const experienceCost = node.experienceCost ?? 0;
 
-      if (getResearchShortage(experienceCost) > 0) {
+      if (getResearchShortage(experienceCost, researchSourceHeadquartersId) > 0) {
         showFeedback(
-          `Не хватает опыта: ${formatNumber(getResearchShortage(experienceCost))}`
+          `Не хватает опыта: ${formatNumber(getResearchShortage(experienceCost, researchSourceHeadquartersId))}`
         );
         return;
       }
 
       nextProgress = node.cardId
-        ? await researchCardOnServer(node.cardId, sourceHeadquartersId, experienceCost)
+        ? await researchCardOnServer(
+            node.cardId,
+            researchSourceHeadquartersId,
+            experienceCost
+          )
         : node.headquartersId
-          ? await researchHeadquartersOnServer(node.headquartersId, sourceHeadquartersId, experienceCost)
+          ? await researchHeadquartersOnServer(
+              node.headquartersId,
+              researchSourceHeadquartersId,
+              experienceCost
+            )
           : null;
       celebrationLabel = "Исследовано";
     } else if (
