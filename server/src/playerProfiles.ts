@@ -28,13 +28,20 @@ import {
   type ResearchNode,
 } from "../../tank-card-game/src/game/researchTrees";
 import {
+  CAMPAIGNS,
   getCampaignCompletionReward,
+  getCampaignMission,
   getCampaignRewardClaimKey,
 } from "../../tank-card-game/src/game/campaigns";
 import type {
   HeadquartersId,
   PlayerId,
 } from "../../tank-card-game/src/game/types";
+import {
+  applyBattleToCombatMissions,
+  normalizeCombatMissionsState,
+  refreshCombatMissions,
+} from "../../tank-card-game/src/game/combatMissions";
 
 type ProfileDb = Record<string, PlayerProgress>;
 
@@ -58,6 +65,11 @@ type ClaimBattleRewardInput = {
   matchEndReason?: MatchEndReason | null;
   localDeckWeight?: number | null;
   opponentDeckWeight?: number | null;
+  // Campaign battles feed combat missions only on the *first* run of a mission
+  // (see `claimBattleReward`). These carry the current mission and whether it
+  // had already been won before this battle.
+  campaignMissionId?: string | null;
+  campaignMissionAlreadyWon?: boolean;
 };
 
 const PROFILE_DB_PATH = resolveWritableDbPath(
@@ -102,6 +114,9 @@ const ALL_HEADQUARTERS_IDS = Object.keys(HEADQUARTERS).filter(
   isPlayerSelectableHeadquartersId
 );
 const ALL_CARD_IDS = cards.map((card) => card.id);
+const PREMIUM_CAMPAIGN_IDS = CAMPAIGNS.filter((campaign) => campaign.premium).map(
+  (campaign) => campaign.id
+);
 
 function masterUsernameToUserId(username: string): string {
   // Mirrors how PlayerAccountManager derives userIds from usernames so the env
@@ -156,6 +171,7 @@ function applyMasterAccountGrants(profile: PlayerProgress): PlayerProgress {
     unlockedHeadquartersIds: [...ALL_HEADQUARTERS_IDS],
     researchedCardIds: [...ALL_CARD_IDS],
     unlockedCardIds: [...ALL_CARD_IDS],
+    unlockedCampaignIds: [...PREMIUM_CAMPAIGN_IDS],
     ownedCardCopies,
   };
 }
@@ -271,6 +287,10 @@ function mergeProgressForAccount(
     pveBattleCount: accountProfile.pveBattleCount + guestProfile.pveBattleCount,
     ironTracks: Math.max(accountProfile.ironTracks, guestProfile.ironTracks),
     goldTracks: Math.max(accountProfile.goldTracks, guestProfile.goldTracks),
+    cardBackId:
+      accountProfile.cardBackId === "first_player" || guestProfile.cardBackId === "first_player"
+        ? "first_player"
+        : null,
     freeXp: Math.max(accountProfile.freeXp, guestProfile.freeXp),
     headquartersXp: mergeNumberMaps(
       accountProfile.headquartersXp,
@@ -301,6 +321,10 @@ function mergeProgressForAccount(
     unlockedCardIds: mergeUnique(
       accountProfile.unlockedCardIds,
       guestProfile.unlockedCardIds
+    ),
+    unlockedCampaignIds: mergeUnique(
+      accountProfile.unlockedCampaignIds,
+      guestProfile.unlockedCampaignIds
     ),
     ownedCardCopies: mergeNumberRecords(
       accountProfile.ownedCardCopies,
@@ -419,6 +443,20 @@ function normalizeClaimedRewardIds(value: unknown): string[] {
     .slice(0, 500);
 }
 
+function normalizeUnlockedCampaignIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  const premiumCampaignIds = new Set(PREMIUM_CAMPAIGN_IDS);
+  return Array.from(
+    new Set(
+      value.filter(
+        (campaignId): campaignId is string =>
+          typeof campaignId === "string" && premiumCampaignIds.has(campaignId)
+      )
+    )
+  );
+}
+
 function normalizeDailyLoginReward(
   value: unknown
 ): PlayerProgress["dailyLoginReward"] {
@@ -530,6 +568,7 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
     pveBattleCount,
     ironTracks: getPositiveInteger(profile.ironTracks),
     goldTracks: getPositiveInteger(profile.goldTracks),
+    cardBackId: profile.cardBackId === "first_player" ? "first_player" : null,
     freeXp: getPositiveInteger(profile.freeXp),
     dailyLoginReward: normalizeDailyLoginReward(profile.dailyLoginReward),
     headquartersXp: normalizeHeadquartersNumberMap(profile.headquartersXp),
@@ -551,10 +590,14 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
           unlockedHeadquartersIds,
         })
       : fallback.savedDecks,
+    unlockedCampaignIds: normalizeUnlockedCampaignIds(
+      profile.unlockedCampaignIds
+    ),
     claimedBattleRewardIds: normalizeClaimedRewardIds(
       profile.claimedBattleRewardIds
     ),
     pendingRewardClaims: [],
+    combatMissions: normalizeCombatMissionsState(profile.combatMissions),
   };
 }
 
@@ -1237,6 +1280,35 @@ function purchasePremiumDaysOnProfile(
   );
 }
 
+function purchaseCampaignOnProfile(
+  progress: PlayerProgress,
+  campaignId: string
+): PlayerProgress {
+  const campaign = CAMPAIGNS.find((item) => item.id === campaignId);
+  const goldCost = campaign?.goldCost;
+
+  if (!campaign?.premium || !goldCost || goldCost <= 0) {
+    throw new Error("Кампания недоступна для покупки");
+  }
+
+  if (progress.unlockedCampaignIds.includes(campaign.id)) {
+    return progress;
+  }
+
+  if (progress.goldTracks < goldCost) {
+    throw new Error("Не хватает золотых траков");
+  }
+
+  return {
+    ...progress,
+    goldTracks: progress.goldTracks - goldCost,
+    unlockedCampaignIds: [
+      campaign.id,
+      ...progress.unlockedCampaignIds.filter((id) => id !== campaign.id),
+    ],
+  };
+}
+
 function exchangeGoldForIronOnProfile(
   progress: PlayerProgress,
   goldAmount: number
@@ -1265,6 +1337,17 @@ function claimCampaignRewardOnProfile(
   const reward = getCampaignCompletionReward(rewardId);
   if (!reward) {
     throw new Error("Награда кампании не найдена");
+  }
+
+  const rewardCampaign = CAMPAIGNS.find((campaign) => {
+    const missionIds = new Set(campaign.missions.map((mission) => mission.id));
+    return reward.missionIds.every((missionId) => missionIds.has(missionId));
+  });
+  if (
+    rewardCampaign?.premium &&
+    !progress.unlockedCampaignIds.includes(rewardCampaign.id)
+  ) {
+    throw new Error("Премиум-кампания не куплена");
   }
 
   const claimKey = getCampaignRewardClaimKey(reward.id);
@@ -1431,10 +1514,11 @@ export class PlayerProfileManager {
           ? db[safePlayerId]?.lastActivityAt
           : now,
     });
-    const profile =
+    const profileWithLoginReward =
       options.touchActivity === false
         ? normalizedProfile
         : applyDailyLoginReward(normalizedProfile, safePlayerId, now);
+    const profile = refreshCombatMissions(profileWithLoginReward, safePlayerId, now);
 
     db[safePlayerId] = profile;
     writeDb(db);
@@ -1598,6 +1682,15 @@ export class PlayerProfileManager {
     input: ClaimBattleRewardInput
   ): { profile: PlayerProgress; reward: BattleReward } {
     const profile = this.getProfile(playerId);
+    if (input.mode === "campaign" && input.campaignMissionId) {
+      const campaignMission = getCampaignMission(input.campaignMissionId);
+      if (
+        campaignMission?.campaign.premium &&
+        !profile.unlockedCampaignIds.includes(campaignMission.campaign.id)
+      ) {
+        throw new Error("Премиум-кампания не куплена");
+      }
+    }
     const claimId = sanitizeClaimId(input.claimId);
     if (!claimId) {
       throw new Error("Invalid reward claim id");
@@ -1651,8 +1744,27 @@ export class PlayerProfileManager {
       premiumActive: isPremiumAccountActive(profile),
     });
     const localPlayerWon = getBattleWinner(input.battle, input.localPlayerId);
+    const rewardedProfile = applyReward(profile, reward, localPlayerWon, input.mode);
+    // Combat missions normally accrue in the standalone AI/PvP modes. Campaign
+    // battles also count, but only on the *first* run of a mission: once a
+    // mission has been won, replaying it (win or loss) no longer advances combat
+    // tasks. A mission that has only ever been lost is still "in progress", so
+    // those battles keep counting.
+    const campaignCountsForCombat =
+      input.mode === "campaign" &&
+      !!input.campaignMissionId &&
+      input.campaignMissionAlreadyWon !== true;
+    const missionProfile =
+      input.mode !== "campaign" || campaignCountsForCombat
+        ? applyBattleToCombatMissions(
+            rewardedProfile,
+            sanitizePlayerId(playerId),
+            input.battle,
+            input.localPlayerId
+          )
+        : rewardedProfile;
     const nextProfile = {
-      ...applyReward(profile, reward, localPlayerWon, input.mode),
+      ...missionProfile,
       claimedBattleRewardIds: [
         claimId,
         ...profile.claimedBattleRewardIds,
@@ -1814,6 +1926,14 @@ export class PlayerProfileManager {
     );
   }
 
+  purchaseCampaign(playerId: string, campaignId: string): PlayerProgress {
+    const profile = this.getProfile(playerId);
+    return this.persistProfile(
+      playerId,
+      purchaseCampaignOnProfile(profile, campaignId)
+    );
+  }
+
   exchangeGoldForIron(playerId: string, goldAmount: number): PlayerProgress {
     const profile = this.getProfile(playerId);
     return this.persistProfile(
@@ -1848,6 +1968,30 @@ export class PlayerProfileManager {
           safeClaimKey,
           ...profile.claimedBattleRewardIds,
         ].slice(0, 500),
+      },
+      { touchActivity: false }
+    );
+  }
+
+  grantFirstPlayerPack(playerId: string, claimKey: string): PlayerProgress {
+    const profile = this.getProfile(playerId);
+    const safeClaimKey = claimKey.trim();
+    if (!safeClaimKey) throw new Error("Не указан ключ покупки набора");
+    if (profile.claimedBattleRewardIds.includes(safeClaimKey)) return profile;
+
+    return this.persistProfile(
+      playerId,
+      {
+        ...profile,
+        goldTracks: profile.goldTracks + 777,
+        cardBackId: "first_player",
+        researchedCardIds: Array.from(new Set([...profile.researchedCardIds, "t18_dot"])),
+        unlockedCardIds: Array.from(new Set([...profile.unlockedCardIds, "t18_dot"])),
+        ownedCardCopies: {
+          ...profile.ownedCardCopies,
+          t18_dot: Math.max(4, profile.ownedCardCopies.t18_dot ?? 0),
+        },
+        claimedBattleRewardIds: [safeClaimKey, ...profile.claimedBattleRewardIds].slice(0, 500),
       },
       { touchActivity: false }
     );

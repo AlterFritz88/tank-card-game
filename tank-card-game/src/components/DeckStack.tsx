@@ -4,11 +4,13 @@ import cardBackImage from "../assets/cards/card-back.webp";
 type DeckStackProps = {
   cardCount: number;
   countPosition?: "left" | "right";
+  cardBackImageUrl?: string;
 };
 
 export function DeckStack({
   cardCount,
   countPosition = "left",
+  cardBackImageUrl = cardBackImage,
 }: DeckStackProps) {
   if (cardCount <= 0) {
     return <div style={styles.emptyDeckStack} />;
@@ -26,7 +28,7 @@ export function DeckStack({
             left: index * 5,
             top: index * -4,
             zIndex: index + 1,
-            backgroundImage: `url(${cardBackImage})`,
+            backgroundImage: `url(${cardBackImageUrl})`,
           }}
         />
       ))}

@@ -1,5 +1,6 @@
 package com.panzershrek.game;
 
+import android.content.Intent;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
@@ -13,11 +14,19 @@ import androidx.activity.OnBackPressedCallback;
 
 import com.getcapacitor.BridgeActivity;
 
+import ru.rustore.sdk.pay.IntentInteractor;
+import ru.rustore.sdk.pay.RuStorePayClient;
+import ru.rustore.sdk.pay.model.SdkTheme;
+
 public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        registerPlugin(RuStorePaymentsPlugin.class);
         super.onCreate(savedInstanceState);
         enableImmersiveFullscreen();
+        if (savedInstanceState == null) {
+            proceedRuStorePayIntent(getIntent());
+        }
         getOnBackPressedDispatcher().addCallback(
             this,
             new OnBackPressedCallback(true) {
@@ -33,6 +42,13 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         enableImmersiveFullscreen();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        proceedRuStorePayIntent(intent);
     }
 
     @Override
@@ -52,6 +68,16 @@ public class MainActivity extends BridgeActivity {
     private void dispatchAndroidBackToWeb() {
         if (getBridge() != null) {
             getBridge().triggerWindowJSEvent("panzershrekAndroidBack");
+        }
+    }
+
+    private void proceedRuStorePayIntent(Intent intent) {
+        try {
+            IntentInteractor intentInteractor =
+                RuStorePayClient.Companion.getInstance().getIntentInteractor();
+            intentInteractor.proceedIntent(intent, SdkTheme.LIGHT);
+        } catch (Exception ignored) {
+            // RuStore client is unavailable until the app is installed through RuStore.
         }
     }
 

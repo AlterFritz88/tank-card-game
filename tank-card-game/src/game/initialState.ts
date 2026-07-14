@@ -8,6 +8,7 @@ import { BOT_HQ_POSITION, PLAYER_HQ_POSITION } from "./engine";
 import { DEFAULT_BATTLE_BACKGROUND_ID } from "./battleBackgrounds";
 import type { BattleBackgroundId } from "./battleBackgrounds";
 import type {
+  BattleObjective,
   BattleState,
   BoardUnit,
   CardInstance,
@@ -28,12 +29,26 @@ import type {
  */
 export type PreplacedUnit = {
   cardId: string;
+  /** Stable identifier used by a scripted mission objective. */
+  scenarioTag?: string;
   /** Required for battlefield units. Ignored for support units (they sit on the HQ cell). */
   position?: Position;
   zone?: UnitZone;
   supportSlot?: SupportSlot;
   /** Starting HP (e.g. a battle-worn vehicle). Defaults to the card's full HP, clamped to it. */
   hp?: number;
+  /**
+   * Scripted engine status at battle start («Первые Пантеры»): a machine that
+   * broke down or caught fire on the approach march. `onFire` burns each turn
+   * start until put out; `immobilized` pins it in place until a repair vehicle
+   * frees it. Both can be lifted by a Бергепантера (repairAura).
+   */
+  status?: {
+    onFire?: boolean;
+    immobilized?: boolean;
+    /** Keep immobilized until a repair aura restores the unit to full HP. */
+    immobilizedUntilFullyRepaired?: boolean;
+  };
 };
 
 export const STEP_TIME_MS = 60 * 1000;
@@ -64,6 +79,14 @@ export type CreateBattleOptions = {
   botBoardUnits?: PreplacedUnit[];
   /** Scripted opening-hand size: both players draw exactly this many cards. */
   startingHandSize?: number;
+  /** Cards guaranteed in the opening hand; removed from the corresponding deck. */
+  playerStartingHandCardIds?: string[];
+  botStartingHandCardIds?: string[];
+  /** «Перегрев»: enable movement overheat damage (70% chance of 1 HP) for
+   * prototype units with the `overheat.deploymentDamage` variant. */
+  overheatMovementDamage?: boolean;
+  /** Optional non-standard victory condition for a campaign mission. */
+  objective?: BattleObjective;
 };
 
 const DECK_CARD_IDS: Record<string, string[]> = {
@@ -102,7 +125,6 @@ const DECK_CARD_IDS: Record<string, string[]> = {
   trainingslager_default: [
     "leichttraktor",
     "leichttraktor",
-    "grosstraktor",
     "pzkpfw_i_ausf_a",
     "pzkpfw_i_ausf_a",
     "pzkpfw_i_ausf_b",
@@ -126,13 +148,16 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "krad_bmw",
     "adler_type_10_n",
     "adler_type_10_n",
+    "grosstraktor",
   ],
 
   // Training Camp (США) — стартовый набор: базовые юниты, которыми владеет
   // каждый игрок с самого начала (всё остальное открывается в дереве развития).
   // Слабый штаб, но мощное снабжение (4 топлива).
   training_camp_default: [
-    // Лёгкие танки и бронеавтомобили — мобильное ядро (16)
+    // Лёгкие танки и бронеавтомобили — мобильное ядро (19)
+    "m2_light_tank",
+    "m2_light_tank",
     "m2_light_tank",
     "m2_light_tank",
     "m1_combat_car",
@@ -147,6 +172,7 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "m2a4",
     "m2a4",
     "m2a4",
+    "marmon_ctls",
     "marmon_ctls",
     "marmon_ctls",
     // Средние танки — ударная линия (8)
@@ -163,15 +189,12 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "m6_gmc_fargo",
     "m6_gmc_fargo",
     "m6_gmc_fargo",
-    // Поддержка и снабжение (12)
-    "gun_37mm_m3",
-    "gun_37mm_m3",
+    // Поддержка и снабжение (9)
     "gun_37mm_m3",
     "gun_37mm_m3",
     "gun_75_pack",
     "gun_75_pack",
     "gun_75_pack",
-    "m3_halftrack",
     "m3_halftrack",
     "m3_halftrack",
     "m5_hst",
@@ -208,8 +231,8 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "tiger_i",
     "neubaufahrzeug",
     "grosstraktor",
-    "stug_iii",
-    "stug_iii",
+    "pzkpfw_iii_ausf_e",
+    "pzkpfw_iii_ausf_e",
     "stug_iii",
     "marder_iii",
     "marder_iii",
@@ -258,8 +281,8 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "panzer_iv",
     "panzerjaeger_i",
     "panzerjaeger_i",
-    "stug_iii",
-    "stug_iii",
+    "pzkpfw_iii_ausf_e",
+    "pzkpfw_iii_ausf_e",
     "marder_iii",
     "wespe",
     "mercedes_g3a",
@@ -293,8 +316,8 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "panzer_35t",
     "pzkpfw_ii_ausf_f",
     "pzkpfw_ii_ausf_f",
-    "stug_iii",
-    "stug_iii",
+    "pzkpfw_iii_ausf_e",
+    "pzkpfw_iii_ausf_e",
     "stug_iii",
     "marder_iii",
     "marder_iii",
@@ -344,8 +367,8 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "adgz",
     "pzbef_i",
     "pzbef_i",
-    "stug_iii",
-    "stug_iii",
+    "pzkpfw_iii_ausf_e",
+    "pzkpfw_iii_ausf_e",
     "stug_iii",
     "marder_iii",
     "marder_iii",
@@ -869,10 +892,10 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "panzer_iv",
     "panzer_iv",
     "panzer_iv",
-    "stug_iii",
-    "stug_iii",
-    "stug_iii",
-    "stug_iii",
+    "pzkpfw_iii_ausf_e",
+    "pzkpfw_iii_ausf_e",
+    "pzkpfw_iii_ausf_e",
+    "pzkpfw_iii_ausf_e",
     "stug_iii",
     "marder_iii",
     "marder_iii",
@@ -1640,8 +1663,8 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "stug_iii_b",
     "stug_iii_b",
     "stug_iii_b",
-    "stug_iii",
-    "stug_iii",
+    "pzkpfw_iii_ausf_e",
+    "pzkpfw_iii_ausf_e",
     "stug_iii",
     "panzerjaeger_i",
     "panzerjaeger_i",
@@ -1922,7 +1945,314 @@ const DECK_CARD_IDS: Record<string, string[]> = {
     "krad_bmw",
     "sanitaetskraftwagen",
   ],
+
+  // ============================================================
+  // Кампания «Первые Пантеры» — колоды игрока
+  // ============================================================
+
+  // Глава I (полигон Куммерсдорф): сырые прототипы + скудная поддержка. Пушки
+  // прототипов отскакивают от наклонной брони трофейных Т-34 — в этом весь урок.
+  // Первая миссия проходит только на VK 30.01 (D), без VK 30.02 (M).
+  panther_kummersdorf_m1_deck: [
+    "vk3001_db",
+    "vk3001_db",
+    "vk3001_db",
+    "pzkpfw_iii_ausf_a",
+    "pzkpfw_iii_ausf_a",
+    "pzkpfw_iii_ausf_a",
+    "pzkpfw_iv_ausf_a",
+    "pzkpfw_iv_ausf_a",
+    "pzkpfw_iv_ausf_a",
+    "pak38",
+    "pak38",
+    "sdkfz_251",
+    "sdkfz_251",
+    "krad_bmw",
+    "krad_bmw",
+    "sanitaetskraftwagen",
+  ],
+
+  panther_kummersdorf_deck: [
+    "vk3001_db",
+    "vk3001_db",
+    "vk3001_db",
+    "vk3002_man",
+    "vk3002_man",
+    "pzkpfw_iii_ausf_a",
+    "pzkpfw_iii_ausf_a",
+    "pzkpfw_iv_ausf_a",
+    "pzkpfw_iv_ausf_a",
+    "pak38",
+    "pak38",
+    "sdkfz_251",
+    "sdkfz_251",
+    "krad_bmw",
+    "krad_bmw",
+    "sanitaetskraftwagen",
+  ],
+
+  // Миссия «Длинный ствол» (panther-4): ещё только прототип VK 30.02 с длинной
+  // пушкой — серийные Ausf. D в часть не поступили, поэтому в колоде их нет.
+  panther_forming_m4_deck: [
+    "vk3002_man",
+    "vk3002_man",
+    "bergepanther",
+    "pzkpfw_iv_ausf_e",
+    "pzkpfw_iv_ausf_e",
+    "pzkpfw_iii_ausf_a",
+    "pzkpfw_iii_ausf_a",
+    "pak38",
+    "pak38",
+    "sdkfz_251",
+    "sdkfz_251",
+    "krad_bmw",
+    "sanitaetskraftwagen",
+  ],
+
+  // Глава II (формирование Pz.Abt.51/52): первые серийные «Пантеры» Ausf. D —
+  // страшная пушка, но горят и ломаются. Появляется Бергепантера.
+  panther_forming_deck: [
+    "panther_d",
+    "panther_d",
+    "vk3002_man",
+    "vk3002_man",
+    "bergepanther",
+    "pzkpfw_iv_ausf_e",
+    "pzkpfw_iv_ausf_e",
+    "pzkpfw_iii_ausf_a",
+    "pzkpfw_iii_ausf_a",
+    "pak38",
+    "pak38",
+    "sdkfz_251",
+    "sdkfz_251",
+    "krad_bmw",
+    "sanitaetskraftwagen",
+  ],
+
+  // Миссия «Марш к фронту» (panther-8): доработанная Ausf. A ещё не поступила —
+  // в полку только серийные Ausf. D. Та же колода, что и в остальной главе III,
+  // но без Ausf. A и с усиленным тыловым обозом — на марше нужен бензин, поэтому
+  // добавлены транспортёры-заправщики, генерирующие топливо.
+  panther_regiment_m8_deck: [
+    "panther_d",
+    "panther_d",
+    "panther_d",
+    "bergepanther",
+    "bergepanther",
+    "pzkpfw_iv_ausf_e",
+    "pzkpfw_iv_ausf_e",
+    "pzkpfw_iii_ausf_e",
+    "pzkpfw_iii_ausf_e",
+    "pak38",
+    "pak38",
+    // Тыловой обоз: транспортёры, дающие топливо на марше.
+    "sdkfz_251",
+    "sdkfz_251",
+    "krad_bmw",
+    "krad_bmw",
+    "adler_type_10_n",
+    "adler_type_10_n",
+    "mercedes_g3a",
+    "krupp_l3h163",
+    "sanitaetskraftwagen",
+  ],
+
+  // Миссия «Минные поля» (panther-10): как колода «Марша к фронту» (panther-8),
+  // но обе Бергепантеры заменены на серийные «Пантеры» Ausf. D. Раскрывается до
+  // 40 карт.
+  panther_regiment_m10_deck: [
+    "panther_d",
+    "panther_d",
+    "panther_d",
+    "panther_d",
+    "panther_d",
+    "pzkpfw_iv_ausf_e",
+    "pzkpfw_iv_ausf_e",
+    "pzkpfw_iii_ausf_e",
+    "pzkpfw_iii_ausf_e",
+    "pak38",
+    "pak38",
+    // Тыловой обоз: транспортёры, дающие топливо на марше.
+    "sdkfz_251",
+    "sdkfz_251",
+    "krad_bmw",
+    "krad_bmw",
+    "adler_type_10_n",
+    "adler_type_10_n",
+    "mercedes_g3a",
+    "krupp_l3h163",
+    "sanitaetskraftwagen",
+  ],
+
+  // Глава III (Цитадель): полк «Пантер» на Курской дуге. Ausf. D и A, две
+  // Бергепантеры для эвакуации подбитых на марше машин, StuG для прикрытия.
+  // Также база штаба Pz.-Rgt. 39.
+  panther_regiment_campaign: [
+    "panther_d",
+    "panther_d",
+    "panther_d",
+    "panther_a",
+    "panther_a",
+    "bergepanther",
+    "bergepanther",
+    "pzkpfw_iv_ausf_e",
+    "pzkpfw_iv_ausf_e",
+    "stug_iii",
+    "stug_iii",
+    "pak38",
+    "pak38",
+    "sdkfz_251",
+    "sdkfz_251",
+    "sanitaetskraftwagen",
+  ],
+
+  // Финал кампании: отступающий полк уже не располагает Panther A. Игрок
+  // прикрывает ремонт и эвакуацию № 534 оставшимися Panther D и тыловыми машинами.
+  panther_regiment_m12_deck: [
+    "panther_d",
+    "panther_d",
+    "panther_d",
+    "bergepanther",
+    "bergepanther",
+    "pzkpfw_iv_ausf_e",
+    "pzkpfw_iv_ausf_e",
+    "stug_iii",
+    "stug_iii",
+    "pak38",
+    "pak38",
+    "sdkfz_251",
+    "sdkfz_251",
+    "sanitaetskraftwagen",
+  ],
+
+  // ============================================================
+  // Кампания «Первые Пантеры» — колоды противника
+  // ============================================================
+
+  // Глава I–II: учебно-испытательная часть Pz. Kummersdorf. Трофейные Т-34 с
+  // наклонной бронёй + горстка учебных чешских и трёхтонок с 37-мм «колотушками».
+  kummersdorf_campaign: [
+    "t34_beute",
+    "t34_beute",
+    "t34_beute",
+    "t34_beute",
+    "panzer_35t",
+    "panzer_35t",
+    "pzkpfw_iii_ausf_a",
+    "pzkpfw_iii_ausf_a",
+    "pak36",
+    "pak36",
+    "krad_bmw",
+    "krad_bmw",
+    "sdkfz_251",
+    "sanitaetskraftwagen",
+  ],
+
+  // Глава III: советская оборона Курской дуги — Т-34 маневрируют на борта
+  // «Пантер», СУ-152 «Зверобои» и ПТ-батареи бьют в упор.
+  soviet_kursk_defense_campaign: [
+    "t34_76",
+    "t34_76",
+    "t34_76",
+    "t34_76",
+    "t34_1941",
+    "t34_1941",
+    "su_152",
+    "su_152",
+    "kv1",
+    "kv1",
+    "su76",
+    "su76",
+    "gun_53k",
+    "gun_53k",
+    "gun_76_1927",
+    "gun_76_1927",
+    "zis_5_ammo",
+  ],
+
+  // Финальная эвакуация № 534: без полковых пушек, усиливающих огонь штаба.
+  // Сам штаб продолжает вести прицельный огонь по повреждённой «Пантере».
+  soviet_kursk_defense_m12_deck: [
+    "t34_76",
+    "t34_76",
+    "t34_76",
+    "t34_76",
+    "t34_1941",
+    "t34_1941",
+    "su_152",
+    "su_152",
+    "kv1",
+    "kv1",
+    "su76",
+    "su76",
+    "gun_53k",
+    "gun_53k",
+    "zis_5_ammo",
+  ],
+
+  // Полноразмерная (40 карт) версия советской курской обороны для сценарных
+  // миссий, где бой идёт на стандартных колодах (panther-8 «Марш к фронту»,
+  // panther-9 «Обоянское шоссе»). Содержимое то же, что soviet_kursk_defense_
+  // campaign; раскрывается до 40 карт (см. FULL_SIZE_CAMPAIGN_DECK_IDS).
+  soviet_kursk_defense_full_deck: [
+    "t34_76",
+    "t34_76",
+    "t34_76",
+    "t34_76",
+    "t34_1941",
+    "t34_1941",
+    "su_152",
+    "su_152",
+    "kv1",
+    "kv1",
+    "su76",
+    "su76",
+    "gun_53k",
+    "gun_53k",
+    "gun_76_1927",
+    "gun_76_1927",
+    "zis_5_ammo",
+  ],
+
+  // Миссия «Обоянское шоссе» (panther-9): курская оборона, усиленная манёвренными
+  // СУ-122 и БТ-7 (советские экипажи рвутся на сближение). Раскрывается до 40 карт.
+  soviet_kursk_defense_m9_deck: [
+    "t34_76",
+    "t34_76",
+    "t34_76",
+    "t34_76",
+    "t34_1941",
+    "t34_1941",
+    "su_152",
+    "su_152",
+    "kv1",
+    "kv1",
+    "su76",
+    "su76",
+    "su_122",
+    "su_122",
+    "bt_7",
+    "bt_7",
+    "gun_53k",
+    "gun_53k",
+    "gun_76_1927",
+    "gun_76_1927",
+    "zis_5_ammo",
+  ],
 };
+
+/**
+ * Campaign decks are normally kept short (capped at STOCK_DECK_COPY_LIMIT copies
+ * and never padded). These scripted mission decks instead deal a full-size,
+ * standard-length hand of DEFAULT_DECK_CARD_LIMIT cards — e.g. «Марш к фронту»,
+ * where both sides fight with 40-card decks like a regular battle.
+ */
+const FULL_SIZE_CAMPAIGN_DECK_IDS = new Set([
+  "panther_regiment_m8_deck",
+  "panther_regiment_m10_deck",
+  "soviet_kursk_defense_full_deck",
+  "soviet_kursk_defense_m9_deck",
+]);
 
 const TRAINING_DECK_IDS = new Set([
   "training_unit_default",
@@ -2011,8 +2341,12 @@ export function getDeckCardIds(deckId: string): string[] {
     return expandDeckCardIds(normalizedCardIds, TRAINING_DECK_CARD_LIMIT);
   }
 
-  if (isStandardDefaultDeck(deckId)) {
-    return expandDeckCardIds(normalizedCardIds, DEFAULT_DECK_CARD_LIMIT);
+  if (isStandardDefaultDeck(deckId) || FULL_SIZE_CAMPAIGN_DECK_IDS.has(deckId)) {
+    return expandDeckCardIds(
+      normalizedCardIds,
+      DEFAULT_DECK_CARD_LIMIT,
+      DEFAULT_DECK_CARD_LIMIT
+    );
   }
 
   return limitCardCopies(normalizedCardIds);
@@ -2102,6 +2436,24 @@ function createPlayerState(
   };
 }
 
+function seedStartingHand(
+  player: PlayerState,
+  requestedCardIds: string[] | undefined
+) {
+  if (!requestedCardIds?.length) return;
+
+  for (const requestedCardId of requestedCardIds) {
+    const cardId = normalizeCardId(requestedCardId);
+    if (!cardId) continue;
+
+    const deckIndex = player.deck.findIndex((card) => card.cardId === cardId);
+    if (deckIndex < 0) continue;
+
+    const [card] = player.deck.splice(deckIndex, 1);
+    if (card) player.hand.push(card);
+  }
+}
+
 function createTimerState(): PlayerTimerState {
   return {
     stepTimeLeftMs: STEP_TIME_MS,
@@ -2171,6 +2523,7 @@ function createPreplacedUnits(
       instanceId: `${owner}_preplaced_${resolvedCardId}_${index}`,
       cardId: resolvedCardId,
       ownerId: owner,
+      scenarioTag: entry.scenarioTag,
       position,
       zone,
       supportSlot: entry.supportSlot,
@@ -2181,6 +2534,11 @@ function createPreplacedUnits(
       spawnedThisTurn: false,
       moveCountThisTurn: 0,
       tdAmbushUsedThisTurn: false,
+      // Scripted approach-march breakdown («Первые Пантеры»).
+      onFire: entry.status?.onFire ? true : undefined,
+      immobilized: entry.status?.immobilized ? true : undefined,
+      immobilizedUntilFullyRepaired:
+        entry.status?.immobilizedUntilFullyRepaired ? true : undefined,
     });
   });
 
@@ -2253,14 +2611,33 @@ export function createInitialBattleState(
         armored_car: 0,
         support: 0,
       },
+      playedByPlayer: {
+        light: 0, medium: 0, heavy: 0, td: 0, spg: 0, armored_car: 0,
+        support: 0, transport: 0, medical: 0, artillery: 0,
+      },
+      playedByBot: {
+        light: 0, medium: 0, heavy: 0, td: 0, spg: 0, armored_car: 0,
+        support: 0, transport: 0, medical: 0, artillery: 0,
+      },
       actionsByPlayer: 0,
       actionsByBot: 0,
     },
 
     startingHandSize: options.startingHandSize,
+    startingHandCardIds: {
+      player: options.playerStartingHandCardIds ?? [],
+      bot: options.botStartingHandCardIds ?? [],
+    },
+
+    overheatMovementDamage: options.overheatMovementDamage,
+
+    objective: options.objective,
 
     log: ["Бой готовится. Определяется первый ход."],
   };
+
+  seedStartingHand(state.player, state.startingHandCardIds?.player);
+  seedStartingHand(state.bot, state.startingHandCardIds?.bot);
 
   state.player.maxResources = state.headquarters.player.fuelGeneration;
   state.player.resources = state.player.maxResources;

@@ -7,7 +7,7 @@ import {
   getNationVisual,
 } from "../game/cardVisuals";
 import { getTankImage } from "../game/tankImages";
-import { getCardAbilityTags } from "../game/cardKeywords";
+import { getCardAbilityTags, hasRangedStrike } from "../game/cardKeywords";
 import { FitText } from "./FitText";
 import { StatBadge } from "./StatBadge";
 import ussrCardBackground from "../assets/cards/nation-ussr-bg.png";
@@ -30,6 +30,14 @@ import classArmoredCarPlayerIcon from "../assets/icons/classes/class-armored_car
 import classArmoredCarEnemyIcon from "../assets/icons/classes/class-armored_car-enemy.webp";
 import classMedicPlayerIcon from "../assets/icons/classes/class-medic-player.webp";
 import classMedicEnemyIcon from "../assets/icons/classes/class-medic-enemy.webp";
+import blitzIcon from "../assets/icons/icons-for-units/blitz.webp";
+import brokenCatIcon from "../assets/icons/icons-for-units/broken_cat.webp";
+import cardPlusIcon from "../assets/icons/icons-for-units/card_plus.webp";
+import frontArmorIcon from "../assets/icons/icons-for-units/front_armor.webp";
+import fuelPlusIcon from "../assets/icons/icons-for-units/fuel_plus.webp";
+import longShotIcon from "../assets/icons/icons-for-units/long_shot.webp";
+import rushIcon from "../assets/icons/icons-for-units/rush.webp";
+import specialArmorIcon from "../assets/icons/icons-for-units/special_armor.webp";
 
 type TankCardViewVariant = "hand" | "board";
 
@@ -47,6 +55,12 @@ type TankCardViewProps = {
   suppressExhaustedDim?: boolean;
   /** Board unit is currently hidden by «Маскировка» (cover not yet broken). */
   camouflaged?: boolean;
+  /** Blitz is still available during this unit's deployment turn. */
+  blitzAvailable?: boolean;
+  /** Breakthrough has not triggered for this unit yet. */
+  rushAvailable?: boolean;
+  /** The unit cannot move until its scripted breakdown is repaired. */
+  immobilized?: boolean;
   healthDamageEffect?: {
     id: number;
     amount: number;
@@ -156,6 +170,9 @@ export function TankCardView({
   borderlessBoard = false,
   suppressExhaustedDim = false,
   camouflaged = false,
+  blitzAvailable = false,
+  rushAvailable = false,
+  immobilized = false,
   healthDamageEffect,
   healthGainEffect,
   attackChangeEffect,
@@ -177,6 +194,17 @@ export function TankCardView({
     !isHand && alreadyMoved && alreadyAttacked && !suppressExhaustedDim;
   const tankImage = getTankImage(card.id);
   const boardClassIconImage = getCardClassIcon(card, ownerId);
+  const grantsFuel = (card.supportEffects?.fuelPerTurn ?? 0) > 0;
+  // Deployment draw is the one-shot «Recon» effect and intentionally has no
+  // persistent card-plus marker once the unit is already on the battlefield.
+  const drawsCards =
+    card.onPlayEffects?.fetchToHand != null ||
+    (card.supportEffects?.drawEveryTurns ?? 0) > 0 ||
+    (card.supportEffects?.fetchSupportCardEveryTurns ?? 0) > 0 ||
+    (card.combatAbilities?.drawWhenAttacked ?? 0) > 0;
+  const hasFrontalArmor = (card.combatAbilities?.frontalArmor?.amount ?? 0) > 0;
+  const hasSpecialArmor = (card.combatAbilities?.armorVsClass?.amount ?? 0) > 0;
+  const hasLongShot = hasRangedStrike(card);
 
   if (!isHand) {
     return (
@@ -217,14 +245,46 @@ export function TankCardView({
 
         <div style={styles.boardTopShade} />
 
-        {camouflaged && (
-          <div
-            style={styles.boardCamouflageBadge}
-            title="Маскировка: юнит скрыт — его нельзя атаковать дистанционно, из САУ или штабом, только в ближнем бою. Спадает после атаки или хода."
-          >
-            <EyeIcon />
-          </div>
-        )}
+        <div style={styles.boardAbilityIcons}>
+          {camouflaged && (
+            <span
+              style={styles.boardAbilityIcon}
+              title="Маскировка: юнит скрыт"
+            >
+              <EyeIcon />
+            </span>
+          )}
+          {grantsFuel && (
+            <img src={fuelPlusIcon} alt="" title="Генерирует топливо" style={styles.boardAbilityIconImage} />
+          )}
+          {drawsCards && (
+            <img src={cardPlusIcon} alt="" title="Добирает карты" style={styles.boardAbilityIconImage} />
+          )}
+          {hasFrontalArmor && (
+            <img src={frontArmorIcon} alt="" title="Лобовая броня" style={styles.boardAbilityIconImage} />
+          )}
+          {hasSpecialArmor && (
+            <img src={specialArmorIcon} alt="" title="Специальная броня" style={styles.boardAbilityIconImage} />
+          )}
+          {hasLongShot && (
+            <img src={longShotIcon} alt="" title={`Дальний удар ${card.range}`} style={styles.boardAbilityIconImage} />
+          )}
+          {blitzAvailable && (
+            <img src={blitzIcon} alt="" title="Блиц доступен" style={styles.boardAbilityIconImage} />
+          )}
+          {rushAvailable && (
+            <img src={rushIcon} alt="" title="Прорыв не использован" style={styles.boardAbilityIconImage} />
+          )}
+        </div>
+
+        {immobilized ? (
+          <img
+            src={brokenCatIcon}
+            alt=""
+            title="Обездвижен"
+            style={styles.boardImmobilizedIcon}
+          />
+        ) : null}
 
         <div style={styles.boardTitleArea}>
           <div style={styles.boardTitleRow}>
@@ -688,17 +748,50 @@ const styles: Record<string, React.CSSProperties> = {
     pointerEvents: "none",
   },
 
-  boardCamouflageBadge: {
+  boardAbilityIcons: {
     position: "absolute",
     right: 3,
     top: -1,
     zIndex: 7,
+    display: "flex",
+    flexDirection: "row-reverse",
+    alignItems: "center",
+    gap: 0,
+    height: 20,
+    pointerEvents: "none",
+  },
+
+  boardAbilityIcon: {
+    flex: "0 0 17px",
     display: "grid",
     placeItems: "center",
-    width: 20,
-    height: 20,
+    width: 17,
+    height: 17,
     color: "#f3e6c8",
     filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.7))",
+    pointerEvents: "none",
+  },
+
+  boardAbilityIconImage: {
+    flex: "0 0 17px",
+    display: "block",
+    width: 17,
+    height: 17,
+    objectFit: "contain",
+    filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.78))",
+    pointerEvents: "none",
+  },
+
+  boardImmobilizedIcon: {
+    position: "absolute",
+    right: 3,
+    bottom: 3,
+    zIndex: 9,
+    display: "block",
+    width: 17,
+    height: 17,
+    objectFit: "contain",
+    filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.78))",
     pointerEvents: "none",
   },
 

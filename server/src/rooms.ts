@@ -30,7 +30,9 @@ import type { BotDifficulty, FakeStyle } from "../../tank-card-game/src/game/bot
 import { getFakeBotAction } from "../../tank-card-game/src/game/bot";
 import {
   createFakeOpponentConfig,
+  DEFAULT_FAKE_PVP_MATCH_PROBABILITY,
   getSloppinessForDifficulty,
+  shouldStartFakePvpMatch,
 } from "./fakeOpponent";
 import { PlayerAccountManager } from "./playerAccounts";
 import { PlayerProfileManager } from "./playerProfiles";
@@ -151,6 +153,7 @@ export type AdminRuntimeStats = {
 const START_ROLL_DURATION_MS = 2800;
 const START_ROLL_RESULT_DELAY_MS = 350;
 const START_ROLL_FINISH_DELAY_MS = 900;
+const PVP_MATCH_PREVIEW_MS = 5_000;
 const PVP_TURN_DURATION_MS = STEP_TIME_MS;
 const PVP_TURN_TIMER_BROADCAST_INTERVAL_MS = 500;
 const PVP_MOVE_INTENT_DURATION_MS = 520;
@@ -243,6 +246,13 @@ const FAKE_MATCH_MIN_WAIT_MS = Number(
 );
 const FAKE_MATCH_MAX_WAIT_MS = Number(
   process.env.PVP_FAKE_MATCH_MAX_WAIT_MS ?? 25_000
+);
+// If no human is found, most searches become disguised fake PvP matches. The
+// remaining searches keep waiting for the client's normal 30-second PvE
+// fallback, which starts a real local AI battle with PvE rewards.
+const FAKE_PVP_MATCH_PROBABILITY = Number(
+  process.env.PVP_FAKE_MATCH_PROBABILITY ??
+    DEFAULT_FAKE_PVP_MATCH_PROBABILITY
 );
 // Human-like "thinking" pause the fake takes between its own actions.
 const FAKE_THINK_MIN_MS = Number(process.env.PVP_FAKE_THINK_MIN_MS ?? 500);
@@ -675,6 +685,9 @@ export class RoomManager {
         break;
       case "PURCHASE_PREMIUM_DAYS":
         this.purchasePremiumDays(socket, message);
+        break;
+      case "PURCHASE_CAMPAIGN":
+        this.purchaseCampaign(socket, message);
         break;
       case "EXCHANGE_GOLD_FOR_IRON":
         this.exchangeGoldForIron(socket, message);
@@ -1146,6 +1159,8 @@ export class RoomManager {
           mode: message.mode,
           localPlayerId: message.localPlayerId,
           matchEndReason: message.matchEndReason,
+          campaignMissionId: message.campaignMissionId,
+          campaignMissionAlreadyWon: message.campaignMissionAlreadyWon,
         }
       );
 
@@ -1356,6 +1371,25 @@ export class RoomManager {
         profile: this.profiles.purchasePremiumDays(
           message.playerId,
           message.days
+        ),
+      });
+    } catch (error) {
+      this.sendProfileError(socket, message.requestId, error);
+    }
+  }
+
+  private purchaseCampaign(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "PURCHASE_CAMPAIGN" }>
+  ) {
+    try {
+      this.assertCanActAs(socket, message.playerId);
+      safeSend(socket, {
+        type: "PROFILE_UPDATED",
+        requestId: message.requestId,
+        profile: this.profiles.purchaseCampaign(
+          message.playerId,
+          message.campaignId
         ),
       });
     } catch (error) {
@@ -1831,7 +1865,19 @@ export class RoomManager {
       const socket = room.players.player?.socket;
       if (!socket || socket.readyState !== socket.OPEN) continue;
 
-      this.spawnFakeOpponent(room);
+      if (shouldStartFakePvpMatch(Math.random(), FAKE_PVP_MATCH_PROBABILITY)) {
+        this.spawnFakeOpponent(room);
+        continue;
+      }
+
+      // Roll only once for this search. Leaving the room public lets a real
+      // player still match during the few seconds before the client's existing
+      // PvE deadline; otherwise startPvpFallbackAiBattle takes over at 30s.
+      room.fakeMatchAt = null;
+      console.log(
+        `[PVP:${room.id}] no human opponent found; fake skipped by probability, ` +
+          "waiting for honest PvE fallback"
+      );
     }
   }
 
@@ -2220,9 +2266,16 @@ export class RoomManager {
     if (!room.players.bot.socket && !room.players.bot.isFake) return;
 
     const firstPlayer = getRandomStartingPlayer();
-    const startsAt = Date.now();
+    // Both real and fake PvP show the same five-second opponent preview before
+    // the first-turn roll. Scheduling the roll in the future prevents a fake
+    // from acting behind the preview overlay.
+    const startsAt = Date.now() + PVP_MATCH_PREVIEW_MS;
     const revealAt = startsAt + START_ROLL_DURATION_MS + START_ROLL_RESULT_DELAY_MS;
-    const gameStartDelay = START_ROLL_DURATION_MS + START_ROLL_RESULT_DELAY_MS + START_ROLL_FINISH_DELAY_MS;
+    const gameStartDelay =
+      PVP_MATCH_PREVIEW_MS +
+      START_ROLL_DURATION_MS +
+      START_ROLL_RESULT_DELAY_MS +
+      START_ROLL_FINISH_DELAY_MS;
 
     console.log(
       `[PVP:${room.id}] match found; first turn roll: ${firstPlayer === "player" ? "player 1" : "player 2"}`,
@@ -2845,6 +2898,9 @@ export class RoomManager {
       playerId,
       battle: createBattleViewForPlayer(room.battle, playerId),
       opponentNickname: this.getOpponentNickname(room, playerId),
+      opponentCardBackId: this.getOpponentCardBackId(room, playerId),
+      opponentDeckWeight:
+        room.players[this.getOpponent(playerId)]?.deckWeight ?? null,
     });
 
     this.sendTurnTimer(room, playerId);
@@ -2935,6 +2991,14 @@ export class RoomManager {
         touchActivity: false,
       }).nickname ?? null
     );
+  }
+
+  private getOpponentCardBackId(room: Room, playerId: PlayerId): "first_player" | null {
+    const opponent = room.players[this.getOpponent(playerId)];
+    if (!opponent?.profilePlayerId) return null;
+    return this.profiles.getProfile(opponent.profilePlayerId, {
+      touchActivity: false,
+    }).cardBackId;
   }
 
   private isWaitingForOpponent(room: Room): boolean {
@@ -3394,6 +3458,9 @@ export class RoomManager {
       revealAt,
       battle: createBattleViewForPlayer(room.battle, playerId),
       opponentNickname: this.getOpponentNickname(room, playerId),
+      opponentCardBackId: this.getOpponentCardBackId(room, playerId),
+      opponentDeckWeight:
+        room.players[this.getOpponent(playerId)]?.deckWeight ?? null,
     });
   }
 
@@ -3407,6 +3474,9 @@ export class RoomManager {
       battle: createBattleViewForPlayer(room.battle, playerId),
       playerId,
       opponentNickname: this.getOpponentNickname(room, playerId),
+      opponentCardBackId: this.getOpponentCardBackId(room, playerId),
+      opponentDeckWeight:
+        room.players[this.getOpponent(playerId)]?.deckWeight ?? null,
     });
   }
 

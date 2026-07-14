@@ -4,13 +4,15 @@ import { JsonDocumentStore } from "./sqliteStore";
 import { PlayerProfileManager } from "./playerProfiles";
 import { PlayerAccountManager } from "./playerAccounts";
 
-export type GoldProductId = "gold-100" | "gold-500" | "gold-1500";
+export type GoldProductId = "gold-100" | "gold-500" | "gold-1500" | "first-player-pack";
 
 type GoldProduct = {
   id: GoldProductId;
   goldTracks: number;
   defaultAmountRub: number;
   envPriceKey: string;
+  title?: string;
+  bundle?: "first-player";
 };
 
 export type GoldProductCatalogItem = {
@@ -113,6 +115,14 @@ const GOLD_PRODUCTS: Record<GoldProductId, GoldProduct> = {
     goldTracks: 1500,
     defaultAmountRub: 1190,
     envPriceKey: "YOOKASSA_GOLD_1500_RUB",
+  },
+  "first-player-pack": {
+    id: "first-player-pack",
+    goldTracks: 777,
+    defaultAmountRub: 199,
+    envPriceKey: "YOOKASSA_FIRST_PLAYER_PACK_RUB",
+    title: "Набор первого игрока",
+    bundle: "first-player",
   },
 };
 
@@ -256,7 +266,7 @@ function buildReceipt(
     items: [
       {
         // Описание в чеке ограничено 128 символами.
-        description: `Золотые траки PanzerShrek: ${product.goldTracks} шт.`.slice(
+        description: (product.title ?? `Золотые траки PanzerShrek: ${product.goldTracks} шт.`).slice(
           0,
           128
         ),
@@ -339,6 +349,12 @@ export class PaymentManager {
 
     const product = getKnownProduct(productId);
     const amountRub = getProductPriceRub(product);
+    if (
+      product.bundle === "first-player" &&
+      this.profiles.getProfile(safePlayerId, { touchActivity: false }).cardBackId === "first_player"
+    ) {
+      throw new Error("Набор первого игрока уже куплен");
+    }
 
     // Для самозанятого (НПД) ЮKassa должна сформировать чек, а для чека нужен
     // контакт покупателя. Берём email из аккаунта; гостям без email продажа
@@ -371,7 +387,7 @@ export class PaymentManager {
           type: "redirect",
           return_url: returnUrl,
         },
-        description: `Panzershrek: ${product.goldTracks} золотых траков`,
+        description: product.title ? `Panzershrek: ${product.title}` : `Panzershrek: ${product.goldTracks} золотых траков`,
         metadata: {
           playerId: safePlayerId,
           productId: product.id,
@@ -480,11 +496,12 @@ export class PaymentManager {
     record.status = "succeeded";
 
     if (!record.creditedAt) {
-      this.profiles.creditGoldTracks(
-        record.playerId,
-        record.goldTracks,
-        `payment:${paymentId}`
-      );
+      const product = getKnownProduct(record.productId);
+      if (product.bundle === "first-player") {
+        this.profiles.grantFirstPlayerPack(record.playerId, `payment:${paymentId}`);
+      } else {
+        this.profiles.creditGoldTracks(record.playerId, record.goldTracks, `payment:${paymentId}`);
+      }
       record.creditedAt = now;
       writePaymentDb(db);
       return { processed: true, credited: true, paymentId };
@@ -492,5 +509,93 @@ export class PaymentManager {
 
     writePaymentDb(db);
     return { processed: true, credited: false, paymentId };
+  }
+
+  async completeRuStoreGoldPurchase({
+    playerId,
+    productId,
+    purchaseId,
+    invoiceId,
+  }: {
+    playerId: string;
+    productId: string;
+    purchaseId: string;
+    invoiceId?: string;
+  }): Promise<{
+    paymentId: string;
+    credited: boolean;
+    goldTracks: number;
+    profile: ReturnType<PlayerProfileManager["creditGoldTracks"]>;
+  }> {
+    const safePlayerId = playerId.trim();
+    const safePurchaseId = purchaseId.trim();
+    const safeInvoiceId = invoiceId?.trim() ?? "";
+
+    if (!safePlayerId) {
+      throw new Error("Профиль игрока не найден");
+    }
+
+    if (!safePurchaseId) {
+      throw new Error("RuStore purchaseId не найден");
+    }
+
+    const product = getKnownProduct(productId);
+    const amountRub = getProductPriceRub(product);
+    const paymentId = `rustore:${safePurchaseId}`;
+    const db = readPaymentDb();
+    const existing = db[paymentId];
+
+    if (existing) {
+      if (
+        existing.playerId !== safePlayerId ||
+        existing.productId !== product.id
+      ) {
+        throw new Error("Данные покупки RuStore не совпадают с записью сервера");
+      }
+
+      return {
+        paymentId,
+        credited: false,
+        goldTracks: existing.goldTracks,
+        profile: this.profiles.getProfile(safePlayerId),
+      };
+    }
+
+    if (
+      product.bundle === "first-player" &&
+      this.profiles.getProfile(safePlayerId, { touchActivity: false }).cardBackId === "first_player"
+    ) {
+      throw new Error("Набор первого игрока уже куплен");
+    }
+
+    const now = Date.now();
+    const record: GoldPaymentRecord = {
+      paymentId,
+      playerId: safePlayerId,
+      productId: product.id,
+      goldTracks: product.goldTracks,
+      amountRub,
+      status: "succeeded",
+      yookassaStatus: safeInvoiceId
+        ? `rustore:succeeded:${safeInvoiceId}`
+        : "rustore:succeeded",
+      confirmationUrl: null,
+      createdAt: now,
+      updatedAt: now,
+      creditedAt: now,
+    };
+
+    const profile = product.bundle === "first-player"
+      ? this.profiles.grantFirstPlayerPack(safePlayerId, paymentId)
+      : this.profiles.creditGoldTracks(safePlayerId, product.goldTracks, paymentId);
+    db[paymentId] = record;
+    writePaymentDb(db);
+
+    return {
+      paymentId,
+      credited: true,
+      goldTracks: product.goldTracks,
+      profile,
+    };
   }
 }

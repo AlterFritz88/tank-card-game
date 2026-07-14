@@ -28,6 +28,21 @@ function getClassLabel(unitClass: TankClass, language: Language = "ru"): string 
 }
 
 /**
+ * «Дальний удар»: a regular tank (not a TD or SPG) whose gun reaches beyond the
+ * adjacent cell — it can strike any target within `range` cells in any direction
+ * (Chebyshev), see engine.canUnitAttackTarget. TDs fire adjacent-only and SPGs
+ * have unlimited range, so the trait is meaningful only for the other classes.
+ */
+export function hasRangedStrike(card: TankCard): boolean {
+  return (
+    card.deploymentZone !== "support" &&
+    card.class !== "td" &&
+    card.class !== "spg" &&
+    card.range >= 2
+  );
+}
+
+/**
  * A single explanatory entry shown beside the enlarged card view. Each entry
  * describes either the unit's type (always present) or one of its special
  * mechanics (blitz, deploy effects, support effects, …) — mirroring the
@@ -196,6 +211,17 @@ function getVehicleTypeKeyword(card: TankCard, language: Language): CardKeyword 
 function getAbilityKeywords(card: TankCard, language: Language): CardKeyword[] {
   const keywords: CardKeyword[] = [];
 
+  if (hasRangedStrike(card)) {
+    keywords.push({
+      id: "rangedStrike",
+      title: language === "en" ? "LONG-RANGE STRIKE" : "ДАЛЬНИЙ УДАР",
+      body:
+        language === "en"
+          ? `A long gun: this tank can hit targets up to ${card.range} cells away in any direction — straight or diagonally — not only in an adjacent cell. Strike from a distance instead of closing to melee.`
+          : `Дальнобойное орудие: этот танк поражает цели на расстоянии до ${card.range} клеток в любую сторону — по прямой и по диагонали, — а не только в соседней клетке. Бей врага с дистанции, не входя в ближний бой.`,
+    });
+  }
+
   if (card.combatAbilities?.blitz) {
     keywords.push({
       id: "blitz",
@@ -347,6 +373,73 @@ function getAbilityKeywords(card: TankCard, language: Language): CardKeyword[] {
               card.combatAbilities.raidDraw === 1
                 ? "карту"
                 : `${card.combatAbilities.raidDraw} карты`
+            }.`,
+    });
+  }
+
+  if (card.combatAbilities?.longGun) {
+    keywords.push({
+      id: "longGun",
+      title: language === "en" ? "LONG GUN" : "ДЛИННЫЙ СТВОЛ",
+      body:
+        language === "en"
+          ? `The long, high-velocity 75mm gun punches through sloped and special armor: when this unit fires, it negates up to ${card.combatAbilities.longGun.armorIgnored} of the target's frontal/special armor.`
+          : `Длинная высокоскоростная 75-мм пушка прошивает наклонную и специальную броню: при выстреле этот юнит гасит до ${card.combatAbilities.longGun.armorIgnored} лобовой/специальной брони цели.`,
+    });
+  }
+
+  if (card.combatAbilities?.flankVulnerable) {
+    keywords.push({
+      id: "flankVulnerable",
+      title: language === "en" ? "WEAK FLANKS" : "СЛАБЫЕ БОРТА",
+      body:
+        language === "en"
+          ? `Thin side armor. Flank and rear hits deal +${card.combatAbilities.flankVulnerable.amount} damage; only a straight-ahead frontal hit is unaffected. Keep the front toward the enemy.`
+          : `Тонкая бортовая броня. Удары во фланг и тыл наносят +${card.combatAbilities.flankVulnerable.amount} урона; лишь строго лобовое попадание проходит как обычно. Держи машину лбом к врагу.`,
+    });
+  }
+
+  if (card.combatAbilities?.overheat) {
+    const deploymentDamage = card.combatAbilities.overheat.deploymentDamage;
+    keywords.push({
+      id: "overheat",
+      title: language === "en" ? "OVERHEAT" : "ПЕРЕГРЕВ",
+      body:
+        deploymentDamage
+          ? language === "en"
+            ? `When deployed, the unreliable engine causes ${deploymentDamage.min}–${deploymentDamage.max} random damage to this unit. On the march the raw engine can overheat — each move carries a 70% chance to cost 1 more HP.`
+            : `При выходе на поле ненадёжный двигатель наносит этому юниту случайно от ${deploymentDamage.min} до ${deploymentDamage.max} урона. На марше сырой двигатель может перегреться — при каждом перемещении 70% шанс потерять ещё 1 HP.`
+          : language === "en"
+            ? `The raw early engine overheats with use. Every move or attack adds heat; after ${card.combatAbilities.overheat.threshold} it catches fire (see FIRE). An idle turn bleeds one heat off — pace the machine.`
+            : `Сырой ранний двигатель перегревается от нагрузки. Каждое перемещение или атака добавляют тепло; после ${card.combatAbilities.overheat.threshold} моторное отделение загорается (см. ПОЖАР). Ход без действий сбрасывает одно тепло — дозируй машину.`,
+    });
+    if (!deploymentDamage) {
+      keywords.push({
+        id: "engineFire",
+        title: language === "en" ? "ENGINE FIRE" : "ПОЖАР В МОТОРНОМ",
+        body:
+          language === "en"
+            ? "A burning tank loses 0–3 HP at the start of each of your turns and cannot move (it may still fire). Standing idle a full turn lets the crew put it out; a repair vehicle extinguishes it at once."
+            : "Горящий танк теряет 0–3 прочности в начале каждого вашего хода и не может двигаться (но стреляет). Ход без действий — экипаж тушит пожар; ремонтная машина гасит его сразу.",
+      });
+    }
+  }
+
+  if (card.combatAbilities?.repairAura) {
+    keywords.push({
+      id: "repairAura",
+      title: language === "en" ? "REPAIR VEHICLE" : "РЕМОНТНАЯ ЛЕТУЧКА",
+      body:
+        language === "en"
+          ? `At the start of your turn every adjacent friendly unit — including rear-line units and the headquarters — is put back in order: engine fires extinguished, immobilized machines freed${
+              card.combatAbilities.repairAura.healHp
+                ? `, and ${card.combatAbilities.repairAura.healHp} HP restored`
+                : ""
+            }.`
+          : `В начале вашего хода каждый соседний дружественный юнит — включая тыловые и штаб — приводится в порядок: пожары тушатся, обездвиженные машины освобождаются${
+              card.combatAbilities.repairAura.healHp
+                ? `, восстанавливается ${card.combatAbilities.repairAura.healHp} прочности`
+                : ""
             }.`,
     });
   }
@@ -606,6 +699,14 @@ export function getCardAbilityTags(
 ): string[] {
   const tags: string[] = [];
 
+  if (hasRangedStrike(card)) {
+    tags.push(
+      language === "en"
+        ? `Long-range strike ${card.range}`
+        : `Дальний удар ${card.range}`
+    );
+  }
+
   if (card.combatAbilities?.blitz) {
     tags.push(language === "en" ? "Blitz" : "Блиц");
   }
@@ -663,6 +764,30 @@ export function getCardAbilityTags(
         ? `Frontal armor −${card.combatAbilities.frontalArmor.amount}`
         : `Лобовая броня −${card.combatAbilities.frontalArmor.amount}`
     );
+  }
+
+  if (card.combatAbilities?.longGun) {
+    tags.push(
+      language === "en"
+        ? `Long gun −${card.combatAbilities.longGun.armorIgnored} armor`
+        : `Длинный ствол −${card.combatAbilities.longGun.armorIgnored} брони`
+    );
+  }
+
+  if (card.combatAbilities?.flankVulnerable) {
+    tags.push(
+      language === "en"
+        ? `Weak flanks +${card.combatAbilities.flankVulnerable.amount}`
+        : `Слабые борта +${card.combatAbilities.flankVulnerable.amount}`
+    );
+  }
+
+  if (card.combatAbilities?.overheat) {
+    tags.push(language === "en" ? "Overheat" : "Перегрев");
+  }
+
+  if (card.combatAbilities?.repairAura) {
+    tags.push(language === "en" ? "Repair vehicle" : "Ремонтная летучка");
   }
 
   if (
@@ -793,6 +918,22 @@ function getHeadquartersAbilityKeyword(
         language === "en"
           ? `The first unit played each turn costs ${ability.firstUnitFuelDiscount} less fuel.`
           : `Первый юнит, сыгранный за ход, обходится на ${ability.firstUnitFuelDiscount} топлива дешевле.`,
+    };
+  }
+
+  if (ability.capturedTankFuelDiscount) {
+    const prototypeAttack = ability.prototypeDoubleAttack
+      ? language === "en"
+        ? " Prototype, non-production vehicles may attack twice each turn."
+        : " Прототипы — несерийные машины — могут атаковать два раза за ход."
+      : "";
+    return {
+      id: "hq-capturedTankFuelDiscount",
+      title,
+      body:
+        language === "en"
+          ? `Captured tanks cost ${ability.capturedTankFuelDiscount} less fuel.${prototypeAttack}`
+          : `Трофейные танки стоят на ${ability.capturedTankFuelDiscount} топливо меньше.${prototypeAttack}`,
     };
   }
 
@@ -985,6 +1126,7 @@ export function getHeadquartersKeywords(
 
 function translateHeadquartersAbilityName(name: string): string {
   const translations: Record<string, string> = {
+    "Пристрелянный полигон": "Zeroed-in Proving Ground",
     "Танковый клин": "Armored Spearhead",
     "Моторизованный марш": "Motorized March",
     "Быстрая переброска": "Rapid Redeployment",

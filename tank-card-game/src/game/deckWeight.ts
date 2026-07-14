@@ -32,18 +32,15 @@ const RARITY_LEVEL_BONUS: Record<TankRarity, number> = {
 type ClassStrengthProfile = {
   attackWeight: number;
   hpWeight: number;
-  armorWeight: number;
   fuelWeight: number;
   movementWeight: number;
   rangeWeight: number;
   costWeight: number;
   expectedAttack: number;
   expectedHp: number;
-  expectedArmor: number;
   expectedFuel: number;
   excessAttackPenalty: number;
   excessHpPenalty: number;
-  excessArmorPenalty: number;
   excessFuelPenalty: number;
 };
 
@@ -51,104 +48,86 @@ const CLASS_STRENGTH_PROFILES: Record<TankClass, ClassStrengthProfile> = {
   light: {
     attackWeight: 0.55,
     hpWeight: 0.55,
-    armorWeight: 0.65,
     fuelWeight: 0.8,
     movementWeight: 0.65,
     rangeWeight: 0.35,
     costWeight: 0.52,
     expectedAttack: 2,
     expectedHp: 3,
-    expectedArmor: 0,
     expectedFuel: 1,
     excessAttackPenalty: 0.22,
     excessHpPenalty: 0.22,
-    excessArmorPenalty: 0.35,
     excessFuelPenalty: 0.1,
   },
   medium: {
     attackWeight: 0.68,
     hpWeight: 0.62,
-    armorWeight: 0.72,
     fuelWeight: 0.58,
     movementWeight: 0.42,
     rangeWeight: 0.35,
     costWeight: 0.5,
     expectedAttack: 3,
     expectedHp: 5,
-    expectedArmor: 1,
     expectedFuel: 2,
     excessAttackPenalty: 0.12,
     excessHpPenalty: 0.12,
-    excessArmorPenalty: 0.18,
     excessFuelPenalty: 0.16,
   },
   heavy: {
     attackWeight: 0.62,
     hpWeight: 0.42,
-    armorWeight: 0.5,
     fuelWeight: 0.52,
     movementWeight: 0.55,
     rangeWeight: 0.3,
     costWeight: 0.46,
     expectedAttack: 3,
     expectedHp: 7,
-    expectedArmor: 2,
     expectedFuel: 2,
     excessAttackPenalty: 0.14,
     excessHpPenalty: 0.04,
-    excessArmorPenalty: 0.08,
     excessFuelPenalty: 0.18,
   },
   td: {
     attackWeight: 0.46,
     hpWeight: 0.66,
-    armorWeight: 0.88,
     fuelWeight: 0.5,
     movementWeight: 0.38,
     rangeWeight: 0.34,
     costWeight: 0.48,
     expectedAttack: 4,
     expectedHp: 3,
-    expectedArmor: 0,
     expectedFuel: 1,
     excessAttackPenalty: 0.04,
     excessHpPenalty: 0.42,
-    excessArmorPenalty: 0.62,
     excessFuelPenalty: 0.18,
   },
   spg: {
     attackWeight: 0.5,
     hpWeight: 0.62,
-    armorWeight: 0.82,
     fuelWeight: 0.5,
     movementWeight: 0.3,
     rangeWeight: 0.58,
     costWeight: 0.48,
     expectedAttack: 3,
     expectedHp: 3,
-    expectedArmor: 0,
     expectedFuel: 1,
     excessAttackPenalty: 0.08,
     excessHpPenalty: 0.38,
-    excessArmorPenalty: 0.58,
     excessFuelPenalty: 0.18,
   },
   armored_car: {
-    // Fast, lightly-armored raider: prizes mobility, soft on hp/armor.
+    // Fast raider: prizes mobility and is deliberately soft on HP.
     attackWeight: 0.52,
     hpWeight: 0.5,
-    armorWeight: 0.6,
     fuelWeight: 0.72,
     movementWeight: 0.85,
     rangeWeight: 0.35,
     costWeight: 0.52,
     expectedAttack: 2,
     expectedHp: 3,
-    expectedArmor: 0,
     expectedFuel: 1,
     excessAttackPenalty: 0.2,
     excessHpPenalty: 0.26,
-    excessArmorPenalty: 0.4,
     excessFuelPenalty: 0.1,
   },
 };
@@ -159,26 +138,30 @@ const SUPPORT_ROLE_BONUS: Record<SupportRole, number> = {
   medical: 0.35,
 };
 
-export function getCardLevel(card: TankCard): number {
-  // An explicit, discrete upgrade level is exponentially weighted (a level-5 card
-  // is meaningfully rarer/stronger than a level-1 one). The computed strength
-  // score, however, is a continuous value in the ~1.5–17 range; feeding it into
-  // the exponential made a single rare (e.g. Ferdinand at strength 17) weigh ~1110
-  // while a common weighed 1, so one card dominated a whole 40-card deck and made
-  // the ±% matchmaking band meaningless. Use the strength score directly instead,
-  // which keeps per-card weights smooth and comparable.
-  if (card.level !== undefined) {
-    return getExponentialLevelWeight(card.level);
-  }
+const MAX_CARD_STRENGTH_LEVEL = 7;
+const WEIGHT_EXPONENTIAL_BASE = 1.6;
 
-  return Math.max(1, Math.round(getCardStrength(card).total));
+export function getCardStrengthLevel(card: TankCard): number {
+  return Math.min(
+    MAX_CARD_STRENGTH_LEVEL,
+    Math.max(1, Math.round(getCardStrength(card).total))
+  );
+}
+
+export function getCardLevel(card: TankCard): number {
+  // Research/campaign level describes progression, not combat power. Every unit
+  // first receives a live combat-strength level and only then an exponential
+  // weight. Capping the combat scale at seven keeps the exponential curve useful
+  // for matchmaking without letting one exceptional card outweigh a whole deck.
+  return getExponentialLevelWeight(getCardStrengthLevel(card));
 }
 
 export function getCardStrength(card: TankCard): CardStrengthBreakdown {
   const profile = CLASS_STRENGTH_PROFILES[card.class];
   const attack = card.attack * profile.attackWeight;
-  const defense =
-    card.hp * profile.hpWeight + card.armor * (1 + profile.armorWeight);
+  // Printed `armor` is currently informational and has no effect in combat,
+  // so it must not inflate matchmaking/deck strength either.
+  const defense = card.hp * profile.hpWeight;
   const economy =
     card.fuelGeneration * profile.fuelWeight +
     (card.deploymentZone === "support" ? 0.3 : 0);
@@ -270,22 +253,107 @@ function normalizeLevel(level: number): number {
 function getExponentialLevelWeight(level: number): number {
   const normalizedLevel = normalizeLevel(level);
 
-  return Math.max(1, Math.round(1.55 ** (normalizedLevel - 1)));
+  return Math.max(
+    1,
+    Math.round(WEIGHT_EXPONENTIAL_BASE ** (normalizedLevel - 1))
+  );
 }
 
 function getAbilityStrength(card: TankCard): number {
   let score = 0;
 
   if (card.onPlayEffects?.draw) {
-    score += card.onPlayEffects.draw * 0.8;
+    score += card.onPlayEffects.draw * 1.1;
   }
 
   if (card.onPlayEffects?.hqProtection) {
-    score += card.onPlayEffects.hqProtection * 0.55;
+    score += card.onPlayEffects.hqProtection * 0.8;
+  }
+
+  const deployDamage = card.onPlayEffects?.deployDamage;
+  if (deployDamage) {
+    const targetMultiplier =
+      deployDamage.scope === "classes"
+        ? Math.max(1, deployDamage.classes?.length ?? 0)
+        : 1;
+    score += deployDamage.amount * targetMultiplier * 0.7;
+  }
+
+  if (card.onPlayEffects?.suppressEnemyIndirect) {
+    score += 0.65;
+  }
+
+  if (card.onPlayEffects?.fetchToHand) {
+    score += 0.65;
   }
 
   if (card.combatAbilities?.blitz) {
     score += 1.1;
+  }
+
+  const combatAbilities = card.combatAbilities;
+  if (combatAbilities?.camouflage) {
+    score += 0.5;
+  }
+  if (combatAbilities?.lightScreen) {
+    score += 0.65;
+  }
+  if (combatAbilities?.tankDefenseAura) {
+    score += combatAbilities.tankDefenseAura * 1.25;
+  }
+  if (combatAbilities?.raidDraw) {
+    score += combatAbilities.raidDraw * 0.55;
+  }
+  if (combatAbilities?.spawnDamageReduction) {
+    score += combatAbilities.spawnDamageReduction * 0.5;
+  }
+  if (combatAbilities?.armorVsClass) {
+    score += combatAbilities.armorVsClass.amount * 0.4;
+  }
+  if (combatAbilities?.frontalArmor) {
+    score += combatAbilities.frontalArmor.amount * 0.45;
+  }
+  if (combatAbilities?.drawWhenAttacked) {
+    score += combatAbilities.drawWhenAttacked * 0.6;
+  }
+  if (combatAbilities?.cornerBonus) {
+    score += (combatAbilities.cornerBonus.attack ?? 0) * 0.45;
+    score += (combatAbilities.cornerBonus.hp ?? 0) * 0.25;
+  }
+  if (combatAbilities?.hqProximityBonus) {
+    score += combatAbilities.hqProximityBonus.maxBonus * 0.45;
+  }
+  if (combatAbilities?.attackEqualsHq) {
+    score += 0.75;
+  }
+  if (combatAbilities?.longGun) {
+    score += combatAbilities.longGun.armorIgnored * 0.4;
+  }
+  if (combatAbilities?.repairAura) {
+    // Besides restoring HP, a repair vehicle clears immobilization and engine
+    // fires from every adjacent ally, so the utility floor is substantial.
+    score += 2 + (combatAbilities.repairAura.healHp ?? 1) * 0.75;
+  }
+
+  // Negative abilities reduce real combat value and therefore the deck weight.
+  if (combatAbilities?.flankVulnerable) {
+    score -= combatAbilities.flankVulnerable.amount * 0.3;
+  }
+  if (combatAbilities?.overheat) {
+    const deploymentDamage = combatAbilities.overheat.deploymentDamage;
+    if (deploymentDamage) {
+      score -= ((deploymentDamage.min + deploymentDamage.max) / 2) * 0.35;
+    }
+    if (combatAbilities.overheat.threshold) {
+      score -= 0.35;
+    }
+    if (combatAbilities.overheat.moveDamage) {
+      score -= combatAbilities.overheat.moveDamage * 0.25;
+    }
+  }
+
+  if (card.costModifiers) {
+    score += card.costModifiers.discount * 0.4;
   }
 
   if (card.supportRole) {
@@ -297,18 +365,18 @@ function getAbilityStrength(card: TankCard): number {
     score += (supportEffects.hqAttackBonus ?? 0) * 0.85;
     score += (supportEffects.hqDamageRedirect ?? 0) * 0.55;
     score += (supportEffects.supportLineCover ?? 0) * 0.9;
+    score += (supportEffects.returnFire ?? 0) * 0.55;
     score += (supportEffects.tankScreenClasses?.length ?? 0) * 0.42;
     score += (supportEffects.fuelPerTurn ?? 0) * 0.72;
     score += supportEffects.drawEveryTurns
       ? 1.2 / supportEffects.drawEveryTurns
       : 0;
+    score += supportEffects.fetchSupportCardEveryTurns
+      ? 1 / supportEffects.fetchSupportCardEveryTurns
+      : 0;
     score += (supportEffects.healRandomUnitPerTurn ?? 0) * 0.62;
     score += (supportEffects.hqHealPerTurn ?? 0) * 0.58;
     score += supportEffects.healClass ? 0.18 : 0;
-  }
-
-  if (card.abilityText) {
-    score += 0.18;
   }
 
   return score;
@@ -322,8 +390,6 @@ function getRolePenalty(
     getExcess(card.attack, profile.expectedAttack) *
       profile.excessAttackPenalty +
     getExcess(card.hp, profile.expectedHp) * profile.excessHpPenalty +
-    getExcess(card.armor, profile.expectedArmor) *
-      profile.excessArmorPenalty +
     getExcess(card.fuelGeneration, profile.expectedFuel) *
       profile.excessFuelPenalty
   );

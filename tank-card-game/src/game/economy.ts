@@ -108,7 +108,10 @@ type BattleRewardInput = {
 };
 
 const FREE_XP_SHARE = 0.08;
-const FULLY_RESEARCHED_FREE_XP_CONVERSION = 0.65;
+// Once a headquarters has no units left to research, its battle XP is no
+// longer credited to that headquarters. Instead, 30% of the same raw XP is
+// credited as free XP.
+const FULLY_RESEARCHED_FREE_XP_CONVERSION = 0.3;
 export const PREMIUM_REWARD_MULTIPLIER = 1.5;
 
 // Relative-strength reward scaling (PvP wins only). Beating a heavier deck pays

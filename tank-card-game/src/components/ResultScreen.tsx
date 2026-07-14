@@ -10,7 +10,6 @@ import defeatBannerImage from "../game/results_screen/defeat.png";
 import ratingBannerImage from "../game/results_screen/rating.png";
 import victoryBannerImage from "../game/results_screen/victory.png";
 import type { BattleReward } from "../game/economy";
-import { loadPlayerProgress } from "../game/playerProgress";
 import { getHeadquartersDefinition } from "../game/headquarters";
 import type { MatchEndReason } from "../game/modes";
 import { getSettings, type Language } from "../game/settings";
@@ -102,10 +101,6 @@ export function ResultScreen({
   const stageRotation = useStageRotation();
   const stageScale = useStageScale();
 
-  // The reward table shows both tiers side by side; bold the column the player
-  // actually earns based on their account type (premium vs base).
-  const isPremium = loadPlayerProgress().accountType === "premium";
-
   const winningPlayer: PlayerId | null =
     battle.status === "player_won"
       ? "player"
@@ -128,6 +123,9 @@ export function ResultScreen({
     ? getHeadquartersDefinition(reward.headquartersId)
     : null;
   const rewardPremiumMultiplier = reward?.premiumMultiplier ?? 1;
+  // The reward table shows both tiers side by side; bold the column that was
+  // actually credited by the reward calculation returned from the server.
+  const isPremium = rewardPremiumMultiplier > 1;
   const toBaseRewardValue = (value: number) =>
     rewardPremiumMultiplier > 1
       ? Math.round(value / rewardPremiumMultiplier)

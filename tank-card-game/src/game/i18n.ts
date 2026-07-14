@@ -91,6 +91,7 @@ export type TranslationKey =
   | "battle.opponentFound"
   | "battle.autobattleIn"
   | "battle.secondsShort"
+  | "battle.deckWeight"
   | "battle.aiBattle"
   | "battle.playerTurn"
   | "battle.enemyTurn"
@@ -118,6 +119,7 @@ export type TranslationKey =
   | "campaign.rewardClaiming"
   | "campaign.rewardClaim"
   | "campaign.rewardLocked"
+  | "campaign.premiumBadge"
   | "campaign.rewardClaimError"
   | "campaign.rewardUnavailable"
   | "campaign.operation"
@@ -149,7 +151,8 @@ export const TRANSLATIONS: Record<Language, TranslationMap> = {
     "common.retry": "Повторить",
     "common.guest": "Гость",
     "common.all": "Все",
-    "common.profileServerUnavailable": "Сервер профиля недоступен",
+    "common.profileServerUnavailable":
+      "Серверы игры обновляются. Подождите немного и попробуйте обновить страницу.",
     "common.profileSyncWait": "Дождитесь синхронизации профиля",
     "common.invalidDeck": "Некорректная колода",
     "settings.title": "Настройки",
@@ -173,7 +176,7 @@ export const TRANSLATIONS: Record<Language, TranslationMap> = {
     "settings.enterFullscreen": "На весь экран",
     "settings.exitFullscreen": "Выйти из полноэкранного режима",
     "main.selectBattleMode": "ВЫБЕРИ РЕЖИМ БОЯ",
-    "main.campaign": "Кампания",
+    "main.campaign": "Кампании",
     "main.quickBattle": "Быстрый бой",
     "main.aiBattle": "Бой против ИИ",
     "main.tutorial": "Обучение",
@@ -234,10 +237,11 @@ export const TRANSLATIONS: Record<Language, TranslationMap> = {
     "battle.allNations": "Все нации",
     "battle.playDeck": "Играть колодой",
     "battle.searchingOpponent": "ПОИСК ПРОТИВНИКА",
-    "battle.pvpServerUnavailable": "PVP-СЕРВЕР НЕДОСТУПЕН",
+    "battle.pvpServerUnavailable": "ОБНОВЛЕНИЕ СЕРВЕРОВ ИГРЫ",
     "battle.opponentFound": "ПРОТИВНИК НАЙДЕН",
     "battle.autobattleIn": "АВТОБОЙ ЧЕРЕЗ",
     "battle.secondsShort": "СЕК",
+    "battle.deckWeight": "Вес колоды",
     "battle.aiBattle": "Бой против ИИ",
     "battle.playerTurn": "ХОД ИГРОКА",
     "battle.enemyTurn": "ХОД ВРАГА",
@@ -266,9 +270,11 @@ export const TRANSLATIONS: Record<Language, TranslationMap> = {
     "campaign.rewardClaiming": "Выдача…",
     "campaign.rewardClaim": "Забрать",
     "campaign.rewardLocked": "Закрыто",
+    "campaign.premiumBadge": "Премиум",
     "campaign.rewardClaimError":
-      "Награда не выдана: сервер профиля недоступен",
-    "campaign.rewardUnavailable": "Сервер профиля недоступен",
+      "Серверы игры обновляются, поэтому награду пока нельзя получить. Подождите немного и попробуйте обновить страницу.",
+    "campaign.rewardUnavailable":
+      "Серверы игры обновляются. Подождите немного и попробуйте обновить страницу.",
     "campaign.operation": "Операция",
     "campaign.completed": "Пройдено",
     "campaign.soon": "Скоро",
@@ -298,7 +304,8 @@ export const TRANSLATIONS: Record<Language, TranslationMap> = {
     "common.retry": "Retry",
     "common.guest": "Guest",
     "common.all": "All",
-    "common.profileServerUnavailable": "Profile server is unavailable",
+    "common.profileServerUnavailable":
+      "The game servers are being updated. Please wait a moment and try refreshing the page.",
     "common.profileSyncWait": "Wait for profile synchronization",
     "common.invalidDeck": "Invalid deck",
     "settings.title": "Settings",
@@ -322,7 +329,7 @@ export const TRANSLATIONS: Record<Language, TranslationMap> = {
     "settings.enterFullscreen": "Fullscreen",
     "settings.exitFullscreen": "Exit fullscreen",
     "main.selectBattleMode": "SELECT BATTLE MODE",
-    "main.campaign": "Campaign",
+    "main.campaign": "Campaigns",
     "main.quickBattle": "Quick Battle",
     "main.aiBattle": "Battle vs AI",
     "main.tutorial": "Tutorial",
@@ -382,10 +389,11 @@ export const TRANSLATIONS: Record<Language, TranslationMap> = {
     "battle.allNations": "All nations",
     "battle.playDeck": "Play deck",
     "battle.searchingOpponent": "SEARCHING FOR OPPONENT",
-    "battle.pvpServerUnavailable": "PVP SERVER UNAVAILABLE",
+    "battle.pvpServerUnavailable": "GAME SERVERS ARE BEING UPDATED",
     "battle.opponentFound": "OPPONENT FOUND",
     "battle.autobattleIn": "AUTO BATTLE IN",
     "battle.secondsShort": "SEC",
+    "battle.deckWeight": "Deck weight",
     "battle.aiBattle": "Battle vs AI",
     "battle.playerTurn": "PLAYER TURN",
     "battle.enemyTurn": "ENEMY TURN",
@@ -414,9 +422,11 @@ export const TRANSLATIONS: Record<Language, TranslationMap> = {
     "campaign.rewardClaiming": "Claiming...",
     "campaign.rewardClaim": "Claim",
     "campaign.rewardLocked": "Locked",
+    "campaign.premiumBadge": "Premium",
     "campaign.rewardClaimError":
-      "Reward was not granted: profile server is unavailable",
-    "campaign.rewardUnavailable": "Profile server is unavailable",
+      "The game servers are being updated, so the reward cannot be claimed yet. Please wait a moment and try refreshing the page.",
+    "campaign.rewardUnavailable":
+      "The game servers are being updated. Please wait a moment and try refreshing the page.",
     "campaign.operation": "Operation",
     "campaign.completed": "Completed",
     "campaign.soon": "Soon",

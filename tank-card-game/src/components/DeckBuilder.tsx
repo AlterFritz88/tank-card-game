@@ -1060,9 +1060,7 @@ export function DeckBuilder({
 
       {profileServerUnavailable ? (
         <div style={styles.profileServerBanner}>
-          <span>
-            {profileConnection.message ?? t("common.profileServerUnavailable")}
-          </span>
+          <span>{t("common.profileServerUnavailable")}</span>
           <button
             type="button"
             style={styles.profileServerRetryButton}

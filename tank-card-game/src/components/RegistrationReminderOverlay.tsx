@@ -11,6 +11,8 @@ type RegistrationReminderOverlayProps = {
   onRegister: () => void;
   /** Dismisses the hint without registering. */
   onDismiss: () => void;
+  variant?: "registration" | "firstPlayerPack";
+  onOpenShop?: () => void;
 };
 
 /**
@@ -22,6 +24,8 @@ export function RegistrationReminderOverlay({
   visible,
   onRegister,
   onDismiss,
+  variant = "registration",
+  onOpenShop,
 }: RegistrationReminderOverlayProps) {
   const { language } = useI18n();
   const isEn = language === "en";
@@ -53,10 +57,14 @@ export function RegistrationReminderOverlay({
 
             <div style={styles.bubble}>
               <div style={styles.speaker}>
-                {isEn ? "Instructor" : "Инструктор"}
+                {variant === "firstPlayerPack" ? (isEn ? "Special offer" : "Особое предложение") : (isEn ? "Instructor" : "Инструктор")}
               </div>
               <p style={styles.text}>
-                {isEn
+                {variant === "firstPlayerPack"
+                  ? (isEn
+                    ? "The First Player Pack is available: 4× T-18 Pillbox, an exclusive card back and 777 gold tracks for 199 ₽."
+                    : "Доступен Набор первого игрока: 4× Т-18 ДОТ, особая рубашка карты и 777 золотых траков за 199 ₽.")
+                  : isEn
                   ? "Playing as a guest — your progress can be lost. Register to save it: tap the profile button in the top-left corner."
                   : "Ты играешь как гость — прогресс можно потерять. Зарегистрируйся, чтобы сохранить его: нажми на кнопку профиля в левом верхнем углу."}
               </p>
@@ -64,9 +72,9 @@ export function RegistrationReminderOverlay({
                 <button
                   type="button"
                   style={styles.primaryButton}
-                  onClick={onRegister}
+                  onClick={variant === "firstPlayerPack" ? onOpenShop : onRegister}
                 >
-                  {isEn ? "Register" : "Зарегистрироваться"}
+                  {variant === "firstPlayerPack" ? (isEn ? "Open shop" : "В магазин") : (isEn ? "Register" : "Зарегистрироваться")}
                 </button>
                 <button
                   type="button"

@@ -132,6 +132,18 @@ export function isBattlefieldUnit(unit: BoardUnit): boolean {
   return !isSupportUnit(unit);
 }
 
+/**
+ * The board cell a unit actually occupies for adjacency/range checks. Support
+ * (rear-line) units store the HQ position in `unit.position` but really sit in
+ * their own rear-strip cell — resolve that from the support slot.
+ */
+function getUnitCellPosition(unit: BoardUnit): Position {
+  if (isSupportUnit(unit) && unit.supportSlot !== undefined) {
+    return getSupportSlotPosition(unit.ownerId, unit.supportSlot);
+  }
+  return unit.position;
+}
+
 function isSupportSlotOccupied(
   state: BattleState,
   playerId: PlayerId,
@@ -211,6 +223,10 @@ function addLog(state: BattleState, message: string) {
 }
 
 function ensureBattleStats(state: BattleState) {
+  const emptyPlayedStats = () => ({
+    light: 0, medium: 0, heavy: 0, td: 0, spg: 0, armored_car: 0,
+    support: 0, transport: 0, medical: 0, artillery: 0,
+  });
   state.stats ??= {
     destroyedByPlayer: {
       light: 0,
@@ -230,6 +246,8 @@ function ensureBattleStats(state: BattleState) {
       armored_car: 0,
       support: 0,
     },
+    playedByPlayer: emptyPlayedStats(),
+    playedByBot: emptyPlayedStats(),
     actionsByPlayer: 0,
     actionsByBot: 0,
   };
@@ -238,8 +256,29 @@ function ensureBattleStats(state: BattleState) {
   state.stats.destroyedByBot.support ??= 0;
   state.stats.destroyedByPlayer.armored_car ??= 0;
   state.stats.destroyedByBot.armored_car ??= 0;
+  state.stats.playedByPlayer ??= emptyPlayedStats();
+  state.stats.playedByBot ??= emptyPlayedStats();
+  for (const stats of [state.stats.playedByPlayer, state.stats.playedByBot]) {
+    stats.support ??= 0;
+    stats.transport ??= 0;
+    stats.medical ??= 0;
+    stats.artillery ??= 0;
+    stats.armored_car ??= 0;
+  }
   state.stats.actionsByPlayer ??= 0;
   state.stats.actionsByBot ??= 0;
+}
+
+function recordPlayedCard(state: BattleState, playerId: PlayerId, cardId: string) {
+  ensureBattleStats(state);
+  const card = getCard(cardId);
+  const stats = playerId === "player" ? state.stats.playedByPlayer : state.stats.playedByBot;
+  if (card.supportRole) {
+    stats.support += 1;
+    stats[card.supportRole] += 1;
+  } else {
+    stats[card.class] += 1;
+  }
 }
 
 function recordDestroyedUnit(
@@ -265,6 +304,16 @@ function getAbility(
   playerId: PlayerId
 ): HeadquartersAbility | null {
   return getHeadquartersAbility(state[playerId].headquartersId);
+}
+
+function hasPrototypeDoubleAttack(
+  state: BattleState,
+  unit: BoardUnit
+): boolean {
+  return (
+    getAbility(state, unit.ownerId)?.prototypeDoubleAttack === true &&
+    getCard(unit.cardId).prototype === true
+  );
 }
 
 /** Nation of a side, taken from its headquarters definition. */
@@ -567,6 +616,10 @@ export function getEffectiveCardCost(
     ability?.firstUnitFuelDiscount && unitsPlayedThisTurn === 0
       ? ability.firstUnitFuelDiscount
       : 0;
+  const capturedDiscount =
+    ability?.capturedTankFuelDiscount && card.captured === true
+      ? ability.capturedTankFuelDiscount
+      : 0;
 
   // «Слаженность»: cheaper while a battlefield unit of the required class is present.
   let classDiscount = 0;
@@ -583,7 +636,10 @@ export function getEffectiveCardCost(
     if (hasClassOnField) classDiscount = costMod.discount;
   }
 
-  return Math.max(0, card.cost - discount - classDiscount);
+  return Math.max(
+    0,
+    card.cost - discount - capturedDiscount - classDiscount
+  );
 }
 
 function isTankClassCard(card: TankCard): boolean {
@@ -921,6 +977,53 @@ function setWinnerByLoser(state: BattleState, loserId: PlayerId, reason: string)
   );
 }
 
+/** Resolve an alternative scripted objective after every state-changing action. */
+function evaluateBattleObjective(state: BattleState) {
+  const objective = state.objective;
+  if (!objective || objective.type !== "evacuate_unit") return;
+
+  const unit = state.units.find(
+    (candidate) =>
+      candidate.ownerId === objective.ownerId &&
+      candidate.scenarioTag === objective.unitTag
+  );
+
+  if (!unit) {
+    if (!objective.loseIfDestroyed) return;
+    state.status = objective.ownerId === "player" ? "bot_won" : "player_won";
+    addLog(state, `${objective.label.ru} уничтожена. Эвакуация провалена.`);
+    return;
+  }
+
+  const operational =
+    !objective.requireOperational || (!unit.immobilized && !unit.onFire);
+  const fullyRepaired =
+    !objective.requireFullHealth || unit.currentHp >= getCard(unit.cardId).hp;
+  if (
+    !operational ||
+    !fullyRepaired ||
+    unit.position.col !== objective.evacuationColumn
+  ) return;
+
+  state.status = objective.ownerId === "player" ? "player_won" : "bot_won";
+  addLog(state, `${objective.label.ru} выведена в безопасную зону.`);
+}
+
+/** A scripted broken vehicle regains movement as soon as any healing fills its HP. */
+function releaseFullyRepairedImmobilizedUnits(state: BattleState) {
+  for (const unit of state.units) {
+    if (!unit.immobilized || !unit.immobilizedUntilFullyRepaired) continue;
+    if (unit.currentHp < getCard(unit.cardId).hp) continue;
+
+    unit.immobilized = false;
+    unit.immobilizedUntilFullyRepaired = false;
+    addLog(
+      state,
+      `${getCard(unit.cardId).name}: машина полностью восстановлена и снова может двигаться.`
+    );
+  }
+}
+
 function damageHeadquartersFromEmptyDeck(
   state: BattleState,
   playerId: PlayerId
@@ -1033,7 +1136,9 @@ function beginBattle(
 
   for (const unit of state.units) {
     unit.alreadyAttacked = isSupportUnit(unit) || isSuppressedSpgUnit(unit);
-    unit.alreadyMoved = isSupportUnit(unit);
+    // Preplaced approach-march breakdowns start pinned in place («Первые Пантеры»).
+    unit.alreadyMoved =
+      isSupportUnit(unit) || !!unit.immobilized || !!unit.onFire;
     unit.spawnedThisTurn = false;
     unit.deployedThisTurn = false;
     unit.moveCountThisTurn = 0;
@@ -1051,13 +1156,21 @@ function beginBattle(
   const startingPlayerDrawnCards = drawCardsWithoutPenalty(
     state,
     startingPlayer,
-    scriptedHandSize ?? STARTING_HAND_SIZE
+    Math.max(
+      0,
+      (scriptedHandSize ?? STARTING_HAND_SIZE) - state[startingPlayer].hand.length
+    )
   );
 
   const secondPlayerDrawnCards = drawCardsWithoutPenalty(
     state,
     secondPlayer,
-    scriptedHandSize ?? (STARTING_HAND_SIZE + SECOND_PLAYER_EXTRA_STARTING_CARDS)
+    Math.max(
+      0,
+      (scriptedHandSize ??
+        (STARTING_HAND_SIZE + SECOND_PLAYER_EXTRA_STARTING_CARDS)) -
+        state[secondPlayer].hand.length
+    )
   );
 
   addLog(
@@ -1126,6 +1239,14 @@ function startTurn(state: BattleState, playerId: PlayerId) {
 
   resetAbilityTurnCounters(state, playerId);
 
+  // «Ремонтная летучка»: menders patch up adjacent friendlies before the flames
+  // of any lingering engine fire eat into their crews this turn.
+  applyRepairAura(state, playerId);
+
+  if (state.status !== "active") {
+    return;
+  }
+
   for (const unit of state.units) {
     unit.tdAmbushUsedThisTurn = false;
     unit.coverFiredThisTurn = false;
@@ -1145,6 +1266,12 @@ function startTurn(state: BattleState, playerId: PlayerId) {
       unit.moveCountThisTurn = 0;
       unit.attackCountThisTurn = 0;
       unit.breakthroughMoveUsed = false;
+
+      // «Перегрев» / «Пожар» / «Обездвижен»: burn HP or cool down, and pin a
+      // broken machine in place. Reads heatActedThisTurn (last turn's activity)
+      // before it is cleared for the fresh turn.
+      applyEngineStatusTurnStart(state, unit);
+      unit.heatActedThisTurn = false;
     }
   }
 
@@ -1394,10 +1521,25 @@ function playCard(
     moveCountThisTurn: 0,
     tdAmbushUsedThisTurn: false,
     blitzGranted: abilityBlitz,
+    blitzUsed: false,
   };
 
   state.units.push(unit);
+  recordPlayedCard(state, action.playerId, card.id);
   applyCornerHpBonus(unit);
+
+  const deploymentOverheat = card.combatAbilities?.overheat?.deploymentDamage;
+  if (deploymentOverheat) {
+    const minDamage = Math.max(0, Math.floor(deploymentOverheat.min));
+    const maxDamage = Math.max(minDamage, Math.floor(deploymentOverheat.max));
+    const damage =
+      minDamage + Math.floor(Math.random() * (maxDamage - minDamage + 1));
+    unit.currentHp = Math.max(1, unit.currentHp - damage);
+    addLog(
+      state,
+      `${card.name}: перегрев двигателя при выходе на поле — ${damage} урона.`
+    );
+  }
 
   // Apply on-play effects (new mechanics for low-stat units)
   if (card.onPlayEffects) {
@@ -1555,6 +1697,7 @@ function playSupportCard(
     moveCountThisTurn: 0,
     tdAmbushUsedThisTurn: false,
   });
+  recordPlayedCard(state, action.playerId, card.id);
 
   // «Пополнение»: support units can also fetch a card into hand on deploy.
   if (card.onPlayEffects?.fetchToHand) {
@@ -1724,6 +1867,54 @@ function getFrontalArmorReduction(
   const attackDirection = Math.sign(attacker.position.col - defender.position.col);
 
   return attackDirection === frontDirection ? amount : 0;
+}
+
+/**
+ * «Слабые борта»: thin side armor. A flank or rear strike (anything but a
+ * straight-ahead frontal hit) lands `amount` extra damage; returned as a
+ * NEGATIVE defense bonus so it slots into the same combat-bonus sum as armor.
+ * Only ground attackers count — indirect САУ/штаб fire arcs in and is neutral.
+ */
+function getFlankVulnerabilityPenalty(
+  defender: BoardUnit,
+  attacker: BoardUnit
+): number {
+  if (!isBattlefieldUnit(defender)) return 0;
+
+  const amount =
+    getCard(defender.cardId).combatAbilities?.flankVulnerable?.amount ?? 0;
+  if (amount <= 0) return 0;
+
+  const frontDirection = defender.ownerId === "player" ? 1 : -1;
+  const attackDirection = Math.sign(
+    attacker.position.col - defender.position.col
+  );
+  const sameRow = attacker.position.row === defender.position.row;
+  const isFrontal = sameRow && attackDirection === frontDirection;
+
+  return isFrontal ? 0 : -amount;
+}
+
+/**
+ * «Длинный ствол» (75-мм KwK 42 L/70): the long gun negates up to `armorIgnored`
+ * of the target's frontal/special armor. Returned as an attacker attack bonus
+ * capped at the armor the target would actually apply against this attacker, so
+ * it cancels sloped-armor soak rather than adding raw firepower out of thin air.
+ */
+function getLongGunPenetration(
+  attacker: BoardUnit,
+  target: BoardUnit,
+  attackerClass: TankClass
+): number {
+  const longGun = getCard(attacker.cardId).combatAbilities?.longGun;
+  if (!longGun || longGun.armorIgnored <= 0) return 0;
+  if (!isBattlefieldUnit(target)) return 0;
+
+  const soakableArmor =
+    getFrontalArmorReduction(target, attacker) +
+    getArmorVsClassReduction(target, attackerClass);
+
+  return Math.min(longGun.armorIgnored, Math.max(0, soakableArmor));
 }
 
 /**
@@ -1929,17 +2120,20 @@ function getUnitCombatBonuses(
     attackerAttackBonus:
       getStationaryTankAttackBonus(state, attacker) +
       getMovedTankAttackBonus(state, attacker) +
-      getArmoredCarFlankingBonus(attacker, target),
+      getArmoredCarFlankingBonus(attacker, target) +
+      getLongGunPenetration(attacker, target, attackerClass),
     targetAttackBonus:
       getStationaryTankAttackBonus(state, target) +
       getMovedTankAttackBonus(state, target) +
-      getArmoredCarFlankingBonus(target, attacker),
+      getArmoredCarFlankingBonus(target, attacker) +
+      getLongGunPenetration(target, attacker, targetClass),
     attackerDefenseBonus:
       getStationaryTankDefenseBonus(state, attacker) +
       getTankDefenseAuraBonus(state, attacker) +
       getSpawnDamageReduction(attacker) +
       getArmorVsClassReduction(attacker, targetClass) +
       getFrontalArmorReduction(attacker, target) +
+      getFlankVulnerabilityPenalty(attacker, target) +
       getHeavyArmorReduction(state, attacker) +
       getCohesionDefenseBonus(state, attacker) -
       (isSupportUnit(attacker)
@@ -1951,6 +2145,7 @@ function getUnitCombatBonuses(
       getSpawnDamageReduction(target) +
       getArmorVsClassReduction(target, attackerClass) +
       getFrontalArmorReduction(target, attacker) +
+      getFlankVulnerabilityPenalty(target, attacker) +
       getHeavyArmorReduction(state, target) +
       getCohesionDefenseBonus(state, target) -
       (isSupportUnit(target)
@@ -2221,6 +2416,10 @@ export function getUnitCombatPreview(
     isBattlefieldUnit(target) &&
     targetCard.class !== "spg" &&
     attackerCard.class !== "spg" &&
+    // «Дальний удар»: firing from two cells away (or any ranged shot) means the
+    // target cannot fire back — only an adjacent defender answers with a
+    // counterattack.
+    !attackerUsesRangedAttack &&
     !targetIsTdHitFromRear &&
     !(
       attackerCard.class === "td" &&
@@ -2393,7 +2592,13 @@ export function getAttackAnimationSequence(
     const rearStrikeBonus = attackerIsHeadquarters
       ? getHeadquartersRearStrikeBonus(state, attacker.ownerId)
       : 0;
-    const effectiveAttackValue = attackValue + rearStrikeBonus;
+    // A unit striking the headquarters keeps the same self-buffs shown on its
+    // attack badge (stationary ambush / moved-tank momentum). Previously this
+    // branch used only the printed attack, so a displayed 4-point tank could
+    // deal just 2 damage to the HQ.
+    const effectiveAttackValue = attackerIsHeadquarters
+      ? attackValue + rearStrikeBonus
+      : getUnitDisplayAttackValue(state, attacker);
     const rearPenalty = getRearVulnerabilityPenalty(state, target.ownerId, attacker);
 
     const distribution =
@@ -2804,7 +3009,11 @@ function attack(state: BattleState, action: AttackAction) {
     const rearStrikeBonus = !attackerIsUnit
       ? getHeadquartersRearStrikeBonus(state, action.playerId)
       : 0;
-    const effectiveAttackValue = attackValue + rearStrikeBonus;
+    // Match the actual HQ strike to the value displayed on a unit's attack
+    // badge, including stationary and moved-tank headquarters abilities.
+    const effectiveAttackValue = attackerIsUnit
+      ? getUnitDisplayAttackValue(state, attacker)
+      : attackValue + rearStrikeBonus;
     const rearPenalty = getRearVulnerabilityPenalty(
       state,
       targetHeadquarters.ownerId,
@@ -2874,10 +3083,13 @@ function attack(state: BattleState, action: AttackAction) {
     }
   }
 
-  // Бронеавтомобиль may strike twice per turn; every other attacker is spent
-  // after a single attack. The second armored-car strike is gated to the rear /
-  // headquarters by canAttackTarget.
-  if (attackerIsUnit && isArmoredCarUnit(attacker)) {
+  // Armored cars and prototypes under Pz. Kummersdorf may strike twice. The
+  // armored-car second strike remains restricted to rear targets; prototypes
+  // may choose any otherwise legal target for both attacks.
+  if (
+    attackerIsUnit &&
+    (isArmoredCarUnit(attacker) || hasPrototypeDoubleAttack(state, attacker))
+  ) {
     attacker.attackCountThisTurn = (attacker.attackCountThisTurn ?? 0) + 1;
     attacker.alreadyAttacked = attacker.attackCountThisTurn >= 2;
   } else {
@@ -2892,6 +3104,11 @@ function attack(state: BattleState, action: AttackAction) {
   // Heavy tanks choose one action mode per turn: either move or attack.
   if (attackerIsUnit && attackerCard?.class === "heavy") {
     attacker.alreadyMoved = true;
+  }
+
+  // «Перегрев»: firing works the engine too — a surviving gunner adds heat.
+  if (attackerIsUnit && attacker.currentHp > 0) {
+    accumulateEngineHeat(state, attacker);
   }
 
   if (state.status === "active") {
@@ -2919,6 +3136,11 @@ function blitzActiveThisTurn(unit: BoardUnit): boolean {
   return unit.deployedThisTurn === true && unitHasBlitz(unit);
 }
 
+function getBaseMoveBudget(unit: BoardUnit): number {
+  const unitClass = getCard(unit.cardId).class;
+  return unitClass === "light" ? 2 : unitClass === "armored_car" ? 6 : 1;
+}
+
 /**
  * Movement budget (in move points) a unit may spend this turn. Light tanks
  * spend up to 2 points (a 1-cell straight move costs 1, a diagonal or 2-cell
@@ -2926,10 +3148,9 @@ function blitzActiveThisTurn(unit: BoardUnit): boolean {
  * deploy turn a «Блиц» unit gets double the budget — two standard moves.
  */
 function getMoveBudget(unit: BoardUnit): number {
-  const unitClass = getCard(unit.cardId).class;
   // Armored cars are highly mobile (budget 6: three straight cells at 2 each, or
   // two diagonal steps at 3 each); light tanks get 2; everyone else 1.
-  const base = unitClass === "light" ? 2 : unitClass === "armored_car" ? 6 : 1;
+  const base = getBaseMoveBudget(unit);
   return blitzActiveThisTurn(unit) ? base * 2 : base;
 }
 
@@ -3094,6 +3315,206 @@ function applyCornerHpBonus(unit: BoardUnit) {
   unit.cornerHpApplied = desired;
 }
 
+/** «Первые Пантеры»: HP lost each turn while the engine is burning — a random
+ * roll in `[ENGINE_FIRE_MIN_DAMAGE, ENGINE_FIRE_MAX_DAMAGE]`, so the flames may
+ * gutter out harmlessly (0) or eat deep into the hull (3). */
+const ENGINE_FIRE_MIN_DAMAGE = 0;
+const ENGINE_FIRE_MAX_DAMAGE = 3;
+
+/** Roll this turn's engine-fire damage: an integer in [min, max] inclusive. */
+function rollEngineFireDamage(): number {
+  return (
+    ENGINE_FIRE_MIN_DAMAGE +
+    Math.floor(
+      Math.random() * (ENGINE_FIRE_MAX_DAMAGE - ENGINE_FIRE_MIN_DAMAGE + 1)
+    )
+  );
+}
+
+/**
+ * «Перегрев»: fold one heat point into a unit that just moved or fired. On
+ * reaching the card's threshold the overworked Maybach catches fire — the engine
+ * ignites, the running gear seizes for the rest of the turn and the gauge
+ * resets. A low threshold punishes aggressive every-turn play: the crew has to
+ * pace the machine or watch it burn.
+ */
+function accumulateEngineHeat(state: BattleState, unit: BoardUnit) {
+  unit.heatActedThisTurn = true;
+
+  const overheat = getCard(unit.cardId).combatAbilities?.overheat;
+  const threshold = overheat?.threshold;
+  if (!threshold || threshold <= 0) return;
+  if (unit.onFire) return; // already burning — no further heat to build
+
+  const nextHeat = (unit.heat ?? 0) + 1;
+
+  if (nextHeat >= threshold) {
+    unit.heat = 0;
+    igniteEngineFire(state, unit, "перегрев двигателя");
+  } else {
+    unit.heat = nextHeat;
+  }
+}
+
+/**
+ * «Перегрев» (movement variant): the raw prototype engine («overheat.deploymentDamage»
+ * cards — VK 30.01/30.02) can overheat on the march. Once the battle enables it
+ * (from the third «Первые Пантеры» mission), every move carries a 70% chance to
+ * cost the unit `overheat.moveDamage` HP (default 1). The march never stalls the
+ * tank outright: overheat wear can drop it to 1 HP at most, never destroy it.
+ */
+function applyMovementOverheatDamage(state: BattleState, unit: BoardUnit) {
+  if (!state.overheatMovementDamage) return;
+
+  const overheat = getCard(unit.cardId).combatAbilities?.overheat;
+  if (!overheat?.deploymentDamage) return;
+
+  if (Math.random() >= 0.7) return;
+
+  const damage = Math.max(1, Math.floor(overheat.moveDamage ?? 1));
+  // Clamp to a minimum of 1 HP: a move-overheat hit wears the engine but can
+  // never knock the unit out.
+  const applied = unit.currentHp - Math.max(1, unit.currentHp - damage);
+  if (applied <= 0) return;
+
+  unit.currentHp -= applied;
+  addLog(
+    state,
+    `${getCard(unit.cardId).name}: перегрев двигателя на ходу — ${applied} урон${
+      applied === 1 ? "" : "а"
+    }.`
+  );
+}
+
+/** Set a unit ablaze: it stops rolling this turn and burns at each turn start. */
+function igniteEngineFire(state: BattleState, unit: BoardUnit, cause: string) {
+  if (unit.onFire) return;
+  unit.onFire = true;
+  unit.alreadyMoved = true;
+  addLog(
+    state,
+    `${getCard(unit.cardId).name}: ${cause} — пожар в моторном отделении!`
+  );
+}
+
+/**
+ * At its owner's turn start a unit settles its engine status: a burning tank has
+ * the fire put out if it stood idle the whole previous turn, otherwise it loses
+ * HP to the flames; an idle overheating tank bleeds off one heat point. A broken
+ * or still-burning machine forfeits movement this turn (it may still fire).
+ * Reads the pre-reset `heatActedThisTurn`; the caller clears it afterwards.
+ */
+function applyEngineStatusTurnStart(state: BattleState, unit: BoardUnit) {
+  const rested = !unit.heatActedThisTurn;
+
+  if (rested && (unit.heat ?? 0) > 0) {
+    unit.heat = Math.max(0, (unit.heat ?? 0) - 1);
+  }
+
+  if (unit.onFire) {
+    if (rested) {
+      unit.onFire = false;
+      addLog(state, `${getCard(unit.cardId).name}: экипаж потушил пожар.`);
+    } else {
+      const fireDamage = rollEngineFireDamage();
+      unit.currentHp -= fireDamage;
+      addLog(
+        state,
+        `${getCard(unit.cardId).name}: пожар в моторном — ${fireDamage} урона.`
+      );
+      if (unit.currentHp <= 0) {
+        destroyUnit(state, unit, "сгорел.", getOpponent(unit.ownerId));
+        return;
+      }
+    }
+  }
+
+  if (unit.immobilized || unit.onFire) {
+    unit.alreadyMoved = true;
+  }
+}
+
+/**
+ * «Ремонтная летучка» (Бергепантера): at its owner's turn start every adjacent
+ * friendly unit — battlefield tanks, rear-line (support) units AND the
+ * headquarters — is put back in order: engine fires extinguished, broken running
+ * gear freed and up to `healHp` HP restored (capped at printed / base HQ HP).
+ * Runs before fire damage so a mender can save a burning tank in time.
+ */
+function applyRepairAura(state: BattleState, playerId: PlayerId) {
+  const menders = state.units.filter(
+    (unit) =>
+      unit.ownerId === playerId &&
+      isBattlefieldUnit(unit) &&
+      getCard(unit.cardId).combatAbilities?.repairAura
+  );
+  if (menders.length === 0) return;
+
+  const menderAdjacentTo = (cell: Position, exceptInstanceId?: string) =>
+    menders.find(
+      (candidate) =>
+        candidate.instanceId !== exceptInstanceId &&
+        isAdjacentAnyDirection(getUnitCellPosition(candidate), cell)
+    );
+
+  for (const unit of state.units) {
+    if (unit.ownerId !== playerId) continue;
+
+    const mender = menderAdjacentTo(
+      getUnitCellPosition(unit),
+      unit.instanceId
+    );
+    if (!mender) continue;
+
+    let repaired = false;
+    if (unit.onFire) {
+      unit.onFire = false;
+      repaired = true;
+    }
+    const healHp =
+      getCard(mender.cardId).combatAbilities?.repairAura?.healHp ?? 0;
+    const maxHp = getCard(unit.cardId).hp;
+    if (healHp > 0 && unit.currentHp < maxHp) {
+      unit.currentHp = Math.min(maxHp, unit.currentHp + healHp);
+      repaired = true;
+    }
+    if (
+      unit.immobilized &&
+      (!unit.immobilizedUntilFullyRepaired || unit.currentHp >= maxHp)
+    ) {
+      unit.immobilized = false;
+      unit.immobilizedUntilFullyRepaired = false;
+      repaired = true;
+    }
+
+    if (repaired) {
+      addLog(
+        state,
+        `${getCard(mender.cardId).name}: ремонт — ${
+          getCard(unit.cardId).name
+        } снова в строю.`
+      );
+    }
+  }
+
+  // The headquarters can also be patched up if a mender stands next to it.
+  const hq = state.headquarters[playerId];
+  const hqMender = menderAdjacentTo(hq.position);
+  if (hqMender) {
+    const healHp =
+      getCard(hqMender.cardId).combatAbilities?.repairAura?.healHp ?? 0;
+    const hqId = hq.headquartersId ?? state[playerId].headquartersId;
+    const maxHp = getHeadquartersDefinition(hqId).hp;
+    if (healHp > 0 && hq.hp < maxHp) {
+      hq.hp = Math.min(maxHp, hq.hp + healHp);
+      addLog(
+        state,
+        `${getCard(hqMender.cardId).name}: ремонт штаба — +${healHp} прочности.`
+      );
+    }
+  }
+}
+
 function moveUnit(
   state: BattleState,
   action: Extract<BattleAction, { type: "MOVE_UNIT" }>
@@ -3107,6 +3528,9 @@ function moveUnit(
   if (unit.ownerId !== action.playerId) return;
   if (isSupportUnit(unit)) return;
   if (unit.alreadyMoved) return;
+  // «Обездвижен» / «Пожар»: a broken or burning machine cannot roll (it may
+  // still fire). Authoritative guard, independent of the alreadyMoved bookkeeping.
+  if (unit.immobilized || unit.onFire) return;
   if (isCellOccupied(state, action.position)) return;
 
   const card = getCard(unit.cardId);
@@ -3158,6 +3582,12 @@ function moveUnit(
   const nextMoveCount = moveCountThisTurn + moveCost;
 
   unit.moveCountThisTurn = nextMoveCount;
+  if (
+    blitzActiveThisTurn(unit) &&
+    nextMoveCount > getBaseMoveBudget(unit)
+  ) {
+    unit.blitzUsed = true;
+  }
   unit.alreadyMoved = nextMoveCount >= moveBudget;
   unit.spawnedThisTurn = false;
 
@@ -3220,6 +3650,9 @@ function moveUnit(
     if (state.status !== "active") return;
   }
 
+  // «Перегрев»: a move stresses the early Maybach; enough of them and it burns.
+  accumulateEngineHeat(state, unit);
+
   markSuccessfulAction(state, action.playerId);
 
   addLog(
@@ -3230,6 +3663,9 @@ function moveUnit(
       action.position.col
     }].`
   );
+
+  // «Перегрев» (prototypes): a march can overheat the raw engine — 70% for 1 HP.
+  applyMovementOverheatDamage(state, unit);
 }
 
 function endTurn(state: BattleState, playerId: PlayerId) {
@@ -3388,6 +3824,9 @@ export function applyAction(
   // «Линия снабжения» (США): keep the +HP buff in sync with the live formation
   // after any board change, regardless of which action path mutated the board.
   syncSupplyLineHpBonus(nextState);
+
+  releaseFullyRepairedImmobilizedUnits(nextState);
+  evaluateBattleObjective(nextState);
 
   return nextState;
 }

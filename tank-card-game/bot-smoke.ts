@@ -115,11 +115,119 @@ const isCorner = (p: Position) =>
     action?.type === "MOVE_UNIT" &&
     "position" in action &&
     action.position.row === 2 &&
-    action.position.col === 1; // клетка плацдарма игрока
+    action.position.col === 0; // клетка плацдарма игрока
   check(
     "Прорыв: бот идёт на вражеский плацдарм",
     toEnemySpawn,
     `got ${action?.type} ${action && "position" in action ? JSON.stringify(action.position) : ""}`
+  );
+}
+
+// D. Бронеавтомобиль не расходует остаток движения без тактической цели.
+{
+  const battle = makeBotBattle();
+  battle.units.push(
+    makeUnit({
+      instanceId: "car",
+      cardId: "m1_armored_car",
+      ownerId: "bot",
+      position: { row: 1, col: 2 },
+      moveCountThisTurn: 2,
+    })
+  );
+  const action = getNextBotAction(battle);
+  check(
+    "Бронеавтомобиль: лишнее продолжение движения подавлено",
+    action?.type === "END_TURN",
+    `got ${action?.type}`
+  );
+}
+
+// E. Блиц строит маршрут к ценному юниту в тылу, а не останавливается заранее.
+{
+  const battle = makeBotBattle();
+  battle.units.push(
+    makeUnit({
+      instanceId: "blitz",
+      cardId: "bt_5",
+      ownerId: "bot",
+      position: { row: 0, col: 3 },
+      deployedThisTurn: true,
+    }),
+    makeUnit({
+      instanceId: "rear",
+      cardId: "gaz_55_ambulance",
+      ownerId: "player",
+      zone: "support",
+      supportSlot: 1,
+    })
+  );
+  const action = getNextBotAction(battle);
+  check(
+    "Блиц: начинает выгодный проход к тыловому юниту",
+    action?.type === "MOVE_UNIT" && action.position.col < 3,
+    `got ${action?.type} ${
+      action && "position" in action ? JSON.stringify(action.position) : ""
+    }`
+  );
+}
+
+// F. Быстрый юнит обходит ПТ-САУ и атакует с тыла без ответного огня.
+{
+  let battle = makeBotBattle();
+  battle.units.push(
+    makeUnit({
+      instanceId: "flanker",
+      cardId: "bt_5",
+      ownerId: "bot",
+      position: { row: 1, col: 3 },
+      deployedThisTurn: true,
+    }),
+    makeUnit({
+      instanceId: "enemy-td",
+      cardId: "panzerjaeger_i",
+      ownerId: "player",
+      position: { row: 1, col: 1 },
+    })
+  );
+
+  const route = [] as ReturnType<typeof getNextBotAction>[];
+  let attack: ReturnType<typeof getNextBotAction> = null;
+  let hpBefore: number | undefined;
+
+  for (let step = 0; step < 6; step += 1) {
+    const action = getNextBotAction(battle);
+    route.push(action);
+
+    if (action?.type === "MOVE_UNIT") {
+      battle = applyAction(battle, action);
+      continue;
+    }
+
+    if (action?.type === "ATTACK") {
+      attack = action;
+      hpBefore = battle.units.find(
+        (unit) => unit.instanceId === "flanker"
+      )?.currentHp;
+      battle = applyAction(battle, action);
+    }
+    break;
+  }
+
+  const hpAfter = battle.units.find((unit) => unit.instanceId === "flanker")?.currentHp;
+  const moves = route.filter((action) => action?.type === "MOVE_UNIT");
+
+  check(
+    "ПТ-САУ: бот выбирает обходной маршрут в тыл",
+    moves.length >= 2 &&
+      attack?.type === "ATTACK" &&
+      attack.targetId === "enemy-td",
+    `got ${route.map((action) => action?.type).join(" -> ")}`
+  );
+  check(
+    "ПТ-САУ: атака с тыла проходит без ответного урона",
+    hpBefore !== undefined && hpAfter === hpBefore,
+    `hp ${hpBefore} -> ${hpAfter}`
   );
 }
 

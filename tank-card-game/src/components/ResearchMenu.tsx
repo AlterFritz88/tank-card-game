@@ -954,7 +954,7 @@ function getCelebrationCards(node: ResearchNode): RewardCelebrationCard[] {
 }
 
 export function ResearchMenu({ onBack }: { onBack: () => void }) {
-  const { language } = useI18n();
+  const { language, t } = useI18n();
   const [selectedNation, setSelectedNation] = useState<ResearchNation>("ussr");
   const [previewNode, setPreviewNode] = useState<ResearchNode | null>(null);
   // Applies the stage scale + rotation so the body-portaled preview renders like
@@ -1182,7 +1182,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
       const serverProgress = await syncPlayerProgressFromServer();
       setProgress(serverProgress);
     } catch {
-      showFeedback("Сервер профиля недоступен");
+      showFeedback(t("common.profileServerUnavailable"));
     }
   }
 
@@ -1204,7 +1204,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
     if (!profileServerReady) {
       showFeedback(
         profileServerUnavailable
-          ? "Сервер профиля недоступен"
+          ? t("common.profileServerUnavailable")
           : "Дождитесь синхронизации профиля"
       );
       return;
@@ -1435,9 +1435,7 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
 
       {profileServerUnavailable ? (
         <div style={styles.profileServerBanner}>
-          <span>
-            {profileConnection.message ?? "Сервер профиля недоступен"}
-          </span>
+          <span>{t("common.profileServerUnavailable")}</span>
           <button
             type="button"
             style={styles.profileServerRetryButton}
@@ -1525,9 +1523,6 @@ export function ResearchMenu({ onBack }: { onBack: () => void }) {
                           {branchProgress.acquired}/{branchProgress.total}
                         </span>
                       </div>
-                      <span style={styles.branchDescription}>
-                        {branch.description}
-                      </span>
                       <div
                         style={styles.branchProgressTrack}
                         role="progressbar"
@@ -2048,12 +2043,6 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 11,
     fontWeight: 900,
     fontVariantNumeric: "tabular-nums",
-  },
-
-  branchDescription: {
-    color: "rgba(231, 218, 184, 0.52)",
-    fontSize: 9,
-    lineHeight: 1.25,
   },
 
   branchProgressTrack: {

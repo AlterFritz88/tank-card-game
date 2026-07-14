@@ -36,7 +36,9 @@ export type HeadquartersId =
   | "german_9th_army"
   | "soviet_2nd_tank_division"
   | "kv_crew"
-  | "german_6_panzer";
+  | "german_6_panzer"
+  | "german_kummersdorf"
+  | "german_panther_regiment";
 
 export type Position = {
   row: number;
@@ -117,6 +119,10 @@ export type HeadquartersAbility = {
   firstTankBlitz?: boolean;
   /** Fuel discount for the first unit (any zone) played each turn. */
   firstUnitFuelDiscount?: number;
+  /** Flat fuel discount for captured vehicles in this headquarters' army. */
+  capturedTankFuelDiscount?: number;
+  /** Prototype (non-production) vehicles may attack twice each turn. */
+  prototypeDoubleAttack?: boolean;
   /** Flat bonus to this headquarters' own attack. */
   hqAttackBonus?: number;
   /** Draw an extra card at the start of every Nth own turn. */
@@ -196,6 +202,11 @@ export type TankCard = {
   range: number;
   movement: number;
   initiative: number;
+
+  /** Captured vehicle serving in another nation's army (e.g. a Beutepanzer). */
+  captured?: boolean;
+  /** Experimental, non-production vehicle. */
+  prototype?: boolean;
 
   fuelGeneration: number;
 
@@ -330,6 +341,40 @@ export type TankCard = {
      * owner draws this many cards.
      */
     raidDraw?: number;
+    /**
+     * «Перегрев» (кампания «Первые Пантеры»). Early engines either accumulate
+     * heat during actions (`threshold`) or lose random HP when deployed
+     * (`deploymentDamage`). The variants are card-specific. Prototypes with the
+     * `deploymentDamage` variant additionally take movement overheat damage
+     * (70% chance of `moveDamage` HP, default 1, per move) once the battle
+     * enables it — see BattleState.overheatMovementDamage, switched on from the
+     * third «Первые Пантеры» mission onward.
+     */
+    overheat?: {
+      threshold?: number;
+      deploymentDamage?: { min: number; max: number };
+      /** HP lost on a failed move-overheat roll. Defaults to 1. */
+      moveDamage?: number;
+    };
+    /**
+     * «Длинный ствол» (75-мм KwK 42 L/70): the long, high-velocity gun punches
+     * through sloped/heavy armor. When striking a battlefield unit the attacker
+     * negates up to `armorIgnored` of the target's frontal/special armor.
+     */
+    longGun?: { armorIgnored: number };
+    /**
+     * «Слабые борта»: thin side armor. Flank and rear strikes deal `amount` more
+     * damage; a straight-ahead frontal strike is unaffected. Pairs with
+     * `frontalArmor` — brutal head-on, fragile from the side.
+     */
+    flankVulnerable?: { amount: number };
+    /**
+     * «Ремонтная летучка» (Бергепантера): at its owner's turn start every
+     * adjacent friendly battlefield unit is put back in order — engine fires are
+     * extinguished, broken running gear is freed («обездвижен» cleared) and
+     * `healHp` health is restored (capped at the card's printed HP).
+     */
+    repairAura?: { healHp?: number };
   };
 };
 
@@ -383,6 +428,8 @@ export type BoardUnit = {
   instanceId: string;
   cardId: string;
   ownerId: PlayerId;
+  /** Stable tag for a particular unit used by scripted campaign objectives. */
+  scenarioTag?: string;
   position: Position;
   /** Missing values in older states are treated as battlefield placement. */
   zone?: UnitZone;
@@ -393,10 +440,8 @@ export type BoardUnit = {
   alreadyMoved: boolean;
   alreadyAttacked: boolean;
   /**
-   * Number of attacks this unit has already made this turn. Armored cars
-   * («бронеавтомобиль») may attack twice per turn (their bonus second strike is
-   * restricted to the enemy rear line or headquarters — see the engine). Every
-   * other unit caps at a single attack via {@link alreadyAttacked}.
+   * Number of attacks this unit has already made this turn. Armored cars and
+   * prototype vehicles under the appropriate headquarters may attack twice.
    */
   attackCountThisTurn?: number;
 
@@ -424,6 +469,8 @@ export type BoardUnit = {
    * the HQ-granted version so the unit keeps its double move every turn.
    */
   blitzGranted?: boolean;
+  /** The unit has spent the bonus part of its deploy-turn Blitz movement. */
+  blitzUsed?: boolean;
   tdAmbushUsedThisTurn: boolean;
   /** Anti-tank screen already fired this turn (see supportLineCover). */
   coverFiredThisTurn?: boolean;
@@ -456,6 +503,34 @@ export type BoardUnit = {
    * owner's next turn.
    */
   attackSuppressed?: boolean;
+  /**
+   * «Перегрев»: accumulated engine heat (see combatAbilities.overheat). Reaching
+   * the card's threshold ignites the engine and resets to zero; an idle turn
+   * bleeds one point off.
+   */
+  heat?: number;
+  /**
+   * «Пожар в моторном»: the engine is burning. The unit loses 0–3 HP at its
+   * owner's turn start and cannot move (it may still fire). Standing idle for a
+   * full owner turn lets the crew put the fire out; a repair vehicle
+   * (repairAura) extinguishes it immediately.
+   */
+  onFire?: boolean;
+  /**
+   * «Обездвижен»: broken final drive / thrown track / minefield damage. The unit
+   * cannot move (it may still fire) until a repair vehicle (repairAura) frees
+   * it. Set by scripted mission starts (approach-march breakdowns) and mines.
+   */
+  immobilized?: boolean;
+  /** Scripted damage: immobilization remains until repair restores full HP. */
+  immobilizedUntilFullyRepaired?: boolean;
+  /**
+   * The unit moved or attacked during its owner's current turn. Read at the next
+   * owner turn start to drive «Перегрев» cool-down and fire self-extinguish,
+   * then reset. Distinct from the move/attack flags, which are also set by
+   * suppression and the move-or-attack rule.
+   */
+  heatActedThisTurn?: boolean;
 };
 
 export type PlayerTimerState = {
@@ -520,6 +595,25 @@ export type BattleAction =
 
 export type BattleStatus = "starting" | "active" | "player_won" | "bot_won";
 
+export type EvacuateUnitBattleObjective = {
+  type: "evacuate_unit";
+  /** Side that owns the unit and receives victory for evacuating it. */
+  ownerId: PlayerId;
+  /** Matches the scenarioTag of one preplaced unit. */
+  unitTag: string;
+  label: { ru: string; en: string };
+  /** Battlefield column that counts as the friendly evacuation line. */
+  evacuationColumn: number;
+  /** The unit must have its fire and immobilization cleared before evacuation. */
+  requireOperational?: boolean;
+  /** The unit must also be restored to its printed maximum HP. */
+  requireFullHealth?: boolean;
+  /** Losing the marked unit ends the mission immediately. */
+  loseIfDestroyed?: boolean;
+};
+
+export type BattleObjective = EvacuateUnitBattleObjective;
+
 export type BattleState = {
   status: BattleStatus;
   activePlayer: PlayerId;
@@ -541,6 +635,19 @@ export type BattleState = {
    * the engine's default starting hand applies.
    */
   startingHandSize?: number;
+  /** Cards guaranteed in each side's opening hand before random cards are drawn. */
+  startingHandCardIds?: Partial<Record<PlayerId, string[]>>;
+
+  /**
+   * «Перегрев»: when set, prototype units with the `overheat.deploymentDamage`
+   * variant risk engine overheat on every move (70% chance of 1 HP). Enabled
+   * from the third «Первые Пантеры» mission («Глохнет на дистанции») onward;
+   * absent in normal battles.
+   */
+  overheatMovementDamage?: boolean;
+
+  /** Optional non-standard victory condition for a scripted campaign battle. */
+  objective?: BattleObjective;
 
   log: string[];
 };
@@ -575,9 +682,17 @@ export type BattleKillStats = {
   support: number;
 };
 
+export type BattleCardPlayStats = BattleKillStats & {
+  transport: number;
+  medical: number;
+  artillery: number;
+};
+
 export type BattleStats = {
   destroyedByPlayer: BattleKillStats;
   destroyedByBot: BattleKillStats;
+  playedByPlayer: BattleCardPlayStats;
+  playedByBot: BattleCardPlayStats;
   /**
    * Count of meaningful in-battle actions each side performed (playing a card,
    * moving, attacking — END_TURN/idle passes do not count). Used as an

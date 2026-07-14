@@ -540,7 +540,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
         description:
           "Быстроходные БТ ведут к 1-й Московской; за штабом — колёсно-гусеничная линия А-20 → Т-34/76. Премиум: БТ-СВ за золотые траки.",
         nodes: [
-          // Уровень 2: два быстроходных танка БТ.
+          // Уровень 2: БТ-5 и разведывательный мотоцикл М-72.
           unitNode({
             id: "ussr-motor-bt5",
             title: "БТ-5",
@@ -551,22 +551,22 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             slot: 0,
           }),
           unitNode({
-            id: "ussr-motor-bt7",
-            title: "БТ-7",
-            cardId: "bt_7",
+            id: "ussr-motor-m72",
+            title: "Мотоцикл М-72",
+            cardId: "m72_recon",
             experienceCost: 180,
             purchaseCost: 1350,
             tier: 0,
             slot: 1,
           }),
-          // Уровень 3: дизельный БТ-7М сводит обе линии.
+          // Уровень 3: БТ-7 сводит обе начальные линии.
           unitNode({
-            id: "ussr-motor-bt7m",
-            title: "БТ-7М",
-            cardId: "bt_7m",
+            id: "ussr-motor-bt7",
+            title: "БТ-7",
+            cardId: "bt_7",
             experienceCost: 320,
             purchaseCost: 2300,
-            requires: ["ussr-motor-bt5", "ussr-motor-bt7"],
+            requires: ["ussr-motor-bt5", "ussr-motor-m72"],
             tier: 1,
             slot: 0,
           }),
@@ -586,7 +586,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             experienceCost: 900,
             purchaseCost: 6800,
             status: "locked",
-            requires: ["ussr-motor-bt7m"],
+            requires: ["ussr-motor-bt7"],
             tier: 2,
             slot: 0,
           }),
@@ -632,16 +632,26 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             tier: 4,
             slot: 1,
           }),
-          // Уровень 7: вершина ветки — серийный Т-34/76.
+          // Уровень 7: вершина ветки — БТ-7М и серийный Т-34/76.
           unitNode({
             id: "ussr-motor-t34",
             title: "Т-34/76",
             cardId: "t34_76",
             experienceCost: 860,
             purchaseCost: 7400,
-            requires: ["ussr-motor-t34-1940", "ussr-motor-t29"],
+            requires: ["ussr-motor-t34-1940"],
             tier: 5,
             slot: 0,
+          }),
+          unitNode({
+            id: "ussr-motor-bt7m",
+            title: "БТ-7М",
+            cardId: "bt_7m",
+            experienceCost: 860,
+            purchaseCost: 7400,
+            requires: ["ussr-motor-t29"],
+            tier: 5,
+            slot: 1,
           }),
         ],
       },
@@ -866,7 +876,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
         title: "Тыловые штабы",
         shortTitle: "Тыловые",
         description:
-          "Штабная машина ГАЗ-М1 и разведбронеавтомобиль ФАИ ведут через ГАЗ-55 и летучку к 389-му автобату; за штабом — бронеавтомобиль БА-20.",
+          "Штабная машина ГАЗ-М1 и разведбронеавтомобиль ФАИ ведут через ЗиС-5 и летучку к 389-му автобату; за штабом — бронеавтомобиль БА-20 и санитарный ГАЗ-55.",
         nodes: [
           // Уровень 2: штабная машина ГАЗ-М1 и разведбронеавтомобиль ФАИ рядом.
           unitNode({
@@ -887,14 +897,14 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             tier: 0,
             slot: 1,
           }),
-          // Уровень 3: ГАЗ-55 (после ФАИ) и ремонтная летучка (после ГАЗ-М1).
+          // Уровень 3: ЗиС-5 (после ГАЗ-М1) и ремонтная летучка (после ФАИ).
           unitNode({
-            id: "ussr-rear-gaz55",
-            title: "ГАЗ-55",
-            cardId: "gaz_55_ambulance",
+            id: "ussr-rear-zis5",
+            title: "ЗиС-5",
+            cardId: "zis_5_ammo",
             experienceCost: 280,
             purchaseCost: 2000,
-            requires: ["ussr-rear-fai"],
+            requires: ["ussr-rear-gaz-m1"],
             tier: 1,
             slot: 0,
           }),
@@ -904,7 +914,7 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             cardId: "repair_letuchka",
             experienceCost: 280,
             purchaseCost: 2000,
-            requires: ["ussr-rear-gaz-m1"],
+            requires: ["ussr-rear-fai"],
             tier: 1,
             slot: 1,
           }),
@@ -915,11 +925,11 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             experienceCost: 900,
             purchaseCost: 6800,
             status: "locked",
-            requires: ["ussr-rear-gaz55", "ussr-rear-letuchka"],
+            requires: ["ussr-rear-zis5", "ussr-rear-letuchka"],
             tier: 2,
             slot: 0,
           }),
-          // Уровень 5: бронеавтомобиль БА-20 — после штаба.
+          // Уровень 5: БА-20 и санитарный ГАЗ-55 — после штаба.
           unitNode({
             id: "ussr-rear-ba20",
             title: "БА-20",
@@ -929,6 +939,16 @@ export const RESEARCH_TREES: Record<ResearchNation, NationResearchTree> = {
             requires: ["ussr-rear-hq"],
             tier: 3,
             slot: 0,
+          }),
+          unitNode({
+            id: "ussr-rear-gaz55",
+            title: "ГАЗ-55",
+            cardId: "gaz_55_ambulance",
+            experienceCost: 520,
+            purchaseCost: 4200,
+            requires: ["ussr-rear-hq"],
+            tier: 3,
+            slot: 1,
           }),
         ],
       },

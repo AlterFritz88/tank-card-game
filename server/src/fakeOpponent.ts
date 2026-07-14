@@ -23,6 +23,21 @@ import type { HeadquartersId } from "../../tank-card-game/src/game/types";
 
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
+export const DEFAULT_FAKE_PVP_MATCH_PROBABILITY = 0.85;
+export const DEFAULT_COMMANDER_NICKNAME_PROBABILITY = 0.15;
+const DEFAULT_UNREGISTERED_NICKNAME = "Commander";
+
+/** Deterministic probability gate, split out so the 85/15 fallback is testable. */
+export function shouldStartFakePvpMatch(
+  randomValue: number = Math.random(),
+  probability: number = DEFAULT_FAKE_PVP_MATCH_PROBABILITY
+): boolean {
+  const safeProbability = Number.isFinite(probability)
+    ? Math.min(1, Math.max(0, probability))
+    : DEFAULT_FAKE_PVP_MATCH_PROBABILITY;
+
+  return randomValue < safeProbability;
+}
 
 // The deck's total weight is aimed within ±40% of the player's, uniformly — the
 // full spread, so opponents range from clearly weaker to clearly stronger.
@@ -113,6 +128,10 @@ function randomInRange(min: number, max: number): number {
 }
 
 export function getRandomFakeNickname(exclude?: Set<string>): string {
+  if (Math.random() < DEFAULT_COMMANDER_NICKNAME_PROBABILITY) {
+    return DEFAULT_UNREGISTERED_NICKNAME;
+  }
+
   const names = loadNicknames();
 
   if (exclude && exclude.size > 0) {

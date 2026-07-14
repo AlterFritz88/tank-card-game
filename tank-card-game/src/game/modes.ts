@@ -6,6 +6,7 @@ export type MainMenuView =
   | "campaign"
   | "missions"
   | "tutorial"
+  | "combatMissions"
   | "profile"
   | "research"
   | "collection"

@@ -74,7 +74,7 @@ export function RewardCelebrationOverlay({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.18 }}
-      onMouseDown={onClose}
+      onPointerDown={onClose}
     >
       <div style={styles.stage}>
         <motion.div
@@ -120,10 +120,7 @@ export function RewardCelebrationOverlay({
           />
         ))}
 
-        <div
-          style={styles.column}
-          onMouseDown={(event) => event.stopPropagation()}
-        >
+        <div style={styles.column}>
           <div style={styles.cardRow}>
             {cards.map((item, index) => (
               <motion.div
@@ -154,12 +151,17 @@ export function RewardCelebrationOverlay({
                   }}
                 />
                 {item.kind === "card" ? (
-                  <HandCardView card={item.card} displayMode="preview" />
+                  <HandCardView
+                    card={item.card}
+                    displayMode="preview"
+                    previewScale={cardWidth / 175}
+                  />
                 ) : item.kind === "headquarters" ? (
                   <HandCardView
                     headquartersId={item.headquartersId}
                     headquarters={item.headquarters}
                     displayMode="preview"
+                    previewScale={cardWidth / 175}
                   />
                 ) : (
                   <div style={styles.resourceRewardCard}>

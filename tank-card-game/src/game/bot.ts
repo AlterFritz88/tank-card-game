@@ -36,6 +36,8 @@ type BotDecisionOptions = {
 };
 
 const HEADQUARTERS_PRESSURE_SHOT_WINDOW = 4;
+const MIN_TACTICAL_MOVE_ATTACK_SCORE = 36;
+const MAX_TACTICAL_ROUTE_EXTRA_MOVES = 2;
 
 function getDistance(a: Position, b: Position): number {
   return Math.abs(a.row - b.row) + Math.abs(a.col - b.col);
@@ -47,6 +49,21 @@ function getChebyshevDistance(a: Position, b: Position): number {
 
 function samePosition(a: Position, b: Position): boolean {
   return a.row === b.row && a.col === b.col;
+}
+
+/**
+ * Player tank destroyers face the bot side (higher columns), so their rear is
+ * on the lower-column side. Reaching that side suppresses both the TD ambush
+ * and its normal counterattack (the authoritative rule lives in engine.ts).
+ */
+function isRearAttackOnEnemyTd(
+  attackerPosition: Position,
+  target: BoardUnit
+): boolean {
+  return (
+    getCard(target.cardId).class === "td" &&
+    attackerPosition.col < target.position.col
+  );
 }
 
 function isBotSpawnCell(position: Position): boolean {
@@ -795,6 +812,16 @@ function scoreAttackAction(
       enemyCard.attack * 2 +
       enemyCard.fuelGeneration * 4;
 
+    // Scripted evacuation mission: the opposing headquarters keeps its fire
+    // fixed on the stranded objective vehicle whenever that shot is legal.
+    if (
+      action.attackerType === "headquarters" &&
+      state.objective?.type === "evacuate_unit" &&
+      enemyUnit.scenarioTag === state.objective.unitTag
+    ) {
+      score += 10_000;
+    }
+
     if (supportTargetValue > 0) {
       score += supportTargetValue;
 
@@ -804,10 +831,23 @@ function scoreAttackAction(
         score += 12;
       }
     }
+
+    // A rear attack on a TD is materially safer than an equally damaging
+    // frontal attack: it avoids both the pre-emptive ambush and return fire.
+    // Keep an explicit bonus in addition to the zero attackerDamage already
+    // reflected above so route planning deliberately looks for the rear cell.
+    if (
+      attackerCard &&
+      isRearAttackOnEnemyTd(attackerCard.position, enemyUnit)
+    ) {
+      score += 34;
+    }
   }
 
   if (outcome.targetDestroyed) score += 28;
-  if (outcome.attackerDestroyed) score -= 26;
+  if (outcome.attackerDestroyed) {
+    score -= outcome.targetDestroyed ? 26 : 44;
+  }
 
   return score;
 }
@@ -1556,6 +1596,134 @@ function getHardBotAction(state: BattleState): BattleAction | null {
   return null;
 }
 
+type TacticalMovePlan = {
+  score: number;
+  extraMoves: number;
+  attacksRearUnit: boolean;
+  attacksTdFromRear: boolean;
+};
+
+/** Best legal attack for one unit from its position in a simulated state. */
+function getBestPlannedUnitAttack(
+  state: BattleState,
+  unitId: string
+): Omit<TacticalMovePlan, "extraMoves"> | null {
+  const attacker = getBotUnitById(state, unitId);
+  if (!attacker || attacker.alreadyAttacked) return null;
+
+  let best: Omit<TacticalMovePlan, "extraMoves"> | null = null;
+
+  for (const target of getTargetsInRange(state, "bot", "unit", unitId)) {
+    const action: AttackAction = {
+      type: "ATTACK",
+      playerId: "bot",
+      attackerType: "unit",
+      attackerId: unitId,
+      targetType: target.type,
+      targetId: target.id,
+    };
+    const score = scoreAttackAction(state, action);
+    if (score === null) continue;
+
+    const enemyUnit =
+      target.type === "unit" ? getEnemyUnitById(state, target.id) : undefined;
+    const candidate = {
+      score,
+      attacksRearUnit: !!enemyUnit && isSupportUnit(enemyUnit),
+      attacksTdFromRear:
+        !!enemyUnit && isRearAttackOnEnemyTd(attacker.position, enemyUnit),
+    };
+
+    if (!best || candidate.score > best.score) best = candidate;
+  }
+
+  return best;
+}
+
+/**
+ * Search a few legal moves ahead after `firstCell`. This uses applyAction and
+ * getAvailableMoveCells instead of duplicating movement budgets/path blocking,
+ * so blitz, light-tank and armored-car routes follow the real engine rules.
+ */
+function getTacticalMovePlan(
+  state: BattleState,
+  unit: BoardUnit,
+  firstCell: Position
+): TacticalMovePlan | null {
+  if (unit.alreadyAttacked) return null;
+
+  const firstState = applyAction(state, {
+    type: "MOVE_UNIT",
+    playerId: "bot",
+    unitId: unit.instanceId,
+    position: firstCell,
+  });
+  const movedUnit = getBotUnitById(firstState, unit.instanceId);
+
+  if (!movedUnit || samePosition(movedUnit.position, unit.position)) return null;
+
+  const queue: { state: BattleState; extraMoves: number }[] = [
+    { state: firstState, extraMoves: 0 },
+  ];
+  const queued = new Set<string>([
+    `${movedUnit.position.row}:${movedUnit.position.col}:${
+      movedUnit.moveCountThisTurn ?? 0
+    }`,
+  ]);
+  let best: TacticalMovePlan | null = null;
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) break;
+
+    const currentUnit = getBotUnitById(current.state, unit.instanceId);
+    if (!currentUnit) continue;
+
+    const attack = getBestPlannedUnitAttack(current.state, unit.instanceId);
+    if (attack) {
+      const routeScore = attack.score - current.extraMoves * 5;
+      if (!best || routeScore > best.score) {
+        best = { ...attack, score: routeScore, extraMoves: current.extraMoves };
+      }
+    }
+
+    if (
+      current.extraMoves >= MAX_TACTICAL_ROUTE_EXTRA_MOVES ||
+      currentUnit.alreadyMoved
+    ) {
+      continue;
+    }
+
+    for (const cell of getAvailableMoveCells(
+      current.state,
+      "bot",
+      unit.instanceId
+    )) {
+      const nextState = applyAction(current.state, {
+        type: "MOVE_UNIT",
+        playerId: "bot",
+        unitId: unit.instanceId,
+        position: cell,
+      });
+      const nextUnit = getBotUnitById(nextState, unit.instanceId);
+
+      if (!nextUnit || samePosition(nextUnit.position, currentUnit.position)) {
+        continue;
+      }
+
+      const nextKey = `${nextUnit.position.row}:${nextUnit.position.col}:${
+        nextUnit.moveCountThisTurn ?? 0
+      }`;
+      if (queued.has(nextKey)) continue;
+      queued.add(nextKey);
+
+      queue.push({ state: nextState, extraMoves: current.extraMoves + 1 });
+    }
+  }
+
+  return best && best.score >= MIN_TACTICAL_MOVE_ATTACK_SCORE ? best : null;
+}
+
 function getStrategicMoveAction(state: BattleState): BattleAction | null {
   const mostDangerousEnemy = getMostDangerousEnemyUnit(state);
   const nationalAbility = getBotNationalAbility(state);
@@ -1635,6 +1803,10 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
       "unit",
       unit.instanceId
     );
+    const currentAttackPlan = getBestPlannedUnitAttack(
+      state,
+      unit.instanceId
+    );
 
     // Если юнит уже может атаковать, движение обычно не нужно.
     const currentCanAttackHeadquarters = currentTargets.some(
@@ -1644,6 +1816,7 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
     if (
       !unit.alreadyAttacked &&
       currentTargets.length > 0 &&
+      currentAttackPlan !== null &&
       (!advancingOnHeadquarters || currentCanAttackHeadquarters)
     ) {
       continue;
@@ -1680,7 +1853,9 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
           mostDangerousEnemy && currentThreatDistance !== null
             ? currentThreatDistance - getDistance(cell, mostDangerousEnemy.position)
             : 0;
-        const enablesAttack = moveEnablesAttack(state, card, cell);
+        const tacticalPlan = getTacticalMovePlan(state, unit, cell);
+        const enablesAttack =
+          tacticalPlan?.extraMoves === 0 || moveEnablesAttack(state, card, cell);
         const canAttackHeadquartersFromCell = canCardAttackPosition(
           card.id,
           cell,
@@ -1715,16 +1890,26 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
             ? 30
             : 16
           : 0;
+        const tacticalAttackBonus = tacticalPlan
+          ? Math.round(tacticalPlan.score * 0.55) +
+            (tacticalPlan.attacksRearUnit ? 18 : 0) +
+            (tacticalPlan.attacksTdFromRear ? 24 : 0)
+          : 0;
 
         return {
           cell,
           distanceGain,
           threatDistanceGain,
           enablesAttack,
+          tacticalPlan,
+          raidBonus,
+          formationDelta,
+          spgProtectionBonus,
           score:
             distanceGain * (advancingOnHeadquarters ? 7 : 3) +
             threatDistanceGain * (enemyPressure > 0 ? 7 : 2) +
             (enablesAttack ? 12 : 0) +
+            tacticalAttackBonus +
             headquartersPositionBonus +
             spgProtectionBonus +
             raidBonus +
@@ -1738,15 +1923,22 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
 
     if (bestCell.score <= 0) continue;
 
-    // Light tanks move up to two cells; don't spend the SECOND step on a purely
-    // positional shuffle that neither enables an attack nor escapes a real
-    // threat (the "pointless extra step").
+    // Multi-move units must have a concrete reason for every continuation.
+    // This prevents light tanks and armored cars from consuming their whole
+    // budget by oscillating around a threat. A planned attack, an actual raid,
+    // preserving a formation or a short HQ kill push are concrete reasons.
     if (
-      card.class === "light" &&
+      (card.class === "light" || card.class === "armored_car") &&
       (unit.moveCountThisTurn ?? 0) > 0 &&
-      !bestCell.enablesAttack &&
-      !(enemyPressure > 0 && bestCell.threatDistanceGain > 0) &&
-      !(advancingOnHeadquarters && bestCell.distanceGain > 0)
+      !bestCell.tacticalPlan &&
+      bestCell.raidBonus <= 0 &&
+      bestCell.formationDelta <= 0 &&
+      bestCell.spgProtectionBonus <= 0 &&
+      !(
+        advancingOnHeadquarters &&
+        bestCell.distanceGain > 0 &&
+        canCardAttackPosition(card.id, bestCell.cell, playerHq)
+      )
     ) {
       continue;
     }

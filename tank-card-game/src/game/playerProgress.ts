@@ -22,6 +22,7 @@ import {
   switchToGuestUser,
 } from "./playerIdentity";
 import {
+  completeRuStoreGoldPurchase,
   createGoldPayment,
   getShopCatalog,
   profileClient,
@@ -33,6 +34,11 @@ import type {
   PlayerId,
 } from "./types";
 import type { GameMode, MatchEndReason } from "./modes";
+import {
+  createEmptyCombatMissionsState,
+  normalizeCombatMissionsState,
+  type CombatMissionsState,
+} from "./combatMissions";
 
 export type PlayerAccountType = "base" | "premium";
 
@@ -72,6 +78,8 @@ export type PendingPlayerRewardClaim =
       mode: GameMode;
       localPlayerId: PlayerId;
       matchEndReason?: MatchEndReason | null;
+      campaignMissionId?: string | null;
+      campaignMissionAlreadyWon?: boolean;
     }
   | {
       type: "tutorial";
@@ -90,6 +98,7 @@ export type PlayerProfile = {
   pveBattleCount: number;
   ironTracks: number;
   goldTracks: number;
+  cardBackId: "first_player" | null;
   freeXp: number;
   dailyLoginReward: DailyLoginReward | null;
   headquartersXp: Partial<Record<HeadquartersId, number>>;
@@ -101,8 +110,11 @@ export type PlayerProfile = {
   unlockedCardIds: string[];
   ownedCardCopies: Record<string, number>;
   savedDecks: PlayerSavedDeck[];
+  /** Premium campaigns bought permanently with gold tracks. */
+  unlockedCampaignIds: string[];
   claimedBattleRewardIds: string[];
   pendingRewardClaims: PendingPlayerRewardClaim[];
+  combatMissions: CombatMissionsState;
 };
 
 export type PlayerProgress = PlayerProfile;
@@ -286,6 +298,8 @@ async function flushPendingRewardClaims(
               mode: claim.mode,
               localPlayerId: claim.localPlayerId,
               matchEndReason: claim.matchEndReason ?? null,
+              campaignMissionId: claim.campaignMissionId ?? null,
+              campaignMissionAlreadyWon: claim.campaignMissionAlreadyWon,
             })
           : await profileClient.claimTutorialReward(
               playerId,
@@ -313,6 +327,8 @@ export async function claimBattleRewardFromServer(input: {
   mode: GameMode;
   localPlayerId: PlayerId;
   matchEndReason?: MatchEndReason | null;
+  campaignMissionId?: string | null;
+  campaignMissionAlreadyWon?: boolean;
 }): Promise<{ profile: PlayerProgress; reward?: BattleReward }> {
   const profileClient = await getProfileClient();
   const claimId = createBattleRewardClaimId(input);
@@ -435,6 +451,8 @@ export function applyBattleRewardToProgress(input: {
   mode: GameMode;
   localPlayerId: PlayerId;
   matchEndReason?: MatchEndReason | null;
+  campaignMissionId?: string | null;
+  campaignMissionAlreadyWon?: boolean;
   queueForServer?: boolean;
 }): { progress: PlayerProgress; reward: BattleReward } | null {
   const { battle, mode, localPlayerId, matchEndReason = null } = input;
@@ -481,6 +499,8 @@ export function applyBattleRewardToProgress(input: {
             mode,
             localPlayerId,
             matchEndReason,
+            campaignMissionId: input.campaignMissionId ?? null,
+            campaignMissionAlreadyWon: input.campaignMissionAlreadyWon,
           },
           ...progress.pendingRewardClaims.filter(
             (claim) => claim.type !== "battle" || claim.claimId !== claimId
@@ -562,6 +582,7 @@ export function createInitialPlayerProgress(): PlayerProgress {
     pveBattleCount: 0,
     ironTracks: STARTING_IRON_TRACKS,
     goldTracks: 0,
+    cardBackId: null,
     freeXp: 0,
     dailyLoginReward: null,
     headquartersXp: {},
@@ -579,8 +600,10 @@ export function createInitialPlayerProgress(): PlayerProgress {
     unlockedCardIds: starterCardIds,
     ownedCardCopies: starterCardCopies,
     savedDecks: [],
+    unlockedCampaignIds: [],
     claimedBattleRewardIds: [],
     pendingRewardClaims: [],
+    combatMissions: createEmptyCombatMissionsState(),
   };
 }
 
@@ -673,6 +696,7 @@ function normalizePlayerProgress(
     pveBattleCount,
     ironTracks: getPositiveInteger(progress.ironTracks),
     goldTracks: getPositiveInteger(progress.goldTracks),
+    cardBackId: progress.cardBackId === "first_player" ? "first_player" : null,
     freeXp: getPositiveInteger(progress.freeXp),
     dailyLoginReward: normalizeDailyLoginReward(progress.dailyLoginReward),
     headquartersXp:
@@ -700,6 +724,20 @@ function normalizePlayerProgress(
           unlockedHeadquartersIds,
         })
       : fallback.savedDecks,
+    unlockedCampaignIds: Array.isArray(progress.unlockedCampaignIds)
+      ? Array.from(
+          new Set(
+            progress.unlockedCampaignIds
+              .filter((campaignId): campaignId is string =>
+                typeof campaignId === "string"
+              )
+              .map((campaignId) =>
+                campaignId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80)
+              )
+              .filter(Boolean)
+          )
+        )
+      : fallback.unlockedCampaignIds,
     claimedBattleRewardIds: Array.isArray(progress.claimedBattleRewardIds)
       ? progress.claimedBattleRewardIds.filter(
           (rewardId): rewardId is string => typeof rewardId === "string"
@@ -708,6 +746,7 @@ function normalizePlayerProgress(
     pendingRewardClaims: Array.isArray(progress.pendingRewardClaims)
       ? normalizePendingRewardClaims(progress.pendingRewardClaims)
       : fallback.pendingRewardClaims,
+    combatMissions: normalizeCombatMissionsState(progress.combatMissions),
   };
 }
 
@@ -818,6 +857,8 @@ function normalizePendingRewardClaims(
           mode: candidate.mode,
           localPlayerId: candidate.localPlayerId,
           matchEndReason: candidate.matchEndReason ?? null,
+          campaignMissionId: candidate.campaignMissionId ?? null,
+          campaignMissionAlreadyWon: candidate.campaignMissionAlreadyWon,
         },
       ];
     }
@@ -1012,7 +1053,10 @@ export function isHeadquartersFullyResearched(
 ): boolean {
   const scope = getResearchScopeForHeadquarters(headquartersId);
 
-  if (scope.length === 0) return false;
+  // `null` means the headquarters is absent from every research tree. An empty
+  // scope is different: the headquarters was found and is the terminal node of
+  // its branch, so there is nothing left to research after it.
+  if (scope === null) return false;
 
   return scope.every((node) => isResearchNodeCompleted(node, progress));
 }
@@ -1028,7 +1072,7 @@ function isProgressionNode(node: ResearchNode): boolean {
 
 function getResearchScopeForHeadquarters(
   headquartersId: HeadquartersId
-): ResearchNode[] {
+): ResearchNode[] | null {
   for (const tree of Object.values(RESEARCH_TREES)) {
     if (tree.starterHeadquarters.headquartersId === headquartersId) {
       return tree.branches.flatMap((branch) =>
@@ -1060,7 +1104,7 @@ function getResearchScopeForHeadquarters(
     }
   }
 
-  return [];
+  return null;
 }
 
 function dependsOnNode(
@@ -1198,6 +1242,17 @@ export async function purchasePremiumDaysOnServer(
   return saveServerPlayerProgress(profile);
 }
 
+export async function purchaseCampaignOnServer(
+  campaignId: string
+): Promise<PlayerProgress> {
+  const profileClient = await getProfileClient();
+  const profile = await profileClient.purchaseCampaign(
+    getCurrentUserId(),
+    campaignId
+  );
+  return saveServerPlayerProgress(profile);
+}
+
 /** Сколько железных траков даёт один золотой трак при обмене в магазине. */
 export const GOLD_TO_IRON_RATE = 100;
 
@@ -1216,6 +1271,20 @@ export async function createGoldTracksPaymentOnServer(
   productId: GoldProductId
 ) {
   return createGoldPayment(getCurrentUserId(), productId);
+}
+
+export async function completeRuStoreGoldPurchaseOnServer(
+  productId: GoldProductId,
+  purchaseId: string,
+  invoiceId: string
+): Promise<PlayerProgress> {
+  const result = await completeRuStoreGoldPurchase(
+    getCurrentUserId(),
+    productId,
+    purchaseId,
+    invoiceId
+  );
+  return saveServerPlayerProgress(result.profile);
 }
 
 export async function loadShopCatalogFromServer() {

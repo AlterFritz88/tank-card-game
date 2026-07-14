@@ -20,3 +20,7 @@ for (const [path, imageUrl] of Object.entries(tankImageModules)) {
 export function getTankImage(cardId: string): string {
   return tankImagesByCardId[cardId] ?? prototypeTankImage;
 }
+
+// The static T-18 pillbox uses the same vehicle artwork until it receives a
+// dedicated illustration.
+tankImagesByCardId.t18_dot ??= tankImagesByCardId.ms_1_t18;

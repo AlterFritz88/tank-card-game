@@ -91,6 +91,8 @@ type HandCardViewProps = {
   disabled?: boolean;
   displayMode?: HandCardDisplayMode;
   previewScale?: number;
+  /** Scale fixed UI details when the card is rendered wider than a hand card. */
+  cardScale?: number;
 };
 
 type StatTooltipId = "cost" | "fuel" | "class" | "attack" | "health";
@@ -383,6 +385,7 @@ export function HandCardView({
   disabled = false,
   displayMode = "hand",
   previewScale,
+  cardScale = 1,
 }: HandCardViewProps) {
   const { language } = useI18n();
   const [activeTooltip, setActiveTooltip] = useState<StatTooltipId | null>(null);
@@ -395,7 +398,12 @@ export function HandCardView({
   const isPreview = displayMode === "preview";
   const badgeMode = isPreview ? "preview" : "hand";
   const defaultPreviewScale = 390 / 175;
-  const uiScale = isPreview ? previewScale ?? defaultPreviewScale : 1;
+  const uiScale = isPreview ? previewScale ?? defaultPreviewScale : cardScale;
+  // Preview badges are already rendered at the 390px preset by StatBadge;
+  // only apply the ratio between the requested preview and that preset.
+  const badgeRenderScale = isPreview
+    ? uiScale / defaultPreviewScale
+    : uiScale;
   const scaled = (value: number) => Math.round(value * uiScale);
 
   const unitClass = card ? getCardClassVisual(card) : null;
@@ -719,6 +727,10 @@ export function HandCardView({
           text={attackTooltip}
           enabled={tooltipEnabled}
           position="right"
+          style={{
+            width: scaled(29),
+            height: scaled(29),
+          }}
           onShow={showTooltip}
           onHide={hideTooltip}
         >
@@ -728,6 +740,14 @@ export function HandCardView({
             ownerId={ownerId}
             value={attackValue}
             title={language === "en" ? "Attack" : "Атака"}
+            style={
+              badgeRenderScale === 1
+                ? undefined
+                : {
+                    transform: `scale(${badgeRenderScale})`,
+                    transformOrigin: "center center",
+                  }
+            }
           />
         </StatTooltipTarget>
 
@@ -737,7 +757,11 @@ export function HandCardView({
           text={healthTooltip}
           enabled={tooltipEnabled}
           position="top-right"
-          style={{ marginTop: -8 * uiScale }}
+          style={{
+            width: scaled(30),
+            height: scaled(30),
+            marginTop: -8 * uiScale,
+          }}
           onShow={showTooltip}
           onHide={hideTooltip}
         >
@@ -746,6 +770,14 @@ export function HandCardView({
             mode={badgeMode}
             value={hpValue}
             title={language === "en" ? "Health" : "Здоровье"}
+            style={
+              badgeRenderScale === 1
+                ? undefined
+                : {
+                    transform: `scale(${badgeRenderScale})`,
+                    transformOrigin: "center center",
+                  }
+            }
           />
         </StatTooltipTarget>
       </div>

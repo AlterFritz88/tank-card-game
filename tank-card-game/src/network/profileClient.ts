@@ -90,6 +90,12 @@ type ProfileClientMessage =
       days: number;
     }
   | {
+      type: "PURCHASE_CAMPAIGN";
+      requestId: string;
+      playerId: string;
+      campaignId: string;
+    }
+  | {
       type: "EXCHANGE_GOLD_FOR_IRON";
       requestId: string;
       playerId: string;
@@ -289,7 +295,7 @@ function createRequestId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-export type GoldProductId = "gold-100" | "gold-500" | "gold-1500";
+export type GoldProductId = "gold-100" | "gold-500" | "gold-1500" | "first-player-pack";
 
 export type GoldProductCatalogItem = {
   id: GoldProductId;
@@ -398,6 +404,50 @@ export async function createGoldPayment(
     confirmationUrl: result.confirmationUrl,
     goldTracks: result.goldTracks,
     amountRub: result.amountRub,
+  };
+}
+
+export async function completeRuStoreGoldPurchase(
+  playerId: string,
+  productId: GoldProductId,
+  purchaseId: string,
+  invoiceId: string
+): Promise<{
+  paymentId: string;
+  credited: boolean;
+  goldTracks: number;
+  profile: PlayerProgress;
+}> {
+  const response = await fetch(`${PROFILE_HTTP_SERVER_URL}/api/shop/rustore/complete`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ playerId, productId, purchaseId, invoiceId }),
+  });
+  const result = (await response.json()) as
+    | {
+        ok: true;
+        paymentId: string;
+        credited: boolean;
+        goldTracks: number;
+        profile: PlayerProgress;
+      }
+    | { ok: false; message?: string };
+
+  if (!response.ok || !result.ok) {
+    throw new Error(
+      "message" in result && result.message
+        ? result.message
+        : "Не удалось завершить покупку RuStore"
+    );
+  }
+
+  return {
+    paymentId: result.paymentId,
+    credited: result.credited,
+    goldTracks: result.goldTracks,
+    profile: result.profile,
   };
 }
 
@@ -521,6 +571,8 @@ class ProfileClient {
       mode: GameMode;
       localPlayerId: PlayerId;
       matchEndReason?: MatchEndReason | null;
+      campaignMissionId?: string | null;
+      campaignMissionAlreadyWon?: boolean;
     }
   ): Promise<{ profile: PlayerProgress; reward?: BattleReward }> {
     const response = await this.requestProfileUpdate({
@@ -666,6 +718,20 @@ class ProfileClient {
       requestId: createRequestId(),
       playerId,
       days,
+    });
+
+    return response.profile;
+  }
+
+  async purchaseCampaign(
+    playerId: string,
+    campaignId: string
+  ): Promise<PlayerProgress> {
+    const response = await this.requestProfileUpdate({
+      type: "PURCHASE_CAMPAIGN",
+      requestId: createRequestId(),
+      playerId,
+      campaignId,
     });
 
     return response.profile;

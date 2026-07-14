@@ -70,6 +70,8 @@ export type PvpClientMessage =
       mode: GameMode;
       localPlayerId: PlayerId;
       matchEndReason?: GameMatchEndReason | null;
+      campaignMissionId?: string | null;
+      campaignMissionAlreadyWon?: boolean;
     }
   | {
       type: "CLAIM_PVP_BATTLE_REWARD";
@@ -122,6 +124,12 @@ export type PvpClientMessage =
       requestId: string;
       playerId: string;
       days: number;
+    }
+  | {
+      type: "PURCHASE_CAMPAIGN";
+      requestId: string;
+      playerId: string;
+      campaignId: string;
     }
   | {
       type: "EXCHANGE_GOLD_FOR_IRON";
@@ -248,6 +256,8 @@ export type PvpServerMessage =
       playerId: PlayerId;
       battle: BattleStateView;
       opponentNickname?: string | null;
+      opponentCardBackId?: "first_player" | null;
+      opponentDeckWeight?: number | null;
     }
   | { type: "RECONNECT_FAILED"; message: string }
   | { type: "WAITING_FOR_OPPONENT"; roomId: string }
@@ -260,6 +270,8 @@ export type PvpServerMessage =
       revealAt: number;
       battle: BattleStateView;
       opponentNickname?: string | null;
+      opponentCardBackId?: "first_player" | null;
+      opponentDeckWeight?: number | null;
     }
   | {
       type: "GAME_STARTED";
@@ -267,6 +279,8 @@ export type PvpServerMessage =
       battle: BattleStateView;
       playerId: PlayerId;
       opponentNickname?: string | null;
+      opponentCardBackId?: "first_player" | null;
+      opponentDeckWeight?: number | null;
     }
   | { type: "GAME_STATE"; roomId: string; battle: BattleStateView }
   | PvpTurnTimerEvent

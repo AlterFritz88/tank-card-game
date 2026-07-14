@@ -86,8 +86,8 @@ const CARD_ABILITY_TEXT_TRANSLATIONS: Record<string, string> = {
   "Даёт +1 топливо и помогает штабу вести огонь точнее: +1 к атаке.":
     "+1 fuel and helps the headquarters fire more accurately: +1 attack.",
   "Даёт +2 топлива в ход.": "+2 fuel per turn.",
-  "Даёт +2 топлива, добирает карту каждый третий ход.":
-    "+2 fuel and draws a card every third turn.",
+  "Даёт +1 топливо, добирает карту каждый третий ход.":
+    "+1 fuel and draws a card every third turn.",
   "Дивизионная гаубица: +2 к атаке штаба.":
     "Divisional howitzer: +2 headquarters attack.",
   "Дизельный В-2: дальнобойный разведчик, добирает карту под огнём.":

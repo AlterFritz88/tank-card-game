@@ -20,6 +20,7 @@ import matchmakingBreakImage from "../assets/backgrounds/matchmaking/break.webp"
 import matchmakingCielImage from "../assets/backgrounds/matchmaking/ciel.webp";
 import matchmakingMapImage from "../assets/backgrounds/matchmaking/map.webp";
 import buttonImage from "../assets/button.webp";
+import firstPlayerCardBackImage from "../assets/cards/first_players.webp";
 import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
 import experienceIcon from "../assets/icons/expa.webp";
 import goldTracksIcon from "../assets/icons/gold_tracks_transparent.webp";
@@ -34,6 +35,7 @@ import {
   getCampaignCompletionReward,
   getCampaignCompletionRewardsForCampaign,
   getEarnedCampaignCompletionRewards,
+  isCampaignAccessible,
   isCampaignMissionUnlocked,
   isCampaignRewardClaimed,
   type CampaignCompletionReward,
@@ -82,6 +84,7 @@ import {
   logoutPlayerAccount,
   normalizePlayerNickname,
   PLAYER_NICKNAME_MAX_LENGTH,
+  purchaseCampaignOnServer,
   purchasePremiumDaysOnServer,
   registerPlayerAccount,
   sanitizePlayerNicknameInput,
@@ -106,6 +109,7 @@ import {
   getHeadquartersKeywords,
 } from "../game/cardKeywords";
 import { getLocalizedNationLabel } from "../game/cardLocalization";
+import { getCombatMissionDefinition } from "../game/combatMissions";
 import { useStageOverlayTransform, screenDeltaToStage } from "./GameStage";
 import { useLandscapeKeyboardLock } from "./useLandscapeKeyboardLock";
 import { usePngFallback } from "./LoadingScreen";
@@ -153,6 +157,12 @@ const CAMPAIGN_CARD_WIDTH = Math.round(MENU_CARD_WIDTH * 1.5);
 const CAMPAIGN_CARD_HEIGHT = Math.round(MENU_CARD_HEIGHT * 1.5);
 const TUTORIAL_CARD_WIDTH = Math.round(MENU_CARD_WIDTH * 1.22);
 const TUTORIAL_CARD_HEIGHT = Math.round(MENU_CARD_HEIGHT * 1.22);
+const MISSION_CARD_HEIGHT = 410;
+// Match the reward card's height to the mission card while preserving the
+// standard hand-card aspect ratio.
+const MISSION_REWARD_CARD_WIDTH = Math.round(
+  (MISSION_CARD_HEIGHT * 1051) / 1496
+);
 const GUEST_SESSION_READY_KEY = GUEST_SESSION_READY_STORAGE_KEY;
 
 const NATION_FILTER_VALUES: Nation[] = [
@@ -380,6 +390,7 @@ function getNativeBackTarget(menuView: MainMenuView): MainMenuView | null {
     case "headquarters":
     case "campaign":
     case "tutorial":
+    case "combatMissions":
     case "profile":
     case "research":
     case "collection":
@@ -392,6 +403,7 @@ function getNativeBackTarget(menuView: MainMenuView): MainMenuView | null {
 }
 
 const GOLD_TRACK_PRODUCTS = [
+  { id: "first-player-pack" as const, gold: 777, label: "Набор первого игрока", pack: true },
   { id: "gold-100" as const, gold: 100, label: "100 золотых траков" },
   { id: "gold-500" as const, gold: 500, label: "500 золотых траков" },
   { id: "gold-1500" as const, gold: 1500, label: "1500 золотых траков" },
@@ -624,18 +636,12 @@ function PlayerResourcesPanel({
   );
 }
 
-function ProfileServerBanner({
-  message,
-  onRetry,
-}: {
-  message: string | null;
-  onRetry: () => void;
-}) {
+function ProfileServerBanner({ onRetry }: { onRetry: () => void }) {
   const { t } = useI18n();
 
   return (
     <div style={styles.profileServerBanner}>
-      <span>{message ?? t("common.profileServerUnavailable")}</span>
+      <span>{t("common.profileServerUnavailable")}</span>
       <button
         type="button"
         style={styles.profileServerRetryButton}
@@ -668,6 +674,9 @@ function ShopMenu({
     Partial<Record<(typeof GOLD_TRACK_PRODUCTS)[number]["id"], number | null>>
   >({});
   const [catalogLoading, setCatalogLoading] = useState(true);
+  const [firstPlayerPackPreviewOpen, setFirstPlayerPackPreviewOpen] = useState(false);
+  const packLongPressTimerRef = useRef<number | null>(null);
+  const suppressPackClickRef = useRef(false);
   const profileConnection = useProfileConnection();
   const profileServerUnavailable = isProfileServerUnavailable(profileConnection);
   const premiumUntilText = formatPremiumUntil(progress);
@@ -765,16 +774,34 @@ function ShopMenu({
     }
   }
 
+  function clearPackLongPressTimer() {
+    if (packLongPressTimerRef.current !== null) {
+      window.clearTimeout(packLongPressTimerRef.current);
+      packLongPressTimerRef.current = null;
+    }
+  }
+
+  function beginPackLongPress(product: (typeof GOLD_TRACK_PRODUCTS)[number]) {
+    if (!product.pack) return;
+    clearPackLongPressTimer();
+    suppressPackClickRef.current = false;
+    packLongPressTimerRef.current = window.setTimeout(() => {
+      suppressPackClickRef.current = true;
+      setFirstPlayerPackPreviewOpen(true);
+      packLongPressTimerRef.current = null;
+    }, 550);
+  }
+
+  const firstPlayerPackProduct = GOLD_TRACK_PRODUCTS[0];
+  const firstPlayerPackCard = getCardOrNull("t18_dot");
+
   return (
     <main style={styles.page}>
       <div style={styles.backgroundShade} />
       <PlayerAccountPanel />
       <PlayerResourcesPanel />
       {profileServerUnavailable ? (
-        <ProfileServerBanner
-          message={profileConnection.message}
-          onRetry={() => window.location.reload()}
-        />
+        <ProfileServerBanner onRetry={() => window.location.reload()} />
       ) : null}
 
       <section style={{ ...styles.menuLayer, ...styles.shopLayer }}>
@@ -832,28 +859,61 @@ function ShopMenu({
                   purchasingGoldProductId !== null ||
                   profileServerUnavailable ||
                   catalogLoading ||
-                  !priceReady;
+                  !priceReady || Boolean(product.pack && progress.cardBackId === "first_player");
 
                 return (
                   <button
-                    key={product.gold}
+                    key={product.id}
                     type="button"
                     style={{
                       ...styles.shopOfferCard,
                       ...(disabled ? styles.shopOfferCardDisabled : {}),
                     }}
-                    disabled={disabled}
-                    onClick={() => void buyGoldProduct(product)}
+                    disabled={disabled && !product.pack}
+                    aria-disabled={disabled}
+                    onClick={() => {
+                      if (product.pack && disabled) {
+                        setFirstPlayerPackPreviewOpen(true);
+                        return;
+                      }
+                      if (product.pack && suppressPackClickRef.current) {
+                        suppressPackClickRef.current = false;
+                        return;
+                      }
+                      void buyGoldProduct(product);
+                    }}
+                    onContextMenu={(event) => {
+                      if (!product.pack) return;
+                      event.preventDefault();
+                      clearPackLongPressTimer();
+                      setFirstPlayerPackPreviewOpen(true);
+                    }}
+                    onPointerDown={() => beginPackLongPress(product)}
+                    onPointerUp={clearPackLongPressTimer}
+                    onPointerCancel={clearPackLongPressTimer}
+                    onPointerLeave={clearPackLongPressTimer}
                   >
-                    <img
-                      src={goldTracksIcon}
-                      alt=""
-                      draggable={false}
-                      style={styles.shopOfferIcon}
-                    />
+                    {product.pack ? (
+                      <div style={styles.shopPackVisual}>
+                        {firstPlayerPackCard ? (
+                          <div style={styles.shopPackMiniCard}>
+                            <HandCardView card={firstPlayerPackCard} ownerId="player" />
+                          </div>
+                        ) : null}
+                        <img src={firstPlayerCardBackImage} alt="" draggable={false} style={styles.shopPackMiniBack} />
+                        <img src={goldTracksIcon} alt="" draggable={false} style={styles.shopPackMiniGold} />
+                      </div>
+                    ) : (
+                      <img src={goldTracksIcon} alt="" draggable={false} style={styles.shopOfferIcon} />
+                    )}
                     <strong>
-                      {formatResourceValue(product.gold, language)} {shopText.goldTracks}
+                      {product.pack
+                        ? language === "en" ? "First Player Pack" : "Набор первого игрока"
+                        : `${formatResourceValue(product.gold, language)} ${shopText.goldTracks}`}
                     </strong>
+                    {product.pack ? (
+                      <span>{language === "en" ? "4× T-18 Pillbox, special card back and 777 gold tracks" : "4× Т-18 ДОТ, особая рубашка и 777 золотых траков"}</span>
+                    ) : null}
                     <span style={styles.shopRubPrice}>
                       {realMoneyPaymentsLocked
                         ? shopText.soon
@@ -868,6 +928,8 @@ function ShopMenu({
                         ? shopText.soon
                         : isGuest
                         ? shopText.signIn
+                        : product.pack && progress.cardBackId === "first_player"
+                          ? language === "en" ? "Purchased" : "Куплено"
                         : purchasingGoldProductId === product.id
                           ? shopText.creatingPayment
                           : priceReady
@@ -931,6 +993,46 @@ function ShopMenu({
             </div>
           </section>
         </div>
+
+        {firstPlayerPackPreviewOpen ? (
+          <div style={styles.packPreviewBackdrop} onClick={() => setFirstPlayerPackPreviewOpen(false)}>
+            <section style={styles.packPreviewPanel} onClick={(event) => event.stopPropagation()}>
+              <button type="button" style={styles.packPreviewClose} onClick={() => setFirstPlayerPackPreviewOpen(false)}>×</button>
+              <h2 style={styles.packPreviewTitle}>
+                {language === "en" ? "First Player Pack" : "Набор первого игрока"}
+              </h2>
+              <div style={styles.packPreviewContent}>
+                {firstPlayerPackCard ? (
+                  <div style={styles.packPreviewCard}>
+                    <HandCardView
+                      card={firstPlayerPackCard}
+                      ownerId="player"
+                      cardScale={MISSION_REWARD_CARD_WIDTH / HAND_CARD_BASE_WIDTH}
+                    />
+                  </div>
+                ) : null}
+                <img src={firstPlayerCardBackImage} alt="" style={styles.packPreviewBack} />
+                <div style={styles.packPreviewDetails}>
+                  <strong>{language === "en" ? "Includes" : "В наборе"}</strong>
+                  <span>{language === "en" ? "4× T-18 Pillbox" : "4× Т-18 ДОТ"}</span>
+                  <span>{language === "en" ? "Exclusive card back" : "Особая рубашка карты"}</span>
+                  <span>{language === "en" ? "777 gold tracks" : "777 золотых траков"}</span>
+                  <b>199 ₽</b>
+                  <button
+                    type="button"
+                    style={styles.packPreviewBuyButton}
+                    disabled={progress.cardBackId === "first_player" || purchasingGoldProductId !== null || realMoneyPaymentsLocked || isGuest || profileServerUnavailable}
+                    onClick={() => void buyGoldProduct(firstPlayerPackProduct)}
+                  >
+                    {progress.cardBackId === "first_player"
+                      ? language === "en" ? "Purchased" : "Куплено"
+                      : language === "en" ? "Buy" : "Купить"}
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+        ) : null}
 
         {statusMessage ? (
           <div style={styles.shopStatusMessage}>{statusMessage}</div>
@@ -1010,10 +1112,7 @@ function ExchangeMenu({
       <PlayerAccountPanel />
       <PlayerResourcesPanel />
       {profileServerUnavailable ? (
-        <ProfileServerBanner
-          message={profileConnection.message}
-          onRetry={() => window.location.reload()}
-        />
+        <ProfileServerBanner onRetry={() => window.location.reload()} />
       ) : null}
 
       <section style={{ ...styles.menuLayer, ...styles.shopLayer }}>
@@ -1199,7 +1298,6 @@ function MenuChunkLoadingScreen() {
 
 function GuestEntryScreen({
   initialNickname,
-  profileMessage,
   profileUnavailable,
   onRetryProfile,
   onEnter,
@@ -1207,7 +1305,6 @@ function GuestEntryScreen({
   onRegister,
 }: {
   initialNickname: string;
-  profileMessage: string | null;
   profileUnavailable: boolean;
   onRetryProfile: () => void;
   onEnter: (nickname: string, legalAccepted: boolean) => Promise<void>;
@@ -1521,7 +1618,7 @@ function GuestEntryScreen({
 
         {profileUnavailable ? (
           <div style={styles.guestServerNotice}>
-            <span>{profileMessage ?? t("common.profileServerUnavailable")}</span>
+            <span>{t("common.profileServerUnavailable")}</span>
             <button
               type="button"
               style={styles.profileServerRetryButton}
@@ -1985,10 +2082,7 @@ function PlayerProfileMenu({
       <PlayerAccountPanel />
       <PlayerResourcesPanel />
       {profileServerUnavailable ? (
-        <ProfileServerBanner
-          message={profileConnection.message}
-          onRetry={() => void retryProfileSync()}
-        />
+        <ProfileServerBanner onRetry={() => void retryProfileSync()} />
       ) : null}
 
       <section style={{ ...styles.menuLayer, ...styles.profileLayer }}>
@@ -2200,7 +2294,11 @@ function getDisplayFontForText(value: string): string {
 
 function PvpMatchmakingScreen({
   playerHeadquartersId,
+  playerNickname,
+  playerDeckWeight,
   opponentHeadquartersId,
+  opponentNickname,
+  opponentDeckWeight,
   previewLabel,
   status,
   error,
@@ -2210,7 +2308,11 @@ function PvpMatchmakingScreen({
   onFallback,
 }: {
   playerHeadquartersId: HeadquartersId;
+  playerNickname: string;
+  playerDeckWeight: number | null;
   opponentHeadquartersId: HeadquartersId | null;
+  opponentNickname: string | null;
+  opponentDeckWeight: number | null;
   previewLabel: string | null;
   status: PvpConnectionState;
   error: string | null;
@@ -2303,37 +2405,50 @@ function PvpMatchmakingScreen({
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.38, ease: "easeOut" }}
           >
-            {playerFlag ? (
+            <div style={styles.matchmakingPortraitStage}>
+              {playerFlag ? (
+                <div
+                  style={{
+                    ...styles.matchmakingFlag,
+                    ...(playerHeadquarters.nation === "usa"
+                      ? styles.matchmakingUsaFlag
+                      : {}),
+                    backgroundImage: `url("${playerFlag}")`,
+                  }}
+                />
+              ) : null}
+              {playerPortrait ? (
+                <img
+                  src={playerPortrait}
+                  alt={playerHeadquarters.title}
+                  style={styles.matchmakingPortrait}
+                />
+              ) : (
+                <div
+                  style={{
+                    ...styles.matchmakingPortraitPlaceholder,
+                    fontFamily: getDisplayFontForText(playerHeadquarters.title),
+                  }}
+                >
+                  {playerHeadquarters.title}
+                </div>
+              )}
+            </div>
+            <div style={styles.matchmakingDetails}>
               <div
                 style={{
-                  ...styles.matchmakingFlag,
-                  backgroundImage: `url("${playerFlag}")`,
-                }}
-              />
-            ) : null}
-            {playerPortrait ? (
-              <img
-                src={playerPortrait}
-                alt={playerHeadquarters.title}
-                style={styles.matchmakingPortrait}
-              />
-            ) : (
-              <div
-                style={{
-                  ...styles.matchmakingPortraitPlaceholder,
+                  ...styles.matchmakingName,
                   fontFamily: getDisplayFontForText(playerHeadquarters.title),
                 }}
               >
                 {playerHeadquarters.title}
               </div>
-            )}
-            <div
-              style={{
-                ...styles.matchmakingName,
-                fontFamily: getDisplayFontForText(playerHeadquarters.title),
-              }}
-            >
-              {playerHeadquarters.title}
+              <div style={styles.matchmakingIdentity}>
+                <strong>{playerNickname}</strong>
+                <span>
+                  {t("battle.deckWeight")}: {playerDeckWeight ?? "—"}
+                </span>
+              </div>
             </div>
           </motion.div>
 
@@ -2361,24 +2476,41 @@ function PvpMatchmakingScreen({
                     {previewLabel}
                   </div>
                 ) : null}
-                {opponentFlag ? (
+                <div style={styles.matchmakingPortraitStage}>
+                  {opponentFlag ? (
+                    <div
+                      style={{
+                        ...styles.matchmakingFlag,
+                        ...(opponentHeadquarters.nation === "usa"
+                          ? styles.matchmakingUsaFlag
+                          : {}),
+                        backgroundImage: `url("${opponentFlag}")`,
+                      }}
+                    />
+                  ) : null}
+                  {opponentPortrait ? (
+                    <img
+                      src={opponentPortrait}
+                      alt={opponentHeadquarters.title}
+                      style={styles.matchmakingPortrait}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        ...styles.matchmakingPortraitPlaceholder,
+                        fontFamily: getDisplayFontForText(
+                          opponentHeadquarters.title
+                        ),
+                      }}
+                    >
+                      {opponentHeadquarters.title}
+                    </div>
+                  )}
+                </div>
+                <div style={styles.matchmakingDetails}>
                   <div
                     style={{
-                      ...styles.matchmakingFlag,
-                      backgroundImage: `url("${opponentFlag}")`,
-                    }}
-                  />
-                ) : null}
-                {opponentPortrait ? (
-                  <img
-                    src={opponentPortrait}
-                    alt={opponentHeadquarters.title}
-                    style={styles.matchmakingPortrait}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      ...styles.matchmakingPortraitPlaceholder,
+                      ...styles.matchmakingName,
                       fontFamily: getDisplayFontForText(
                         opponentHeadquarters.title
                       ),
@@ -2386,16 +2518,12 @@ function PvpMatchmakingScreen({
                   >
                     {opponentHeadquarters.title}
                   </div>
-                )}
-                <div
-                  style={{
-                    ...styles.matchmakingName,
-                    fontFamily: getDisplayFontForText(
-                      opponentHeadquarters.title
-                    ),
-                  }}
-                >
-                  {opponentHeadquarters.title}
+                  <div style={styles.matchmakingIdentity}>
+                    <strong>{opponentNickname?.trim() || "Commander"}</strong>
+                    <span>
+                      {t("battle.deckWeight")}: {opponentDeckWeight ?? "—"}
+                    </span>
+                  </div>
                 </div>
               </motion.div>
             </>
@@ -2612,6 +2740,15 @@ function CarouselTapFrame({
   );
 }
 
+function formatMissionCountdown(expiresAt: number, now: number): string {
+  const seconds = Math.max(0, Math.ceil((expiresAt - now) / 1_000));
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  if (days > 0) return `${days}д ${hours}ч`;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
 export function PvpLobby() {
   const { language, t } = useI18n();
   const {
@@ -2622,6 +2759,9 @@ export function PvpLobby() {
     pvpError,
     battleStarting,
     pvpOpponentHeadquartersId,
+    pvpOpponentNickname,
+    pvpPlayerDeckWeight,
+    pvpOpponentDeckWeight,
     pvpMatchPreviewLabel,
     pvpSearchDeadlineAt,
     selectedHeadquartersId,
@@ -2654,10 +2794,14 @@ export function PvpLobby() {
     startTutorial,
     openTutorialMenu,
     closeTutorialMenu,
+    openCombatMissionsMenu,
+    closeCombatMissionsMenu,
     completedTutorialMissionIds,
     cancelMatchmaking,
     registrationReminderVisible,
     dismissRegistrationReminder,
+    firstPlayerPackReminderVisible,
+    dismissFirstPlayerPackReminder,
     profileRegisterIntent,
     requestProfileRegistration,
     clearProfileRegisterIntent,
@@ -2687,6 +2831,9 @@ export function PvpLobby() {
   );
   const [selectedMissionId, setSelectedMissionId] = useState("");
   const [claimingRewardId, setClaimingRewardId] = useState<string | null>(null);
+  const [purchasingCampaignId, setPurchasingCampaignId] = useState<string | null>(
+    null
+  );
   // Triumphant card reveal played after a campaign reward is claimed, mirroring
   // the research tree celebration. Holds the card copies to fan out.
   const [rewardCelebration, setRewardCelebration] = useState<{
@@ -2701,6 +2848,7 @@ export function PvpLobby() {
   const tutorialCarouselRef = useRef<HTMLDivElement>(null);
   const missionsCarouselRef = useRef<HTMLDivElement>(null);
   const [, setProfileRevision] = useState(0);
+  const [combatMissionNow, setCombatMissionNow] = useState(Date.now());
   const playerProgress = loadPlayerProgress();
   const [guestSessionReady, setGuestSessionReady] = useState(() =>
     window.localStorage.getItem(GUEST_SESSION_READY_KEY) === "true"
@@ -2720,6 +2868,30 @@ export function PvpLobby() {
   useEffect(() => {
     void playMusic("main");
   }, []);
+
+  useEffect(() => {
+    if (menuView !== "combatMissions") return;
+    setCombatMissionNow(Date.now());
+    const timer = window.setInterval(() => setCombatMissionNow(Date.now()), 1_000);
+    const expiries = [
+      playerProgress.combatMissions.daily?.expiresAt,
+      playerProgress.combatMissions.weekly?.expiresAt,
+    ].filter((value): value is number => typeof value === "number" && value > Date.now());
+    const refreshTimer = expiries.length > 0
+      ? window.setTimeout(async () => {
+          await syncPlayerProgressFromServer();
+          setProfileRevision((revision) => revision + 1);
+        }, Math.max(1_000, Math.min(...expiries) - Date.now() + 500))
+      : null;
+    return () => {
+      window.clearInterval(timer);
+      if (refreshTimer != null) window.clearTimeout(refreshTimer);
+    };
+  }, [
+    menuView,
+    playerProgress.combatMissions.daily?.periodKey,
+    playerProgress.combatMissions.weekly?.periodKey,
+  ]);
 
   useEffect(() => {
     if (menuView !== "main" || !guestSessionReady) return;
@@ -2815,6 +2987,48 @@ export function PvpLobby() {
       );
     } finally {
       setClaimingRewardId(null);
+    }
+  }
+
+  async function purchaseSelectedCampaign() {
+    if (!missionCampaign?.premium || !missionCampaign.goldCost) return;
+    if (missionCampaignAccessible || purchasingCampaignId) return;
+
+    if (!profileServerReady) {
+      window.alert(t("common.profileServerUnavailable"));
+      return;
+    }
+
+    if (playerProgress.goldTracks < missionCampaign.goldCost) {
+      window.alert(
+        language === "en"
+          ? `Not enough gold tracks. You need ${missionCampaign.goldCost - playerProgress.goldTracks} more.`
+          : `Не хватает золотых траков: ${missionCampaign.goldCost - playerProgress.goldTracks}`
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      language === "en"
+        ? `Unlock “${getLocalizedCampaignTitle(missionCampaign, language)}” permanently for ${missionCampaign.goldCost} gold tracks?`
+        : `Купить постоянный доступ к кампании «${getLocalizedCampaignTitle(missionCampaign, language)}» за ${missionCampaign.goldCost} золотых траков?`
+    );
+    if (!confirmed) return;
+
+    setPurchasingCampaignId(missionCampaign.id);
+    try {
+      await purchaseCampaignOnServer(missionCampaign.id);
+      setProfileRevision((revision) => revision + 1);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : language === "en"
+            ? "Could not unlock the campaign"
+            : "Не удалось открыть кампанию"
+      );
+    } finally {
+      setPurchasingCampaignId(null);
     }
   }
 
@@ -2948,10 +3162,7 @@ export function PvpLobby() {
     if (!profileServerUnavailable) return null;
 
     return (
-      <ProfileServerBanner
-        message={profileConnection.message}
-        onRetry={() => void retryProfileSync()}
-      />
+      <ProfileServerBanner onRetry={() => void retryProfileSync()} />
     );
   }
 
@@ -2964,15 +3175,32 @@ export function PvpLobby() {
   );
   // Campaigns shown in the selection menu (the auto-launched welcome trailer is
   // hidden from the list).
+  const campaignMenuOrder = [
+    "lavrinenko-ace",
+    "raseiniai-kv",
+    "first-panthers",
+    "training-front",
+  ];
   const visibleCampaigns = CAMPAIGNS.filter(
     (campaign) => !campaign.hiddenFromMenu
-  );
+  ).sort((left, right) => {
+    const leftIndex = campaignMenuOrder.indexOf(left.id);
+    const rightIndex = campaignMenuOrder.indexOf(right.id);
+    return (leftIndex < 0 ? Number.MAX_SAFE_INTEGER : leftIndex) -
+      (rightIndex < 0 ? Number.MAX_SAFE_INTEGER : rightIndex);
+  });
   const missionCampaign =
     visibleCampaigns.find(
       (campaign) => campaign.id === storedSelectedCampaignId
     ) ??
     visibleCampaigns[0] ??
     null;
+  const missionCampaignAccessible = missionCampaign
+    ? isCampaignAccessible(
+        missionCampaign,
+        playerProgress.unlockedCampaignIds
+      )
+    : false;
   const firstUnlockedMission =
     missionCampaign?.missions.find(
       (mission) =>
@@ -3243,6 +3471,7 @@ export function PvpLobby() {
   function selectMission(missionId: string) {
     if (buttonsDisabled) return;
     if (!missionCampaign) return;
+    if (!missionCampaignAccessible) return;
     if (
       !isCampaignMissionUnlocked(
         missionCampaign,
@@ -3255,6 +3484,12 @@ export function PvpLobby() {
 
     setSelectedMissionId(missionId);
     startCampaignMission(missionId);
+  }
+
+  async function openCombatMissions() {
+    openCombatMissionsMenu();
+    await syncPlayerProgressFromServer();
+    setProfileRevision((revision) => revision + 1);
   }
 
   function closeNativeBackTarget(target: MainMenuView) {
@@ -3270,6 +3505,8 @@ export function PvpLobby() {
           closeCampaignMenu();
         } else if (menuView === "tutorial") {
           closeTutorialMenu();
+        } else if (menuView === "combatMissions") {
+          closeCombatMissionsMenu();
         } else if (menuView === "profile") {
           closeProfileMenu();
         } else if (menuView === "research") {
@@ -3503,7 +3740,6 @@ export function PvpLobby() {
     return (
       <GuestEntryScreen
         initialNickname={playerProgress.nickname}
-        profileMessage={profileConnection.message}
         profileUnavailable={profileServerUnavailable}
         onRetryProfile={() => void retryProfileSync()}
         onEnter={enterGuestSession}
@@ -3517,7 +3753,14 @@ export function PvpLobby() {
     return (
       <PvpMatchmakingScreen
         playerHeadquartersId={selectedHeadquartersId}
+        playerNickname={getPlayerDisplayNickname(
+          playerProgress,
+          getCurrentUserLogin()
+        )}
+        playerDeckWeight={pvpPlayerDeckWeight}
         opponentHeadquartersId={pvpOpponentHeadquartersId}
+        opponentNickname={pvpOpponentNickname}
+        opponentDeckWeight={pvpOpponentDeckWeight}
         previewLabel={pvpMatchPreviewLabel}
         status={pvpStatus}
         error={pvpError}
@@ -3574,6 +3817,27 @@ export function PvpLobby() {
                         backgroundImage: `linear-gradient(180deg, rgba(8, 9, 7, 0.04), rgba(0, 0, 0, 0.25)), url('${artUrl}')`,
                       }}
                     >
+                      {campaign.premium ? (
+                        <span
+                          style={{
+                            position: "absolute",
+                            top: "0.6cqh",
+                            right: "0.6cqw",
+                            padding: "0.3cqh 0.8cqw",
+                            borderRadius: "0.6cqw",
+                            background:
+                              "linear-gradient(180deg, #f6d365, #c9971f)",
+                            color: "#241a04",
+                            fontSize: "1.6cqh",
+                            fontWeight: 800,
+                            letterSpacing: "0.04em",
+                            textTransform: "uppercase",
+                            boxShadow: "0 0.3cqh 0.9cqh rgba(0,0,0,0.45)",
+                          }}
+                        >
+                          {t("campaign.premiumBadge")}
+                        </span>
+                      ) : null}
                       <span style={styles.campaignArtLabel}>{campaignTitle}</span>
                     </div>
                   </motion.button>
@@ -3620,7 +3884,8 @@ export function PvpLobby() {
         reward.copies > 1
           ? `${rewardCard.name} ×${reward.copies}`
           : rewardCard.name;
-      const canClaim = rewardUnlocked && !rewardClaimed;
+      const canClaim =
+        missionCampaignAccessible && rewardUnlocked && !rewardClaimed;
       const isFocusTarget = `reward-${reward.id}` === campaignFocusKey;
       const tooltip = rewardClaimed
         ? `${t("campaign.rewardReceived")}: ${cardLabel}`
@@ -3667,11 +3932,17 @@ export function PvpLobby() {
           <div
             style={{
               ...styles.rewardCardSlot,
-              ...(rewardUnlocked ? {} : styles.rewardCardSlotLocked),
+              ...(missionCampaignAccessible && rewardUnlocked
+                ? {}
+                : styles.rewardCardSlotLocked),
               ...(canClaim ? styles.rewardCardSlotClaimable : {}),
             }}
           >
-            <HandCardView card={rewardCard} ownerId="player" />
+            <HandCardView
+              card={rewardCard}
+              ownerId="player"
+              cardScale={MISSION_REWARD_CARD_WIDTH / HAND_CARD_BASE_WIDTH}
+            />
             {reward.copies > 1 ? (
               <span style={styles.rewardCopiesBadge}>×{reward.copies}</span>
             ) : null}
@@ -3699,20 +3970,53 @@ export function PvpLobby() {
         />
         {renderProfileServerBanner()}
 
-        <section style={styles.menuLayer}>
-          <header style={styles.header}>
+        <section
+          style={{
+            ...styles.menuLayer,
+            ...(!missionCampaignAccessible && missionCampaign.premium
+              ? styles.premiumCampaignMissionsLayer
+              : {}),
+          }}
+        >
+          <header
+            style={{
+              ...styles.header,
+              ...(!missionCampaignAccessible && missionCampaign.premium
+                ? styles.premiumCampaignHeader
+                : {}),
+            }}
+          >
             <div style={styles.kicker}>{t("battle.selectOperation")}</div>
-            <h1 style={styles.title}>
+            <h1
+              style={{
+                ...styles.title,
+                ...(!missionCampaignAccessible && missionCampaign.premium
+                  ? styles.premiumCampaignTitle
+                  : {}),
+              }}
+            >
               {getLocalizedCampaignTitle(missionCampaign, language)}
             </h1>
-            <p style={styles.subtitle}>
+            <p
+              style={{
+                ...styles.subtitle,
+                ...(!missionCampaignAccessible && missionCampaign.premium
+                  ? styles.premiumCampaignSubtitle
+                  : {}),
+              }}
+            >
               {getLocalizedCampaignDescription(missionCampaign, language)}
             </p>
           </header>
 
           <CarouselTapFrame
             viewportRef={missionsCarouselRef}
-            viewportStyle={styles.missionCarouselViewport}
+            viewportStyle={{
+              ...styles.missionCarouselViewport,
+              ...(!missionCampaignAccessible && missionCampaign.premium
+                ? styles.premiumMissionCarouselViewport
+                : {}),
+            }}
             ariaLabel={t("battle.selectOperation")}
           >
             <div style={styles.missionCarouselTrack}>
@@ -3742,7 +4046,11 @@ export function PvpLobby() {
                       reward.id
                     )
                 );
-                const playable = unlocked && !rewardLocked;
+                const playable =
+                  missionCampaignAccessible &&
+                  available &&
+                  unlocked &&
+                  !rewardLocked;
                 const selected = mission.id === selectedMission?.id;
                 const isFocusTarget = mission.id === campaignFocusKey;
                 const missionIllustration =
@@ -3778,17 +4086,47 @@ export function PvpLobby() {
                       }}
                     />
 
-                    <div style={styles.missionArtCard}>
+                    <div
+                      style={{
+                        ...styles.missionArtCard,
+                        ...(completed ? styles.missionArtCardCompleted : {}),
+                        ...(selected ? styles.missionArtCardSelected : {}),
+                        ...(!playable ? styles.missionArtCardLocked : {}),
+                      }}
+                    >
                       <div
                         style={{
                           ...styles.missionArtImage,
-                          backgroundImage: `linear-gradient(180deg, rgba(8, 9, 7, 0.02), rgba(0, 0, 0, 0.46)), url('${missionIllustration}')`,
+                          backgroundImage: `linear-gradient(180deg, rgba(8, 9, 7, 0.02), rgba(0, 0, 0, 0.72)), url('${missionIllustration}')`,
                         }}
                       />
-                      <div style={styles.missionArtContent}>
-                        <span style={styles.missionNumber}>
+                      <div style={styles.missionImageHud}>
+                        <span style={styles.missionNumberLabel}>
                           {t("campaign.operation")} {String(index + 1).padStart(2, "0")}
                         </span>
+                        <span
+                          style={{
+                            ...styles.missionStatusChip,
+                            ...(completed
+                              ? styles.missionStatusChipCompleted
+                              : playable
+                                ? styles.missionStatusChipAvailable
+                                : styles.missionStatusChipLocked),
+                          }}
+                        >
+                          <span style={styles.missionStatusMark}>
+                            {completed ? "✓" : playable ? "●" : "—"}
+                          </span>
+                          {completed
+                            ? t("campaign.completed")
+                            : !missionCampaignAccessible
+                              ? t("campaign.premiumBadge")
+                            : playable
+                              ? t("campaign.available")
+                              : t("campaign.rewardLocked")}
+                        </span>
+                      </div>
+                      <div style={styles.missionArtContent}>
                         <span style={styles.missionChapter}>{missionChapter}</span>
                         <span style={styles.missionTitle}>{missionTitle}</span>
                         <span style={styles.missionDescription}>
@@ -3796,19 +4134,25 @@ export function PvpLobby() {
                         </span>
                         <span
                           style={{
-                            ...styles.missionState,
-                            ...(completed ? styles.missionStateCompleted : {}),
+                            ...styles.missionActionBar,
+                            ...(playable ? styles.missionActionBarPlayable : {}),
+                            ...(completed ? styles.missionActionBarCompleted : {}),
                           }}
                         >
-                          {completed
-                            ? t("campaign.completed")
-                            : !available
-                              ? t("campaign.soon")
-                              : rewardLocked
-                                ? t("campaign.claimReward")
-                                : unlocked
-                                  ? t("campaign.available")
-                                  : t("campaign.rewardLocked")}
+                          <span>
+                            {completed && playable
+                              ? language === "en" ? "Replay mission" : "Переиграть"
+                              : playable
+                                ? language === "en" ? "Start operation" : "Начать операцию"
+                                : !missionCampaignAccessible
+                                  ? language === "en" ? "Purchase campaign" : "Купить кампанию"
+                                : !available
+                                  ? t("campaign.soon")
+                                  : rewardLocked
+                                    ? t("campaign.claimReward")
+                                    : t("campaign.rewardLocked")}
+                          </span>
+                          {playable ? <span style={styles.missionActionArrow}>›</span> : null}
                         </span>
                       </div>
                     </div>
@@ -3821,8 +4165,53 @@ export function PvpLobby() {
             </div>
           </CarouselTapFrame>
 
-          <div style={styles.menuActionsRow}>
-            <button type="button" style={styles.backButton} onClick={closeCampaignMissions}>
+          <div
+            style={{
+              ...styles.menuActionsRow,
+              ...(!missionCampaignAccessible && missionCampaign.premium
+                ? styles.campaignPurchaseActionsRow
+                : {}),
+            }}
+          >
+            {!missionCampaignAccessible &&
+            missionCampaign.premium &&
+            missionCampaign.goldCost ? (
+              <button
+                type="button"
+                style={styles.campaignPurchaseButton}
+                disabled={purchasingCampaignId === missionCampaign.id}
+                onClick={() => void purchaseSelectedCampaign()}
+              >
+                <span>
+                  {purchasingCampaignId === missionCampaign.id
+                    ? language === "en"
+                      ? "Purchasing…"
+                      : "Покупка…"
+                    : language === "en"
+                      ? "Unlock campaign"
+                      : "Купить кампанию"}
+                </span>
+                <strong style={styles.campaignPurchasePrice}>
+                  {missionCampaign.goldCost}
+                </strong>
+                <img
+                  src={goldTracksIcon}
+                  alt=""
+                  aria-hidden="true"
+                  style={styles.campaignPurchaseCurrencyIcon}
+                />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              style={{
+                ...styles.backButton,
+                ...(!missionCampaignAccessible && missionCampaign.premium
+                  ? styles.campaignPurchaseBackButton
+                  : {}),
+              }}
+              onClick={closeCampaignMissions}
+            >
               {t("common.back")}
             </button>
           </div>
@@ -4023,6 +4412,85 @@ export function PvpLobby() {
     );
   }
 
+  if (menuView === "combatMissions") {
+    const renderMissionGroup = (
+      label: string,
+      set: PlayerProgress["combatMissions"]["daily"]
+    ) => (
+      <section style={{ flex: "1 1 0", minWidth: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16, marginBottom: 10 }}>
+          <h2 style={{ margin: 0, color: "#f1d6a1", fontSize: 24, textTransform: "uppercase" }}>{label}</h2>
+          <span style={{ color: "#c9b78f", fontSize: 14 }}>
+            {language === "en" ? "Refresh in" : "Обновление через"}: {set ? formatMissionCountdown(set.expiresAt, combatMissionNow) : "—"}
+          </span>
+        </div>
+        <div style={{ display: "grid", gap: 12 }}>
+          {set?.missions.map((mission) => {
+            const task = getCombatMissionDefinition(mission.id);
+            if (!task) return null;
+            const complete = mission.completedAt != null;
+            const progress = Math.min(task.target, mission.progress);
+            return (
+              <article key={mission.id} style={{ padding: "14px 16px", border: `1px solid ${complete ? "#af914a" : "rgba(205,184,139,.36)"}`, borderRadius: 8, background: complete ? "linear-gradient(135deg,rgba(91,78,37,.86),rgba(31,37,35,.94))" : "rgba(19,27,28,.9)", boxShadow: "0 8px 20px rgba(0,0,0,.28)" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                  <div>
+                    <strong style={{ display: "block", color: "#fff1cc", fontSize: 18 }}>{task.title[language]}</strong>
+                    <span style={{ color: "#d0d2ca", fontSize: 14 }}>
+                      {task.description[language]}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, color: "#f2d67e", whiteSpace: "nowrap", fontWeight: 800 }}>
+                    <img src={silverTracksIcon} alt="" style={{ width: 27, height: 27, objectFit: "contain" }} />
+                    +{task.reward}
+                  </div>
+                </div>
+                <div style={{ height: 9, marginTop: 12, borderRadius: 99, overflow: "hidden", background: "rgba(0,0,0,.52)", border: "1px solid rgba(255,255,255,.12)" }}>
+                  <div style={{ width: `${Math.min(100, (progress / task.target) * 100)}%`, height: "100%", background: complete ? "linear-gradient(90deg,#b89336,#f0d878)" : "linear-gradient(90deg,#566f51,#8eaa72)", transition: "width .3s ease" }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, color: complete ? "#f0d878" : "#c9c9bf", fontSize: 13, fontWeight: 700 }}>
+                  <span>{progress} / {task.target}</span>
+                  <span>{complete ? (language === "en" ? "REWARD RECEIVED" : "НАГРАДА ПОЛУЧЕНА") : ""}</span>
+                </div>
+              </article>
+            );
+          }) ?? (
+            <div style={{ padding: 30, color: "#d8c9a8", textAlign: "center" }}>
+              {language === "en" ? "Connecting to the profile server…" : "Получаем задачи с сервера…"}
+            </div>
+          )}
+        </div>
+      </section>
+    );
+
+    return (
+      <main style={styles.page}>
+        <div style={styles.backgroundShade} />
+        <PlayerAccountPanel onOpenProfile={openProfileMenu} />
+        <PlayerResourcesPanel onOpenShop={openShopMenu} onOpenExchange={openExchangeMenu} />
+        {renderProfileServerBanner()}
+        <section style={{ ...styles.menuLayer, padding: "72px 5vw 28px", overflowY: "auto" }}>
+          <header style={{ textAlign: "center", marginBottom: 20 }}>
+            <h1 style={{ ...styles.title, marginBottom: 4 }}>{language === "en" ? "COMBAT MISSIONS" : "БОЕВЫЕ ЗАДАЧИ"}</h1>
+            <p style={{ margin: 0, color: "#c9b78f" }}>{language === "en" ? "Complete missions to earn iron tracks" : "Выполняйте задачи и получайте железные траки"}</p>
+          </header>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 24, maxWidth: 1180, width: "100%", margin: "0 auto" }}>
+            {renderMissionGroup(language === "en" ? "Daily" : "Ежедневные", playerProgress.combatMissions.daily)}
+            {renderMissionGroup(language === "en" ? "Weekly" : "Еженедельные", playerProgress.combatMissions.weekly)}
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", maxWidth: 1180, width: "100%", margin: "20px auto 0" }}>
+            <button
+              type="button"
+              style={{ ...styles.backButton, width: 170, padding: "7px 14px 9px", fontSize: 13 }}
+              onClick={closeCombatMissionsMenu}
+            >
+              {t("common.back")}
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   if (menuView === "main" && !pvpBusy) {
     return (
       <main style={styles.page}>
@@ -4039,6 +4507,16 @@ export function PvpLobby() {
             openProfileMenu();
           }}
           onDismiss={dismissRegistrationReminder}
+        />
+        <RegistrationReminderOverlay
+          visible={firstPlayerPackReminderVisible && loadPlayerProgress().cardBackId !== "first_player"}
+          variant="firstPlayerPack"
+          onRegister={() => {}}
+          onOpenShop={() => {
+            dismissFirstPlayerPackReminder();
+            openShopMenu();
+          }}
+          onDismiss={dismissFirstPlayerPackReminder}
         />
         {renderProfileServerBanner()}
 
@@ -4127,23 +4605,36 @@ export function PvpLobby() {
                   : undefined
               }
               style={styles.campaignEntryOption}
-              onClick={openTutorialMenu}
-              aria-label={t("main.tutorial")}
+              onClick={playerProgress.tutorialCompleted ? openCombatMissions : openTutorialMenu}
+              aria-label={playerProgress.tutorialCompleted ? (language === "en" ? "Combat missions" : "Боевые задачи") : t("main.tutorial")}
               whileHover={{ y: -8, scale: 1.035 }}
               whileTap={{ scale: 0.985 }}
               transition={{ type: "spring", stiffness: 360, damping: 28 }}
             >
               <div style={styles.campaignEntryCard}>
                 <img
-                  src="/ui/menu/education.webp"
+                  src={
+                    playerProgress.tutorialCompleted
+                      ? "/ui/menu/combat-missions.webp"
+                      : "/ui/menu/education.webp"
+                  }
                   alt=""
                   draggable={false}
                   onError={(event) =>
-                    usePngFallback(event, "/ui/menu/education.png")
+                    usePngFallback(
+                      event,
+                      playerProgress.tutorialCompleted
+                        ? "/ui/menu/combat-missions.png"
+                        : "/ui/menu/education.png"
+                    )
                   }
                   style={styles.campaignEntryImage}
                 />
-                <span style={styles.campaignEntryTitleOverlay}>{t("main.tutorial")}</span>
+                <span style={styles.campaignEntryTitleOverlay}>
+                  {playerProgress.tutorialCompleted
+                    ? (language === "en" ? "Combat missions" : "Боевые задачи")
+                    : t("main.tutorial")}
+                </span>
               </div>
             </motion.button>
             </div>
@@ -5347,12 +5838,24 @@ const styles: Record<string, CSSProperties> = {
 
   matchmakingSide: {
     position: "relative",
-    height: "min(32cqh, 500px)",
-    minHeight: 310,
+    height: "min(40cqh, 570px)",
+    minHeight: 390,
+    display: "grid",
+    gridTemplateRows: "minmax(0, 1fr) auto",
+    alignItems: "stretch",
+    justifyItems: "center",
+    overflow: "visible",
+    isolation: "isolate",
+  },
+
+  matchmakingPortraitStage: {
+    position: "relative",
+    zIndex: 1,
+    width: "100%",
+    minHeight: 0,
     display: "grid",
     alignItems: "end",
     justifyItems: "center",
-    overflow: "visible",
     isolation: "isolate",
   },
 
@@ -5369,6 +5872,12 @@ const styles: Record<string, CSSProperties> = {
       "radial-gradient(ellipse at center, #000 0%, #000 30%, rgba(0,0,0,0.48) 48%, transparent 78%)",
     maskImage:
       "radial-gradient(ellipse at center, #000 0%, #000 30%, rgba(0,0,0,0.48) 48%, transparent 78%)",
+  },
+
+  matchmakingUsaFlag: {
+    // Match the nation filters: crop from 25% of the image width so the canton
+    // and stars stay visible instead of showing only the central stripes.
+    backgroundPosition: "25% center",
   },
 
   matchmakingPortrait: {
@@ -5407,11 +5916,8 @@ const styles: Record<string, CSSProperties> = {
   },
 
   matchmakingName: {
-    position: "absolute",
-    left: "8%",
-    right: "8%",
-    bottom: 14,
-    zIndex: 2,
+    position: "relative",
+    zIndex: 3,
     color: "var(--brass-400)",
     fontFamily: "var(--font-display)",
     fontSize: "var(--fs-title)",
@@ -5420,6 +5926,33 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.04,
     textAlign: "center",
     textTransform: "uppercase",
+    textShadow: "0 3px 10px rgba(0,0,0,0.95)",
+  },
+
+  matchmakingDetails: {
+    position: "relative",
+    zIndex: 4,
+    width: "84%",
+    minHeight: 92,
+    marginTop: 8,
+    display: "grid",
+    alignContent: "start",
+    justifyItems: "stretch",
+    gap: 7,
+  },
+
+  matchmakingIdentity: {
+    position: "relative",
+    zIndex: 3,
+    display: "grid",
+    justifyItems: "center",
+    gap: 3,
+    color: "#f7ddb0",
+    fontSize: "clamp(14px, 1.25cqw, 19px)",
+    fontWeight: 800,
+    letterSpacing: 0.6,
+    lineHeight: 1.12,
+    textAlign: "center",
     textShadow: "0 3px 10px rgba(0,0,0,0.95)",
   },
 
@@ -6092,6 +6625,93 @@ const styles: Record<string, CSSProperties> = {
     textAlign: "center",
     textShadow: "0 2px 0 rgba(0,0,0,0.84)",
     boxShadow: "inset 0 0 0 1px rgba(224, 190, 104, 0.2)",
+  },
+  shopPackVisual: {
+    position: "relative",
+    width: 190,
+    height: 122,
+    margin: "0 auto 4px",
+  },
+  shopPackMiniCard: {
+    position: "absolute",
+    left: 18,
+    top: -56,
+    width: 168,
+    height: 230,
+    transform: "scale(0.48) rotate(-5deg)",
+    transformOrigin: "center center",
+    pointerEvents: "none",
+    zIndex: 2,
+  },
+  shopPackMiniBack: {
+    position: "absolute",
+    left: 91,
+    top: 9,
+    width: 68,
+    height: 96,
+    objectFit: "cover",
+    borderRadius: 7,
+    transform: "rotate(6deg)",
+    boxShadow: "0 8px 16px rgba(0,0,0,0.62)",
+    zIndex: 1,
+  },
+  shopPackMiniGold: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
+    width: 48,
+    height: 48,
+    objectFit: "contain",
+    filter: "drop-shadow(0 5px 7px rgba(0,0,0,0.8))",
+    zIndex: 3,
+  },
+
+  packPreviewBackdrop: {
+    position: "absolute",
+    // Start below the top HUD (account panel ~98px, settings buttons) so the
+    // preview doesn't cover the player's account status and settings controls.
+    // Top/bottom shifted up 40px together to keep the same size but sit higher.
+    inset: "64px 0 20px 0",
+    zIndex: 60,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "transparent",
+  },
+  packPreviewPanel: {
+    position: "absolute",
+    inset: "64px 0 20px 0",
+    boxSizing: "border-box",
+    padding: "32px 48px",
+    overflow: "hidden",
+    background: "linear-gradient(145deg, #35362f 0%, #20231f 48%, #111310 100%)",
+    color: "#f4e4b5",
+    boxShadow: "inset 0 0 0 1px rgba(224,190,104,0.45)",
+  },
+  packPreviewClose: {
+    position: "absolute",
+    right: 12,
+    top: 8,
+    border: 0,
+    background: "transparent",
+    color: "#f4e4b5",
+    fontSize: 28,
+    cursor: "pointer",
+  },
+  packPreviewTitle: { margin: "8px 0 28px", textAlign: "center", fontSize: 34 },
+  packPreviewContent: { display: "flex", minHeight: "calc(100% - 190px)", alignItems: "flex-start", justifyContent: "center", gap: 54 },
+  packPreviewCard: { width: MISSION_REWARD_CARD_WIDTH, height: MISSION_CARD_HEIGHT, display: "flex", alignItems: "center", justifyContent: "center" },
+  packPreviewBack: { width: MISSION_REWARD_CARD_WIDTH, height: MISSION_CARD_HEIGHT, objectFit: "cover", borderRadius: 16, boxShadow: "0 18px 38px rgba(0,0,0,0.65)" },
+  packPreviewDetails: { display: "grid", gap: 16, minWidth: 270, fontSize: 21 },
+  packPreviewBuyButton: {
+    marginTop: 8,
+    minHeight: 44,
+    border: "1px solid rgba(244,205,105,0.65)",
+    background: "linear-gradient(180deg, #765d23, #3d2d0e)",
+    color: "#fff0bd",
+    fontSize: 16,
+    fontWeight: 900,
+    cursor: "pointer",
   },
 
   exchangeBalanceRow: {
@@ -6917,11 +7537,39 @@ const styles: Record<string, CSSProperties> = {
     touchAction: "none",
   },
 
+  premiumCampaignMissionsLayer: {
+    justifyContent: "flex-start",
+    paddingTop: "clamp(38px, 6cqh, 58px)",
+    paddingBottom: 6,
+  },
+
+  premiumCampaignHeader: {
+    flex: "0 0 auto",
+    marginBottom: 0,
+    transform: "none",
+  },
+
+  premiumCampaignTitle: {
+    fontSize: "clamp(28px, 4cqh, 40px)",
+  },
+
+  premiumCampaignSubtitle: {
+    maxWidth: 920,
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 1.2,
+  },
+
+  premiumMissionCarouselViewport: {
+    paddingTop: 5,
+    paddingBottom: 7,
+  },
+
   missionCarouselTrack: {
     display: "flex",
     justifyContent: "center",
     alignItems: "flex-start",
-    gap: 34,
+    gap: 28,
     minWidth: "max-content",
     margin: "0 auto",
   },
@@ -6929,9 +7577,9 @@ const styles: Record<string, CSSProperties> = {
   missionCardOption: {
     position: "relative",
     flex: "0 0 auto",
-    width: 332,
-    minHeight: 408,
-    padding: 14,
+    width: 326,
+    minHeight: 428,
+    padding: 9,
     border: "none",
     outline: "none",
     background: "transparent",
@@ -6944,22 +7592,38 @@ const styles: Record<string, CSSProperties> = {
 
   missionCardOptionLocked: {
     cursor: "default",
-    opacity: 0.5,
-    filter: "grayscale(0.72)",
+    opacity: 0.88,
+    filter: "grayscale(0.34) brightness(0.86)",
   },
 
   missionArtCard: {
     position: "relative",
     zIndex: 2,
-    height: 380,
+    height: MISSION_CARD_HEIGHT,
     display: "grid",
-    gridTemplateRows: "146px 1fr",
+    gridTemplateRows: "154px 1fr",
     overflow: "hidden",
-    borderRadius: 14,
-    border: "1px solid rgba(244, 209, 124, 0.42)",
-    background: "linear-gradient(180deg, rgba(47, 42, 28, 0.98), rgba(14, 16, 12, 0.98))",
+    borderRadius: 7,
+    border: "1px solid rgba(174, 163, 129, 0.42)",
+    background: "linear-gradient(180deg, #292a22 0%, #1b1e19 55%, #141713 100%)",
     boxShadow:
-      "0 18px 42px rgba(0,0,0,0.52), inset 0 0 28px rgba(255, 223, 128, 0.06)",
+      "0 16px 34px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.035)",
+    transition: "border-color 180ms ease, box-shadow 180ms ease, filter 180ms ease",
+  },
+
+  missionArtCardSelected: {
+    borderColor: "rgba(205, 183, 125, 0.9)",
+    boxShadow:
+      "0 0 0 1px rgba(205, 183, 125, 0.2), 0 20px 42px rgba(0,0,0,0.58), 0 0 22px rgba(174, 148, 87, 0.13)",
+  },
+
+  missionArtCardCompleted: {
+    borderColor: "rgba(137, 157, 112, 0.62)",
+    background: "linear-gradient(180deg, #292d23 0%, #1b231b 56%, #141a14 100%)",
+  },
+
+  missionArtCardLocked: {
+    borderColor: "rgba(153, 149, 134, 0.28)",
   },
 
   missionArtImage: {
@@ -6969,6 +7633,65 @@ const styles: Record<string, CSSProperties> = {
     backgroundPosition: "center center",
     backgroundRepeat: "no-repeat",
     borderBottom: "1px solid rgba(244, 209, 124, 0.24)",
+  },
+
+  missionImageHud: {
+    position: "absolute",
+    zIndex: 4,
+    top: 11,
+    left: 12,
+    right: 11,
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+    pointerEvents: "none",
+  },
+
+  missionNumberLabel: {
+    padding: "4px 0",
+    color: "#e2d2a6",
+    fontSize: 12,
+    fontWeight: 900,
+    letterSpacing: 1.8,
+    textTransform: "uppercase",
+    textShadow: "0 2px 5px rgba(0,0,0,0.98)",
+  },
+
+  missionStatusChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 22,
+    padding: "2px 7px",
+    border: "none",
+    borderRadius: 2,
+    fontSize: 9,
+    fontWeight: 1000,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    textShadow: "0 1px 3px rgba(0,0,0,0.9)",
+    boxShadow: "0 3px 9px rgba(0,0,0,0.36)",
+  },
+
+  missionStatusChipAvailable: {
+    color: "#dfcca0",
+    background: "rgba(54, 53, 40, 0.92)",
+  },
+
+  missionStatusChipCompleted: {
+    color: "#c1d2ad",
+    background: "rgba(45, 63, 42, 0.92)",
+  },
+
+  missionStatusChipLocked: {
+    color: "rgba(218, 214, 199, 0.82)",
+    background: "rgba(41, 43, 39, 0.92)",
+  },
+
+  missionStatusMark: {
+    fontSize: 12,
+    lineHeight: 1,
   },
 
   rewardCardColumn: {
@@ -6983,7 +7706,7 @@ const styles: Record<string, CSSProperties> = {
 
   rewardCardSlot: {
     position: "relative",
-    width: 226,
+    width: MISSION_REWARD_CARD_WIDTH,
     padding: 0,
     border: "none",
     background: "transparent",
@@ -7032,9 +7755,9 @@ const styles: Record<string, CSSProperties> = {
 
   missionArtContent: {
     display: "grid",
-    gridTemplateRows: "auto auto auto 1fr auto",
-    gap: 7,
-    padding: "15px 17px 16px",
+    gridTemplateRows: "auto auto 1fr auto",
+    gap: 8,
+    padding: "15px 16px 14px",
   },
 
   campaignPanel: {
@@ -7115,9 +7838,9 @@ const styles: Record<string, CSSProperties> = {
   },
 
   missionChapter: {
-    minHeight: 28,
-    color: "rgba(244, 229, 191, 0.74)",
-    fontSize: 12,
+    minHeight: 14,
+    color: "rgba(196, 185, 153, 0.86)",
+    fontSize: 11,
     fontWeight: 800,
     lineHeight: 1.16,
     letterSpacing: 0.45,
@@ -7125,12 +7848,12 @@ const styles: Record<string, CSSProperties> = {
   },
 
   missionTitle: {
-    color: "#ffe9a8",
+    color: "#e8d8ad",
     display: "-webkit-box",
     overflow: "hidden",
     WebkitBoxOrient: "vertical",
     WebkitLineClamp: 2,
-    fontSize: 20,
+    fontSize: 19,
     fontWeight: 1000,
     lineHeight: 1.05,
     textTransform: "uppercase",
@@ -7140,10 +7863,45 @@ const styles: Record<string, CSSProperties> = {
     display: "-webkit-box",
     overflow: "hidden",
     WebkitBoxOrient: "vertical",
-    WebkitLineClamp: 4,
-    color: "rgba(244, 229, 191, 0.78)",
-    fontSize: 14,
-    lineHeight: 1.25,
+    WebkitLineClamp: 6,
+    color: "rgba(226, 221, 204, 0.9)",
+    fontSize: 13,
+    lineHeight: 1.32,
+  },
+
+  missionActionBar: {
+    minHeight: 32,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    padding: "4px 9px",
+    border: "1px solid rgba(160, 157, 142, 0.2)",
+    borderRadius: 2,
+    background: "rgba(17, 20, 17, 0.72)",
+    color: "rgba(213, 210, 196, 0.72)",
+    fontSize: 11,
+    fontWeight: 1000,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+
+  missionActionBarPlayable: {
+    borderColor: "rgba(181, 162, 111, 0.46)",
+    background: "linear-gradient(90deg, rgba(62, 59, 43, 0.9), rgba(39, 42, 34, 0.84))",
+    color: "#ddc99a",
+  },
+
+  missionActionBarCompleted: {
+    borderColor: "rgba(128, 153, 107, 0.42)",
+    background: "linear-gradient(90deg, rgba(45, 61, 40, 0.84), rgba(35, 45, 33, 0.8))",
+    color: "#bfd1aa",
+  },
+
+  missionActionArrow: {
+    fontSize: 22,
+    lineHeight: 0.8,
+    transform: "translateY(-1px)",
   },
 
   missionState: {
@@ -7164,6 +7922,59 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateColumns: "minmax(0, 1fr)",
     gap: 12,
     margin: "0 auto",
+  },
+
+  campaignPurchaseActionsRow: {
+    width: "calc(100cqw - 48px)",
+    maxWidth: "100%",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(280px, 520px) minmax(0, 1fr)",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  campaignPurchaseButton: {
+    gridColumn: 2,
+    minHeight: 56,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    padding: "13px 24px",
+    border: "1px solid rgba(255, 225, 139, 0.82)",
+    borderRadius: 3,
+    background:
+      "linear-gradient(180deg, rgba(174, 126, 31, 0.98), rgba(91, 57, 10, 0.98))",
+    color: "#fff2bf",
+    cursor: "pointer",
+    fontFamily: "var(--font-display)",
+    fontSize: 20,
+    fontWeight: 1000,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    textShadow: "0 2px 0 rgba(0,0,0,0.8)",
+    boxShadow:
+      "inset 0 0 0 1px rgba(255,255,255,0.1), 0 8px 22px rgba(0,0,0,0.42)",
+  },
+
+  campaignPurchaseBackButton: {
+    gridColumn: 3,
+    justifySelf: "end",
+    width: 112,
+    minHeight: 40,
+    padding: "7px 10px 9px",
+    fontSize: 12,
+    letterSpacing: 0.4,
+  },
+
+  campaignPurchasePrice: {
+    fontSize: 24,
+  },
+
+  campaignPurchaseCurrencyIcon: {
+    width: 32,
+    height: 32,
+    objectFit: "contain",
+    filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.55))",
   },
 
   tutorialActionsRow: {

@@ -119,7 +119,45 @@ import explosionSmokeImage from "../assets/effects/explosion-smoke.webp";
 import movementArrowImage from "../assets/effects/arrow.png";
 import burntCardImage from "../assets/effects/burnt-card.webp";
 import cardBackImage from "../assets/cards/card-back.webp";
+import firstPlayerCardBackImage from "../assets/cards/first_players.webp";
 import cartridgeImage from "../assets/effects/rifle-cartridge.webp";
+import silverTracksIcon from "../assets/icons/silver-tracks.webp";
+import {
+  getCombatMissionDefinition,
+  type CombatMissionDefinition,
+  type CombatMissionsState,
+} from "../game/combatMissions";
+
+function getNewlyCompletedCombatMissions(
+  before: CombatMissionsState,
+  after: CombatMissionsState
+): CombatMissionDefinition[] {
+  const completedBefore = new Set<string>();
+
+  for (const period of ["daily", "weekly"] as const) {
+    const set = before[period];
+    if (!set) continue;
+    for (const mission of set.missions) {
+      if (mission.completedAt) {
+        completedBefore.add(`${period}:${set.periodKey}:${mission.id}`);
+      }
+    }
+  }
+
+  const completed: CombatMissionDefinition[] = [];
+  for (const period of ["daily", "weekly"] as const) {
+    const set = after[period];
+    if (!set) continue;
+    for (const mission of set.missions) {
+      const key = `${period}:${set.periodKey}:${mission.id}`;
+      if (!mission.completedAt || completedBefore.has(key)) continue;
+      const definition = getCombatMissionDefinition(mission.id);
+      if (definition) completed.push(definition);
+    }
+  }
+
+  return completed;
+}
 
 function samePosition(a: Position, b: Position): boolean {
   return a.row === b.row && a.col === b.col;
@@ -131,6 +169,12 @@ function getErrorMessage(error: unknown, fallback: string): string {
 
 /** Gap (px) between battlefield cells — must match styles.board `gap`. */
 const BOARD_CELL_GAP = 4;
+const BOARD_COLUMNS = 5;
+const BOARD_EDGE_PADDING = 18;
+const BOARD_TARGET_SIZE = `calc(100cqh - ${BOARD_EDGE_PADDING * 2}px)`;
+const BOARD_CELL_SIZE_FALLBACK =
+  (720 - BOARD_EDGE_PADDING * 2 - BOARD_CELL_GAP * (BOARD_COLUMNS - 1)) /
+  BOARD_COLUMNS;
 
 function isPlayerSpawn(position: Position): boolean {
   return PLAYER_SPAWN_CELLS.some((cell) => samePosition(cell, position));
@@ -448,6 +492,35 @@ function SelectedCombatObjectGlow() {
   );
 }
 
+function AvailableActionGlow() {
+  return (
+    <motion.span
+      aria-hidden
+      style={styles.availableActionGlow}
+      initial={{ opacity: 0 }}
+      animate={{
+        opacity: [0.28, 0.9, 0.38, 0.82, 0.28],
+        scale: [0.985, 1.025, 0.995, 1.018, 0.985],
+        borderColor: [
+          "rgba(91, 224, 112, 0.52)",
+          "rgba(145, 255, 158, 0.96)",
+          "rgba(75, 196, 94, 0.62)",
+          "rgba(126, 244, 140, 0.9)",
+          "rgba(91, 224, 112, 0.52)",
+        ],
+        boxShadow: [
+          "0 0 7px rgba(64, 211, 91, 0.28), inset 0 0 8px rgba(70, 218, 96, 0.12)",
+          "0 0 21px rgba(91, 241, 116, 0.72), inset 0 0 18px rgba(92, 232, 113, 0.28)",
+          "0 0 10px rgba(55, 188, 77, 0.38), inset 0 0 11px rgba(65, 204, 87, 0.16)",
+          "0 0 18px rgba(82, 225, 105, 0.62), inset 0 0 16px rgba(81, 220, 103, 0.24)",
+          "0 0 7px rgba(64, 211, 91, 0.28), inset 0 0 8px rgba(70, 218, 96, 0.12)",
+        ],
+      }}
+      transition={{ duration: 1.75, ease: "easeInOut", repeat: Infinity }}
+    />
+  );
+}
+
 // Persistent brass command frame around the rear HQ cell so it reads as the
 // command centre instead of just another rear unit of the same size. Corner
 // brackets + a thin gold border; sits above the card art (z9) but below the
@@ -586,6 +659,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     localPlayerId,
     pvpRoomId,
     pvpOpponentNickname,
+    pvpOpponentCardBackId,
     pvpError,
     pvpTimer,
     pvpMovementIntent,
@@ -651,6 +725,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     : null;
   const missionSkipFirstTurnRoll =
     campaignMission?.mission.skipFirstTurnRoll ?? false;
+  const missionBotStartsFirst =
+    campaignMission?.mission.botStartsFirst ?? false;
   const missionCenteredDialogue =
     campaignMission?.mission.centeredDialogue ?? false;
   const missionSkipResultScreen =
@@ -658,6 +734,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const missionEndRewardId = campaignMission?.mission.endRewardId ?? null;
   const missionMinimalBattleControls =
     campaignMission?.mission.minimalBattleControls ?? false;
+  const evacuationObjective =
+    battle.objective?.type === "evacuate_unit" ? battle.objective : null;
+  const pantherObjectiveTag =
+    campaignMission?.mission.id === "panther-12" &&
+    evacuationObjective?.unitTag === "panther-534"
+      ? evacuationObjective.unitTag
+      : null;
   const missionWon = battle.status === "player_won";
   const missionDebriefText = campaignMission
     ? missionWon
@@ -877,6 +960,11 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   // Имя локального игрока берем из актуального аккаунта: у зарегистрированного
   // профиля это логин, у гостя — сохраненный ник.
   const [localPlayerNickname] = useState(() => loadPlayerProgress().nickname);
+  const [localCardBackId] = useState(() => loadPlayerProgress().cardBackId);
+  const getCardBackImage = (owner: PlayerId) =>
+    owner === humanPlayerId
+      ? localCardBackId === "first_player" ? firstPlayerCardBackImage : cardBackImage
+      : pvpOpponentCardBackId === "first_player" ? firstPlayerCardBackImage : cardBackImage;
 
   // The single scripted destination cell for the BT-7's advance in the active
   // tutorial step — the only cell highlighted and the only one the player may
@@ -997,6 +1085,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           <DeckStack
             cardCount={getDeckCount(owner)}
             countPosition={placement === "enemy" ? "right" : undefined}
+            cardBackImageUrl={getCardBackImage(owner)}
           />
         </div>
 
@@ -1119,17 +1208,20 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     new Set(battle.units.map((unit) => unit.instanceId))
   );
   const boardRef = useRef<HTMLDivElement | null>(null);
-  // Rear-strip cells must match the live battlefield cell size. The board is a
-  // 5-column grid with a 4px gap, so a single cell is (width - 4*gap) / 5. We
-  // measure the board's layout width (transform-independent) and keep it in
-  // sync via a ResizeObserver so the rear column always lines up with the rows.
-  const [boardCellSize, setBoardCellSize] = useState(140);
+  // Rear-strip cells must match the live battlefield cell size. Measure the
+  // board's layout width (transform-independent) and keep it in sync via a
+  // ResizeObserver so the rear column always lines up with the rows.
+  const [boardCellSize, setBoardCellSize] = useState(
+    BOARD_CELL_SIZE_FALLBACK
+  );
   useLayoutEffect(() => {
     const board = boardRef.current;
     if (!board) return;
 
     const measure = () => {
-      const size = (board.offsetWidth - 4 * BOARD_CELL_GAP) / 5;
+      const size =
+        (board.offsetWidth - (BOARD_COLUMNS - 1) * BOARD_CELL_GAP) /
+        BOARD_COLUMNS;
       if (size > 0) setBoardCellSize(size);
     };
 
@@ -1189,6 +1281,18 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   );
   const pvpSpawningAwaitingStateRef = useRef<Set<string>>(new Set());
   const pvpSpawnFallbackTimersRef = useRef<Map<string, number>>(new Map());
+  // Cards played locally in PvP (drag-drop / click) that are marked static so
+  // their board cell mounts in place with no pop-in once the server echoes the
+  // play back — mirroring PvE's placeUnitStatically. Held until the played card
+  // leaves the hand in server state (see the effect that releases them).
+  const pvpStaticSpawnAwaitingStateRef = useRef<Set<string>>(new Set());
+  const pvpStaticSpawnFallbackTimersRef = useRef<Map<string, number>>(new Map());
+  // Deploy-barrage cards the local player placed optimistically via drag-drop.
+  // The server still sends a barrage intent for them; this set tells that intent
+  // to skip its own hand→cell fly-in (the card is already in place) and only play
+  // the barrage shots — matching PvE, where a drag play of a barrage card lands
+  // instantly and then shells, with no fly-in.
+  const pvpOptimisticSpawnRef = useRef<Set<string>>(new Set());
   // Units that have just landed from a spawn animation. Their board cell mounts
   // statically (no scale/opacity pop-in) so the destination cell never blinks
   // out before the unit image appears — the flying card overlay hands off
@@ -1293,6 +1397,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     useState<RewardClaimStatus>("idle");
   const [rewardClaimError, setRewardClaimError] = useState<string | null>(null);
   const [rewardSyncPending, setRewardSyncPending] = useState(false);
+  const [completedMissionCelebrations, setCompletedMissionCelebrations] =
+    useState<CombatMissionDefinition[]>([]);
   const debugPausedRef = useRef(false);
   const rewardedBattleKeyRef = useRef<string | null>(null);
   const reminderCountedBattleKeyRef = useRef<string | null>(null);
@@ -1457,7 +1563,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
   useEffect(() => {
     if (mode !== "pvp") return;
-    if (pvpSpawningAwaitingStateRef.current.size === 0) return;
+    if (
+      pvpSpawningAwaitingStateRef.current.size === 0 &&
+      pvpStaticSpawnAwaitingStateRef.current.size === 0
+    ) {
+      return;
+    }
 
     const handCardIds = new Set<string>();
     for (const owner of ["player", "bot"] as const) {
@@ -1466,24 +1577,54 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       }
     }
 
-    const confirmedPlayedIds: string[] = [];
-
+    const confirmedHiddenIds: string[] = [];
     for (const cardInstanceId of pvpSpawningAwaitingStateRef.current) {
       if (!handCardIds.has(cardInstanceId)) {
-        confirmedPlayedIds.push(cardInstanceId);
+        confirmedHiddenIds.push(cardInstanceId);
       }
     }
 
-    if (confirmedPlayedIds.length === 0) return;
-
-    for (const cardInstanceId of confirmedPlayedIds) {
+    for (const cardInstanceId of confirmedHiddenIds) {
       releasePvpSpawnHidden(cardInstanceId);
+    }
+
+    // The played card has left the hand in server state, so the freshly-mounted
+    // unit is already on the board (static). Drop the static flag on the next
+    // frames so later re-renders animate normally — the mount itself never
+    // popped in. Mirrors placeUnitStatically's rAF cleanup.
+    const confirmedStaticIds: string[] = [];
+    for (const cardInstanceId of pvpStaticSpawnAwaitingStateRef.current) {
+      if (!handCardIds.has(cardInstanceId)) {
+        confirmedStaticIds.push(cardInstanceId);
+      }
+    }
+
+    for (const cardInstanceId of confirmedStaticIds) {
+      clearPvpStaticSpawnFallbackTimer(cardInstanceId);
+      pvpStaticSpawnAwaitingStateRef.current.delete(cardInstanceId);
+    }
+
+    if (confirmedStaticIds.length > 0) {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          setStaticSpawnUnitIds((current) => {
+            let changed = false;
+            const next = new Set(current);
+            for (const cardInstanceId of confirmedStaticIds) {
+              if (next.delete(cardInstanceId)) changed = true;
+            }
+            return changed ? next : current;
+          });
+        });
+      });
     }
   }, [battle, mode]);
 
   useEffect(() => {
     if (mode !== "pvp" || !pvpError) return;
     clearAllPvpSpawnHidden();
+    clearAllPvpSpawnStatic();
+    pvpOptimisticSpawnRef.current.clear();
   }, [mode, pvpError]);
 
   useEffect(
@@ -1493,6 +1634,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       }
       pvpSpawnFallbackTimersRef.current.clear();
       pvpSpawningAwaitingStateRef.current.clear();
+      for (const timeoutId of pvpStaticSpawnFallbackTimersRef.current.values()) {
+        window.clearTimeout(timeoutId);
+      }
+      pvpStaticSpawnFallbackTimersRef.current.clear();
+      pvpStaticSpawnAwaitingStateRef.current.clear();
+      pvpOptimisticSpawnRef.current.clear();
     },
     []
   );
@@ -1662,7 +1809,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }
 
   function getPlayerHandSafeWidth() {
-    const boardWidth = boardCellSize * 5 + BOARD_CELL_GAP * 4;
+    const boardWidth =
+      boardCellSize * BOARD_COLUMNS + BOARD_CELL_GAP * (BOARD_COLUMNS - 1);
 
     return Math.max(HAND_CARD_WIDTH, boardWidth - 24);
   }
@@ -1678,7 +1826,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }
 
   function getEnemyHandSafeWidth() {
-    const boardWidth = boardCellSize * 5 + BOARD_CELL_GAP * 4;
+    const boardWidth =
+      boardCellSize * BOARD_COLUMNS + BOARD_CELL_GAP * (BOARD_COLUMNS - 1);
 
     return Math.max(ENEMY_HAND_CARD_WIDTH, boardWidth - 24);
   }
@@ -1767,6 +1916,21 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     setRewardClaimStatus("pending");
     setRewardClaimError(null);
+    const combatMissionsBefore = loadPlayerProgress().combatMissions;
+
+    const celebrateCompletedMissions = (after: CombatMissionsState) => {
+      const newlyCompleted = getNewlyCompletedCombatMissions(
+        combatMissionsBefore,
+        after
+      );
+      if (newlyCompleted.length === 0) return;
+      setCompletedMissionCelebrations((current) => [
+        ...current,
+        ...newlyCompleted.filter(
+          (mission) => !current.some((queued) => queued.id === mission.id)
+        ),
+      ]);
+    };
 
     if (mode === "pvp") {
       if (!pvpRoomId) {
@@ -1795,6 +1959,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       });
 
       if (serverResult?.reward) {
+        celebrateCompletedMissions(serverResult.profile.combatMissions);
         setBattleReward(serverResult.reward);
         setRewardClaimStatus("claimed");
         setRewardSyncPending(false);
@@ -1813,11 +1978,27 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     }
 
     serverError = null;
+    // Campaign battles feed combat missions only on a mission's first run: pass
+    // the mission and whether it had already been won *before* this battle, so
+    // the server stops crediting combat tasks once the mission is beaten. The
+    // won-mission set is only updated on reset() (after this claim), so it still
+    // reflects the pre-battle state here.
+    const campaignMissionId =
+      mode === "campaign"
+        ? useBattleStore.getState().currentCampaignMissionId
+        : null;
+    const campaignMissionAlreadyWon =
+      !!campaignMissionId &&
+      useBattleStore
+        .getState()
+        .completedCampaignMissionIds.includes(campaignMissionId);
     const serverResult = await claimBattleRewardFromServer({
       battle,
       mode,
       localPlayerId: humanPlayerId,
       matchEndReason: null,
+      campaignMissionId,
+      campaignMissionAlreadyWon,
     }).catch((error: unknown) => {
       serverError = getErrorMessage(
         error,
@@ -1827,6 +2008,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     });
 
     if (serverResult?.reward) {
+      celebrateCompletedMissions(serverResult.profile.combatMissions);
       setBattleReward(serverResult.reward);
       setRewardClaimStatus("claimed");
       setRewardSyncPending(false);
@@ -1838,9 +2020,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       mode,
       localPlayerId: humanPlayerId,
       matchEndReason: null,
+      campaignMissionId,
+      campaignMissionAlreadyWon,
     });
 
     if (localResult) {
+      celebrateCompletedMissions(localResult.progress.combatMissions);
       setBattleReward(localResult.reward);
       setRewardClaimStatus("claimed");
       setRewardClaimError(
@@ -1970,11 +2155,19 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     startRollRunningRef.current = true;
 
-    // Scripted intro (welcome trailer): no roll, the player always starts.
-    if (missionSkipFirstTurnRoll) {
+    // Scripted missions can force who starts, skipping the roll: the welcome
+    // trailer always gives the player the first move, other scripted missions may
+    // hand it to the enemy.
+    const forcedStartingPlayer: PlayerId | null = missionSkipFirstTurnRoll
+      ? "player"
+      : missionBotStartsFirst
+        ? "bot"
+        : null;
+
+    if (forcedStartingPlayer) {
       dispatchBattleActionRef.current({
         type: "BEGIN_BATTLE",
-        startingPlayer: "player",
+        startingPlayer: forcedStartingPlayer,
       });
 
       setStartRollState({
@@ -1984,10 +2177,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         resultVisible: false,
       });
 
-      setTurnBannerText(t("battle.yourTurn"));
+      setTurnBannerText(
+        forcedStartingPlayer === humanPlayerId
+          ? t("battle.yourTurn")
+          : t("battle.enemyTurn")
+      );
       const bannerTimer = window.setTimeout(() => setTurnBannerText(null), 1300);
 
-      previousActivePlayerRef.current = "player";
+      previousActivePlayerRef.current = forcedStartingPlayer;
       startRollRunningRef.current = false;
 
       return () => window.clearTimeout(bannerTimer);
@@ -2050,6 +2247,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     tutorialActive,
     briefingPending,
     missionSkipFirstTurnRoll,
+    missionBotStartsFirst,
   ]);
 
   useEffect(() => {
@@ -2470,6 +2668,47 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     battle.activePlayer === humanPlayerId
       ? getAvailableMoveCells(battle as BattleState, humanPlayerId, selectedAttacker.id)
       : [];
+
+  const showAvailableActionHints =
+    battle.status === "active" &&
+    battle.activePlayer === humanPlayerId &&
+    !selectedAttacker &&
+    !selectedCardInstanceId &&
+    !tutorialActive &&
+    !debugPaused;
+  const availableActionUnitIds = new Set<string>();
+  let headquartersHasAvailableAction = false;
+
+  if (showAvailableActionHints) {
+    for (const unit of battle.units) {
+      if (unit.ownerId !== humanPlayerId) continue;
+
+      const canAttack =
+        getTargetsInRange(
+          battle as BattleState,
+          humanPlayerId,
+          "unit",
+          unit.instanceId
+        ).length > 0;
+      const canMove =
+        isBattlefieldUnit(unit) &&
+        getAvailableMoveCells(
+          battle as BattleState,
+          humanPlayerId,
+          unit.instanceId
+        ).length > 0;
+
+      if (canAttack || canMove) availableActionUnitIds.add(unit.instanceId);
+    }
+
+    headquartersHasAvailableAction =
+      getTargetsInRange(
+        battle as BattleState,
+        humanPlayerId,
+        "headquarters",
+        `${humanPlayerId}_hq`
+      ).length > 0;
+  }
 
   function isTarget(targetType: "unit" | "headquarters", targetId: string) {
     return selectedTargets.some(
@@ -3385,7 +3624,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     const currentBattle = useBattleStore.getState().battle;
     if (!currentBattle) return;
 
-    keepPvpSpawnHiddenUntilState(intent.cardInstanceId);
+    // A card the local player already placed optimistically (drag-drop): the
+    // hand card is hidden and the unit is staged in place, so skip this intent's
+    // hand→cell fly-in and go straight to the barrage shots — like PvE, where a
+    // drag play of a barrage card lands instantly and then shells.
+    const optimisticallyPlaced = pvpOptimisticSpawnRef.current.delete(
+      intent.cardInstanceId
+    );
 
     const targetPositions = captureUnitCenters(currentBattle);
     const sourceCenter =
@@ -3395,45 +3640,50 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
             intent.playerId,
             intent.source.supportSlot as SupportSlot
           );
-    // Play the hand→cell fly-in for both sides. The deploy-barrage intent is the
-    // single source of the spawn animation in PvP (the local player no longer
-    // animates its own play before dispatching), so skipping it for the local
-    // player would make its own units pop onto the board with no motion.
-    if (intent.source.type === "battlefield") {
-      await playSpawnCardAnimationRef.current(
-        intent.playerId,
-        intent.cardInstanceId,
-        intent.cardId,
-        intent.source.position
+
+    if (!optimisticallyPlaced) {
+      keepPvpSpawnHiddenUntilState(intent.cardInstanceId);
+
+      // Play the hand→cell fly-in. For the opponent's plays (and the local
+      // player's click plays) the barrage intent is the single source of the
+      // spawn animation in PvP, so skipping it would make the unit pop onto the
+      // board with no motion.
+      if (intent.source.type === "battlefield") {
+        await playSpawnCardAnimationRef.current(
+          intent.playerId,
+          intent.cardInstanceId,
+          intent.cardId,
+          intent.source.position
+        );
+      } else {
+        await playSupportSpawnCardAnimationRef.current(
+          intent.playerId,
+          intent.cardInstanceId,
+          intent.cardId,
+          intent.source.supportSlot as SupportSlot
+        );
+      }
+
+      setStagedDeployPreview(
+        intent.source.type === "battlefield"
+          ? {
+              zone: "battlefield",
+              instanceId: intent.cardInstanceId,
+              cardId: intent.cardId,
+              ownerId: intent.playerId,
+              position: intent.source.position,
+            }
+          : {
+              zone: "support",
+              instanceId: intent.cardInstanceId,
+              cardId: intent.cardId,
+              ownerId: intent.playerId,
+              supportSlot: intent.source.supportSlot as SupportSlot,
+            }
       );
-    } else {
-      await playSupportSpawnCardAnimationRef.current(
-        intent.playerId,
-        intent.cardInstanceId,
-        intent.cardId,
-        intent.source.supportSlot as SupportSlot
-      );
+
+      await waitForNextFrame();
     }
-
-    setStagedDeployPreview(
-      intent.source.type === "battlefield"
-        ? {
-            zone: "battlefield",
-            instanceId: intent.cardInstanceId,
-            cardId: intent.cardId,
-            ownerId: intent.playerId,
-            position: intent.source.position,
-          }
-        : {
-            zone: "support",
-            instanceId: intent.cardInstanceId,
-            cardId: intent.cardId,
-            ownerId: intent.playerId,
-            supportSlot: intent.source.supportSlot as SupportSlot,
-          }
-    );
-
-    await waitForNextFrame();
 
     const shots = intent.shots
       .map((shot) => {
@@ -3486,7 +3736,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       action.type === "PLAY_CARD" ||
       action.type === "PLAY_SUPPORT_CARD" ||
       action.type === "END_TURN" ||
-      action.type === "TIMER_TICK";
+      action.type === "TIMER_TICK" ||
+      // «Перегрев»: a move can cost the prototype 1 HP (overheat on the march),
+      // so diff HP after moves too to flash the health-loss animation.
+      action.type === "MOVE_UNIT";
 
     // Fold the stationary/moved HQ auras into the attack diff only for the move
     // that toggles them — the unit's own step onto a new cell. Everywhere else
@@ -4403,6 +4656,79 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     pvpSpawnFallbackTimersRef.current.set(cardInstanceId, timeoutId);
   }
 
+  function clearPvpStaticSpawnFallbackTimer(cardInstanceId: string) {
+    const timeoutId = pvpStaticSpawnFallbackTimersRef.current.get(cardInstanceId);
+    if (timeoutId === undefined) return;
+
+    window.clearTimeout(timeoutId);
+    pvpStaticSpawnFallbackTimersRef.current.delete(cardInstanceId);
+  }
+
+  function releasePvpSpawnStatic(cardInstanceId: string) {
+    clearPvpStaticSpawnFallbackTimer(cardInstanceId);
+    pvpStaticSpawnAwaitingStateRef.current.delete(cardInstanceId);
+    setStaticSpawnUnitIds((current) => {
+      if (!current.has(cardInstanceId)) return current;
+
+      const next = new Set(current);
+      next.delete(cardInstanceId);
+      return next;
+    });
+    // Drop a lingering optimistic preview for this card. On the happy path the
+    // preview is already gone (cleared when the real unit arrived); this only
+    // fires from the safety-net timeout when the server never confirmed the play.
+    setStagedDeployPreview((current) =>
+      current?.instanceId === cardInstanceId ? null : current
+    );
+  }
+
+  function clearAllPvpSpawnStatic() {
+    for (const timeoutId of pvpStaticSpawnFallbackTimersRef.current.values()) {
+      window.clearTimeout(timeoutId);
+    }
+    pvpStaticSpawnFallbackTimersRef.current.clear();
+
+    const staticIds = new Set(pvpStaticSpawnAwaitingStateRef.current);
+    pvpStaticSpawnAwaitingStateRef.current.clear();
+
+    setStagedDeployPreview((current) =>
+      current && staticIds.has(current.instanceId) ? null : current
+    );
+
+    if (staticIds.size === 0) return;
+
+    setStaticSpawnUnitIds((current) => {
+      const next = new Set(current);
+      for (const cardInstanceId of staticIds) {
+        next.delete(cardInstanceId);
+      }
+      return next;
+    });
+  }
+
+  // Mark a locally-played PvP card static so its board cell mounts in place with
+  // no pop-in once the server echoes the play back (the drag ghost / fly-in has
+  // already carried the card there). The static flag is released when the played
+  // card leaves the hand in server state, with a timeout as a safety net.
+  function keepPvpSpawnStaticUntilState(cardInstanceId: string) {
+    if (modeRef.current !== "pvp") return;
+
+    clearPvpStaticSpawnFallbackTimer(cardInstanceId);
+    pvpStaticSpawnAwaitingStateRef.current.add(cardInstanceId);
+    setStaticSpawnUnitIds((current) => {
+      const next = new Set(current);
+      next.add(cardInstanceId);
+      return next;
+    });
+
+    const timeoutId = window.setTimeout(() => {
+      if (!pvpStaticSpawnAwaitingStateRef.current.has(cardInstanceId)) return;
+      releasePvpSpawnStatic(cardInstanceId);
+    }, PVP_SPAWN_CONFIRM_TIMEOUT_MS);
+
+    pvpStaticSpawnFallbackTimersRef.current.set(cardInstanceId, timeoutId);
+  }
+
   async function executeQueuedPlayCard(
     cardInstanceId: string,
     position: Position,
@@ -4441,6 +4767,34 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     if (modeRef.current === "pvp") {
       clearAllPvpSpawnHidden();
+
+      if (options.skipSpawnAnimation) {
+        // In PvP `dispatch` only sends the action to the server; the authoritative
+        // state returns a round-trip later. Without this the dropped card snaps
+        // back into the hand and the unit springs onto the board only once the
+        // echo lands — unlike PvE, where applyAction runs synchronously and the
+        // unit appears in place instantly. Mirror PvE by placing an optimistic
+        // preview on the target cell and hiding the hand card immediately; when
+        // the real unit arrives it mounts static (no pop-in) and the preview /
+        // hidden flags auto-clear.
+        setStagedDeployPreview({
+          zone: "battlefield",
+          instanceId: cardInstance.instanceId,
+          cardId: cardInstance.cardId,
+          ownerId: currentHumanPlayerId,
+          position,
+        });
+        keepPvpSpawnHiddenUntilState(cardInstance.instanceId);
+        keepPvpSpawnStaticUntilState(cardInstance.instanceId);
+        playCardDistributionSound();
+
+        // The server sends a DEPLOY_BARRAGE_INTENT for every spawn (empty shots
+        // when the card has no barrage). Mark this play so that intent skips its
+        // own hand→cell fly-in — the card is already placed above — and only
+        // plays any barrage shots, matching PvE's instant drag placement.
+        pvpOptimisticSpawnRef.current.add(cardInstance.instanceId);
+      }
+
       dispatch();
       return;
     }
@@ -4521,6 +4875,34 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     if (modeRef.current === "pvp") {
       clearAllPvpSpawnHidden();
+
+      if (options.skipSpawnAnimation) {
+        // In PvP `dispatch` only sends the action to the server; the authoritative
+        // state returns a round-trip later. Without this the dropped card snaps
+        // back into the hand and the unit springs into the slot only once the
+        // echo lands — unlike PvE, where applyAction runs synchronously and the
+        // unit appears in place instantly. Mirror PvE by placing an optimistic
+        // preview in the support slot and hiding the hand card immediately; when
+        // the real unit arrives it mounts static (no pop-in) and the preview /
+        // hidden flags auto-clear.
+        setStagedDeployPreview({
+          zone: "support",
+          instanceId: cardInstance.instanceId,
+          cardId: cardInstance.cardId,
+          ownerId: currentHumanPlayerId,
+          supportSlot,
+        });
+        keepPvpSpawnHiddenUntilState(cardInstance.instanceId);
+        keepPvpSpawnStaticUntilState(cardInstance.instanceId);
+        playCardDistributionSound();
+
+        // The server sends a DEPLOY_BARRAGE_INTENT for every spawn (empty shots
+        // when the card has no barrage). Mark this play so that intent skips its
+        // own hand→slot fly-in — the card is already placed above — and only
+        // plays any barrage shots, matching PvE's instant drag placement.
+        pvpOptimisticSpawnRef.current.add(cardInstance.instanceId);
+      }
+
       dispatch();
       return;
     }
@@ -5099,28 +5481,6 @@ function renderEnemyDeckWithTimer() {
       {renderDeckAvatarStack(opponentPlayerId, "enemy")}
 
       <div style={styles.enemyFuelOnly}>
-        {(() => {
-          const flag = getBattleFlagAsset(
-            getHeadquartersDefinition(getHeadquartersIdForOwner(opponentPlayerId))
-              .nation
-          );
-
-          if (!flag) return null;
-
-          // Enemy flag staked by the HQ but drawn behind the fuel indicator
-          // (fuelPanelOverFlag, zIndex 1) so the fuel stays readable. Shifted
-          // down-left toward the HQ and mirrored to match the player's flag.
-          return (
-            <img
-              src={flag}
-              alt=""
-              aria-hidden
-              draggable={false}
-              style={styles.fuelBattleFlag}
-            />
-          );
-        })()}
-
         <div style={styles.fuelPanelOverFlag}>
           <FuelPanel
             ownerId={getVisualOwnerId(opponentPlayerId)}
@@ -5263,12 +5623,9 @@ function renderEnemyDeckWithTimer() {
           }}
         />
 
-        {/* The enemy flag is drawn behind the enemy fuel indicator instead (see
-            renderEnemyDeckWithTimer): the fuel lives in a side column that sits
-            below the board, so a flag in this board cell would always cover it.
-            Only the player's flag is planted behind the HQ card here. */}
-        {owner === humanPlayerId &&
-          (() => {
+        {/* National flag planted behind the HQ card art on the outer side of
+            each rear strip. */}
+        {(() => {
             const flag = getBattleFlagAsset(
               getHeadquartersDefinition(getHeadquartersIdForOwner(owner)).nation
             );
@@ -5276,15 +5633,19 @@ function renderEnemyDeckWithTimer() {
             if (!flag) return null;
 
             // Planted behind the HQ card art (zIndex below the card) so it only
-            // peeks out to the left — the local HQ strip always sits on the
-            // left board edge.
+            // peeks out past the outer edge of the rear strip.
             return (
               <img
                 src={flag}
                 alt=""
                 aria-hidden
                 draggable={false}
-                style={{ ...styles.hqBattleFlag, ...styles.hqBattleFlagFriendly }}
+                style={{
+                  ...styles.hqBattleFlag,
+                  ...(owner === humanPlayerId
+                    ? styles.hqBattleFlagFriendly
+                    : styles.hqBattleFlagEnemy),
+                }}
               />
             );
           })()}
@@ -5326,6 +5687,9 @@ function renderEnemyDeckWithTimer() {
 
         <HqCommandFrame />
 
+        {owner === humanPlayerId && headquartersHasAvailableAction && (
+          <AvailableActionGlow />
+        )}
         {isSelected && <SelectedCombatObjectGlow />}
         {showTargetGlow && <AttackTargetGlow />}
       </motion.button>
@@ -5614,6 +5978,9 @@ function renderEnemyDeckWithTimer() {
                 )}
               </AnimatePresence>
 
+              {unit && availableActionUnitIds.has(unit.instanceId) && (
+                <AvailableActionGlow />
+              )}
               {showTargetGlow && <AttackTargetGlow />}
             </motion.button>
           );
@@ -5675,6 +6042,10 @@ function renderEnemyDeckWithTimer() {
   ]);
 
   const localHand = getVisibleHand(humanPlayerId);
+  const playerFreeSupportSlots = getFreeSupportSlots(
+    battle as BattleState,
+    humanPlayerId
+  );
   const selectedHandCard = selectedCardInstanceId
     ? battle[humanPlayerId].hand.find(
         (card) => card.instanceId === selectedCardInstanceId
@@ -5740,7 +6111,7 @@ function renderEnemyDeckWithTimer() {
       key={effect.id}
       style={{
         ...styles.drawCardEffect,
-        backgroundImage: `url(${cardBackImage})`,
+        backgroundImage: `url(${getCardBackImage(effect.owner)})`,
       }}
       initial={{
         x: effect.from.x,
@@ -5774,7 +6145,7 @@ function renderEnemyDeckWithTimer() {
           key={effect.id}
           style={{
             ...styles.spawnCardBackEffect,
-            backgroundImage: `url(${cardBackImage})`,
+            backgroundImage: `url(${getCardBackImage(effect.owner)})`,
           }}
           initial={{
             x: effect.from.x,
@@ -5907,7 +6278,7 @@ function renderEnemyDeckWithTimer() {
               style={{
                 ...styles.cardBack,
                 ...styles.enemyHandCardSlot,
-                backgroundImage: `url(${cardBackImage})`,
+                backgroundImage: `url(${getCardBackImage(opponentPlayerId)})`,
                 opacity: isHidden ? 0 : 1,
                 zIndex: index + 1,
                 filter: isPulledCard ? "brightness(1.08)" : "none",
@@ -6190,8 +6561,36 @@ function renderEnemyDeckWithTimer() {
                                 !movingUnit.revealed
                               );
                             })()}
+                            blitzAvailable={(() => {
+                              const movingUnit = battle.units.find(
+                                (item) => item.instanceId === movementUnitEffect.unitId
+                              );
+                              return !!movingUnit &&
+                                movingUnit.deployedThisTurn === true &&
+                                !movingUnit.blitzUsed &&
+                                (getCard(movingUnit.cardId).combatAbilities?.blitz === true ||
+                                  movingUnit.blitzGranted === true);
+                            })()}
+                            rushAvailable={(() => {
+                              const movingUnit = battle.units.find(
+                                (item) => item.instanceId === movementUnitEffect.unitId
+                              );
+                              return !!movingUnit &&
+                                (getCard(movingUnit.cardId).combatAbilities?.raidDraw ?? 0) > 0 &&
+                                !movingUnit.raidDrawUsed;
+                            })()}
                           />
                         </div>
+                        {pantherObjectiveTag &&
+                        battle.units.some(
+                          (unit) =>
+                            unit.instanceId === movementUnitEffect.unitId &&
+                            unit.scenarioTag === pantherObjectiveTag
+                        ) ? (
+                          <span style={styles.objectiveUnitBadge}>
+                            {language === "en" ? "OBJECTIVE" : "ЦЕЛЬ"}
+                          </span>
+                        ) : null}
                       </motion.div>
                     );
                   })()
@@ -6312,6 +6711,9 @@ function renderEnemyDeckWithTimer() {
                     humanPlayerId === "player" ? playerSpawn : botSpawn;
                   const enemySpawn =
                     humanPlayerId === "player" ? botSpawn : playerSpawn;
+                  const isObjectiveEvacuationCell =
+                    evacuationObjective?.ownerId === humanPlayerId &&
+                    position.col === evacuationObjective.evacuationColumn;
 
                   if (unit) {
                     const card = getCard(unit.cardId);
@@ -6363,6 +6765,9 @@ function renderEnemyDeckWithTimer() {
                           ...(unit.ownerId === humanPlayerId
                             ? styles.playerUnit
                             : styles.botUnit),
+                          ...(isObjectiveEvacuationCell
+                            ? styles.objectiveEvacuationCell
+                            : {}),
                           ...(canBeTarget ? styles.targetCell : {}),
                           ...(isSelected ? styles.selectedUnitCell : {}),
                           ...(tutorialHighlights
@@ -6490,6 +6895,17 @@ function renderEnemyDeckWithTimer() {
                               !!card.combatAbilities?.camouflage &&
                               !unit.revealed
                             }
+                            blitzAvailable={
+                              unit.deployedThisTurn === true &&
+                              !unit.blitzUsed &&
+                              (card.combatAbilities?.blitz === true ||
+                                unit.blitzGranted === true)
+                            }
+                            rushAvailable={
+                              (card.combatAbilities?.raidDraw ?? 0) > 0 &&
+                              !unit.raidDrawUsed
+                            }
+                            immobilized={unit.immobilized === true}
                             healthDamageEffect={getHealthDamageEffect(
                               unit.instanceId
                             )}
@@ -6503,6 +6919,13 @@ function renderEnemyDeckWithTimer() {
                               unit.instanceId
                             )}
                           />
+
+                          {pantherObjectiveTag &&
+                          unit.scenarioTag === pantherObjectiveTag ? (
+                            <span style={styles.objectiveUnitBadge}>
+                              {language === "en" ? "OBJECTIVE" : "ЦЕЛЬ"}
+                            </span>
+                          ) : null}
 
                           <AnimatePresence>
                             {attackEffectId === unit.instanceId && (
@@ -6581,6 +7004,9 @@ function renderEnemyDeckWithTimer() {
                           )}
                         </AnimatePresence>
 
+                        {availableActionUnitIds.has(unit.instanceId) && (
+                          <AvailableActionGlow />
+                        )}
                         {isSelected && <SelectedCombatObjectGlow />}
                         {showTargetGlow && <AttackTargetGlow />}
                       </motion.button>
@@ -6678,6 +7104,7 @@ function renderEnemyDeckWithTimer() {
       ...styles.emptyCell,
       ...(ownSpawn ? styles.spawnCell : {}),
       ...(enemySpawn ? styles.botSpawnCell : {}),
+      ...(isObjectiveEvacuationCell ? styles.objectiveEvacuationCell : {}),
       ...(moveCell ? styles.moveCell : {}),
       ...(canPlaceBattlefieldCard ? styles.spawnCellAvailable : {}),
       ...(tutorialHighlights
@@ -6828,6 +7255,9 @@ function renderEnemyDeckWithTimer() {
                   humanPlayerId,
                   card.id
                 );
+                const noSupportSlotAvailable =
+                  card.deploymentZone === "support" &&
+                  playerFreeSupportSlots.length === 0;
                 const selected =
                   selectedCardInstanceId === cardInstance.instanceId;
                 const isHiddenDrawnCard = hiddenDrawnCardIds.has(
@@ -6972,7 +7402,8 @@ function renderEnemyDeckWithTimer() {
                       disabled={
                         debugPaused ||
                         battle.activePlayer !== humanPlayerId ||
-                        battle[humanPlayerId].resources < effectiveCardCost
+                        battle[humanPlayerId].resources < effectiveCardCost ||
+                        noSupportSlotAvailable
                       }
                     />
                   </motion.button>
@@ -7230,6 +7661,32 @@ function renderEnemyDeckWithTimer() {
           label={language === "en" ? "Reward" : "Награда"}
           tone="reward"
           onClose={completeTrailerAndExit}
+        />
+      ) : null}
+
+      {completedMissionCelebrations[0] ? (
+        <RewardCelebrationOverlay
+          cards={[
+            {
+              kind: "resource",
+              icon: silverTracksIcon,
+              title:
+                completedMissionCelebrations[0].title[language === "en" ? "en" : "ru"],
+              subtitle:
+                language === "en"
+                  ? `Reward: +${completedMissionCelebrations[0].reward} iron tracks`
+                  : `Награда: +${completedMissionCelebrations[0].reward} железных траков`,
+            },
+          ]}
+          label={
+            language === "en"
+              ? "Combat mission completed!"
+              : "Боевая задача выполнена!"
+          }
+          tone="reward"
+          onClose={() =>
+            setCompletedMissionCelebrations((current) => current.slice(1))
+          }
         />
       ) : null}
 
@@ -7523,6 +7980,7 @@ enemyHandCardSlot: {
   gap: 10,
   alignItems: "stretch",
   alignSelf: "stretch",
+  transform: "translateX(40px)",
   // Без собственного z-index: иначе панель создаёт единый слой над доской и
   // затягивает наверх колонку штаба (enemySideColumn, z5), из-за чего аватар
   // штаба врага налезает на тыловые юниты. Без него дети раскладываются в
@@ -7564,7 +8022,8 @@ actionSideColumn: {
     position: "relative",
     zIndex: 20,
     padding: 0,
-    maxWidth: 720,
+    width: BOARD_TARGET_SIZE,
+    maxWidth: BOARD_TARGET_SIZE,
     justifySelf: "center",
     borderRadius: 0,
     background: "transparent",
@@ -7673,10 +8132,11 @@ actionSideColumn: {
  board: {
   position: "relative",
   display: "grid",
-  gridTemplateColumns: "repeat(5, minmax(127px, 1fr))",
+  width: "100%",
+  gridTemplateColumns: `repeat(${BOARD_COLUMNS}, minmax(0, 1fr))`,
   gap: 4,
   alignItems: "stretch",
-  transform: "translate(40px, 65px)",
+  transform: "translate(60px, 75px)",
 },
 
   tacticalArrowWrap: {
@@ -7789,8 +8249,8 @@ actionSideColumn: {
     transform: "scaleX(-1) rotate(31deg)",
   },
 
-  // True horizontal mirror of the friendly flag: scaleX wraps the same rotation
-  // so the enemy flag leans symmetrically and peeks out on the right.
+  // Same size and absolute angle as the friendly flag, but facing out from the
+  // opposite rear strip.
   hqBattleFlagEnemy: {
     right: "-46%",
     transform: "rotate(31deg)",
@@ -7865,6 +8325,33 @@ actionSideColumn: {
   emptyCell: {
   },
 
+  objectiveEvacuationCell: {
+    border: "1px solid rgba(225, 195, 105, 0.72)",
+    background:
+      "linear-gradient(135deg, rgba(111, 95, 42, 0.3), rgba(24, 36, 24, 0.48))",
+    boxShadow:
+      "inset 0 0 18px rgba(229, 199, 104, 0.18), 0 0 8px rgba(202, 169, 77, 0.14)",
+  },
+
+  objectiveUnitBadge: {
+    position: "absolute",
+    zIndex: 24,
+    top: -7,
+    left: "50%",
+    transform: "translateX(-50%)",
+    padding: "2px 7px",
+    border: "1px solid rgba(239, 205, 112, 0.82)",
+    background: "rgba(63, 49, 20, 0.94)",
+    color: "#ffe3b8",
+    fontSize: 9,
+    fontWeight: 1000,
+    letterSpacing: 1,
+    lineHeight: 1.1,
+    textShadow: "0 1px 3px #000",
+    boxShadow: "0 3px 8px rgba(0,0,0,0.58)",
+    pointerEvents: "none",
+  },
+
   occupiedSpawnCellTint: {
     position: "absolute",
     inset: 0,
@@ -7932,6 +8419,17 @@ actionSideColumn: {
 
   selectedUnitCell: {
     zIndex: 8,
+  },
+
+  availableActionGlow: {
+    position: "absolute",
+    inset: 1,
+    zIndex: 19,
+    border: "2px solid rgba(91, 224, 112, 0.62)",
+    borderRadius: 0,
+    background:
+      "radial-gradient(circle at center, rgba(83, 224, 105, 0.12), rgba(55, 178, 76, 0.04) 58%, transparent 76%)",
+    pointerEvents: "none",
   },
 
   selectedCombatObjectGlow: {
@@ -8060,7 +8558,7 @@ actionSideColumn: {
     // centre, ~74px left of the game-table centre), then drop it 4px. Use
     // translate(x, y) — NOT translateX, which only takes one value: 1st value is
     // screen-vertical (larger = lower), 2nd is screen-horizontal.
-    transform: "translate(-60px, 120px)",
+    transform: "translate(-40px, 150px)",
   },
 
   card: {
@@ -8280,26 +8778,8 @@ actionSideColumn: {
     position: "relative",
     width: 118,
     alignSelf: "center",
-    transform: "translateY(80px)",
+    transform: "translateY(103px)",
     zIndex: 32,
-  },
-
-  // Enemy national flag planted by the HQ but kept BEHIND the fuel indicator
-  // (the panel sits at fuelPanelOverFlag zIndex 1). Offset down-left so it reads
-  // as standing next to the headquarters, mirrored to match the player's flag.
-  fuelBattleFlag: {
-    position: "absolute",
-    bottom: "+14%",
-    left: "-20%",
-    width: "70%",
-    height: "auto",
-    zIndex: 0,
-    pointerEvents: "none",
-    transform: "rotate(+21deg)",
-    transformOrigin: "center bottom",
-    filter: "brightness(1.02) saturate(0.92) drop-shadow(0 2px 5px rgba(0,0,0,0.6))",
-    opacity: 0.95,
-    top: "-132%",
   },
 
   fuelPanelOverFlag: {
@@ -8376,8 +8856,8 @@ actionSideColumn: {
   },
 
   cardBack: {
-    width: 104,
-    height: 138,
+    width: 124,
+    height: 168,
     borderRadius: 12,
     backgroundSize: "cover",
     backgroundPosition: "center center",
@@ -8587,7 +9067,7 @@ turnCounterValue: {
   // (отрицательный нижний отступ убирает зазор колонки).
   playerFuelNearDeck: {
     marginBottom: -35,
-    transform: "translateY(-56px)",
+    transform: "translateY(-36px)",
   },
 
   actionHint: {

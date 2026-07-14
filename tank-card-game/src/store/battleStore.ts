@@ -25,9 +25,10 @@ import {
   getAutoLaunchMission,
   getCampaignCompletionReward,
   getCampaignMission,
+  isCampaignAccessible,
   isCampaignMissionUnlocked,
 } from "../game/campaigns";
-import { calculateDeckWeight } from "../game/deckWeight";
+import { calculateDeckWeight, getDefaultDeckWeight } from "../game/deckWeight";
 import { createInitialBattleState, getDeckCardIds } from "../game/initialState";
 import {
   TUTORIAL_BOT_HEADQUARTERS_ID,
@@ -63,6 +64,7 @@ import { getDefaultWebSocketUrl } from "../network/webSocketUrl";
 import { getCurrentUserId } from "../game/playerIdentity";
 import { hasCompletedTutorial, loadPlayerProgress } from "../game/playerProgress";
 import { recordBattleForRegistrationReminder } from "../game/registrationReminder";
+import { recordBattleForFirstPlayerPackReminder } from "../game/firstPlayerPackReminder";
 
 type SelectedAttacker = {
   type: "unit" | "headquarters";
@@ -78,8 +80,10 @@ type AiOpponentCandidate = {
 
 const AI_CUSTOM_OPPONENT_DECK_CARD_COUNT = 40;
 const AI_CUSTOM_OPPONENT_CLOSEST_CANDIDATE_COUNT = 5;
-const PVP_MATCH_FOUND_PREVIEW_MS = 5_000;
+const PVP_MATCH_PREVIEW_MS = 5_000;
 const PVP_CONNECT_TIMEOUT_MS = 6_000;
+const PVP_SERVER_UPDATE_MESSAGE =
+  "Серверы игры обновляются. Подождите немного и попробуйте обновить страницу.";
 const FIRST_TURN_ROLL_DURATION_MS = 2_800;
 const FIRST_TURN_ROLL_RESULT_DELAY_MS = 350;
 const FIRST_TURN_ROLL_FINISH_DELAY_MS = 650;
@@ -159,6 +163,9 @@ type BattleStore = {
   trailerLaunchPending: boolean;
   pvpOpponentHeadquartersId: HeadquartersId | null;
   pvpOpponentNickname: string | null;
+  pvpOpponentCardBackId: "first_player" | null;
+  pvpPlayerDeckWeight: number | null;
+  pvpOpponentDeckWeight: number | null;
   pvpMatchPreviewLabel: string | null;
   pvpSearchStartedAt: number | null;
   pvpSearchDeadlineAt: number | null;
@@ -193,9 +200,11 @@ type BattleStore = {
    * battle, any mode). Cleared when the reminder is dismissed or acted on.
    */
   registrationReminderVisible: boolean;
+  firstPlayerPackReminderVisible: boolean;
   /** Counts a finished battle and raises the registration reminder every 3rd one. */
   recordBattleForReminder: () => void;
   dismissRegistrationReminder: () => void;
+  dismissFirstPlayerPackReminder: () => void;
 
   /**
    * True while the profile menu should open straight into the registration form
@@ -209,6 +218,8 @@ type BattleStore = {
 
   openTutorialMenu: () => void;
   closeTutorialMenu: () => void;
+  openCombatMissionsMenu: () => void;
+  closeCombatMissionsMenu: () => void;
   startTutorial: (missionId?: TutorialMissionId) => void;
   advanceTutorialStep: () => void;
   completeTutorialEpilogue: () => void;
@@ -631,9 +642,18 @@ function createCampaignBattle(missionId: string): BattleState | null {
     playerBoardUnits: campaignMission.mission.playerBoardUnits,
     botBoardUnits: campaignMission.mission.botBoardUnits,
     startingHandSize: campaignMission.mission.startingHandSize,
+    playerStartingHandCardIds:
+      campaignMission.mission.playerStartingHandCardIds,
+    objective: campaignMission.mission.objective,
     // Guided demos need a deterministic opening hand so the scripted deploy step
     // always finds its card (e.g. the Т-34/76 the «Поныри» tutorial asks for).
     shuffleDecks: campaignMission.mission.guidedScriptId ? false : undefined,
+    // «Перегрев»: movement overheat damage kicks in from the third «Первые
+    // Пантеры» mission («Глохнет на дистанции»), where the prototype starts
+    // stalling on the march.
+    overheatMovementDamage:
+      campaignMission.campaign.id === "first-panthers" &&
+      campaignMission.index >= 2,
   });
 }
 
@@ -712,6 +732,8 @@ function applyFirstTurnRollMessage(
       message.playerId
     ),
     pvpOpponentNickname: message.opponentNickname ?? null,
+    pvpOpponentCardBackId: message.opponentCardBackId ?? null,
+    pvpOpponentDeckWeight: message.opponentDeckWeight ?? null,
     pvpMatchPreviewLabel: null,
     pvpSearchStartedAt: null,
     pvpSearchDeadlineAt: null,
@@ -792,6 +814,8 @@ function applyGameStartedMessage(
       message.playerId
     ),
     pvpOpponentNickname: message.opponentNickname ?? null,
+    pvpOpponentCardBackId: message.opponentCardBackId ?? null,
+    pvpOpponentDeckWeight: message.opponentDeckWeight ?? null,
     pvpMatchPreviewLabel: null,
     pvpSearchStartedAt: null,
     pvpSearchDeadlineAt: null,
@@ -826,7 +850,7 @@ function schedulePendingPvpStart() {
   clearMatchFoundPreviewTimer();
   matchFoundPreviewTimer = window.setTimeout(() => {
     flushPendingPvpStart();
-  }, PVP_MATCH_FOUND_PREVIEW_MS);
+  }, PVP_MATCH_PREVIEW_MS);
 }
 
 function getCleanMenuState() {
@@ -846,6 +870,9 @@ function getCleanMenuState() {
     battleStarting: false,
     pvpOpponentHeadquartersId: null,
     pvpOpponentNickname: null,
+    pvpOpponentCardBackId: null,
+    pvpPlayerDeckWeight: null,
+    pvpOpponentDeckWeight: null,
     pvpMatchPreviewLabel: null,
     pvpSearchStartedAt: null,
     pvpSearchDeadlineAt: null,
@@ -1000,8 +1027,35 @@ function setupPvpSubscriptions() {
       case "FIRST_TURN_ROLL": {
         clearReconnectTimer();
         clearMatchFoundPreviewTimer();
-        pendingFirstTurnRollMessage = null;
-        applyFirstTurnRollMessage(message);
+        pendingFirstTurnRollMessage = message;
+        startBattleAssetPreloadForState(message.battle);
+        useBattleStore.setState({
+          battle: null,
+          mode: "pvp",
+          menuView: "headquarters",
+          localPlayerId: message.playerId,
+          pvpRoomId: message.roomId,
+          pvpStatus: "matchPreview",
+          pvpError: null,
+          pvpOpponentHeadquartersId: getOpponentHeadquartersIdFromBattle(
+            message.battle,
+            message.playerId
+          ),
+          pvpOpponentNickname: message.opponentNickname ?? null,
+          pvpOpponentCardBackId: message.opponentCardBackId ?? null,
+          pvpOpponentDeckWeight: message.opponentDeckWeight ?? null,
+          pvpMatchPreviewLabel: null,
+          pvpSearchStartedAt: null,
+          pvpSearchDeadlineAt: null,
+          matchEndReason: null,
+        });
+        const previewDelay = Math.min(
+          PVP_MATCH_PREVIEW_MS,
+          Math.max(0, message.startsAt - Date.now())
+        );
+        matchFoundPreviewTimer = window.setTimeout(() => {
+          flushPendingPvpStart();
+        }, previewDelay);
 
         break;
       }
@@ -1017,6 +1071,8 @@ function setupPvpSubscriptions() {
               message.playerId
             ),
             pvpOpponentNickname: message.opponentNickname ?? null,
+            pvpOpponentCardBackId: message.opponentCardBackId ?? null,
+            pvpOpponentDeckWeight: message.opponentDeckWeight ?? null,
             pvpMatchPreviewLabel: null,
           });
           if (store.pvpStatus === "matchPreview") {
@@ -1051,6 +1107,8 @@ function setupPvpSubscriptions() {
           pvpStatus: message.battle.status === "active" ? "inBattle" : "finished",
           pvpError: null,
           pvpOpponentNickname: message.opponentNickname ?? null,
+          pvpOpponentCardBackId: message.opponentCardBackId ?? null,
+          pvpOpponentDeckWeight: message.opponentDeckWeight ?? null,
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
@@ -1177,7 +1235,7 @@ function setupPvpSubscriptions() {
 
     useBattleStore.setState({
       pvpStatus: "error",
-      pvpError: "Соединение с PVP-сервером закрыто",
+      pvpError: PVP_SERVER_UPDATE_MESSAGE,
       pvpTimer: emptyPvpTimer,
       pvpMovementIntent: null,
       pvpAttackIntent: null,
@@ -1186,8 +1244,8 @@ function setupPvpSubscriptions() {
     });
   });
 
-  pvpClient.onError((message) => {
-    useBattleStore.getState().setPvpError(message);
+  pvpClient.onError(() => {
+    useBattleStore.getState().setPvpError(PVP_SERVER_UPDATE_MESSAGE);
   });
 }
 
@@ -1199,7 +1257,7 @@ function connectAndRun(onOpen: () => void) {
     pvpClient.disconnect();
     useBattleStore
       .getState()
-      .setPvpError("PVP-сервер недоступен. Проверьте запуск сервера и попробуйте снова.");
+      .setPvpError(PVP_SERVER_UPDATE_MESSAGE);
   }, PVP_CONNECT_TIMEOUT_MS);
 
   let unsubscribeOpen = () => {};
@@ -1252,6 +1310,9 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   ),
   pvpOpponentHeadquartersId: null,
   pvpOpponentNickname: null,
+  pvpOpponentCardBackId: null,
+  pvpPlayerDeckWeight: null,
+  pvpOpponentDeckWeight: null,
   pvpMatchPreviewLabel: null,
   pvpSearchStartedAt: null,
   pvpSearchDeadlineAt: null,
@@ -1279,15 +1340,23 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   completedTutorialMissionIds: loadCompletedTutorialMissionIds(),
 
   registrationReminderVisible: false,
+  firstPlayerPackReminderVisible: false,
 
   recordBattleForReminder: () => {
     if (recordBattleForRegistrationReminder()) {
       set({ registrationReminderVisible: true });
     }
+    if (recordBattleForFirstPlayerPackReminder()) {
+      set({ firstPlayerPackReminderVisible: true });
+    }
   },
 
   dismissRegistrationReminder: () => {
     set({ registrationReminderVisible: false });
+  },
+
+  dismissFirstPlayerPackReminder: () => {
+    set({ firstPlayerPackReminderVisible: false });
   },
 
   profileRegisterIntent: false,
@@ -1320,6 +1389,14 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       mode: "ai",
       pvpError: null,
     });
+  },
+
+  openCombatMissionsMenu: () => {
+    set({ menuView: "combatMissions", mode: "ai", pvpError: null });
+  },
+
+  closeCombatMissionsMenu: () => {
+    set({ menuView: "main", mode: "ai", pvpError: null });
   },
 
   startTutorial: async (missionId: TutorialMissionId = "training") => {
@@ -1686,6 +1763,12 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpStatus: "matchPreview",
       pvpError: null,
       pvpOpponentHeadquartersId: aiOpponent.headquartersId,
+      pvpOpponentNickname: "ИИ",
+      pvpOpponentCardBackId: null,
+      pvpOpponentDeckWeight: aiOpponent.deckCardIds
+        ? calculateDeckWeight(aiOpponent.headquartersId, aiOpponent.deckCardIds)
+            .totalWeight
+        : getDefaultDeckWeight(aiOpponent.headquartersId).totalWeight,
       pvpMatchPreviewLabel: "Бой против ИИ",
       pvpSearchStartedAt: null,
       pvpSearchDeadlineAt: null,
@@ -1758,12 +1841,21 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
 
         matchFoundPreviewTimer = null;
       });
-    }, PVP_MATCH_FOUND_PREVIEW_MS);
+    }, PVP_MATCH_PREVIEW_MS);
   },
 
   startCampaignMission: async (missionId) => {
     const campaignMission = getCampaignMission(missionId);
     if (!campaignMission) return;
+
+    if (
+      !isCampaignAccessible(
+        campaignMission.campaign,
+        loadPlayerProgress().unlockedCampaignIds
+      )
+    ) {
+      return;
+    }
 
     const state = get();
     const unlocked = isCampaignMissionUnlocked(
@@ -1903,6 +1995,10 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         pvpSearchStartedAt: now,
         pvpSearchDeadlineAt: now + 30_000,
         pvpFallbackDeckCardIds: cloneDeckCardIds(deckCardIds),
+        pvpPlayerDeckWeight: deckCardIds
+          ? calculateDeckWeight(selectedHeadquartersId, deckCardIds).totalWeight
+          : getDefaultDeckWeight(selectedHeadquartersId).totalWeight,
+        pvpOpponentDeckWeight: null,
         matchEndReason: null,
         pvpTimer: emptyPvpTimer,
         pvpMovementIntent: null,
@@ -1960,6 +2056,10 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         pvpSearchStartedAt: now,
         pvpSearchDeadlineAt: now + 30_000,
         pvpFallbackDeckCardIds: cloneDeckCardIds(deckCardIds),
+        pvpPlayerDeckWeight: deckCardIds
+          ? calculateDeckWeight(selectedHeadquartersId, deckCardIds).totalWeight
+          : getDefaultDeckWeight(selectedHeadquartersId).totalWeight,
+        pvpOpponentDeckWeight: null,
         matchEndReason: null,
         pvpTimer: emptyPvpTimer,
         pvpMovementIntent: null,
@@ -2017,6 +2117,10 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         pvpSearchStartedAt: now,
         pvpSearchDeadlineAt: now + 30_000,
         pvpFallbackDeckCardIds: cloneDeckCardIds(deckCardIds),
+        pvpPlayerDeckWeight: deckCardIds
+          ? calculateDeckWeight(selectedHeadquartersId, deckCardIds).totalWeight
+          : getDefaultDeckWeight(selectedHeadquartersId).totalWeight,
+        pvpOpponentDeckWeight: null,
         matchEndReason: null,
         pvpTimer: emptyPvpTimer,
         pvpMovementIntent: null,

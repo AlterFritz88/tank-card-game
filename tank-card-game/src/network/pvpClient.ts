@@ -18,6 +18,8 @@ export type PvpClientMessage =
       playerId: PlayerId;
       battle: BattleStateView;
       opponentNickname?: string | null;
+      opponentCardBackId?: "first_player" | null;
+      opponentDeckWeight?: number | null;
     }
   | { type: "RECONNECT_FAILED"; message: string }
   | { type: "WAITING_FOR_OPPONENT"; roomId: string }
@@ -30,6 +32,8 @@ export type PvpClientMessage =
       revealAt: number;
       battle: BattleStateView;
       opponentNickname?: string | null;
+      opponentCardBackId?: "first_player" | null;
+      opponentDeckWeight?: number | null;
     }
   | {
       type: "GAME_STARTED";
@@ -37,6 +41,8 @@ export type PvpClientMessage =
       battle: BattleStateView;
       playerId: PlayerId;
       opponentNickname?: string | null;
+      opponentCardBackId?: "first_player" | null;
+      opponentDeckWeight?: number | null;
     }
   | { type: "GAME_STATE"; roomId: string; battle: BattleStateView }
   | {

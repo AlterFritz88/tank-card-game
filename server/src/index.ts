@@ -122,6 +122,11 @@ async function handleHttpRequest(
     return;
   }
 
+  if (requestUrl.pathname === "/api/shop/rustore/complete") {
+    await handleCompleteRuStoreGoldPurchase(request, response, corsHeaders);
+    return;
+  }
+
   if (requestUrl.pathname === "/api/shop/catalog") {
     handleShopCatalog(response, corsHeaders);
     return;
@@ -523,6 +528,33 @@ async function handleCreateGoldPayment(
       playerId: getBodyString(body, "playerId"),
       productId: getBodyString(body, "productId"),
       returnUrl: getPublicReturnUrl(request),
+    });
+
+    writeJson(response, 200, { ok: true, ...result }, corsHeaders);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    writeJson(response, 400, { ok: false, message }, corsHeaders);
+  }
+}
+
+async function handleCompleteRuStoreGoldPurchase(
+  request: IncomingMessage,
+  response: ServerResponse,
+  corsHeaders: Record<string, string>
+) {
+  if (request.method !== "POST") {
+    response.writeHead(405, { ...corsHeaders, Allow: "POST" });
+    response.end();
+    return;
+  }
+
+  try {
+    const body = await readJsonBody(request);
+    const result = await payments.completeRuStoreGoldPurchase({
+      playerId: getBodyString(body, "playerId"),
+      productId: getBodyString(body, "productId"),
+      purchaseId: getBodyString(body, "purchaseId"),
+      invoiceId: getBodyString(body, "invoiceId"),
     });
 
     writeJson(response, 200, { ok: true, ...result }, corsHeaders);

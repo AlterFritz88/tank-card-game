@@ -797,6 +797,54 @@ export const HEADQUARTERS: Record<HeadquartersId, HeadquartersDefinition> = {
     defaultDeckId: "german_6_panzer_campaign",
     availableInMainMenu: false,
   },
+
+  // ——— Кампания «Первые Пантеры» ———
+  german_kummersdorf: {
+    id: "german_kummersdorf",
+    title: "Pz. Kummersdorf",
+    subtitle: "Учебно-испытательная часть · трофейные Т-34",
+    type: "Полигон Вермахта",
+    description:
+      "Трофейные танки стоят на 1 топливо меньше. Прототипы — несерийные " +
+      "машины — могут атаковать два раза за ход.",
+    ability: {
+      name: "Пристрелянный полигон",
+      capturedTankFuelDiscount: 1,
+      prototypeDoubleAttack: true,
+    },
+    faction: "Wehrmacht",
+    nation: "germany",
+    hp: 20,
+    attack: 1,
+    range: 99,
+    fuelGeneration: 4,
+    level: 4,
+    defaultDeckId: "kummersdorf_campaign",
+    availableInMainMenu: false,
+  },
+
+  german_panther_regiment: {
+    id: "german_panther_regiment",
+    title: "Pz.-Rgt. 39",
+    subtitle: "Танковый полк «Пантер» (М. фон Лаухерт)",
+    type: "Танковый полк",
+    description:
+      "Ремонтные бригады: в начале каждого хода одна повреждённая машина полка " +
+      "восстанавливает 2 прочности",
+    ability: {
+      name: "Ремонтные бригады",
+      healRandomUnitPerTurn: 2,
+    },
+    faction: "Wehrmacht",
+    nation: "germany",
+    hp: 20,
+    attack: 2,
+    range: 99,
+    fuelGeneration: 4,
+    level: 5,
+    defaultDeckId: "panther_regiment_campaign",
+    availableInMainMenu: false,
+  },
 };
 
 export const DEFAULT_PLAYER_HEADQUARTERS_ID: HeadquartersId = "training_unit";
