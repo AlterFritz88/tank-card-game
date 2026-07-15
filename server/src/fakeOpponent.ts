@@ -9,10 +9,12 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { cards, getCard } from "../../tank-card-game/src/game/cards";
+import { CAMPAIGN_COMPLETION_REWARDS } from "../../tank-card-game/src/game/campaigns";
 import {
   getHeadquartersDefinition,
 } from "../../tank-card-game/src/game/headquarters";
 import { getDeckCardIds } from "../../tank-card-game/src/game/initialState";
+import { RESEARCH_TREES } from "../../tank-card-game/src/game/researchTrees";
 import {
   calculateDeckWeight,
   getCardLevel,
@@ -26,6 +28,26 @@ const CUSTOM_DECK_COPY_LIMIT = 4;
 export const DEFAULT_FAKE_PVP_MATCH_PROBABILITY = 0.85;
 export const DEFAULT_COMMANDER_NICKNAME_PROBABILITY = 0.15;
 const DEFAULT_UNREGISTERED_NICKNAME = "Commander";
+
+// Paid cards granted outside the research tree. Gold-purchase premium nodes are
+// already included below because they are regular research-tree nodes.
+const PREMIUM_CARD_IDS = ["t18_dot"] as const;
+
+const FAKE_PVP_ALLOWED_CARD_IDS = new Set<string>([
+  ...Object.values(RESEARCH_TREES).flatMap((tree) =>
+    tree.branches.flatMap((branch) =>
+      branch.nodes.flatMap((node) =>
+        node.type === "unit" && node.cardId ? [node.cardId] : []
+      )
+    )
+  ),
+  ...CAMPAIGN_COMPLETION_REWARDS.map((reward) => reward.cardId),
+  ...PREMIUM_CARD_IDS,
+]);
+
+export function isFakePvpDeckCardAllowed(cardId: string): boolean {
+  return FAKE_PVP_ALLOWED_CARD_IDS.has(cardId);
+}
 
 /** Deterministic probability gate, split out so the 85/15 fallback is testable. */
 export function shouldStartFakePvpMatch(
@@ -224,11 +246,44 @@ function countCopies(deck: string[]): Map<string, number> {
   return copies;
 }
 
+function buildAllowedBaseDeck(
+  defaultDeck: string[],
+  pool: typeof cards
+): string[] {
+  const deck: string[] = [];
+
+  for (const defaultCardId of defaultDeck) {
+    const copies = countCopies(deck);
+    const candidates = pool.filter(
+      (card) => (copies.get(card.id) ?? 0) < CUSTOM_DECK_COPY_LIMIT
+    );
+    if (candidates.length === 0) break;
+
+    const exactCard = candidates.find((card) => card.id === defaultCardId);
+    if (exactCard) {
+      deck.push(exactCard.id);
+      continue;
+    }
+
+    const defaultWeight = cardWeight(defaultCardId);
+    const nearestDelta = Math.min(
+      ...candidates.map((card) => Math.abs(cardWeight(card.id) - defaultWeight))
+    );
+    const nearestCandidates = candidates.filter(
+      (card) => Math.abs(cardWeight(card.id) - defaultWeight) === nearestDelta
+    );
+    deck.push(pickRandom(nearestCandidates).id);
+  }
+
+  return deck;
+}
+
 /**
  * Builds a legal 40-card deck for `headquartersId` whose total weight lands near
- * `targetTotalWeight`. Starts from the headquarters' default deck (so the mana
- * curve stays sane) and swaps cards for heavier or lighter same-nation ones
- * until the weight is close enough, respecting the four-copy limit.
+ * `targetTotalWeight`. Uses the headquarters' default deck as a curve template,
+ * replaces every unavailable card with the nearest allowed same-nation card,
+ * then adjusts the result toward the requested weight. The four-copy limit is
+ * respected throughout.
  */
 function buildDeck(
   headquartersId: HeadquartersId,
@@ -236,13 +291,20 @@ function buildDeck(
 ): string[] {
   const headquarters = getHeadquartersDefinition(headquartersId);
   // getDeckCardIds expands standard/training default decks to the full 40 cards.
-  const deck = [...getDeckCardIds(headquarters.defaultDeckId)];
-  if (deck.length === 0) return deck;
+  const defaultDeck = [...getDeckCardIds(headquarters.defaultDeckId)];
+  if (defaultDeck.length === 0) return defaultDeck;
 
   // Only the headquarters' own nation — even training HQs field a single-nation
   // deck (a German training camp must not roll Soviet/Polish/US tanks).
-  const pool = cards.filter((card) => card.nation === headquarters.nation);
-  if (pool.length === 0) return deck.slice(0, CUSTOM_DECK_CARD_LIMIT);
+  const pool = cards.filter(
+    (card) =>
+      card.nation === headquarters.nation &&
+      isFakePvpDeckCardAllowed(card.id)
+  );
+  if (pool.length === 0) return [];
+
+  const deck = buildAllowedBaseDeck(defaultDeck, pool);
+  if (deck.length === 0) return deck;
 
   const hqWeight = getHeadquartersWeight(headquartersId);
   const targetCardWeight = Math.max(1, targetTotalWeight - hqWeight);

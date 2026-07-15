@@ -3358,10 +3358,10 @@ function accumulateEngineHeat(state: BattleState, unit: BoardUnit) {
 
 /**
  * «Перегрев» (movement variant): the raw prototype engine («overheat.deploymentDamage»
- * cards — VK 30.01/30.02) can overheat on the march. Once the battle enables it
- * (from the third «Первые Пантеры» mission), every move carries a 70% chance to
- * cost the unit `overheat.moveDamage` HP (default 1). The march never stalls the
- * tank outright: overheat wear can drop it to 1 HP at most, never destroy it.
+ * cards — VK 30.01/30.02) can overheat on the march. Once the battle enables it,
+ * every move carries a 70% chance to cost the unit `overheat.moveDamage` HP
+ * (default 1). The march never stalls the tank outright: overheat wear can drop
+ * it to 1 HP at most, never destroy it.
  */
 function applyMovementOverheatDamage(state: BattleState, unit: BoardUnit) {
   if (!state.overheatMovementDamage) return;

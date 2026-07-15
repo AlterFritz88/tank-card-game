@@ -9,21 +9,30 @@ import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.view.ViewGroup;
+import android.webkit.RenderProcessGoneDetail;
+import android.webkit.WebView;
 
 import androidx.activity.OnBackPressedCallback;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.WebViewListener;
 
 import ru.rustore.sdk.pay.IntentInteractor;
 import ru.rustore.sdk.pay.RuStorePayClient;
 import ru.rustore.sdk.pay.model.SdkTheme;
 
 public class MainActivity extends BridgeActivity {
+    private RuStoreUpdateNotifier updateNotifier;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(RuStorePaymentsPlugin.class);
         super.onCreate(savedInstanceState);
         enableImmersiveFullscreen();
+        registerWebViewRendererRecovery();
+        updateNotifier = new RuStoreUpdateNotifier(this);
+        getWindow().getDecorView().postDelayed(updateNotifier::checkForUpdate, 1500L);
         if (savedInstanceState == null) {
             proceedRuStorePayIntent(getIntent());
         }
@@ -42,6 +51,7 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         enableImmersiveFullscreen();
+        restoreWebViewAfterResume();
     }
 
     @Override
@@ -49,6 +59,14 @@ public class MainActivity extends BridgeActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         proceedRuStorePayIntent(intent);
+    }
+
+    @Override
+    public void onDestroy() {
+        if (updateNotifier != null) {
+            updateNotifier.destroy();
+        }
+        super.onDestroy();
     }
 
     @Override
@@ -69,6 +87,56 @@ public class MainActivity extends BridgeActivity {
         if (getBridge() != null) {
             getBridge().triggerWindowJSEvent("panzershrekAndroidBack");
         }
+    }
+
+    private void restoreWebViewAfterResume() {
+        if (getBridge() == null || getBridge().getWebView() == null) {
+            return;
+        }
+
+        WebView webView = getBridge().getWebView();
+        webView.onResume();
+        webView.resumeTimers();
+        webView.setVisibility(View.VISIBLE);
+        webView.setEnabled(true);
+        webView.setAlpha(1f);
+        webView.requestFocus(View.FOCUS_DOWN);
+        webView.post(() -> {
+            if (isFinishing() || isDestroyed() || getBridge() == null) {
+                return;
+            }
+
+            webView.requestLayout();
+            webView.invalidate();
+            getBridge().triggerWindowJSEvent("panzershrekAndroidResume");
+        });
+    }
+
+    private void registerWebViewRendererRecovery() {
+        if (getBridge() == null) {
+            return;
+        }
+
+        getBridge().addWebViewListener(new WebViewListener() {
+            @Override
+            public boolean onRenderProcessGone(
+                WebView webView,
+                RenderProcessGoneDetail detail
+            ) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+
+                    if (webView.getParent() instanceof ViewGroup) {
+                        ((ViewGroup) webView.getParent()).removeView(webView);
+                    }
+                    webView.destroy();
+                    recreate();
+                });
+                return true;
+            }
+        });
     }
 
     private void proceedRuStorePayIntent(Intent intent) {

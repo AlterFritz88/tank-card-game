@@ -260,6 +260,7 @@ type BattleStore = {
   joinPvpRoom: (roomId: string, deckCardIds?: string[]) => void;
   startPvpBattle: (roomId?: string, deckCardIds?: string[]) => void;
   restorePvpSession: () => void;
+  resumePvpSession: () => void;
   applyRemoteBattleState: (battle: BattleStateView) => void;
   applyMatchEnded: (winner: PlayerId, reason: MatchEndReason) => void;
   applyOpponentCardSelection: (
@@ -454,6 +455,7 @@ function createFreshBattle(
     playerDeckCardIds,
     botDeckCardIds: aiOpponent.deckCardIds,
     backgroundId: getRandomBattleBackgroundId(),
+    overheatMovementDamage: true,
   });
 }
 
@@ -2166,6 +2168,43 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpStatus: "connecting",
       pvpError: "Восстанавливаю PVP-матч...",
       matchEndReason: null,
+      pvpTimer: emptyPvpTimer,
+      pvpMovementIntent: null,
+      pvpAttackIntent: null,
+      pvpDeployBarrageIntent: null,
+      firstTurnRoll: emptyFirstTurnRoll,
+      selectedCardInstanceId: null,
+      opponentSelectedCardInstanceId: null,
+      selectedAttacker: null,
+    });
+
+    connectAndRun(() => pvpClient.reconnect());
+  },
+
+  resumePvpSession: () => {
+    const state = get();
+    const roomId = pvpClient.getStoredRoomId();
+    if (
+      !roomId ||
+      state.mode !== "pvp" ||
+      state.battle?.status !== "active"
+    ) {
+      return;
+    }
+
+    clearFirstTurnRollTimers();
+    clearReconnectTimer();
+    clearPendingPvpStart();
+
+    // Remount the battle after the authoritative state arrives. Apart from
+    // replacing a potentially stale WebSocket, this clears animations, pointer
+    // captures and command queues that Android may have suspended mid-frame.
+    set({
+      battle: null,
+      menuView: "headquarters",
+      pvpRoomId: roomId,
+      pvpStatus: "connecting",
+      pvpError: "Восстанавливаю PVP-матч...",
       pvpTimer: emptyPvpTimer,
       pvpMovementIntent: null,
       pvpAttackIntent: null,

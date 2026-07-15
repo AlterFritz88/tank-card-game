@@ -2661,11 +2661,20 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         )
       : [];
 
+  // The PVP server commits long light-tank / armored-car moves one cell at a
+  // time.  An intermediate GAME_STATE therefore briefly makes the unit look
+  // idle on that cell even though the rest of its route is already queued.
+  // Do not recalculate/show action hints until the complete visual route ends.
+  const pvpMovementVisualActive =
+    mode === "pvp" &&
+    (pvpMovementIntent !== null || movementUnitEffect !== null);
+
   const selectedMoveCells =
     selectedAttacker &&
     selectedAttacker.type === "unit" &&
     battle.status === "active" &&
-    battle.activePlayer === humanPlayerId
+    battle.activePlayer === humanPlayerId &&
+    !pvpMovementVisualActive
       ? getAvailableMoveCells(battle as BattleState, humanPlayerId, selectedAttacker.id)
       : [];
 
@@ -2675,7 +2684,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     !selectedAttacker &&
     !selectedCardInstanceId &&
     !tutorialActive &&
-    !debugPaused;
+    !debugPaused &&
+    !pvpMovementVisualActive;
   const availableActionUnitIds = new Set<string>();
   let headquartersHasAvailableAction = false;
 

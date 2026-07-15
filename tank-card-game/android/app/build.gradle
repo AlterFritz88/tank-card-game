@@ -13,8 +13,8 @@ android {
         applicationId "com.panzershrek.game"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.2"
+        versionCode 4
+        versionName "1.3"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders = [
             rustorePayScheme: project.findProperty('rustorePayScheme') ?: 'com.panzershrek.game.rustore.pay',
@@ -56,6 +56,7 @@ repositories {
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation platform("ru.rustore.sdk:bom:2026.06.01")
+    implementation "ru.rustore.sdk:appupdate"
     implementation "ru.rustore.sdk:pay"
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"

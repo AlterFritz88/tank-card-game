@@ -376,6 +376,16 @@ export function loadRecentDeckSelections(): RecentDeckSelection[] {
   );
 }
 
+export function loadMostRecentDeckSelection(): RecentDeckSelection | null {
+  return loadRecentDeckSelections().reduce<RecentDeckSelection | null>(
+    (mostRecent, selection) =>
+      !mostRecent || selection.usedAt > mostRecent.usedAt
+        ? selection
+        : mostRecent,
+    null
+  );
+}
+
 export function loadRecentDeckSelectionForHeadquarters(
   headquartersId: HeadquartersId
 ): RecentDeckSelection | null {

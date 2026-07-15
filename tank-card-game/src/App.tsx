@@ -63,6 +63,7 @@ export default function App() {
 function GameApp() {
   const battle = useBattleStore((state) => state.battle);
   const restorePvpSession = useBattleStore((state) => state.restorePvpSession);
+  const resumePvpSession = useBattleStore((state) => state.resumePvpSession);
   const autoLaunchTrailerIfNeeded = useBattleStore(
     (state) => state.autoLaunchTrailerIfNeeded
   );
@@ -77,6 +78,29 @@ function GameApp() {
   useEffect(() => {
     restorePvpSession();
   }, [restorePvpSession]);
+
+  useEffect(() => {
+    function handleForegroundResume() {
+      resumePvpSession();
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        handleForegroundResume();
+      }
+    }
+
+    window.addEventListener("panzershrekAndroidResume", handleForegroundResume);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener(
+        "panzershrekAndroidResume",
+        handleForegroundResume
+      );
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [resumePvpSession]);
 
   // First visit: auto-launch the welcome trailer mission once boot is ready.
   useEffect(() => {

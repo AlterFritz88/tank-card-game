@@ -347,8 +347,7 @@ export type TankCard = {
      * (`deploymentDamage`). The variants are card-specific. Prototypes with the
      * `deploymentDamage` variant additionally take movement overheat damage
      * (70% chance of `moveDamage` HP, default 1, per move) once the battle
-     * enables it — see BattleState.overheatMovementDamage, switched on from the
-     * third «Первые Пантеры» mission onward.
+     * enables it — see BattleState.overheatMovementDamage.
      */
     overheat?: {
       threshold?: number;
@@ -640,9 +639,9 @@ export type BattleState = {
 
   /**
    * «Перегрев»: when set, prototype units with the `overheat.deploymentDamage`
-   * variant risk engine overheat on every move (70% chance of 1 HP). Enabled
-   * from the third «Первые Пантеры» mission («Глохнет на дистанции») onward;
-   * absent in normal battles.
+   * variant risk engine overheat on every move (70% chance of `moveDamage` HP,
+   * default 1). Enabled in normal/PVP battles and, by scenario, from the third
+   * «Первые Пантеры» mission («Глохнет на дистанции») onward.
    */
   overheatMovementDamage?: boolean;
 

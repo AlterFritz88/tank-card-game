@@ -389,6 +389,7 @@ function createStartedBattle(
     playerDeckCardIds: playerDeckCardIds ?? undefined,
     botDeckCardIds: botDeckCardIds ?? undefined,
     backgroundId: getRandomBattleBackgroundId(),
+    overheatMovementDamage: true,
   });
 
   return applyAction(battle, {

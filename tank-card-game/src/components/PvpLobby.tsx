@@ -53,6 +53,7 @@ import {
   deleteCustomDeck,
   deleteCustomDeckFromServer,
   getGroupedDeckCards,
+  loadMostRecentDeckSelection,
   loadRecentDeckSelectionForHeadquarters,
   loadSavedDecksForHeadquarters,
   markRecentDeckSelection,
@@ -3712,7 +3713,7 @@ export function PvpLobby() {
     </AnimatePresence>
   );
 
-  const battleDeckOptions = headquartersList.flatMap((headquarters) => {
+  const unorderedBattleDeckOptions = headquartersList.flatMap((headquarters) => {
     const headquartersId = headquarters.id as HeadquartersId;
     const nation = HEADQUARTERS[headquartersId].nation;
 
@@ -3724,6 +3725,25 @@ export function PvpLobby() {
       optionKey: `${headquartersId}-${deck.id ?? "default"}`,
     }));
   });
+
+  const mostRecentDeckSelection = loadMostRecentDeckSelection();
+  const mostRecentOptionKey = mostRecentDeckSelection
+    ? `${mostRecentDeckSelection.headquartersId}-${mostRecentDeckSelection.deckId ?? "default"}`
+    : null;
+  const mostRecentOptionIndex = mostRecentOptionKey
+    ? unorderedBattleDeckOptions.findIndex(
+        (option) => option.optionKey === mostRecentOptionKey
+      )
+    : -1;
+  const battleDeckOptions =
+    mostRecentOptionIndex > 0
+      ? [
+          unorderedBattleDeckOptions[mostRecentOptionIndex],
+          ...unorderedBattleDeckOptions.filter(
+            (_, index) => index !== mostRecentOptionIndex
+          ),
+        ]
+      : unorderedBattleDeckOptions;
 
   const availableDeckNations = NATION_FILTER_VALUES.filter((nation) =>
     battleDeckOptions.some((option) => option.nation === nation)
