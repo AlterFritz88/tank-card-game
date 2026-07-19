@@ -4,4 +4,7 @@
     <string name="title_activity_main">Panzershrek</string>
     <string name="package_name">com.panzershrek.game</string>
     <string name="custom_url_scheme">com.panzershrek.game</string>
+    <string name="radio_duels_notification_channel_id">radio_duels</string>
+    <string name="radio_duels_notification_channel_name">Радиодуэли</string>
+    <string name="radio_duels_notification_channel_description">Ходы соперника и важные события радиодуэлей</string>
 </resources>

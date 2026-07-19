@@ -188,6 +188,12 @@ export type PvpClientMessage =
   | { type: "RADIO_DUEL_WATCH"; duelId: string }
   | { type: "RADIO_DUEL_UNWATCH"; duelId: string }
   | {
+      type: "REGISTER_PUSH_TOKEN";
+      token: string;
+      platform: "rustore";
+      enabled: boolean;
+    }
+  | {
       type: "REGISTER_ACCOUNT";
       requestId: string;
       username: string;

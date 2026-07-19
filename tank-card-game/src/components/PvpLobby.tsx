@@ -147,6 +147,7 @@ import {
   type Language,
 } from "../game/settings";
 import { useI18n } from "../game/i18n";
+import { enableRadioDuelPushNotifications } from "../nativePushNotifications";
 
 const DeckBuilder = lazy(() =>
   import("./DeckBuilder").then((module) => ({ default: module.DeckBuilder }))
@@ -2999,6 +3000,9 @@ export function PvpLobby() {
     if ("Notification" in window && Notification.permission === "default") {
       void Notification.requestPermission();
     }
+    void enableRadioDuelPushNotifications().catch((error) => {
+      console.warn("Unable to enable Android radio-duel push:", error);
+    });
 
     // Resolve the destination before changing the menu. Opening the duel list
     // first made an empty carousel flash for one frame before the headquarters

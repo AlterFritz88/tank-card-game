@@ -1,4 +1,4 @@
-import { createReadStream } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import {
   createServer,
@@ -14,6 +14,8 @@ import { PaymentManager } from "./payments";
 import { PlayerAccountManager } from "./playerAccounts";
 import { PlayerProfileManager } from "./playerProfiles";
 import { SupportTicketManager } from "./supportTickets";
+
+if (existsSync(".env")) process.loadEnvFile(".env");
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST;

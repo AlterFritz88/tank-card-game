@@ -163,6 +163,37 @@ function EyeIcon() {
   );
 }
 
+/** Thermometer/flame glyph for the persistent «Перегрев» marker. */
+function OverheatIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true">
+      <path
+        d="M10 4a2 2 0 0 1 4 0v9.2a4.5 4.5 0 1 1-4 0V4Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 7v8.1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="17.4" r="2.25" fill="currentColor" />
+      <path
+        d="M17.2 6.2c1.45 1.4 1.45 3.45 0 4.85M19.5 4.2c2.55 2.55 2.55 6.35 0 8.9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function TankCardView({
   card,
   variant,
@@ -219,6 +250,7 @@ export function TankCardView({
   const hasLongShot = hasRangedStrike(card);
   const hasCounterBattery =
     card.onPlayEffects?.suppressEnemyIndirect === true;
+  const hasOverheat = card.combatAbilities?.overheat != null;
 
   if (!isHand) {
     return (
@@ -290,6 +322,11 @@ export function TankCardView({
               title="Контрбатарея"
               style={styles.boardAbilityIconImage}
             />
+          )}
+          {hasOverheat && (
+            <span style={styles.boardAbilityIcon} title="Перегрев">
+              <OverheatIcon />
+            </span>
           )}
           {blitzAvailable && (
             <img src={blitzIcon} alt="" title="Блиц доступен" style={styles.boardAbilityIconImage} />

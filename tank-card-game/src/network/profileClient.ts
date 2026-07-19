@@ -144,6 +144,12 @@ type ProfileClientMessage =
   | { type: "RADIO_DUEL_CLAIM_REWARD"; requestId: string; duelId: string }
   | { type: "RADIO_DUEL_REPLAY_SEEN"; requestId: string; duelId: string; version: number }
   | {
+      type: "REGISTER_PUSH_TOKEN";
+      token: string;
+      platform: "rustore";
+      enabled: boolean;
+    }
+  | {
       type: "REGISTER_ACCOUNT";
       requestId: string;
       username: string;
@@ -255,7 +261,9 @@ export type SessionAcquireResult =
 // heartbeat are fire-and-forget messages sent directly, never through request().
 type ProfileRequestMessage = Exclude<
   ProfileClientMessage,
-  { type: "RELEASE_SESSION" } | { type: "SESSION_HEARTBEAT" }
+  | { type: "RELEASE_SESSION" }
+  | { type: "SESSION_HEARTBEAT" }
+  | { type: "REGISTER_PUSH_TOKEN" }
 >;
 type ProfileUpdatedMessage = Extract<
   ProfileServerMessage,
@@ -526,6 +534,7 @@ class ProfileClient {
   private autoReconnectTimerId: number | null = null;
   private activeGameSession: { accountId: string; kind: GameMode } | null = null;
   private sessionHeartbeatTimerId: number | null = null;
+  private ruStorePushToken: string | null = null;
 
   getConnectionSnapshot(): ProfileConnectionSnapshot {
     return this.connection;
@@ -554,6 +563,16 @@ class ProfileClient {
     return () => {
       this.radioDuelLiveUpdateListeners.delete(listener);
     };
+  }
+
+  async registerRuStorePushToken(token: string): Promise<void> {
+    const normalizedToken = token.trim();
+    if (!normalizedToken) return;
+
+    this.ruStorePushToken = normalizedToken;
+    await this.ensureConnected();
+    if (this.authReady) await this.authReady;
+    this.sendRuStorePushToken(true);
   }
 
   async reconnect(): Promise<void> {
@@ -1106,6 +1125,7 @@ class ProfileClient {
     }
 
     writeSessionToken(response.sessionToken);
+    this.sendRuStorePushToken(true);
     return response;
   }
 
@@ -1126,6 +1146,7 @@ class ProfileClient {
     }
 
     writeSessionToken(response.sessionToken);
+    this.sendRuStorePushToken(true);
     return response;
   }
 
@@ -1135,6 +1156,7 @@ class ProfileClient {
    */
   clearSession(): void {
     this.stopSessionHeartbeat();
+    this.sendRuStorePushToken(false);
     writeSessionToken(null);
   }
 
@@ -1197,6 +1219,7 @@ class ProfileClient {
           this.setConnection("online", null);
           this.reacquireActiveGameSession();
           this.sendSessionHeartbeat();
+          this.sendRuStorePushToken(true);
           resolve();
         });
       });
@@ -1347,6 +1370,9 @@ class ProfileClient {
           this.watchedRadioDuelId
         );
       }
+      if (message.type === "AUTHENTICATED") {
+        this.sendRuStorePushToken(true);
+      }
       return;
     }
 
@@ -1380,6 +1406,25 @@ class ProfileClient {
       this.socket.send(JSON.stringify({ type, duelId }));
     } catch {
       // Reconnection will restore an active watch automatically.
+    }
+  }
+
+  private sendRuStorePushToken(enabled: boolean) {
+    if (!this.ruStorePushToken) return;
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+
+    try {
+      this.socket.send(
+        JSON.stringify({
+          type: "REGISTER_PUSH_TOKEN",
+          token: this.ruStorePushToken,
+          platform: "rustore",
+          enabled,
+        } satisfies ProfileClientMessage)
+      );
+    } catch {
+      // The token is kept in memory and sent after the next authenticated
+      // reconnect. RuStore also emits a fresh token event when it rotates.
     }
   }
 

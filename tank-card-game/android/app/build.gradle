@@ -18,7 +18,8 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders = [
             rustorePayScheme: project.findProperty('rustorePayScheme') ?: 'com.panzershrek.game.rustore.pay',
-            rustoreConsoleAppId: project.findProperty('rustoreConsoleAppId') ?: ''
+            rustoreConsoleAppId: project.findProperty('rustoreConsoleAppId') ?: '',
+            rustorePushProjectId: project.findProperty('rustorePushProjectId') ?: System.getenv('RUSTORE_PUSH_PROJECT_ID') ?: ''
         ]
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -58,6 +59,7 @@ dependencies {
     implementation platform("ru.rustore.sdk:bom:2026.06.01")
     implementation "ru.rustore.sdk:appupdate"
     implementation "ru.rustore.sdk:pay"
+    implementation "ru.rustore.sdk:pushclient:2.1.1"
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
@@ -69,12 +71,3 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
-
-try {
-    def servicesJSON = file('google-services.json')
-    if (servicesJSON.text) {
-        apply plugin: 'com.google.gms.google-services'
-    }
-} catch(Exception e) {
-    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
-}

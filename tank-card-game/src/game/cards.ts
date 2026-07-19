@@ -666,7 +666,6 @@ const rawCards: TankCard[] = [
     initiative: 5,
     abilityText:
       "",
-    combatAbilities: { blitz: true },
   },
   {
     id: "m1_combat_car",
@@ -3211,7 +3210,7 @@ const rawCards: TankCard[] = [
     nation: "usa",
     class: "armored_car",
     rarity: "rare",
-    cost: 4,
+    cost: 6,
     attack: 3,
     armor: 2,
     hp: 5,
@@ -3219,7 +3218,6 @@ const rawCards: TankCard[] = [
     movement: 3,
     fuelGeneration: 0,
     initiative: 4,
-    combatAbilities: { armorVsClass: { class: "light", amount: 1 } },
     abilityText: "",
   },
 

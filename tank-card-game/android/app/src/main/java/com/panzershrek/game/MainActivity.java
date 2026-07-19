@@ -28,6 +28,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(RuStorePaymentsPlugin.class);
+        registerPlugin(RuStorePushPlugin.class);
         super.onCreate(savedInstanceState);
         enableImmersiveFullscreen();
         registerWebViewRendererRecovery();

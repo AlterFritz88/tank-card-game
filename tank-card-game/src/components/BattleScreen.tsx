@@ -1299,7 +1299,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const [hiddenDestroyedObjectIds, setHiddenDestroyedObjectIds] = useState<
     Set<string>
   >(new Set());
-  const pvpDestroyedAwaitingStateRef = useRef<Set<string>>(new Set());
+  const destroyedAwaitingStateRef = useRef<Set<string>>(new Set());
   const [hiddenMovingUnitIds, setHiddenMovingUnitIds] = useState<Set<string>>(
     new Set()
   );
@@ -1500,7 +1500,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     () => undefined
   );
   const playAttackSequenceRef = useRef<
-    (strikes: AttackAnimationStrike[]) => Promise<boolean>
+    (
+      strikes: AttackAnimationStrike[],
+      sourceBattle?: ClientBattleState
+    ) => Promise<boolean>
   >(() => Promise.resolve(false));
   const showDamageEffectsFromSnapshotsRef = useRef<
     (before: Map<string, number>, after: Map<string, number>) => void
@@ -1534,7 +1537,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       owner: PlayerId,
       cardInstanceId: string,
       cardId: string,
-      position: Position
+      position: Position,
+      onArrive?: () => void
     ) => Promise<void>
   >(() => Promise.resolve());
   const playSupportSpawnCardAnimationRef = useRef<
@@ -1542,7 +1546,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       owner: PlayerId,
       cardInstanceId: string,
       cardId: string,
-      supportSlot: SupportSlot
+      supportSlot: SupportSlot,
+      onArrive?: () => void
     ) => Promise<void>
   >(() => Promise.resolve());
   const playMoveIntentAnimationRef = useRef<
@@ -1560,6 +1565,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       options?: {
         preserveLaterSelection?: boolean;
         applyReplayStep?: (nextBattle: BattleState) => void;
+        finalReplayBattle?: BattleState;
       }
     ) => Promise<void>
   >(() => Promise.resolve());
@@ -1570,7 +1576,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     resultVisible: false,
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     dispatchBattleActionRef.current = dispatchBattleAction;
     playAttackSequenceRef.current = playAttackSequence;
     showDamageEffectsFromSnapshotsRef.current = showDamageEffectsFromSnapshots;
@@ -1597,21 +1603,31 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           return before && after ? [{ action, before, after }] : [];
         });
 
+        const initialBattle = activeSteps[0]?.before;
+        if (initialBattle) {
+          useBattleStore.setState({ battle: initialBattle });
+          // Give both the board objects and their refs time to mount before the
+          // first active replay action starts.
+          await waitForNextFrame();
+          await waitForNextFrame();
+        }
+
         for (const { action, before, after } of activeSteps) {
           if (cancelled) return;
 
-          useBattleStore.setState({ battle: before });
-          await waitForNextFrame();
+          let stepCommitted = false;
 
           if (action.type === "MOVE_UNIT") {
             await playAndDispatchLocalMovementRef.current(before, action, {
               applyReplayStep: (nextBattle) => {
                 useBattleStore.setState({ battle: nextBattle });
               },
+              finalReplayBattle: after,
             });
+            stepCommitted = true;
           } else if (action.type === "ATTACK") {
             const strikes = getAttackAnimationSequence(before, action);
-            await playAttackSequenceRef.current(strikes);
+            await playAttackSequenceRef.current(strikes, before);
           } else if (action.type === "PLAY_CARD") {
             const deployedUnit = after.units.find(
               (unit) => unit.instanceId === action.cardInstanceId
@@ -1621,8 +1637,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
                 action.playerId,
                 action.cardInstanceId,
                 deployedUnit.cardId,
-                action.position
+                action.position,
+                () => {
+                  if (!cancelled) {
+                    useBattleStore.setState({ battle: after });
+                  }
+                }
               );
+              stepCommitted = true;
             }
           } else if (action.type === "PLAY_SUPPORT_CARD") {
             const deployedUnit = after.units.find(
@@ -1633,13 +1655,21 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
                 action.playerId,
                 action.cardInstanceId,
                 deployedUnit.cardId,
-                action.supportSlot
+                action.supportSlot,
+                () => {
+                  if (!cancelled) {
+                    useBattleStore.setState({ battle: after });
+                  }
+                }
               );
+              stepCommitted = true;
             }
           }
 
           if (cancelled) return;
-          useBattleStore.setState({ battle: after });
+          if (!stepCommitted) {
+            useBattleStore.setState({ battle: after });
+          }
         }
       } catch (error) {
         console.error("Radio duel replay failed:", error);
@@ -1702,18 +1732,18 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }, [battle.units, stagedDeployPreview]);
 
   useEffect(() => {
-    if (mode !== "pvp") {
-      pvpDestroyedAwaitingStateRef.current.clear();
+    if (mode !== "pvp" && mode !== "radio") {
+      destroyedAwaitingStateRef.current.clear();
       clearAllPvpSpawnHidden();
       return;
     }
 
-    if (pvpDestroyedAwaitingStateRef.current.size === 0) return;
+    if (destroyedAwaitingStateRef.current.size === 0) return;
 
     const liveUnitIds = new Set(battle.units.map((unit) => unit.instanceId));
     const confirmedRemovedIds: string[] = [];
 
-    for (const targetId of pvpDestroyedAwaitingStateRef.current) {
+    for (const targetId of destroyedAwaitingStateRef.current) {
       if (!liveUnitIds.has(targetId)) {
         confirmedRemovedIds.push(targetId);
       }
@@ -1722,7 +1752,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     if (confirmedRemovedIds.length === 0) return;
 
     for (const targetId of confirmedRemovedIds) {
-      pvpDestroyedAwaitingStateRef.current.delete(targetId);
+      destroyedAwaitingStateRef.current.delete(targetId);
     }
 
     setHiddenDestroyedObjectIds((current) => {
@@ -3168,15 +3198,32 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     if (targetId === "bot_hq") return "bot";
 
     return (
-      battle.units.find((unit) => unit.instanceId === targetId)?.ownerId ?? null
+      useBattleStore
+        .getState()
+        .battle?.units.find((unit) => unit.instanceId === targetId)?.ownerId ??
+      battle.units.find((unit) => unit.instanceId === targetId)?.ownerId ??
+      null
     );
   }
 
+  async function waitForCombatObjectElement(
+    targetId: string
+  ): Promise<HTMLElement | undefined> {
+    for (let frame = 0; frame < 4; frame += 1) {
+      const element = objectRefs.current.get(targetId);
+
+      if (element?.isConnected) return element;
+
+      await waitForNextFrame();
+    }
+
+    return objectRefs.current.get(targetId);
+  }
+
   async function playDestroyedCardAnimation(targetId: string): Promise<void> {
-    await waitForNextFrame();
     playDestroyedSound();
 
-    const targetElement = objectRefs.current.get(targetId);
+    const targetElement = await waitForCombatObjectElement(targetId);
     const owner = getCombatObjectOwner(targetId);
     const deckElement = owner ? deckRefs.current[owner] : null;
 
@@ -3200,15 +3247,18 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       rotation: owner === humanPlayerId ? -14 : 14,
     };
 
-    setDestroyedCardEffects((current) => [...current, effect]);
-
-    window.setTimeout(() => {
-      setHiddenDestroyedObjectIds((current) => {
-        const next = new Set(current);
-        next.add(targetId);
-        return next;
-      });
-    }, 150);
+    // Commit the replacement card before hiding the live board object. Mobile
+    // WebViews may defer an ordinary state update by several frames, which used
+    // to produce a visible disappear/reappear flash before this animation.
+    flushSync(() => {
+      setDestroyedCardEffects((current) => [...current, effect]);
+    });
+    await waitForNextFrame();
+    setHiddenDestroyedObjectIds((current) => {
+      const next = new Set(current);
+      next.add(targetId);
+      return next;
+    });
 
     await delay(DESTROYED_CARD_ANIMATION_MS);
 
@@ -3217,14 +3267,14 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     );
 
     if (
-      modeRef.current === "pvp" &&
+      (modeRef.current === "pvp" || modeRef.current === "radio") &&
       targetId !== "player_hq" &&
       targetId !== "bot_hq" &&
       useBattleStore
         .getState()
         .battle?.units.some((unit) => unit.instanceId === targetId)
     ) {
-      pvpDestroyedAwaitingStateRef.current.add(targetId);
+      destroyedAwaitingStateRef.current.add(targetId);
       return;
     }
 
@@ -3236,14 +3286,16 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }
 
   async function playAttackSequence(
-    strikes: AttackAnimationStrike[]
+    strikes: AttackAnimationStrike[],
+    sourceBattle: ClientBattleState =
+      useBattleStore.getState().battle ?? battle
   ): Promise<boolean> {
     if (attackSequenceRunningRef.current) return false;
 
     attackSequenceRunningRef.current = true;
 
     try {
-      const hp = createHpSnapshot(battle);
+      const hp = createHpSnapshot(sourceBattle);
       const damagedTargetIds = new Set<string>();
 
       for (const strike of strikes) {
@@ -4184,7 +4236,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     owner: PlayerId,
     cardInstanceId: string,
     cardId: string,
-    position: Position
+    position: Position,
+    onArrive?: () => void
   ): Promise<void> {
     const targetCellElement = cellRefs.current.get(positionKey(position));
 
@@ -4192,7 +4245,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       owner,
       cardInstanceId,
       cardId,
-      targetCellElement
+      targetCellElement,
+      onArrive
     ).then(() => undefined);
   }
 
@@ -4200,7 +4254,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     owner: PlayerId,
     cardInstanceId: string,
     cardId: string,
-    supportSlot: SupportSlot
+    supportSlot: SupportSlot,
+    onArrive?: () => void
   ): Promise<void> {
     const targetCellElement = supportCellRefs.current.get(
       supportCellKey(owner, supportSlot)
@@ -4210,7 +4265,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       owner,
       cardInstanceId,
       cardId,
-      targetCellElement
+      targetCellElement,
+      onArrive
     ).then(() => undefined);
   }
 
@@ -4218,11 +4274,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     owner: PlayerId,
     cardInstanceId: string,
     cardId: string,
-    targetCellElement: HTMLButtonElement | undefined
+    targetCellElement: HTMLButtonElement | undefined,
+    onArrive?: () => void
   ): Promise<void> {
     const sourceCardElement = handCardRefs.current[owner].get(cardInstanceId);
 
     if (!sourceCardElement || !targetCellElement) {
+      if (onArrive) {
+        flushSync(onArrive);
+      }
       return Promise.resolve();
     }
 
@@ -4264,6 +4324,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
             next.add(cardInstanceId);
             return next;
           });
+
+          onArrive?.();
 
           setHiddenSpawningCardIds((current) => {
             if (pvpSpawningAwaitingStateRef.current.has(cardInstanceId)) {
@@ -4338,6 +4400,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     options: {
       preserveLaterSelection?: boolean;
       applyReplayStep?: (nextBattle: BattleState) => void;
+      finalReplayBattle?: BattleState;
     } = {}
   ): Promise<void> {
     const unit = state.units.find((item) => item.instanceId === action.unitId);
@@ -4395,7 +4458,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       }
 
       if (options.applyReplayStep) {
-        options.applyReplayStep(applyAction(currentBattle, stepAction));
+        const isFinalStep = index === positions.length - 1;
+        options.applyReplayStep(
+          isFinalStep && options.finalReplayBattle
+            ? options.finalReplayBattle
+            : applyAction(currentBattle, stepAction)
+        );
       } else if (options.preserveLaterSelection) {
         dispatchQueuedBattleAction(stepAction, {
           skipAttackEffects,
@@ -6564,14 +6632,14 @@ function renderEnemyDeckWithTimer() {
             initial={{
               x: 0,
               y: 0,
-              opacity: 0,
+              opacity: 1,
               scale: 1.04,
               rotate: 0,
             }}
             animate={{
               x: [0, 0, (effect.to.x - effect.from.x) * 0.16, effect.to.x - effect.from.x],
               y: [0, 0, (effect.to.y - effect.from.y) * 0.16, effect.to.y - effect.from.y],
-              opacity: [0, 1, 0.96, 0],
+              opacity: [1, 1, 0.96, 0],
               scale: [1.04, 1, 0.7, 0.24],
               rotate: [0, -2, effect.rotation * 0.45, effect.rotation],
             }}

@@ -33,6 +33,7 @@ import { getOpponentRewardMultiplier } from "./specialBattleRewards";
 const DEFAULT_RATING = 1000;
 const ACTIVE_WINDOW_MS = 48 * 60 * 60 * 1_000;
 const RECENT_OPPONENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000;
+const RADIO_DUEL_MAX_DECK_WEIGHT_DIFFERENCE = 50;
 
 type RadioPlayer = {
   accountId: string;
@@ -531,6 +532,7 @@ export class RadioDuelManager {
 
   private findCandidate(db: RadioDuelDb, joining: QueueEntry): QueueEntry | null {
     const now = Date.now();
+    const joiningDeckWeight = this.getDeckWeight(joining);
     const activeOpponentAccountIds = new Set(
       Object.values(db.duels)
         .filter(
@@ -555,6 +557,12 @@ export class RadioDuelManager {
     );
     const candidates = db.queue.filter((candidate) => {
       if (candidate.accountId === joining.accountId) return false;
+      if (
+        Math.abs(this.getDeckWeight(candidate) - joiningDeckWeight) >
+        RADIO_DUEL_MAX_DECK_WEIGHT_DIFFERENCE
+      ) {
+        return false;
+      }
       // One pair of accounts may have only one active radio duel. Their new
       // queue entries remain available for other opponents and may match each
       // other again only after the current duel has finished.

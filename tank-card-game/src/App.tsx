@@ -9,6 +9,7 @@ import { SettingsControls } from "./components/SettingsControls";
 import { getConfiguredProfileHttpUrl } from "./network/webSocketUrl";
 import { useBattleStore } from "./store/battleStore";
 import { profileClient } from "./network/profileClient";
+import { restoreRadioDuelPushNotifications } from "./nativePushNotifications";
 
 const BattleScreen = lazy(() =>
   import("./components/BattleScreen").then((module) => ({
@@ -76,6 +77,23 @@ function GameApp() {
   const clearSessionError = useBattleStore((state) => state.clearSessionError);
   const [bootReady, setBootReady] = useState(false);
   const [radioNotice, setRadioNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    void restoreRadioDuelPushNotifications().catch((error) => {
+      console.warn("Unable to restore Android push notifications:", error);
+    });
+
+    const openRadioDuels = () => {
+      const state = useBattleStore.getState();
+      if (state.battle) return;
+      state.openRadioDuelsMenu();
+    };
+
+    window.addEventListener("panzershrekOpenRadioDuels", openRadioDuels);
+    return () => {
+      window.removeEventListener("panzershrekOpenRadioDuels", openRadioDuels);
+    };
+  }, []);
 
   useEffect(() => {
     let hideTimer: number | null = null;

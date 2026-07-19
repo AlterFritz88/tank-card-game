@@ -41,6 +41,7 @@ import { createSessionToken, verifySessionToken } from "./authTokens";
 import { PromoRedemptionStore } from "./promoCodes";
 import { PvpStatsStore } from "./pvpStats";
 import { RadioDuelManager } from "./radioDuels";
+import { PushNotificationService } from "./pushNotifications";
 import { getOpponentRewardMultiplier } from "./specialBattleRewards";
 import {
   createPvpDeckIdentity,
@@ -535,6 +536,7 @@ export class RoomManager {
   private deployBarrageIntentSequence = 0;
   private accounts = new PlayerAccountManager();
   private profiles = new PlayerProfileManager();
+  private pushNotifications = new PushNotificationService();
   private radioDuelWatchBySocket = new Map<WebSocket, string>();
   private radioDuels = new RadioDuelManager(this.profiles, (accountId, event) => {
     let delivered = false;
@@ -543,7 +545,7 @@ export class RoomManager {
       safeSend(socket, { type: "RADIO_DUEL_EVENT", event });
       delivered = true;
     }
-    return delivered;
+    return this.pushNotifications.sendRadioDuelEvent(accountId, event) || delivered;
   }, (accountId, update) => {
     let delivered = false;
     for (const socket of this.authUserSockets.get(accountId) ?? []) {
@@ -879,6 +881,14 @@ export class RoomManager {
         if (this.radioDuelWatchBySocket.get(socket) === message.duelId) {
           this.radioDuelWatchBySocket.delete(socket);
         }
+        break;
+      case "REGISTER_PUSH_TOKEN":
+        this.registerPushToken(
+          socket,
+          message.token,
+          message.platform,
+          message.enabled
+        );
         break;
       case "ACQUIRE_SESSION":
         this.acquireGameSession(socket, message);
@@ -1801,6 +1811,20 @@ export class RoomManager {
       if (sockets?.size === 0) this.authUserSockets.delete(accountId);
     }
     this.socketToAuthUser.delete(socket);
+  }
+
+  private registerPushToken(
+    socket: WebSocket,
+    token: string,
+    platform: string,
+    enabled: boolean
+  ) {
+    const accountId = this.socketToAuthUser.get(socket);
+    if (!accountId?.startsWith(REGISTERED_USER_PREFIX)) return;
+    if (platform !== "rustore") return;
+    if (typeof token !== "string" || token.length > 4_096) return;
+
+    this.pushNotifications.registerToken(accountId, token, enabled === true);
   }
 
   private handleRadioDuelWatch(socket: WebSocket, duelId: string) {
