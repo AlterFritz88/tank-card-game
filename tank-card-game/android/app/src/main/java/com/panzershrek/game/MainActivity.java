@@ -23,17 +23,17 @@ import ru.rustore.sdk.pay.RuStorePayClient;
 import ru.rustore.sdk.pay.model.SdkTheme;
 
 public class MainActivity extends BridgeActivity {
+    private static final String RUSTORE_TAG = "PanzershrekRuStore";
+
     private RuStoreUpdateNotifier updateNotifier;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        registerPlugin(RuStorePaymentsPlugin.class);
-        registerPlugin(RuStorePushPlugin.class);
+        registerOptionalRuStorePlugins();
         super.onCreate(savedInstanceState);
         enableImmersiveFullscreen();
         registerWebViewRendererRecovery();
-        updateNotifier = new RuStoreUpdateNotifier(this);
-        getWindow().getDecorView().postDelayed(updateNotifier::checkForUpdate, 1500L);
+        initializeUpdateNotifier();
         if (savedInstanceState == null) {
             proceedRuStorePayIntent(getIntent());
         }
@@ -145,8 +145,33 @@ public class MainActivity extends BridgeActivity {
             IntentInteractor intentInteractor =
                 RuStorePayClient.Companion.getInstance().getIntentInteractor();
             intentInteractor.proceedIntent(intent, SdkTheme.LIGHT);
-        } catch (Exception ignored) {
+        } catch (Throwable error) {
             // RuStore client is unavailable until the app is installed through RuStore.
+            android.util.Log.d(RUSTORE_TAG, "RuStore Pay intent is unavailable", error);
+        }
+    }
+
+    private void registerOptionalRuStorePlugins() {
+        try {
+            registerPlugin(RuStorePaymentsPlugin.class);
+        } catch (Throwable error) {
+            android.util.Log.e(RUSTORE_TAG, "Unable to register RuStore Payments", error);
+        }
+
+        try {
+            registerPlugin(RuStorePushPlugin.class);
+        } catch (Throwable error) {
+            android.util.Log.e(RUSTORE_TAG, "Unable to register RuStore Push", error);
+        }
+    }
+
+    private void initializeUpdateNotifier() {
+        try {
+            updateNotifier = new RuStoreUpdateNotifier(this);
+            getWindow().getDecorView().postDelayed(updateNotifier::checkForUpdate, 1500L);
+        } catch (Throwable error) {
+            updateNotifier = null;
+            android.util.Log.e(RUSTORE_TAG, "RuStore update checks are unavailable", error);
         }
     }
 

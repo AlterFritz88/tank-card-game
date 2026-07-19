@@ -19,27 +19,32 @@ public final class PanzershrekApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-        createRadioDuelNotificationChannel(this);
+        try {
+            createRadioDuelNotificationChannel(this);
+        } catch (Throwable error) {
+            Log.e(TAG, "Unable to create the radio duel notification channel", error);
+        }
+
         initializeRuStorePush(this);
     }
 
     static boolean initializeRuStorePush(Application application) {
-        if (RuStorePushClient.INSTANCE.isInitialized()) return true;
-
-        String projectId = readPushProjectId(application);
-        if (projectId.isEmpty()) {
-            Log.w(TAG, "RuStore Push Project ID is not configured");
-            return false;
-        }
-
         try {
+            if (RuStorePushClient.INSTANCE.isInitialized()) return true;
+
+            String projectId = readPushProjectId(application);
+            if (projectId.isEmpty()) {
+                Log.w(TAG, "RuStore Push Project ID is not configured");
+                return false;
+            }
+
             RuStorePushClient.INSTANCE.init(
                 application,
                 projectId,
                 new DefaultLogger(TAG)
             );
             return true;
-        } catch (Exception error) {
+        } catch (Throwable error) {
             Log.e(TAG, "Unable to initialize RuStore Push SDK", error);
             return false;
         }

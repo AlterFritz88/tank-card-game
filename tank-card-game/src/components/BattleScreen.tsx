@@ -1569,6 +1569,13 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       }
     ) => Promise<void>
   >(() => Promise.resolve());
+  const playPvpStyleMovementRef = useRef<
+    (
+      state: BattleState,
+      action: Extract<BattleAction, { type: "MOVE_UNIT" }>,
+      onStep: (position: Position, isFinalStep: boolean) => void
+    ) => Promise<void>
+  >(() => Promise.resolve());
   const [startRollState, setStartRollState] = useState<StartRollState>({
     visible: false,
     winner: null,
@@ -1586,6 +1593,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     playSupportSpawnCardAnimationRef.current = playSupportSpawnCardAnimation;
     playMoveIntentAnimationRef.current = playMoveIntentAnimation;
     playAndDispatchLocalMovementRef.current = playAndDispatchLocalMovement;
+    playPvpStyleMovementRef.current = playPvpStyleMovement;
   });
 
   useEffect(() => {
@@ -1618,12 +1626,19 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           let stepCommitted = false;
 
           if (action.type === "MOVE_UNIT") {
-            await playAndDispatchLocalMovementRef.current(before, action, {
-              applyReplayStep: (nextBattle) => {
-                useBattleStore.setState({ battle: nextBattle });
-              },
-              finalReplayBattle: after,
-            });
+            let visualBattle = before;
+            await playPvpStyleMovementRef.current(
+              before,
+              action,
+              (position, isFinalStep) => {
+                visualBattle = isFinalStep
+                  ? after
+                  : moveUnitForAnimation(visualBattle, action.unitId, position);
+                flushSync(() => {
+                  useBattleStore.setState({ battle: visualBattle });
+                });
+              }
+            );
             stepCommitted = true;
           } else if (action.type === "ATTACK") {
             const strikes = getAttackAnimationSequence(before, action);
@@ -1668,8 +1683,11 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
           if (cancelled) return;
           if (!stepCommitted) {
-            useBattleStore.setState({ battle: after });
+            flushSync(() => {
+              useBattleStore.setState({ battle: after });
+            });
           }
+          await waitForNextFrame();
         }
       } catch (error) {
         console.error("Radio duel replay failed:", error);
@@ -1765,7 +1783,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }, [battle.units, mode]);
 
   useEffect(() => {
-    if (mode !== "pvp") return;
+    if (mode !== "pvp" && mode !== "radio") return;
     if (
       pvpSpawningAwaitingStateRef.current.size === 0 &&
       pvpStaticSpawnAwaitingStateRef.current.size === 0
@@ -2921,7 +2939,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   // idle on that cell even though the rest of its route is already queued.
   // Do not recalculate/show action hints until the complete visual route ends.
   const pvpMovementVisualActive =
-    mode === "pvp" &&
+    (mode === "pvp" || mode === "radio") &&
     (pvpMovementIntent !== null || movementUnitEffect !== null);
 
   const selectedMoveCells =
@@ -4354,6 +4372,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
             );
 
             setStaticSpawnUnitIds((current) => {
+              if (pvpStaticSpawnAwaitingStateRef.current.has(cardInstanceId)) {
+                return current;
+              }
               if (!current.has(cardInstanceId)) return current;
               const next = new Set(current);
               next.delete(cardInstanceId);
@@ -4581,7 +4602,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     unitId: string,
     durationMs: number,
     start: RemoteMoveStart | null,
-    target: RemoteMoveTarget | null
+    target: RemoteMoveTarget | null,
+    onVisualReady?: () => void
   ) {
     while (movementAnimationRunningRef.current) {
       await delay(20);
@@ -4597,6 +4619,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       const boardElement = boardRef.current;
 
       if (!boardElement || !start || !target) {
+        onVisualReady?.();
         await delay(durationMs + MOVE_ARROW_FOLLOW_MS);
         return;
       }
@@ -4659,6 +4682,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           phase: "extending",
         });
       });
+      onVisualReady?.();
 
       await delay(durationMs);
 
@@ -4713,6 +4737,98 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       }
 
       movementAnimationRunningRef.current = false;
+    }
+  }
+
+  function moveUnitForAnimation(
+    state: BattleState,
+    unitId: string,
+    position: Position
+  ): BattleState {
+    return {
+      ...state,
+      units: state.units.map((unit) =>
+        unit.instanceId === unitId ? { ...unit, position } : unit
+      ),
+    };
+  }
+
+  async function playPvpStyleMovement(
+    state: BattleState,
+    action: Extract<BattleAction, { type: "MOVE_UNIT" }>,
+    onStep: (position: Position, isFinalStep: boolean) => void
+  ): Promise<void> {
+    const unit = state.units.find((item) => item.instanceId === action.unitId);
+    const boardElement = boardRef.current;
+    const unitElement = objectRefs.current.get(action.unitId);
+
+    if (!unit || !boardElement || !unitElement) {
+      onStep(action.position, true);
+      return;
+    }
+
+    const unitClass = getCard(unit.cardId).class;
+    const positions = [
+      ...(unitClass === "light" || unitClass === "armored_car"
+        ? getStraightLineIntermediates(unit.position, action.position)
+        : []),
+      action.position,
+    ];
+    const targets = positions.map((position) => {
+      const targetElement = cellRefs.current.get(positionKey(position));
+      if (!targetElement) return null;
+
+      return {
+        position,
+        target: {
+          to: getElementCenterRelativeToBoard(boardElement, targetElement),
+          width: targetElement.offsetWidth,
+          height: targetElement.offsetHeight,
+        } satisfies RemoteMoveTarget,
+      };
+    });
+
+    if (targets.some((item) => item === null)) {
+      onStep(action.position, true);
+      return;
+    }
+
+    let visualStart: RemoteMoveStart = {
+      from: getElementCenterRelativeToBoard(boardElement, unitElement),
+      width: unitElement.offsetWidth,
+      height: unitElement.offsetHeight,
+      unit: {
+        cardId: unit.cardId,
+        ownerId: unit.ownerId,
+        currentHp: unit.currentHp,
+        alreadyMoved: unit.alreadyMoved,
+        alreadyAttacked: unit.alreadyAttacked,
+        attackCountThisTurn: unit.attackCountThisTurn ?? 0,
+      },
+    };
+
+    pendingPvpMoveStepsRef.current.set(action.unitId, targets.length);
+
+    for (let index = 0; index < targets.length; index += 1) {
+      const item = targets[index];
+      if (!item) continue;
+      const isFinalStep = index === targets.length - 1;
+
+      await playRemoteMoveIntentAnimation(
+        action.playerId,
+        action.unitId,
+        MOVE_ARROW_LEAD_MS,
+        visualStart,
+        item.target,
+        () => onStep(item.position, isFinalStep)
+      );
+
+      visualStart = {
+        ...visualStart,
+        from: item.target.to,
+        width: item.target.width,
+        height: item.target.height,
+      };
     }
   }
 
@@ -4975,7 +5091,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }
 
   function keepPvpSpawnHiddenUntilState(cardInstanceId: string) {
-    if (modeRef.current !== "pvp") return;
+    if (modeRef.current !== "pvp" && modeRef.current !== "radio") return;
 
     clearPvpSpawnFallbackTimer(cardInstanceId);
     pvpSpawningAwaitingStateRef.current.add(cardInstanceId);
@@ -5048,7 +5164,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   // already carried the card there). The static flag is released when the played
   // card leaves the hand in server state, with a timeout as a safety net.
   function keepPvpSpawnStaticUntilState(cardInstanceId: string) {
-    if (modeRef.current !== "pvp") return;
+    if (modeRef.current !== "pvp" && modeRef.current !== "radio") return;
 
     clearPvpStaticSpawnFallbackTimer(cardInstanceId);
     pvpStaticSpawnAwaitingStateRef.current.add(cardInstanceId);
@@ -5133,6 +5249,42 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       }
 
       dispatch();
+      return;
+    }
+
+    if (
+      modeRef.current === "radio" &&
+      !shouldSequenceDeployBarrage(currentBattle, action)
+    ) {
+      clearAllPvpSpawnHidden();
+      clearAllPvpSpawnStatic();
+      keepPvpSpawnHiddenUntilState(cardInstance.instanceId);
+      keepPvpSpawnStaticUntilState(cardInstance.instanceId);
+
+      const stageAndDispatch = () => {
+        setStagedDeployPreview({
+          zone: "battlefield",
+          instanceId: cardInstance.instanceId,
+          cardId: cardInstance.cardId,
+          ownerId: currentHumanPlayerId,
+          position,
+        });
+        dispatch();
+      };
+
+      if (options.skipSpawnAnimation) {
+        playCardDistributionSound();
+        flushSync(stageAndDispatch);
+        return;
+      }
+
+      await playSpawnCardAnimationRef.current(
+        currentHumanPlayerId,
+        cardInstance.instanceId,
+        cardInstance.cardId,
+        position,
+        stageAndDispatch
+      );
       return;
     }
 
@@ -5244,6 +5396,42 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
       return;
     }
 
+    if (
+      modeRef.current === "radio" &&
+      !shouldSequenceDeployBarrage(currentBattle, action)
+    ) {
+      clearAllPvpSpawnHidden();
+      clearAllPvpSpawnStatic();
+      keepPvpSpawnHiddenUntilState(cardInstance.instanceId);
+      keepPvpSpawnStaticUntilState(cardInstance.instanceId);
+
+      const stageAndDispatch = () => {
+        setStagedDeployPreview({
+          zone: "support",
+          instanceId: cardInstance.instanceId,
+          cardId: cardInstance.cardId,
+          ownerId: currentHumanPlayerId,
+          supportSlot,
+        });
+        dispatch();
+      };
+
+      if (options.skipSpawnAnimation) {
+        playCardDistributionSound();
+        flushSync(stageAndDispatch);
+        return;
+      }
+
+      await playSupportSpawnCardAnimationRef.current(
+        currentHumanPlayerId,
+        cardInstance.instanceId,
+        cardInstance.cardId,
+        supportSlot,
+        stageAndDispatch
+      );
+      return;
+    }
+
     if (shouldSequenceDeployBarrage(currentBattle, action)) {
       // On a drag-and-drop play the ghost already carried the card to the slot,
       // so skip the hand→slot fly-in (the staged preview shows the unit in place)
@@ -5299,6 +5487,41 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
     if (modeRef.current === "pvp") {
       dispatchQueuedBattleAction(action);
+      return;
+    }
+
+    if (modeRef.current === "radio") {
+      let actionDispatched = false;
+      await playPvpStyleMovement(
+        currentBattle,
+        action,
+        (_position, isFinalStep) => {
+          if (!actionDispatched) {
+            actionDispatched = true;
+            dispatchQueuedBattleAction(action);
+          }
+
+          if (!isFinalStep) return;
+
+          const latestBattle = useBattleStore.getState().battle as BattleState | null;
+          const latestUnit = latestBattle?.units.find(
+            (unit) => unit.instanceId === action.unitId
+          );
+
+          // Normally the authoritative radio-duel response has already moved the
+          // hidden board unit by the time the visual clone reaches its final cell.
+          // On a slow connection keep an optimistic final state underneath the
+          // clone, preventing it from snapping back when the animation finishes.
+          if (!latestUnit || !samePosition(latestUnit.position, action.position)) {
+            flushSync(() => {
+              useBattleStore.setState({
+                battle: applyAction(currentBattle, action),
+                selectedAttacker: null,
+              });
+            });
+          }
+        }
+      );
       return;
     }
 

@@ -604,6 +604,79 @@ function mergeWithDefaultProgress(profile?: Partial<PlayerProgress>): PlayerProg
   };
 }
 
+const LEGACY_ERRONEOUS_HEADQUARTERS_ID: HeadquartersId =
+  "soviet_tank_brigade";
+const LEGITIMATE_SOVIET_TANK_HEADQUARTERS_RESEARCH_PATHS = [
+  // The first version of the branch led through T-40 and T-34/76.
+  ["t40", "t34_76"],
+  // The current branch requires both T-40 and T-35.
+  ["t40", "t35"],
+] as const;
+
+function hasLegitimateSovietTankHeadquartersResearch(
+  profile: Partial<PlayerProgress>
+): boolean {
+  const researchedCardIds = new Set(
+    normalizeCardIdList(profile.researchedCardIds)
+  );
+  return LEGITIMATE_SOVIET_TANK_HEADQUARTERS_RESEARCH_PATHS.some((path) =>
+    path.every((cardId) => researchedCardIds.has(cardId))
+  );
+}
+
+/**
+ * For one week the Lavrinenko campaign used the regular research-tree id of
+ * the 4th Tank Brigade. Legacy client normalization then copied that accidental
+ * unlock into researchedHeadquartersIds as well, so checking that array alone
+ * cannot distinguish the campaign grant from a real research unlock.
+ *
+ * A real unlock necessarily has one of the research paths that existed before
+ * or after the tree revision. If neither path is present, remove every live
+ * reference to the headquarters while preserving its accumulated XP/statistics
+ * for the day when the player researches and buys it normally.
+ */
+function removeErroneousSovietTankHeadquartersGrant(
+  profile: Partial<PlayerProgress>
+): Partial<PlayerProgress> {
+  if (hasLegitimateSovietTankHeadquartersResearch(profile)) return profile;
+
+  const researchedHeadquartersIds = normalizeHeadquartersIdList(
+    profile.researchedHeadquartersIds
+  );
+  const unlockedHeadquartersIds = normalizeHeadquartersIdList(
+    profile.unlockedHeadquartersIds
+  );
+  const savedDecks = Array.isArray(profile.savedDecks) ? profile.savedDecks : [];
+  const hasErroneousReference =
+    researchedHeadquartersIds.includes(LEGACY_ERRONEOUS_HEADQUARTERS_ID) ||
+    unlockedHeadquartersIds.includes(LEGACY_ERRONEOUS_HEADQUARTERS_ID) ||
+    profile.favoriteHeadquartersId === LEGACY_ERRONEOUS_HEADQUARTERS_ID ||
+    savedDecks.some(
+      (deck) => deck.headquartersId === LEGACY_ERRONEOUS_HEADQUARTERS_ID
+    );
+
+  if (!hasErroneousReference) return profile;
+
+  return {
+    ...profile,
+    favoriteHeadquartersId:
+      profile.favoriteHeadquartersId === LEGACY_ERRONEOUS_HEADQUARTERS_ID
+        ? null
+        : profile.favoriteHeadquartersId,
+    researchedHeadquartersIds: researchedHeadquartersIds.filter(
+      (headquartersId) =>
+        headquartersId !== LEGACY_ERRONEOUS_HEADQUARTERS_ID
+    ),
+    unlockedHeadquartersIds: unlockedHeadquartersIds.filter(
+      (headquartersId) =>
+        headquartersId !== LEGACY_ERRONEOUS_HEADQUARTERS_ID
+    ),
+    savedDecks: savedDecks.filter(
+      (deck) => deck.headquartersId !== LEGACY_ERRONEOUS_HEADQUARTERS_ID
+    ),
+  };
+}
+
 /**
  * Normalizes a stored profile and, for master accounts, grants every
  * headquarters and the full card collection. Grants are re-normalized so the
@@ -614,19 +687,20 @@ function normalizeProfileForPlayer(
   playerId: string,
   profile?: Partial<PlayerProgress>
 ): PlayerProgress {
-  const normalized = mergeWithDefaultProgress(profile);
+  const normalized = mergeWithDefaultProgress(
+    isMasterAccount(playerId)
+      ? profile
+      : removeErroneousSovietTankHeadquartersGrant(profile ?? {})
+  );
   if (!isMasterAccount(playerId)) return normalized;
 
   return mergeWithDefaultProgress(applyMasterAccountGrants(normalized));
 }
 
-const LEGACY_ERRONEOUS_HEADQUARTERS_ID: HeadquartersId =
-  "soviet_tank_brigade";
-
 /**
- * Early builds could put the 4th Tank Brigade straight into the unlocked list
- * without researching it. Remove that stale grant from storage so it cannot
- * reappear after reconnecting or merging an old guest profile.
+ * Clean every stored profile at startup as well as normalizing profiles on
+ * access. The startup pass fixes inactive accounts immediately; the normalizer
+ * prevents an old guest profile or client cache from reintroducing the grant.
  */
 function migrateLegacyErroneousHeadquartersGrant() {
   const db = readDb();
@@ -634,37 +708,10 @@ function migrateLegacyErroneousHeadquartersGrant() {
 
   for (const [playerId, profile] of Object.entries(db)) {
     if (isMasterAccount(playerId)) continue;
+    const migratedProfile = removeErroneousSovietTankHeadquartersGrant(profile);
+    if (migratedProfile === profile) continue;
 
-    const researchedHeadquartersIds = normalizeHeadquartersIdList(
-      profile.researchedHeadquartersIds
-    );
-    const unlockedHeadquartersIds = normalizeHeadquartersIdList(
-      profile.unlockedHeadquartersIds
-    );
-    if (
-      researchedHeadquartersIds.includes(LEGACY_ERRONEOUS_HEADQUARTERS_ID) ||
-      !unlockedHeadquartersIds.includes(LEGACY_ERRONEOUS_HEADQUARTERS_ID)
-    ) {
-      continue;
-    }
-
-    db[playerId] = {
-      ...profile,
-      favoriteHeadquartersId:
-        profile.favoriteHeadquartersId === LEGACY_ERRONEOUS_HEADQUARTERS_ID
-          ? null
-          : profile.favoriteHeadquartersId,
-      unlockedHeadquartersIds: unlockedHeadquartersIds.filter(
-        (headquartersId) =>
-          headquartersId !== LEGACY_ERRONEOUS_HEADQUARTERS_ID
-      ),
-      savedDecks: Array.isArray(profile.savedDecks)
-        ? profile.savedDecks.filter(
-            (deck) =>
-              deck.headquartersId !== LEGACY_ERRONEOUS_HEADQUARTERS_ID
-          )
-        : [],
-    };
+    db[playerId] = migratedProfile as PlayerProgress;
     migratedProfiles += 1;
   }
 
