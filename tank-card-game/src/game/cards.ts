@@ -1763,7 +1763,7 @@ const rawCards: TankCard[] = [
     nation: "ussr",
     class: "light",
     rarity: "common",
-    cost: 1,
+    cost: 2,
     attack: 1,
     armor: 0,
     hp: 1,
@@ -2700,10 +2700,10 @@ const rawCards: TankCard[] = [
     nation: "ussr",
     class: "light",
     rarity: "common",
-    cost: 1,
+    cost: 4,
     attack: 0,
     armor: 0,
-    hp: 3,
+    hp: 2,
     range: 0,
     movement: 0,
     fuelGeneration: 0,
@@ -2712,8 +2712,13 @@ const rawCards: TankCard[] = [
     supportRole: "transport",
     supportEffects: {
       drawEveryTurns: 2,
+      returnFire: 1,
     },
-    abilityText: "Мотодозор разведбата: добор карты каждый второй ход.",
+    onPlayEffects: {
+      suppressEnemyIndirect: true,
+    },
+    abilityText:
+      "Добор карты каждый второй ход и самооборона 1. Пока мотоцикл в строю, вражеские штаб и САУ не могут атаковать.",
   },
 
   // === Кампания «Лавриненко» — Германия, 1941 ===

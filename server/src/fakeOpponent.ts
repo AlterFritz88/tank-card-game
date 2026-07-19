@@ -2,7 +2,7 @@
  * Fabricates believable "fake" PvP opponents. When matchmaking cannot find a
  * real human in time (see RoomManager), the server drops one of these into the
  * opponent slot so the waiting player still gets a match — a random nickname,
- * a plausible headquarters, a deck within ±40% of the player's strength, and a
+ * a plausible headquarters, a deck within 20% of the player's strength, and a
  * randomly chosen difficulty + playstyle. The client is told nothing: from its
  * side it looks exactly like a normal human match.
  */
@@ -25,7 +25,7 @@ import type { HeadquartersId } from "../../tank-card-game/src/game/types";
 
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
-export const DEFAULT_FAKE_PVP_MATCH_PROBABILITY = 0.85;
+export const DEFAULT_FAKE_PVP_MATCH_PROBABILITY = 0.55;
 export const DEFAULT_COMMANDER_NICKNAME_PROBABILITY = 0.15;
 const DEFAULT_UNREGISTERED_NICKNAME = "Commander";
 
@@ -49,7 +49,7 @@ export function isFakePvpDeckCardAllowed(cardId: string): boolean {
   return FAKE_PVP_ALLOWED_CARD_IDS.has(cardId);
 }
 
-/** Deterministic probability gate, split out so the 85/15 fallback is testable. */
+/** Deterministic probability gate, split out so the fallback is testable. */
 export function shouldStartFakePvpMatch(
   randomValue: number = Math.random(),
   probability: number = DEFAULT_FAKE_PVP_MATCH_PROBABILITY
@@ -61,10 +61,12 @@ export function shouldStartFakePvpMatch(
   return randomValue < safeProbability;
 }
 
-// The deck's total weight is aimed within ±40% of the player's, uniformly — the
-// full spread, so opponents range from clearly weaker to clearly stronger.
-const DECK_WEIGHT_MIN_FACTOR = 0.6;
-const DECK_WEIGHT_MAX_FACTOR = 1.4;
+// Aim inside the hard 20% band, leaving a buffer for discrete card weights.
+// The final calculated weight is checked again before the fake may be used.
+const DECK_WEIGHT_MIN_FACTOR = 0.85;
+const DECK_WEIGHT_MAX_FACTOR = 1.15;
+export const MAX_FAKE_DECK_STRENGTH_DIFFERENCE = 0.2;
+const FAKE_DECK_BUILD_ATTEMPTS = 24;
 
 // Standard, non-campaign headquarters a normal account would realistically field
 // in PvP: the three training units plus each nation's four division/corps HQs.
@@ -309,7 +311,7 @@ function buildDeck(
   const hqWeight = getHeadquartersWeight(headquartersId);
   const targetCardWeight = Math.max(1, targetTotalWeight - hqWeight);
   const tolerance = Math.max(3, targetCardWeight * 0.04);
-  const MAX_SWAPS = 60;
+  const MAX_SWAPS = 180;
 
   const currentCardWeight = () =>
     deck.reduce((total, id) => total + cardWeight(id), 0);
@@ -348,9 +350,8 @@ function buildDeck(
 export function createFakeOpponentConfig(
   playerDeckWeight: number,
   options: { excludeNicknames?: Set<string>; trainingHqOnly?: boolean } = {}
-): FakeOpponentConfig {
-  const factor = randomInRange(DECK_WEIGHT_MIN_FACTOR, DECK_WEIGHT_MAX_FACTOR);
-  const targetTotalWeight = Math.max(1, playerDeckWeight * factor);
+): FakeOpponentConfig | null {
+  if (!Number.isFinite(playerDeckWeight) || playerDeckWeight <= 0) return null;
 
   // The three level-1 training headquarters — the only opponents shown to brand
   // new players (< 35 battles), so early matchmaking never feels lopsided.
@@ -360,38 +361,51 @@ export function createFakeOpponentConfig(
     "training_camp",
   ];
 
-  let headquartersId: HeadquartersId;
-  if (options.trainingHqOnly) {
-    headquartersId = pickRandom(trainingHqs);
-  } else {
-    // Prefer a headquarters light enough that its cards can realistically reach
-    // the target weight; if none qualifies, fall back to the lightest ones.
-    const affordableHqs = FAKE_HQ_POOL.filter(
-      (id) => getHeadquartersWeight(id) <= targetTotalWeight * 0.85
-    );
-    headquartersId = pickRandom(
-      affordableHqs.length > 0 ? affordableHqs : trainingHqs
-    );
+  for (let attempt = 0; attempt < FAKE_DECK_BUILD_ATTEMPTS; attempt += 1) {
+    const factor = randomInRange(DECK_WEIGHT_MIN_FACTOR, DECK_WEIGHT_MAX_FACTOR);
+    const targetTotalWeight = Math.max(1, playerDeckWeight * factor);
+
+    let headquartersId: HeadquartersId;
+    if (options.trainingHqOnly) {
+      headquartersId = pickRandom(trainingHqs);
+    } else {
+      // Prefer a headquarters light enough that its cards can realistically reach
+      // the target weight; if none qualifies, fall back to the lightest ones.
+      const affordableHqs = FAKE_HQ_POOL.filter(
+        (id) => getHeadquartersWeight(id) <= targetTotalWeight * 0.85
+      );
+      headquartersId = pickRandom(
+        affordableHqs.length > 0 ? affordableHqs : trainingHqs
+      );
+    }
+
+    const deckCardIds = buildDeck(headquartersId, targetTotalWeight);
+    const deckWeight = calculateDeckWeight(
+      headquartersId,
+      deckCardIds
+    ).totalWeight;
+    const strengthDifference =
+      Math.abs(deckWeight - playerDeckWeight) / playerDeckWeight;
+    if (strengthDifference > MAX_FAKE_DECK_STRENGTH_DIFFERENCE) continue;
+
+    // A non-training HQ with upgraded units gets stronger AI and fewer misplays.
+    const advancement = computeAdvancement(headquartersId, deckCardIds);
+    const difficulty = pickDifficultyForAdvancement(advancement);
+    const sloppiness =
+      getSloppinessForDifficulty(difficulty) * (1 - 0.6 * advancement);
+
+    return {
+      nickname: getRandomFakeNickname(options.excludeNicknames),
+      headquartersId,
+      deckCardIds,
+      deckWeight,
+      difficulty,
+      style: pickRandom(FAKE_STYLES),
+      sloppiness,
+    };
   }
 
-  const deckCardIds = buildDeck(headquartersId, targetTotalWeight);
-  const deckWeight = calculateDeckWeight(headquartersId, deckCardIds).totalWeight;
-
-  // A non-training HQ with upgraded units → higher difficulty and fewer misplays.
-  const advancement = computeAdvancement(headquartersId, deckCardIds);
-  const difficulty = pickDifficultyForAdvancement(advancement);
-  const sloppiness =
-    getSloppinessForDifficulty(difficulty) * (1 - 0.6 * advancement);
-
-  return {
-    nickname: getRandomFakeNickname(options.excludeNicknames),
-    headquartersId,
-    deckCardIds,
-    deckWeight,
-    difficulty,
-    style: pickRandom(FAKE_STYLES),
-    sloppiness,
-  };
+  return null;
 }
 
 /**

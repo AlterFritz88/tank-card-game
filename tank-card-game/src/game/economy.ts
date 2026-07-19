@@ -88,6 +88,8 @@ export type BattleReward = {
   opponentStrengthMultiplier: number;
   /** Final premium-account multiplier applied to credited XP and iron tracks. */
   premiumMultiplier?: number;
+  /** Server-controlled multiplier for a special battle opponent or event. */
+  specialRewardMultiplier?: number;
   fullyResearchedConversion: boolean;
   /** True when the reward was zeroed because the player barely participated. */
   insufficientActions: boolean;
@@ -105,6 +107,8 @@ type BattleRewardInput = {
   opponentDeckWeight?: number | null;
   /** Active premium account grants a bonus to credited XP and iron tracks. */
   premiumActive?: boolean;
+  /** Server-controlled multiplier for credited tracks and experience. */
+  specialRewardMultiplier?: number;
 };
 
 const FREE_XP_SHARE = 0.08;
@@ -180,8 +184,14 @@ export function calculateBattleReward({
   localDeckWeight = null,
   opponentDeckWeight = null,
   premiumActive = false,
+  specialRewardMultiplier: requestedSpecialRewardMultiplier = 1,
 }: BattleRewardInput): BattleReward {
-  const rewardMode = mode === "pvp" ? "pvp" : mode === "campaign" ? "campaign" : "ai";
+  const rewardMode =
+    mode === "pvp" || mode === "radio"
+      ? "pvp"
+      : mode === "campaign"
+        ? "campaign"
+        : "ai";
   const opponentId: PlayerId = localPlayerId === "player" ? "bot" : "player";
   const localWon =
     (battle.status === "player_won" && localPlayerId === "player") ||
@@ -217,6 +227,9 @@ export function calculateBattleReward({
     opponentDeckWeight
   );
   const premiumMultiplier = premiumActive ? PREMIUM_REWARD_MULTIPLIER : 1;
+  const specialRewardMultiplier = normalizeRewardMultiplier(
+    requestedSpecialRewardMultiplier
+  );
   const rawHeadquartersXp = Math.round(
     modeReward.headquartersXp *
       modeReward.multiplier *
@@ -235,10 +248,13 @@ export function calculateBattleReward({
     )
   );
   const headquartersXp = applyRewardMultiplier(
-    baseHeadquartersXp,
-    premiumMultiplier
+    applyRewardMultiplier(baseHeadquartersXp, premiumMultiplier),
+    specialRewardMultiplier
   );
-  const freeXp = applyRewardMultiplier(baseFreeXp, premiumMultiplier);
+  const freeXp = applyRewardMultiplier(
+    applyRewardMultiplier(baseFreeXp, premiumMultiplier),
+    specialRewardMultiplier
+  );
   const rawIronTracks = Math.max(
     1,
     Math.round(
@@ -254,9 +270,13 @@ export function calculateBattleReward({
     0,
     Math.round(rawIronTracks * (localWon ? 0.08 : 0.12))
   );
-  const ironTracks = Math.max(
+  const baseIronTracks = Math.max(
     0,
     applyRewardMultiplier(rawIronTracks, premiumMultiplier) + repairCost
+  );
+  const ironTracks = applyRewardMultiplier(
+    baseIronTracks,
+    specialRewardMultiplier
   );
 
   // Anti-farm: if the local player barely participated, deny all rewards. The
@@ -266,7 +286,15 @@ export function calculateBattleReward({
     localPlayerId === "player"
       ? battle.stats.actionsByPlayer ?? 0
       : battle.stats.actionsByBot ?? 0;
-  const insufficientActions = localActions < MIN_ACTIONS_FOR_REWARD;
+  // A radio duel is asynchronous and a meaningful turn may contain far fewer
+  // actions than a real-time PvP match. One real action is enough to qualify;
+  // empty/idle games still pay nothing. A player also receives the winner's
+  // reduced payout when the opponent surrenders before that first action.
+  const minimumActions = mode === "radio" ? 1 : MIN_ACTIONS_FOR_REWARD;
+  const wonByRadioSurrender =
+    mode === "radio" && localWon && matchEndReason === "surrender";
+  const insufficientActions =
+    !wonByRadioSurrender && localActions < minimumActions;
 
   return {
     headquartersId,
@@ -283,6 +311,7 @@ export function calculateBattleReward({
     reasonMultiplier,
     opponentStrengthMultiplier,
     premiumMultiplier,
+    specialRewardMultiplier,
     fullyResearchedConversion: headquartersFullyResearched,
     insufficientActions,
   };
@@ -290,6 +319,11 @@ export function calculateBattleReward({
 
 export function applyRewardMultiplier(value: number, multiplier: number): number {
   return Math.round(value * multiplier);
+}
+
+function normalizeRewardMultiplier(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(10, Math.max(1, value));
 }
 
 // Beating a stronger deck should pay proportionally more. Only PvP wins are

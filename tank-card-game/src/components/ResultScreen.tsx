@@ -28,6 +28,7 @@ type ResultScreenProps = {
   rewardError?: string | null;
   rewardSyncPending?: boolean;
   onRetryReward?: () => void;
+  ratingDelta?: number | null;
 };
 
 type ResultTab = "summary" | "trophies";
@@ -88,6 +89,7 @@ export function ResultScreen({
   rewardError = null,
   rewardSyncPending = false,
   onRetryReward,
+  ratingDelta: ratingDeltaOverride = null,
 }: ResultScreenProps) {
   const { language } = useI18n();
   const resultText = getResultText(language);
@@ -123,6 +125,7 @@ export function ResultScreen({
     ? getHeadquartersDefinition(reward.headquartersId)
     : null;
   const rewardPremiumMultiplier = reward?.premiumMultiplier ?? 1;
+  const specialRewardMultiplier = reward?.specialRewardMultiplier ?? 1;
   // The reward table shows both tiers side by side; bold the column that was
   // actually credited by the reward calculation returned from the server.
   const isPremium = rewardPremiumMultiplier > 1;
@@ -132,16 +135,26 @@ export function ResultScreen({
       : value;
   const earnedHeadquartersXp = reward?.headquartersXp ?? 0;
   const baseHeadquartersXp = toBaseRewardValue(earnedHeadquartersXp);
-  const rawHeadquartersXp = reward?.rawHeadquartersXp ?? baseHeadquartersXp;
+  const rawHeadquartersXp = Math.round(
+    (reward?.rawHeadquartersXp ?? baseHeadquartersXp) *
+      specialRewardMultiplier
+  );
   const freeXp = reward?.freeXp ?? 0;
   const baseFreeXp = toBaseRewardValue(freeXp);
-  const rawIronTracks = reward?.rawIronTracks ?? reward?.ironTracks ?? 0;
-  const repairCost = reward?.repairCost ?? 0;
-  const netIronTracks = reward?.ironTracks ?? Math.max(0, rawIronTracks + repairCost);
+  const rawIronTracks = Math.round(
+    (reward?.rawIronTracks ?? reward?.ironTracks ?? 0) *
+      specialRewardMultiplier
+  );
+  const repairCost = Math.round(
+    (reward?.repairCost ?? 0) * specialRewardMultiplier
+  );
+  const netIronTracks =
+    reward?.ironTracks ?? Math.max(0, rawIronTracks + repairCost);
   const baseNetIronTracks = reward?.insufficientActions
     ? 0
     : Math.max(0, rawIronTracks + repairCost);
-  const ratingDelta = getRatingDelta(localPlayerWon, matchEndReason);
+  const ratingDelta =
+    ratingDeltaOverride ?? getRatingDelta(localPlayerWon, matchEndReason);
   const ratingText = ratingDelta > 0 ? `+${ratingDelta}` : `${ratingDelta}`;
 
   return createPortal(
@@ -292,10 +305,12 @@ export function ResultScreen({
                         value: baseNetIronTracks,
                         premiumValue: reward?.insufficientActions
                           ? 0
-                          : Math.max(
-                              0,
-                              getPremiumValue(rawIronTracks) + repairCost
-                            ),
+                          : isPremium
+                            ? netIronTracks
+                            : Math.max(
+                                0,
+                                getPremiumValue(rawIronTracks) + repairCost
+                              ),
                       },
                     ]}
                   />

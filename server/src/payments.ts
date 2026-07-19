@@ -3,8 +3,19 @@ import { resolveWritableDbPath } from "./storagePath";
 import { JsonDocumentStore } from "./sqliteStore";
 import { PlayerProfileManager } from "./playerProfiles";
 import { PlayerAccountManager } from "./playerAccounts";
+import {
+  FIRST_PANTHERS_CAMPAIGN_ID,
+  FIRST_PANTHERS_CAMPAIGN_PRICE_RUB,
+  FIRST_PANTHERS_CAMPAIGN_PRODUCT_ID,
+  type CampaignPaymentProductId,
+} from "../../tank-card-game/src/game/campaigns";
 
-export type GoldProductId = "gold-100" | "gold-500" | "gold-1500" | "first-player-pack";
+export type GoldProductId =
+  | "gold-100"
+  | "gold-500"
+  | "gold-1500"
+  | "first-player-pack"
+  | CampaignPaymentProductId;
 
 type GoldProduct = {
   id: GoldProductId;
@@ -13,12 +24,15 @@ type GoldProduct = {
   envPriceKey: string;
   title?: string;
   bundle?: "first-player";
+  campaignId?: string;
 };
 
 export type GoldProductCatalogItem = {
   id: GoldProductId;
   goldTracks: number;
   amountRub: number | null;
+  title: string | null;
+  campaignId: string | null;
 };
 
 type GoldPaymentRecord = {
@@ -33,6 +47,8 @@ type GoldPaymentRecord = {
   createdAt: number;
   updatedAt: number;
   creditedAt: number | null;
+  productTitle?: string | null;
+  campaignId?: string | null;
 };
 
 type PaymentDb = Record<string, GoldPaymentRecord>;
@@ -123,6 +139,14 @@ const GOLD_PRODUCTS: Record<GoldProductId, GoldProduct> = {
     envPriceKey: "YOOKASSA_FIRST_PLAYER_PACK_RUB",
     title: "Набор первого игрока",
     bundle: "first-player",
+  },
+  [FIRST_PANTHERS_CAMPAIGN_PRODUCT_ID]: {
+    id: FIRST_PANTHERS_CAMPAIGN_PRODUCT_ID,
+    goldTracks: 0,
+    defaultAmountRub: FIRST_PANTHERS_CAMPAIGN_PRICE_RUB,
+    envPriceKey: "YOOKASSA_FIRST_PANTHERS_CAMPAIGN_RUB",
+    title: "Кампания «Первые пантеры»",
+    campaignId: FIRST_PANTHERS_CAMPAIGN_ID,
   },
 };
 
@@ -292,6 +316,8 @@ export class PaymentManager {
       id: product.id,
       goldTracks: product.goldTracks,
       amountRub: getOptionalProductPriceRub(product),
+      title: product.title ?? null,
+      campaignId: product.campaignId ?? null,
     }));
   }
 
@@ -355,6 +381,14 @@ export class PaymentManager {
     ) {
       throw new Error("Набор первого игрока уже куплен");
     }
+    if (
+      product.campaignId &&
+      this.profiles
+        .getProfile(safePlayerId, { touchActivity: false })
+        .unlockedCampaignIds.includes(product.campaignId)
+    ) {
+      throw new Error("Кампания уже куплена");
+    }
 
     // Для самозанятого (НПД) ЮKassa должна сформировать чек, а для чека нужен
     // контакт покупателя. Берём email из аккаунта; гостям без email продажа
@@ -414,6 +448,8 @@ export class PaymentManager {
       createdAt: now,
       updatedAt: now,
       creditedAt: null,
+      productTitle: product.title ?? null,
+      campaignId: product.campaignId ?? null,
     };
     const db = readPaymentDb();
     db[payment.id] = record;
@@ -497,7 +533,12 @@ export class PaymentManager {
 
     if (!record.creditedAt) {
       const product = getKnownProduct(record.productId);
-      if (product.bundle === "first-player") {
+      if (product.campaignId) {
+        this.profiles.grantCampaignAccess(
+          record.playerId,
+          product.campaignId
+        );
+      } else if (product.bundle === "first-player") {
         this.profiles.grantFirstPlayerPack(record.playerId, `payment:${paymentId}`);
       } else {
         this.profiles.creditGoldTracks(record.playerId, record.goldTracks, `payment:${paymentId}`);
@@ -567,6 +608,14 @@ export class PaymentManager {
     ) {
       throw new Error("Набор первого игрока уже куплен");
     }
+    if (
+      product.campaignId &&
+      this.profiles
+        .getProfile(safePlayerId, { touchActivity: false })
+        .unlockedCampaignIds.includes(product.campaignId)
+    ) {
+      throw new Error("Кампания уже куплена");
+    }
 
     const now = Date.now();
     const record: GoldPaymentRecord = {
@@ -583,11 +632,15 @@ export class PaymentManager {
       createdAt: now,
       updatedAt: now,
       creditedAt: now,
+      productTitle: product.title ?? null,
+      campaignId: product.campaignId ?? null,
     };
 
-    const profile = product.bundle === "first-player"
-      ? this.profiles.grantFirstPlayerPack(safePlayerId, paymentId)
-      : this.profiles.creditGoldTracks(safePlayerId, product.goldTracks, paymentId);
+    const profile = product.campaignId
+      ? this.profiles.grantCampaignAccess(safePlayerId, product.campaignId)
+      : product.bundle === "first-player"
+        ? this.profiles.grantFirstPlayerPack(safePlayerId, paymentId)
+        : this.profiles.creditGoldTracks(safePlayerId, product.goldTracks, paymentId);
     db[paymentId] = record;
     writePaymentDb(db);
 

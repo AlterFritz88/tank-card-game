@@ -19,15 +19,24 @@ import topBackgroundImage from "../assets/backgrounds/top_background.webp";
 import matchmakingBreakImage from "../assets/backgrounds/matchmaking/break.webp";
 import matchmakingCielImage from "../assets/backgrounds/matchmaking/ciel.webp";
 import matchmakingMapImage from "../assets/backgrounds/matchmaking/map.webp";
+import { getBattleBackgroundAsset } from "../assets/battleBackgroundAssets";
 import buttonImage from "../assets/button.webp";
 import firstPlayerCardBackImage from "../assets/cards/first_players.webp";
 import { getHeadquartersAvatarAsset } from "../assets/headquartersAvatarAssets";
 import experienceIcon from "../assets/icons/expa.webp";
 import goldTracksIcon from "../assets/icons/gold_tracks_transparent.webp";
 import silverTracksIcon from "../assets/icons/silver-tracks.webp";
+import radioDarkMetalImage from "../assets/radio_game/dark-metal.webp";
+import radioEnemyHpImage from "../assets/radio_game/enemy_HP.webp";
+import radioGrungeOverlayImage from "../assets/radio_game/grunge-overlay.webp";
+import radioOliveMetalImage from "../assets/radio_game/olive-metal.webp";
+import radioPlayerHpImage from "../assets/radio_game/player_HP.webp";
+import radioRedMetalImage from "../assets/radio_game/red-metal.webp";
+import radioVsImage from "../assets/radio_game/vs_sign.webp";
 import { getMissionIllustrationAsset } from "../assets/missionIllustrationAssets";
 import { getNationFlagAsset } from "../assets/nationFlagAssets";
 import { RegistrationReminderOverlay } from "./RegistrationReminderOverlay";
+import { TutorialOverlay } from "./TutorialOverlay";
 import { createRadarScanSoundPlayer, playMusic } from "../game/audio";
 import { calculateDeckWeight, getDefaultDeckWeight } from "../game/deckWeight";
 import {
@@ -85,7 +94,6 @@ import {
   logoutPlayerAccount,
   normalizePlayerNickname,
   PLAYER_NICKNAME_MAX_LENGTH,
-  purchaseCampaignOnServer,
   purchasePremiumDaysOnServer,
   registerPlayerAccount,
   sanitizePlayerNicknameInput,
@@ -97,7 +105,12 @@ import {
 } from "../game/playerProgress";
 import { getTankImage } from "../game/tankImages";
 import type { HeadquartersId, Nation, TankCard } from "../game/types";
-import type { MainMenuView, PvpConnectionState } from "../game/modes";
+import {
+  PVP_MATCH_SEARCH_DURATION_MS,
+  type MainMenuView,
+  type PvpConnectionState,
+} from "../game/modes";
+import { RADIO_DUEL_MAX_ACTIVE } from "../game/radioDuel";
 import { useBattleStore } from "../store/battleStore";
 import { HandCardView } from "./HandCardView";
 import {
@@ -119,7 +132,8 @@ import {
   retryProfileConnection,
   useProfileConnection,
 } from "../network/useProfileConnection";
-import { submitSupportFeedback } from "../network/profileClient";
+import { profileClient, submitSupportFeedback } from "../network/profileClient";
+import type { RadioDuelListResult, RadioDuelOpenResult } from "../game/radioDuel";
 import {
   getCurrentUserId,
   getCurrentUserLogin,
@@ -152,6 +166,11 @@ const HAND_CARD_BASE_HEIGHT = Math.round((HAND_CARD_BASE_WIDTH * 1496) / 1051);
 const MENU_CARD_SCALE = 1.08;
 const MENU_CARD_WIDTH = Math.round(HAND_CARD_BASE_WIDTH * MENU_CARD_SCALE);
 const MENU_CARD_HEIGHT = Math.round(HAND_CARD_BASE_HEIGHT * MENU_CARD_SCALE);
+const MAIN_MENU_CARD_SCALE = 1.16;
+const MAIN_MENU_CARD_WIDTH = Math.round(HAND_CARD_BASE_WIDTH * MAIN_MENU_CARD_SCALE);
+const MAIN_MENU_CARD_HEIGHT = Math.round(
+  (MAIN_MENU_CARD_WIDTH * 1496) / 1051
+);
 // Company-selection cards are larger than the mode cards — only a couple are
 // shown at once, so there's room to make the artwork the focus.
 const CAMPAIGN_CARD_WIDTH = Math.round(MENU_CARD_WIDTH * 1.5);
@@ -392,6 +411,7 @@ function getNativeBackTarget(menuView: MainMenuView): MainMenuView | null {
     case "campaign":
     case "tutorial":
     case "combatMissions":
+    case "radioDuels":
     case "profile":
     case "research":
     case "collection":
@@ -551,9 +571,11 @@ function LanguageChoiceRow({ compact = false }: { compact?: boolean }) {
 function PlayerResourcesPanel({
   onOpenShop,
   onOpenExchange,
+  onOpenTutorial,
 }: {
   onOpenShop?: () => void;
   onOpenExchange?: () => void;
+  onOpenTutorial?: () => void;
 }) {
   const { language, t } = useI18n();
   const progress = loadPlayerProgress();
@@ -631,6 +653,19 @@ function PlayerResourcesPanel({
           aria-label={t("resources.openShop")}
         >
           {t("main.shop")}
+        </button>
+      ) : null}
+      {onOpenTutorial ? (
+        <button
+          type="button"
+          style={{
+            ...styles.playerShopButton,
+            ...styles.playerTutorialButton,
+          }}
+          onClick={onOpenTutorial}
+          aria-label={t("main.tutorial")}
+        >
+          {t("main.tutorial")}
         </button>
       ) : null}
     </aside>
@@ -2307,6 +2342,11 @@ function PvpMatchmakingScreen({
   onCancel,
   onRetry,
   onFallback,
+  persistentSearch = false,
+  radarVolumeMultiplier = 1,
+  title,
+  onMainMenu,
+  cancelLabel,
 }: {
   playerHeadquartersId: HeadquartersId;
   playerNickname: string;
@@ -2321,11 +2361,18 @@ function PvpMatchmakingScreen({
   onCancel: () => void;
   onRetry: () => void;
   onFallback: () => void;
+  persistentSearch?: boolean;
+  radarVolumeMultiplier?: number;
+  title?: string;
+  onMainMenu?: () => void;
+  cancelLabel?: string;
 }) {
   const { t } = useI18n();
   const [now, setNow] = useState(() => Date.now());
   const [reticleIndex, setReticleIndex] = useState(0);
-  const playRadarScanSoundRef = useRef(createRadarScanSoundPlayer());
+  const playRadarScanSoundRef = useRef(
+    createRadarScanSoundPlayer(radarVolumeMultiplier)
+  );
   const matched = status === "matchPreview";
   const failed = status === "error";
   const canAutoFallback = status === "searching" || status === "waiting";
@@ -2343,7 +2390,7 @@ function PvpMatchmakingScreen({
     : null;
   const remainingMs = searchDeadlineAt
     ? Math.max(0, searchDeadlineAt - now)
-    : 30_000;
+    : PVP_MATCH_SEARCH_DURATION_MS;
   const remainingSeconds = Math.ceil(remainingMs / 1000);
   const reticlePositions = [
     { left: "22%", top: "28%" },
@@ -2389,7 +2436,7 @@ function PvpMatchmakingScreen({
 
       <section style={styles.matchmakingScreen}>
         <header style={styles.matchmakingHeader}>
-          <h1 style={styles.matchmakingTitle}>{t("battle.searchingOpponent")}</h1>
+          <h1 style={styles.matchmakingTitle}>{title ?? t("battle.searchingOpponent")}</h1>
         </header>
 
         <div
@@ -2567,11 +2614,22 @@ function PvpMatchmakingScreen({
           <div style={styles.matchmakingTimer}>
             {failed ? t("battle.pvpServerUnavailable") : matched
               ? t("battle.opponentFound")
+              : persistentSearch
+                ? "Заявка отправлена. Поиск продолжится в фоне."
               : `${t("battle.autobattleIn")} ${String(remainingSeconds).padStart(2, "0")} ${t("battle.secondsShort")}`}
           </div>
           <button type="button" style={styles.cancelButton} onClick={onCancel}>
-            {failed ? t("common.back") : t("battle.cancelSearch")}
+            {cancelLabel ?? (failed ? t("common.back") : t("battle.cancelSearch"))}
           </button>
+          {onMainMenu ? (
+            <button
+              type="button"
+              style={{ ...styles.cancelButton, ...styles.retryButton }}
+              onClick={onMainMenu}
+            >
+              В главное меню
+            </button>
+          ) : null}
           {error ? <div style={styles.error}>{error}</div> : null}
           {failed ? (
             <button
@@ -2750,6 +2808,16 @@ function formatMissionCountdown(expiresAt: number, now: number): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function formatRadioDuelCountdown(expiresAt: number, now: number): string {
+  const seconds = Math.max(0, Math.ceil((expiresAt - now) / 1_000));
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  if (days > 0) return `${days} д ${hours} ч`;
+  if (hours > 0) return `${hours} ч ${minutes} мин`;
+  return `${minutes} мин ${seconds % 60} сек`;
+}
+
 export function PvpLobby() {
   const { language, t } = useI18n();
   const {
@@ -2797,6 +2865,9 @@ export function PvpLobby() {
     closeTutorialMenu,
     openCombatMissionsMenu,
     closeCombatMissionsMenu,
+    openRadioDuelsMenu,
+    closeRadioDuelsMenu,
+    openRadioDuelBattle,
     completedTutorialMissionIds,
     cancelMatchmaking,
     registrationReminderVisible,
@@ -2848,6 +2919,7 @@ export function PvpLobby() {
   const campaignsCarouselRef = useRef<HTMLDivElement>(null);
   const tutorialCarouselRef = useRef<HTMLDivElement>(null);
   const missionsCarouselRef = useRef<HTMLDivElement>(null);
+  const radioDuelsCarouselRef = useRef<HTMLDivElement>(null);
   const [, setProfileRevision] = useState(0);
   const [combatMissionNow, setCombatMissionNow] = useState(Date.now());
   const playerProgress = loadPlayerProgress();
@@ -2858,6 +2930,15 @@ export function PvpLobby() {
   const profileServerUnavailable = isProfileServerUnavailable(profileConnection);
   const profileServerReady = profileConnection.status === "online";
   const [supportOpen, setSupportOpen] = useState(false);
+  const [radioDuels, setRadioDuels] = useState<RadioDuelListResult | null>(null);
+  const [radioLoading, setRadioLoading] = useState(false);
+  const [radioError, setRadioError] = useState<string | null>(null);
+  const [radioIntroVisible, setRadioIntroVisible] = useState(false);
+  const [radioSearching, setRadioSearching] = useState(false);
+  const [radioSearchDeckWeight, setRadioSearchDeckWeight] = useState<number | null>(null);
+  const [radioMatchPreview, setRadioMatchPreview] = useState<RadioDuelOpenResult | null>(null);
+  const radioMatchPreviewTimerRef = useRef<number | null>(null);
+  const [radioNow, setRadioNow] = useState(Date.now());
   const [supportFeedback, setSupportFeedback] = useState<SupportFeedbackState>({
     contact: "",
     message: "",
@@ -2869,6 +2950,111 @@ export function PvpLobby() {
   useEffect(() => {
     void playMusic("main");
   }, []);
+
+  async function refreshRadioDuels(): Promise<RadioDuelListResult | null> {
+    if (!isRegisteredUserId()) return null;
+    setRadioLoading(true);
+    try {
+      const result = await profileClient.listRadioDuels();
+      setRadioDuels(result);
+      setRadioError(null);
+      return result;
+    } catch (error) {
+      setRadioError(error instanceof Error ? error.message : String(error));
+      return null;
+    } finally {
+      setRadioLoading(false);
+    }
+  }
+
+  function clearRadioMatchPreviewTimer() {
+    if (radioMatchPreviewTimerRef.current === null) return;
+    window.clearTimeout(radioMatchPreviewTimerRef.current);
+    radioMatchPreviewTimerRef.current = null;
+  }
+
+  function showRadioMatchPreview(result: RadioDuelOpenResult) {
+    clearRadioMatchPreviewTimer();
+    setRadioSearching(false);
+    setRadioMatchPreview(result);
+    radioMatchPreviewTimerRef.current = window.setTimeout(() => {
+      radioMatchPreviewTimerRef.current = null;
+      setRadioMatchPreview(null);
+      openRadioDuelBattle(result);
+    }, 5_000);
+  }
+
+  useEffect(() => () => clearRadioMatchPreviewTimer(), []);
+
+  async function enterRadioDuels() {
+    if (radioLoading) return;
+    if (!isRegisteredUserId()) {
+      window.alert("Радиодуэли доступны только зарегистрированным игрокам.");
+      requestProfileRegistration();
+      openProfileMenu();
+      return;
+    }
+    const firstVisit =
+      window.localStorage.getItem("panzershrek.radioDuelIntroSeen") !== "true";
+    if ("Notification" in window && Notification.permission === "default") {
+      void Notification.requestPermission();
+    }
+
+    // Resolve the destination before changing the menu. Opening the duel list
+    // first made an empty carousel flash for one frame before the headquarters
+    // selection appeared.
+    const result = await refreshRadioDuels();
+    if (!result) {
+      openRadioDuelsMenu();
+      return;
+    }
+    if (firstVisit) {
+      openRadioDuelsMenu();
+      setRadioIntroVisible(true);
+      return;
+    }
+    if (result.games.length > 0) {
+      setRadioSearching(false);
+      openRadioDuelsMenu();
+      return;
+    }
+    if (result.queue.queued) {
+      setRadioSearching(true);
+      openRadioDuelsMenu();
+    } else {
+      openHeadquartersMenu("radio");
+    }
+  }
+
+  useEffect(() => {
+    return profileClient.subscribeRadioDuels(() => {
+      void profileClient.listRadioDuels().then((result) => {
+        setRadioDuels(result);
+        if (!radioSearching || result.games.length === 0) return;
+        const newest = [...result.games].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+        if (!newest) return;
+        void profileClient.openRadioDuel(newest.id).then(showRadioMatchPreview);
+      });
+    });
+  }, [radioSearching]);
+
+  useEffect(() => {
+    if (menuView !== "radioDuels") return;
+    void refreshRadioDuels().then((result) => {
+      if (!result || radioIntroVisible || radioSearching || result.games.length > 0) return;
+      if (result.queue.queued) setRadioSearching(true);
+      else openHeadquartersMenu("radio");
+    });
+    const timer = window.setInterval(() => void refreshRadioDuels(), 60_000);
+    return () => window.clearInterval(timer);
+  }, [menuView, radioIntroVisible, radioSearching]);
+
+  useEffect(() => {
+    if (menuView !== "radioDuels") return;
+    setRadioNow(Date.now());
+    const timer = window.setInterval(() => setRadioNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [menuView]);
 
   useEffect(() => {
     if (menuView !== "combatMissions") return;
@@ -2992,34 +3178,36 @@ export function PvpLobby() {
   }
 
   async function purchaseSelectedCampaign() {
-    if (!missionCampaign?.premium || !missionCampaign.goldCost) return;
+    if (
+      !missionCampaign?.premium ||
+      !missionCampaign.paymentProductId ||
+      !missionCampaign.priceRub
+    ) {
+      return;
+    }
     if (missionCampaignAccessible || purchasingCampaignId) return;
 
     if (!profileServerReady) {
       window.alert(t("common.profileServerUnavailable"));
       return;
     }
-
-    if (playerProgress.goldTracks < missionCampaign.goldCost) {
+    if (!isRegisteredUserId()) {
       window.alert(
         language === "en"
-          ? `Not enough gold tracks. You need ${missionCampaign.goldCost - playerProgress.goldTracks} more.`
-          : `Не хватает золотых траков: ${missionCampaign.goldCost - playerProgress.goldTracks}`
+          ? "Sign in to purchase the campaign. An account e-mail is required for the receipt."
+          : "Для покупки кампании войдите в аккаунт. E-mail аккаунта нужен для кассового чека."
       );
+      requestProfileRegistration();
+      openProfileMenu();
       return;
     }
 
-    const confirmed = window.confirm(
-      language === "en"
-        ? `Unlock “${getLocalizedCampaignTitle(missionCampaign, language)}” permanently for ${missionCampaign.goldCost} gold tracks?`
-        : `Купить постоянный доступ к кампании «${getLocalizedCampaignTitle(missionCampaign, language)}» за ${missionCampaign.goldCost} золотых траков?`
-    );
-    if (!confirmed) return;
-
     setPurchasingCampaignId(missionCampaign.id);
     try {
-      await purchaseCampaignOnServer(missionCampaign.id);
-      setProfileRevision((revision) => revision + 1);
+      const payment = await createGoldTracksPaymentOnServer(
+        missionCampaign.paymentProductId
+      );
+      window.location.assign(payment.confirmationUrl);
     } catch (error) {
       window.alert(
         error instanceof Error
@@ -3326,6 +3514,35 @@ export function PvpLobby() {
       return;
     }
 
+    if (mode === "radio") {
+      const deckWeight = deckCardIds
+        ? calculateDeckWeight(headquartersId, deckCardIds).totalWeight
+        : getDefaultDeckWeight(headquartersId).totalWeight;
+      const knownGameIds = new Set(radioDuels?.games.map((duel) => duel.id) ?? []);
+      setRadioSearchDeckWeight(deckWeight);
+      setRadioSearching(true);
+      openRadioDuelsMenu();
+      setRadioLoading(true);
+      void profileClient
+        .queueRadioDuel(headquartersId, deckCardIds)
+        .then(async (result) => {
+          setRadioDuels(result);
+          setRadioError(null);
+          const matchedDuel = [...result.games]
+            .sort((a, b) => b.updatedAt - a.updatedAt)
+            .find((duel) => !knownGameIds.has(duel.id));
+          if (!matchedDuel) return;
+          showRadioMatchPreview(await profileClient.openRadioDuel(matchedDuel.id));
+        })
+        .catch((error) => {
+          setRadioError(error instanceof Error ? error.message : String(error));
+          setRadioSearching(false);
+          openRadioDuelsMenu();
+        })
+        .finally(() => setRadioLoading(false));
+      return;
+    }
+
     startAiBattle(deckCardIds);
   }
 
@@ -3493,6 +3710,15 @@ export function PvpLobby() {
     setProfileRevision((revision) => revision + 1);
   }
 
+  function closeHeadquartersSelection() {
+    if (mode === "radio" && (radioDuels?.games.length ?? 0) === 0) {
+      setRadioSearching(false);
+      closeRadioDuelsMenu();
+      return;
+    }
+    closeHeadquartersMenu();
+  }
+
   function closeNativeBackTarget(target: MainMenuView) {
     switch (target) {
       case "main":
@@ -3501,13 +3727,16 @@ export function PvpLobby() {
         } else if (menuView === "deckBuilder") {
           closeHeadquartersMenu();
         } else if (menuView === "headquarters") {
-          closeHeadquartersMenu();
+          closeHeadquartersSelection();
         } else if (menuView === "campaign") {
           closeCampaignMenu();
         } else if (menuView === "tutorial") {
           closeTutorialMenu();
         } else if (menuView === "combatMissions") {
           closeCombatMissionsMenu();
+        } else if (menuView === "radioDuels") {
+          setRadioSearching(false);
+          closeRadioDuelsMenu();
         } else if (menuView === "profile") {
           closeProfileMenu();
         } else if (menuView === "research") {
@@ -4195,7 +4424,8 @@ export function PvpLobby() {
           >
             {!missionCampaignAccessible &&
             missionCampaign.premium &&
-            missionCampaign.goldCost ? (
+            missionCampaign.paymentProductId &&
+            missionCampaign.priceRub ? (
               <button
                 type="button"
                 style={styles.campaignPurchaseButton}
@@ -4205,21 +4435,15 @@ export function PvpLobby() {
                 <span>
                   {purchasingCampaignId === missionCampaign.id
                     ? language === "en"
-                      ? "Purchasing…"
-                      : "Покупка…"
+                      ? "Opening payment…"
+                      : "Переход к оплате…"
                     : language === "en"
                       ? "Unlock campaign"
                       : "Купить кампанию"}
                 </span>
                 <strong style={styles.campaignPurchasePrice}>
-                  {missionCampaign.goldCost}
+                  {missionCampaign.priceRub} ₽
                 </strong>
-                <img
-                  src={goldTracksIcon}
-                  alt=""
-                  aria-hidden="true"
-                  style={styles.campaignPurchaseCurrencyIcon}
-                />
               </button>
             ) : null}
             <button
@@ -4511,6 +4735,395 @@ export function PvpLobby() {
     );
   }
 
+  if (menuView === "radioDuels" && radioMatchPreview) {
+    const duel = radioMatchPreview.duel;
+    return (
+      <PvpMatchmakingScreen
+        playerHeadquartersId={duel.myHeadquartersId}
+        playerNickname={duel.myNickname}
+        playerDeckWeight={duel.myDeckWeight}
+        opponentHeadquartersId={duel.opponentHeadquartersId}
+        opponentNickname={duel.opponentNickname}
+        opponentDeckWeight={duel.opponentDeckWeight}
+        previewLabel={null}
+        status="matchPreview"
+        error={null}
+        searchDeadlineAt={null}
+        title="ПРОТИВНИК НАЙДЕН"
+        cancelLabel="К списку дуэлей"
+        onCancel={() => {
+          clearRadioMatchPreviewTimer();
+          setRadioMatchPreview(null);
+          void refreshRadioDuels();
+        }}
+        onRetry={() => {}}
+        onFallback={() => {}}
+      />
+    );
+  }
+
+  if (menuView === "radioDuels" && radioSearching) {
+    return (
+      <PvpMatchmakingScreen
+        playerHeadquartersId={selectedHeadquartersId}
+        playerNickname={getPlayerDisplayNickname(
+          playerProgress,
+          getCurrentUserLogin()
+        )}
+        playerDeckWeight={radioSearchDeckWeight}
+        opponentHeadquartersId={null}
+        opponentNickname={null}
+        opponentDeckWeight={null}
+        previewLabel={null}
+        status={radioError ? "error" : "searching"}
+        error={radioError}
+        searchDeadlineAt={null}
+        persistentSearch
+        radarVolumeMultiplier={0.5}
+        title="ПОИСК СОПЕРНИКА ДЛЯ РАДИОДУЭЛИ"
+        onCancel={() => {
+          setRadioLoading(true);
+          void profileClient.cancelRadioDuelQueue()
+            .then((result) => {
+              setRadioDuels(result);
+              setRadioSearching(false);
+              setRadioError(null);
+              openHeadquartersMenu("radio");
+            })
+            .catch((error) => setRadioError(error instanceof Error ? error.message : String(error)))
+            .finally(() => setRadioLoading(false));
+        }}
+        onRetry={() => {
+          setRadioError(null);
+          void refreshRadioDuels();
+        }}
+        onFallback={() => {}}
+        onMainMenu={() => {
+          setRadioSearching(false);
+          closeRadioDuelsMenu();
+        }}
+      />
+    );
+  }
+
+  if (menuView === "radioDuels") {
+    const games = radioDuels?.games ?? [];
+    const activeGameCount = games.filter((duel) => duel.status === "active").length;
+    const queue = radioDuels?.queue;
+    const queuedHeadquartersId = queue?.headquartersId ?? selectedHeadquartersId;
+    const queuedHeadquarters = HEADQUARTERS[queuedHeadquartersId];
+    const queuedAvatar = getHeadquartersPortrait(queuedHeadquartersId);
+    const queuedBattleBackground = getBattleBackgroundAsset(games[0]?.backgroundId);
+    const queuedDeckWeight =
+      queue?.deckWeight ??
+      radioSearchDeckWeight ??
+      getDefaultDeckWeight(queuedHeadquartersId).totalWeight;
+    const queuedNickname = getPlayerDisplayNickname(
+      playerProgress,
+      getCurrentUserLogin()
+    );
+    const canStart =
+      !queue?.queued &&
+      activeGameCount < (radioDuels?.maxActiveGames ?? RADIO_DUEL_MAX_ACTIVE);
+
+    return (
+      <main style={styles.page}>
+        <div style={styles.backgroundShade} />
+        <PlayerAccountPanel onOpenProfile={openProfileMenu} />
+        <section style={{ ...styles.menuLayer, ...styles.radioDuelMenuLayer }}>
+          <header style={styles.radioDuelMenuHeader}>
+            <h1 style={styles.title}>РАДИОДУЭЛИ</h1>
+            <div style={styles.radioDuelMenuSubtitle}>АКТИВНЫЕ ДУЭЛИ</div>
+            <div style={styles.radioDuelMenuCount}>
+              Активные сражения: {activeGameCount}/{radioDuels?.maxActiveGames ?? RADIO_DUEL_MAX_ACTIVE}
+            </div>
+          </header>
+
+          <CarouselTapFrame
+            viewportRef={radioDuelsCarouselRef}
+            viewportStyle={{ ...styles.carouselViewport, ...styles.radioDuelCarouselViewport }}
+            ariaLabel="Активные радиодуэли"
+          >
+            <div style={{ ...styles.carouselTrack, ...styles.radioDuelCarouselTrack }}>
+              {games.map((duel) => {
+                const myAvatar = getHeadquartersPortrait(duel.myHeadquartersId);
+                const opponentAvatar = getHeadquartersPortrait(duel.opponentHeadquartersId);
+                const battleBackground = getBattleBackgroundAsset(duel.backgroundId);
+                const entryWarning = Boolean(
+                  duel.isMyTurn &&
+                  duel.timerPhase === "entry" &&
+                  duel.deadlineAt !== null &&
+                  duel.deadlineAt - radioNow <= 30 * 60 * 1_000
+                );
+                const statusLabel = duel.status === "finished"
+                  ? "БОЙ ЗАВЕРШЁН"
+                  : entryWarning
+                    ? "МАЛО ВРЕМЕНИ"
+                    : duel.isMyTurn
+                      ? "ВАШ ХОД"
+                      : "ХОД СОПЕРНИКА";
+                const actionLabel = duel.status === "finished"
+                  ? "ПОСМОТРЕТЬ ИТОГ"
+                  : entryWarning
+                    ? "ОТКРЫТЬ"
+                    : duel.isMyTurn
+                      ? "СДЕЛАТЬ ХОД"
+                      : "ЖДАТЬ";
+
+                return (
+                  <motion.button
+                    key={duel.id}
+                    type="button"
+                    className={[
+                      "radio-duel-card-textured",
+                      entryWarning
+                        ? "radio-duel-warning-pulse"
+                        : duel.isMyTurn
+                          ? "radio-duel-turn-pulse"
+                          : "",
+                    ].filter(Boolean).join(" ")}
+                    style={{
+                      ...styles.radioDuelCard,
+                      ...(duel.isMyTurn ? styles.radioDuelCardActive : {}),
+                      ...(duel.unread ? styles.radioDuelCardUnread : {}),
+                      ...(entryWarning ? styles.radioDuelCardWarning : {}),
+                      "--radio-grunge-overlay": `url("${radioGrungeOverlayImage}")`,
+                      "--radio-olive-metal": `url("${radioOliveMetalImage}")`,
+                      "--radio-red-metal": `url("${radioRedMetalImage}")`,
+                    } as CSSProperties}
+                    whileHover={{ y: -6, scale: 1.018 }}
+                    whileTap={{ scale: 0.99 }}
+                    onClick={() => {
+                      setRadioLoading(true);
+                      void profileClient.openRadioDuel(duel.id)
+                        .then(openRadioDuelBattle)
+                        .catch((error) => setRadioError(error instanceof Error ? error.message : String(error)))
+                        .finally(() => setRadioLoading(false));
+                    }}
+                  >
+                    <span
+                      className="radio-duel-metal-surface"
+                      style={{
+                        ...styles.radioDuelStatusHeader,
+                        ...(duel.isMyTurn ? styles.radioDuelStatusHeaderActive : {}),
+                        ...(entryWarning ? styles.radioDuelStatusHeaderWarning : {}),
+                      }}
+                    >
+                      <span>{statusLabel}</span>
+                    </span>
+
+                    <span
+                      className={entryWarning ? "radio-duel-metal-surface" : undefined}
+                      style={{
+                        ...styles.radioDuelTimerRow,
+                        ...(entryWarning ? styles.radioDuelTimerRowWarning : {}),
+                      }}
+                    >
+                      <span style={styles.radioDuelClockIcon}>◴</span>
+                      <span>
+                        {duel.deadlineAt
+                          ? `Осталось ${formatRadioDuelCountdown(duel.deadlineAt, radioNow)}`
+                          : "Бой завершён"}
+                      </span>
+                    </span>
+
+                    <span
+                      style={{
+                        ...styles.radioDuelBattleArt,
+                        backgroundColor: battleBackground.color,
+                        backgroundImage: `linear-gradient(180deg, rgba(12,12,9,.05) 15%, rgba(8,8,6,.08) 72%, rgba(7,7,5,.28) 100%), url("${battleBackground.image}")`,
+                        backgroundSize: battleBackground.size,
+                        backgroundPosition: battleBackground.position,
+                      }}
+                    >
+                      {myAvatar ? (
+                        <img src={myAvatar} alt="" style={{ ...styles.radioDuelAvatar, ...styles.radioDuelAvatarLeft }} />
+                      ) : null}
+                      {opponentAvatar ? (
+                        <img src={opponentAvatar} alt="" style={{ ...styles.radioDuelAvatar, ...styles.radioDuelAvatarRight }} />
+                      ) : null}
+                      <img src={radioVsImage} alt="VS" style={styles.radioDuelVsImage} />
+
+                      <span style={styles.radioDuelNamesRow}>
+                        <strong style={{ ...styles.radioDuelPlayerName, textAlign: "left" }}>
+                          {duel.myNickname}
+                        </strong>
+                        <span
+                          className="radio-duel-metal-surface"
+                          style={{
+                            ...styles.radioDuelTurnChip,
+                            ...(duel.isMyTurn ? styles.radioDuelTurnChipActive : {}),
+                            ...(entryWarning ? styles.radioDuelTurnChipWarning : {}),
+                          }}
+                        >
+                          <span>ХОД {duel.turn}</span>
+                        </span>
+                        <strong style={{ ...styles.radioDuelPlayerName, textAlign: "right" }}>
+                          {duel.opponentNickname}
+                        </strong>
+                      </span>
+                    </span>
+
+                    <span className="radio-duel-metal-surface" style={styles.radioDuelStatsRow}>
+                      <span className="radio-duel-hp-shield radio-duel-hp-shield--player" style={styles.radioDuelHpShield}>
+                        <img src={radioPlayerHpImage} alt="" style={styles.radioDuelHpShieldImage} />
+                        <strong style={styles.radioDuelHpValue}>{duel.myHeadquartersHp}</strong>
+                      </span>
+                      <span style={styles.radioDuelDeckStat}>
+                        <span>Сила колоды</span>
+                        <strong style={styles.radioDuelDeckValue}>{duel.myDeckWeight}</strong>
+                      </span>
+                      <span style={{ ...styles.radioDuelDeckStat, textAlign: "right" }}>
+                        <span>Сила колоды</span>
+                        <strong style={styles.radioDuelDeckValue}>{duel.opponentDeckWeight}</strong>
+                      </span>
+                      <span className="radio-duel-hp-shield radio-duel-hp-shield--enemy" style={styles.radioDuelHpShield}>
+                        <img src={radioEnemyHpImage} alt="" style={styles.radioDuelHpShieldImage} />
+                        <strong style={styles.radioDuelHpValue}>{duel.opponentHeadquartersHp}</strong>
+                      </span>
+                    </span>
+
+                    <span
+                      className="radio-duel-metal-surface"
+                      style={{
+                        ...styles.radioDuelActionBar,
+                        ...(duel.isMyTurn ? styles.radioDuelActionBarActive : {}),
+                        ...(entryWarning ? styles.radioDuelActionBarWarning : {}),
+                      }}
+                    >
+                      <span>{actionLabel}</span>
+                    </span>
+                  </motion.button>
+                );
+              })}
+
+              {queue?.queued ? (
+                <article
+                  className="radio-duel-card-textured"
+                  style={{
+                    ...styles.radioDuelCard,
+                    ...styles.radioDuelQueueCard,
+                    "--radio-grunge-overlay": `url("${radioGrungeOverlayImage}")`,
+                    "--radio-olive-metal": `url("${radioOliveMetalImage}")`,
+                    "--radio-red-metal": `url("${radioRedMetalImage}")`,
+                  } as CSSProperties}
+                >
+                  <span className="radio-duel-metal-surface" style={styles.radioDuelStatusHeader}>
+                    <span>ИДЁТ ПОИСК</span>
+                  </span>
+
+                  <span style={styles.radioDuelTimerRow}>
+                    <span style={styles.radioDuelClockIcon}>◴</span>
+                    <span>Ожидаем соперника</span>
+                  </span>
+
+                  <span
+                    style={{
+                      ...styles.radioDuelBattleArt,
+                      backgroundColor: queuedBattleBackground.color,
+                      backgroundImage: `linear-gradient(180deg, rgba(12,12,9,.05) 15%, rgba(8,8,6,.08) 72%, rgba(7,7,5,.28) 100%), url("${queuedBattleBackground.image}")`,
+                      backgroundSize: queuedBattleBackground.size,
+                      backgroundPosition: queuedBattleBackground.position,
+                    }}
+                  >
+                    {queuedAvatar ? (
+                      <img
+                        src={queuedAvatar}
+                        alt=""
+                        style={{ ...styles.radioDuelAvatar, ...styles.radioDuelAvatarLeft }}
+                      />
+                    ) : null}
+
+                    <span style={styles.radioDuelNamesRow}>
+                      <strong style={{ ...styles.radioDuelPlayerName, textAlign: "left" }}>
+                        {queuedNickname}
+                      </strong>
+                      <span className="radio-duel-metal-surface" style={styles.radioDuelTurnChip}>
+                        <span>ПОИСК</span>
+                      </span>
+                      <span aria-hidden="true" />
+                    </span>
+                  </span>
+
+                  <span className="radio-duel-metal-surface" style={styles.radioDuelStatsRow}>
+                    <span
+                      className="radio-duel-hp-shield radio-duel-hp-shield--player"
+                      style={styles.radioDuelHpShield}
+                    >
+                      <img src={radioPlayerHpImage} alt="" style={styles.radioDuelHpShieldImage} />
+                      <strong style={styles.radioDuelHpValue}>{queuedHeadquarters.hp}</strong>
+                    </span>
+                    <span style={styles.radioDuelDeckStat}>
+                      <span>Сила колоды</span>
+                      <strong style={styles.radioDuelDeckValue}>{queuedDeckWeight}</strong>
+                    </span>
+                    <span aria-hidden="true" />
+                    <span aria-hidden="true" />
+                  </span>
+
+                  <button
+                    type="button"
+                    className="radio-duel-metal-surface"
+                    style={{ ...styles.radioDuelActionBar, ...styles.radioDuelQueueCancelButton }}
+                    disabled={radioLoading}
+                    onClick={() => {
+                      setRadioLoading(true);
+                      void profileClient.cancelRadioDuelQueue()
+                        .then(setRadioDuels)
+                        .catch((error) => setRadioError(error instanceof Error ? error.message : String(error)))
+                        .finally(() => setRadioLoading(false));
+                    }}
+                  >
+                    <span>ОТМЕНИТЬ ПОИСК</span>
+                  </button>
+                </article>
+              ) : null}
+
+              <motion.button
+                type="button"
+                className="menu-image-button"
+                style={{ ...styles.radioDuelCard, ...styles.radioDuelNewBattleCard }}
+                disabled={!canStart || radioLoading}
+                onClick={() => openHeadquartersMenu("radio")}
+                whileHover={canStart ? { y: -6, scale: 1.018 } : undefined}
+                whileTap={canStart ? { scale: 0.99 } : undefined}
+              >
+                <img src="/ui/menu/radio_duel.webp" alt="" draggable={false} style={styles.radioDuelNewBattleImage} />
+                <span style={styles.campaignEntryTitleOverlay}>Новый бой</span>
+              </motion.button>
+            </div>
+          </CarouselTapFrame>
+
+          {radioError ? <div style={{ color: "#ffb2a8", fontWeight: 700 }}>{radioError}</div> : null}
+          <div style={{ ...styles.menuActionsRow, justifyContent: "center", gap: 18 }}>
+            <button
+              type="button"
+              style={{ ...styles.backButton, ...styles.radioDuelMenuButton }}
+              onClick={closeRadioDuelsMenu}
+            >
+              В главное меню
+            </button>
+          </div>
+        </section>
+
+        <TutorialOverlay
+          kind="dialogue"
+          visible={radioIntroVisible}
+          text="В радиодуэли можно вести до трёх партий одновременно. Когда ход переходит к игроку, у него есть 12 часов, чтобы открыть бой. Если не войти вовремя, штаб потеряет 5 здоровья. После входа запускается таймер на 3 минуты. Если за это время не совершить ни одного действия, штаб потеряет 5 здоровья, а игра вернёт тебя в главное меню. При возвращении ты увидишь повтор последнего хода соперника."
+          nextLabel="Понятно"
+          onNext={() => {
+            window.localStorage.setItem("panzershrek.radioDuelIntroSeen", "true");
+            setRadioIntroVisible(false);
+            const result = radioDuels;
+            if (!result || result.games.length > 0) return;
+            if (result.queue.queued) setRadioSearching(true);
+            else openHeadquartersMenu("radio");
+          }}
+        />
+      </main>
+    );
+  }
+
   if (menuView === "main" && !pvpBusy) {
     return (
       <main style={styles.page}>
@@ -4519,6 +5132,7 @@ export function PvpLobby() {
         <PlayerResourcesPanel
           onOpenShop={openShopMenu}
           onOpenExchange={openExchangeMenu}
+          onOpenTutorial={openTutorialMenu}
         />
         <RegistrationReminderOverlay
           visible={registrationReminderVisible && !isRegisteredUserId()}
@@ -4547,7 +5161,10 @@ export function PvpLobby() {
 
           <CarouselTapFrame
             viewportRef={mainMenuCarouselRef}
-            viewportStyle={styles.carouselViewport}
+            viewportStyle={{
+              ...styles.carouselViewport,
+              ...styles.mainMenuCarouselViewport,
+            }}
             ariaLabel={t("main.selectBattleMode")}
             hideArrows
           >
@@ -4593,6 +5210,27 @@ export function PvpLobby() {
                   style={styles.campaignEntryImage}
                 />
                 <span style={styles.campaignEntryTitleOverlay}>{t("main.quickBattle")}</span>
+              </div>
+            </motion.button>
+
+            <motion.button
+              type="button"
+              style={styles.campaignEntryOption}
+              onClick={enterRadioDuels}
+              aria-label="Радиодуэль"
+              whileHover={{ y: -8, scale: 1.035 }}
+              whileTap={{ scale: 0.985 }}
+              transition={{ type: "spring", stiffness: 360, damping: 28 }}
+            >
+              <div style={styles.campaignEntryCard}>
+                <img
+                  src="/ui/menu/radio_duel.webp"
+                  alt=""
+                  draggable={false}
+                  onError={(event) => usePngFallback(event, "/ui/menu/radio_duel.png")}
+                  style={styles.campaignEntryImage}
+                />
+                <span style={styles.campaignEntryTitleOverlay}>Радиодуэль</span>
               </div>
             </motion.button>
 
@@ -4968,7 +5606,7 @@ export function PvpLobby() {
               type="button"
               className="menu-image-button"
               style={styles.headquartersBackButton}
-              onClick={closeHeadquartersMenu}
+              onClick={closeHeadquartersSelection}
               aria-label={t("common.back")}
               title={t("common.back")}
             >
@@ -5474,6 +6112,11 @@ const styles: Record<string, CSSProperties> = {
     textTransform: "uppercase",
     textShadow: "0 2px 0 rgba(0,0,0,0.84)",
     pointerEvents: "auto",
+  },
+
+  playerTutorialButton: {
+    left: "calc(100% + 134px)",
+    width: 132,
   },
 
   menuChunkLoading: {
@@ -6054,6 +6697,390 @@ const styles: Record<string, CSSProperties> = {
     background:
       "linear-gradient(90deg, transparent, rgba(18, 17, 12, 0.72) 18%, rgba(40, 34, 20, 0.78) 50%, rgba(18, 17, 12, 0.72) 82%, transparent)",
     textShadow: "0 2px 8px rgba(0,0,0,0.9)",
+  },
+
+  radioDuelMenuHeader: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+    textAlign: "center",
+    transform: "translateY(-30px)",
+  },
+
+  radioDuelMenuLayer: {
+    height: "100%",
+    justifyContent: "flex-start",
+    padding: "clamp(10px, 10.5cqh, 100px) 24px clamp(24px, 4cqh, 38px)",
+    fontFamily: "var(--font-body)",
+    overflow: "visible",
+  },
+
+  radioDuelMenuSubtitle: {
+    color: "#bba778",
+    fontSize: "clamp(15px, 2.35cqh, 23px)",
+    fontWeight: 900,
+    letterSpacing: 1.5,
+    textShadow: "0 2px 3px rgba(0,0,0,.9)",
+  },
+
+  radioDuelMenuCount: {
+    marginTop: 8,
+    color: "#dfc98e",
+    fontSize: "clamp(13px, 1.9cqh, 18px)",
+    letterSpacing: 0.4,
+  },
+
+  radioDuelCarouselViewport: {
+    maxWidth: "clamp(1048px, 82cqw, 1370px)",
+    margin: "0 auto",
+    padding: "10px 40px 16px",
+    transform: "translateY(-25px)",
+  },
+
+  radioDuelCarouselTrack: {
+    gap: "clamp(22px, 3.3cqw, 40px)",
+    alignItems: "center",
+  },
+
+  radioDuelCard: {
+    position: "relative",
+    display: "flex",
+    flexDirection: "column",
+    flex: "0 0 auto",
+    width: "clamp(270px, min(27cqw, 42cqh), 380px)",
+    height: "auto",
+    aspectRatio: "3 / 4",
+    boxSizing: "border-box",
+    padding: 0,
+    overflow: "hidden",
+    border: "1px solid rgba(211, 183, 111, 0.72)",
+    borderRadius: 10,
+    backgroundColor: "#171813",
+    backgroundImage: `linear-gradient(180deg, rgba(45,45,37,.46), rgba(10,11,9,.84)), url("${radioDarkMetalImage}")`,
+    backgroundSize: "100% 100%, 520px 520px",
+    backgroundPosition: "center, center",
+    backgroundRepeat: "no-repeat, repeat",
+    backgroundBlendMode: "multiply, normal",
+    color: "#f8edcf",
+    fontFamily: "var(--font-body)",
+    textAlign: "left",
+    cursor: "pointer",
+    scrollSnapAlign: "center",
+    boxShadow: "inset 0 0 0 1px rgba(255,255,255,.035), 0 16px 36px rgba(0,0,0,.56)",
+  },
+
+  radioDuelCardActive: {
+    border: "2px solid #d7bd6d",
+  },
+
+  radioDuelCardWarning: {
+    border: "2px solid #b35f42",
+  },
+
+  radioDuelCardUnread: {
+    boxShadow: "inset 0 0 0 1px rgba(255,241,186,.12), 0 0 26px rgba(232,199,101,.48), 0 14px 34px rgba(0,0,0,.42)",
+  },
+
+  radioDuelStatusHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flex: "0 0 clamp(31px, 4.6cqh, 38px)",
+    width: "100%",
+    backgroundColor: "#383d3d",
+    backgroundImage: `linear-gradient(180deg, rgba(126,134,133,.42), rgba(18,21,20,.72)), url("${radioDarkMetalImage}")`,
+    backgroundSize: "100% 100%, 460px 460px",
+    backgroundPosition: "center, center",
+    backgroundRepeat: "no-repeat, repeat",
+    backgroundBlendMode: "soft-light, normal",
+    color: "#d3d3cf",
+    fontSize: "clamp(15px, 2.15cqh, 21px)",
+    fontWeight: 1000,
+    letterSpacing: 1.1,
+    textShadow: "0 2px 2px rgba(0,0,0,.9)",
+    boxShadow: "inset 0 1px rgba(229,207,139,.2), inset 0 -5px 9px rgba(0,0,0,.28)",
+  },
+
+  radioDuelStatusHeaderActive: {
+    backgroundColor: "#48512b",
+    backgroundImage: `linear-gradient(180deg, rgba(195,196,118,.3), rgba(31,38,18,.72)), url("${radioOliveMetalImage}")`,
+    backgroundSize: "100% 100%, 460px 460px",
+    backgroundPosition: "center, center",
+    backgroundRepeat: "no-repeat, repeat",
+    backgroundBlendMode: "soft-light, multiply",
+    color: "#f2dda1",
+  },
+
+  radioDuelStatusHeaderWarning: {
+    backgroundColor: "#6b3028",
+    backgroundImage: `linear-gradient(180deg, rgba(189,116,83,.24), rgba(43,16,14,.76)), url("${radioRedMetalImage}")`,
+    backgroundSize: "100% 100%, 460px 460px",
+    backgroundPosition: "center, center",
+    backgroundRepeat: "no-repeat, repeat",
+    backgroundBlendMode: "soft-light, multiply",
+    color: "#efd19f",
+  },
+
+  radioDuelTimerRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flex: "0 0 clamp(28px, 4cqh, 34px)",
+    gap: 7,
+    background: "rgba(10,11,9,.9)",
+    color: "#d5bf83",
+    fontSize: "clamp(12px, 1.65cqh, 16px)",
+    letterSpacing: 0.3,
+  },
+
+  radioDuelTimerRowWarning: {
+    backgroundColor: "#321714",
+    backgroundImage: `linear-gradient(180deg, rgba(126,57,43,.2), rgba(14,8,7,.82)), url("${radioRedMetalImage}")`,
+    backgroundSize: "100% 100%, 520px 520px",
+    backgroundPosition: "center, center",
+    backgroundRepeat: "no-repeat, repeat",
+    backgroundBlendMode: "multiply, multiply",
+    color: "#e0bd8b",
+  },
+
+  radioDuelClockIcon: {
+    color: "#d9bc69",
+    fontSize: "1.35em",
+    lineHeight: 1,
+  },
+
+  radioDuelBattleArt: {
+    position: "relative",
+    display: "block",
+    flex: "1 1 auto",
+    minHeight: 0,
+    width: "100%",
+    overflow: "hidden",
+    borderTop: "1px solid rgba(214,191,130,.18)",
+    borderBottom: "1px solid rgba(214,191,130,.28)",
+  },
+
+  radioDuelAvatar: {
+    position: "absolute",
+    zIndex: 2,
+    display: "block",
+    bottom: 0,
+    width: "56%",
+    height: "88%",
+    objectFit: "contain",
+    objectPosition: "center bottom",
+    filter: "sepia(.12) saturate(.83) contrast(1.04) drop-shadow(0 8px 8px rgba(0,0,0,.82))",
+    WebkitMaskImage:
+      "linear-gradient(180deg, #000 0%, #000 78%, rgba(0,0,0,0.58) 91%, transparent 100%)",
+    maskImage:
+      "linear-gradient(180deg, #000 0%, #000 78%, rgba(0,0,0,0.58) 91%, transparent 100%)",
+    WebkitMaskSize: "100% 100%",
+    maskSize: "100% 100%",
+    WebkitMaskRepeat: "no-repeat",
+    maskRepeat: "no-repeat",
+  },
+
+  radioDuelAvatarLeft: {
+    left: -4,
+  },
+
+  radioDuelAvatarRight: {
+    right: -4,
+  },
+
+  radioDuelVsImage: {
+    position: "absolute",
+    zIndex: 4,
+    top: "48%",
+    left: "50%",
+    width: "42%",
+    height: "88%",
+    objectFit: "contain",
+    transform: "translate(-50%, -50%)",
+    filter: "drop-shadow(0 4px 4px rgba(0,0,0,.75))",
+  },
+
+  radioDuelNamesRow: {
+    position: "absolute",
+    zIndex: 5,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)",
+    alignItems: "center",
+    gap: 7,
+    minHeight: 38,
+    padding: "5px 10px",
+    background: "transparent",
+  },
+
+  radioDuelPlayerName: {
+    display: "block",
+    minWidth: 0,
+    overflow: "hidden",
+    color: "#f2e4bd",
+    fontSize: "clamp(14px, 1.9cqh, 20px)",
+    lineHeight: 1.1,
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    textShadow: "0 2px 3px rgba(0,0,0,.95)",
+  },
+
+  radioDuelTurnChip: {
+    padding: "4px 10px",
+    border: "1px solid rgba(195,164,88,.66)",
+    borderRadius: 4,
+    backgroundColor: "rgba(29,29,22,.92)",
+    backgroundImage: `linear-gradient(180deg, rgba(103,105,88,.22), rgba(10,10,8,.5)), url("${radioDarkMetalImage}")`,
+    backgroundSize: "100% 100%, 420px 420px",
+    backgroundPosition: "center, center",
+    backgroundRepeat: "no-repeat, repeat",
+    backgroundBlendMode: "soft-light, normal",
+    color: "#e1c98c",
+    fontSize: "clamp(11px, 1.45cqh, 15px)",
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+  },
+
+  radioDuelTurnChipActive: {
+    backgroundColor: "#3f4927",
+    backgroundImage: `linear-gradient(180deg, rgba(186,190,112,.24), rgba(25,31,15,.68)), url("${radioOliveMetalImage}")`,
+    backgroundBlendMode: "soft-light, multiply",
+  },
+
+  radioDuelTurnChipWarning: {
+    backgroundColor: "#632e25",
+    backgroundImage: `linear-gradient(180deg, rgba(183,105,74,.2), rgba(39,14,12,.72)), url("${radioRedMetalImage}")`,
+    backgroundBlendMode: "soft-light, multiply",
+  },
+
+  radioDuelStatsRow: {
+    display: "grid",
+    gridTemplateColumns: "clamp(54px, 7cqh, 66px) minmax(0, 1fr) minmax(0, 1fr) clamp(54px, 7cqh, 66px)",
+    alignItems: "center",
+    flex: "0 0 clamp(70px, 10cqh, 84px)",
+    width: "100%",
+    padding: "4px 8px 2px",
+    backgroundColor: "#171813",
+    backgroundImage: `linear-gradient(180deg, rgba(50,50,41,.28), rgba(7,8,6,.72)), url("${radioDarkMetalImage}")`,
+    backgroundSize: "100% 100%, 520px 520px",
+    backgroundPosition: "center, center",
+    backgroundRepeat: "no-repeat, repeat",
+    backgroundBlendMode: "multiply, normal",
+    boxSizing: "border-box",
+  },
+
+  radioDuelHpShield: {
+    position: "relative",
+    display: "block",
+    width: "100%",
+    aspectRatio: "1 / 1",
+  },
+
+  radioDuelHpShieldImage: {
+    display: "block",
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    filter: "drop-shadow(0 4px 3px rgba(0,0,0,.72))",
+  },
+
+  radioDuelHpValue: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    color: "#f0dfa9",
+    fontSize: "clamp(19px, 2.7cqh, 28px)",
+    lineHeight: 1,
+    transform: "translate(-50%, -50%)",
+    textShadow: "0 2px 3px rgba(0,0,0,.95)",
+    zIndex: 4,
+  },
+
+  radioDuelDeckStat: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    color: "#c9b98d",
+    fontSize: "clamp(10px, 1.45cqh, 14px)",
+    lineHeight: 1.1,
+  },
+
+  radioDuelDeckValue: {
+    color: "#ddca92",
+    fontSize: "clamp(14px, 2.1cqh, 20px)",
+    lineHeight: 1,
+  },
+
+  radioDuelActionBar: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flex: "0 0 clamp(39px, 5.7cqh, 48px)",
+    margin: "7px 12px 10px",
+    border: "1px solid rgba(195,198,193,.36)",
+    borderRadius: 4,
+    backgroundColor: "#373c3c",
+    backgroundImage: `linear-gradient(180deg, rgba(128,135,132,.34), rgba(18,21,20,.74)), url("${radioDarkMetalImage}")`,
+    backgroundSize: "100% 100%, 480px 480px",
+    backgroundPosition: "center, center",
+    backgroundRepeat: "no-repeat, repeat",
+    backgroundBlendMode: "soft-light, normal",
+    color: "#dedbd0",
+    fontSize: "clamp(14px, 2.2cqh, 21px)",
+    fontWeight: 1000,
+    letterSpacing: 0.7,
+    textShadow: "0 2px 2px rgba(0,0,0,.95)",
+    boxShadow: "inset 0 1px rgba(255,255,255,.13), 0 3px 5px rgba(0,0,0,.55)",
+  },
+
+  radioDuelActionBarActive: {
+    borderColor: "rgba(207,190,116,.65)",
+    backgroundColor: "#4b562f",
+    backgroundImage: `linear-gradient(180deg, rgba(210,207,128,.32), rgba(25,32,16,.72)), url("${radioOliveMetalImage}")`,
+    backgroundBlendMode: "soft-light, multiply",
+    color: "#f2e2af",
+    boxShadow: "inset 0 1px rgba(241,218,147,.3), inset 0 -7px 10px rgba(0,0,0,.3), 0 3px 5px rgba(0,0,0,.55)",
+  },
+
+  radioDuelActionBarWarning: {
+    borderColor: "rgba(209,135,91,.7)",
+    backgroundColor: "#693127",
+    backgroundImage: `linear-gradient(180deg, rgba(190,111,77,.26), rgba(41,14,12,.76)), url("${radioRedMetalImage}")`,
+    backgroundBlendMode: "soft-light, multiply",
+    color: "#f1d4ae",
+    boxShadow: "inset 0 1px rgba(235,184,127,.24), inset 0 -7px 10px rgba(0,0,0,.34), 0 3px 5px rgba(0,0,0,.58)",
+  },
+
+  radioDuelQueueCard: {
+    cursor: "default",
+  },
+
+  radioDuelQueueCancelButton: {
+    width: "calc(100% - 24px)",
+    cursor: "pointer",
+    fontFamily: "var(--font-body)",
+  },
+
+  radioDuelNewBattleCard: {
+    padding: 0,
+    borderColor: "rgba(225, 197, 121, 0.7)",
+    background: "#151b1b",
+    scrollSnapAlign: "center",
+  },
+
+  radioDuelNewBattleImage: {
+    display: "block",
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+  },
+
+  radioDuelMenuButton: {
+    fontFamily: "var(--font-body)",
   },
 
   profileLayer: {
@@ -7036,7 +8063,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     justifyContent: "center",
     alignItems: "flex-start",
-    gap: 24,
+    gap: 8,
     minWidth: "max-content",
     margin: "0 auto",
   },
@@ -7109,9 +8136,9 @@ const styles: Record<string, CSSProperties> = {
   campaignEntryOption: {
     position: "relative",
     flex: "0 0 auto",
-    width: MENU_CARD_WIDTH + 44,
-    height: MENU_CARD_HEIGHT + 28,
-    padding: "10px 22px 18px",
+    width: MAIN_MENU_CARD_WIDTH + 12,
+    height: MAIN_MENU_CARD_HEIGHT + 20,
+    padding: "6px",
     border: "none",
     outline: "none",
     background: "transparent",
@@ -7129,8 +8156,8 @@ const styles: Record<string, CSSProperties> = {
 
   campaignEntryCard: {
     position: "relative",
-    width: MENU_CARD_WIDTH,
-    height: MENU_CARD_HEIGHT,
+    width: MAIN_MENU_CARD_WIDTH,
+    height: MAIN_MENU_CARD_HEIGHT,
     margin: "0 auto",
     borderRadius: 18,
     overflow: "hidden",
@@ -7554,6 +8581,13 @@ const styles: Record<string, CSSProperties> = {
     scrollSnapType: "x mandatory",
     scrollbarWidth: "none",
     // See carouselViewport: custom JS drag-scroller, so no native panning.
+    touchAction: "none",
+  },
+
+  mainMenuCarouselViewport: {
+    overflowX: "hidden",
+    padding: "34px 8px 12px",
+    cursor: "default",
     touchAction: "none",
   },
 

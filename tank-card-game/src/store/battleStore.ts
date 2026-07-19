@@ -41,11 +41,12 @@ import {
   isTutorialMissionUnlocked,
 } from "../game/tutorial";
 import type { TutorialMissionId, TutorialScriptId } from "../game/tutorial";
-import type {
-  GameMode,
-  MainMenuView,
-  MatchEndReason,
-  PvpConnectionState,
+import {
+  PVP_MATCH_SEARCH_DURATION_MS,
+  type GameMode,
+  type MainMenuView,
+  type MatchEndReason,
+  type PvpConnectionState,
 } from "../game/modes";
 import type { BotDifficulty } from "../game/bot";
 import type {
@@ -65,6 +66,12 @@ import { getCurrentUserId } from "../game/playerIdentity";
 import { hasCompletedTutorial, loadPlayerProgress } from "../game/playerProgress";
 import { recordBattleForRegistrationReminder } from "../game/registrationReminder";
 import { recordBattleForFirstPlayerPackReminder } from "../game/firstPlayerPackReminder";
+import type {
+  RadioDuelLiveUpdate,
+  RadioDuelOpenResult,
+  RadioDuelReplay,
+} from "../game/radioDuel";
+import { RADIO_DUEL_DEFEAT_RESULT_DELAY_MS } from "../game/radioDuel";
 
 type SelectedAttacker = {
   type: "unit" | "headquarters";
@@ -151,6 +158,15 @@ type BattleStore = {
   menuView: MainMenuView;
   localPlayerId: PlayerId;
   pvpRoomId: string | null;
+  radioDuelId: string | null;
+  radioOpponentNickname: string | null;
+  radioDeadlineAt: number | null;
+  radioRatingDelta: number;
+  radioReplayActive: boolean;
+  radioReplayLive: boolean;
+  radioReplay: RadioDuelReplay | null;
+  radioReplayFinalBattle: BattleStateView | null;
+  radioFinalScreenAvailableAt: number | null;
   pvpStatus: PvpConnectionState;
   pvpError: string | null;
   sessionError: string | null;
@@ -220,6 +236,12 @@ type BattleStore = {
   closeTutorialMenu: () => void;
   openCombatMissionsMenu: () => void;
   closeCombatMissionsMenu: () => void;
+  openRadioDuelsMenu: () => void;
+  closeRadioDuelsMenu: () => void;
+  openRadioDuelBattle: (result: RadioDuelOpenResult) => void;
+  receiveRadioDuelLiveUpdate: (update: RadioDuelLiveUpdate) => void;
+  completeRadioReplay: () => void;
+  surrenderRadioDuel: () => Promise<boolean>;
   startTutorial: (missionId?: TutorialMissionId) => void;
   advanceTutorialStep: () => void;
   completeTutorialEpilogue: () => void;
@@ -228,7 +250,7 @@ type BattleStore = {
   selectAttacker: (attacker: SelectedAttacker) => void;
 
   setMode: (mode: GameMode) => void;
-  openHeadquartersMenu: (mode: "ai" | "pvp") => void;
+  openHeadquartersMenu: (mode: "ai" | "pvp" | "radio") => void;
   closeHeadquartersMenu: () => void;
   openDeckBuilderMenu: () => void;
   closeDeckBuilderMenu: () => void;
@@ -458,6 +480,12 @@ function createFreshBattle(
     overheatMovementDamage: true,
   });
 }
+
+// Radio-duel commands must reach the server in exactly the order in which the
+// player issued them. Without this chain an older response could arrive after
+// END_TURN and restore the previous active player on the client.
+let radioActionQueue: Promise<void> = Promise.resolve();
+const radioLiveUpdateQueue: RadioDuelLiveUpdate[] = [];
 
 function cloneDeckCardIds(deckCardIds?: string[]): string[] | null {
   return deckCardIds ? [...deckCardIds] : null;
@@ -715,6 +743,7 @@ function applyFirstTurnRollMessage(
       ? serverRevealDelay
       : FIRST_TURN_ROLL_DURATION_MS + FIRST_TURN_ROLL_RESULT_DELAY_MS;
   const hideDelay = revealDelay + FIRST_TURN_ROLL_FINISH_DELAY_MS + 250;
+  const currentStore = useBattleStore.getState();
 
   useBattleStore.setState({
     battle: message.battle,
@@ -736,6 +765,10 @@ function applyFirstTurnRollMessage(
     pvpOpponentNickname: message.opponentNickname ?? null,
     pvpOpponentCardBackId: message.opponentCardBackId ?? null,
     pvpOpponentDeckWeight: message.opponentDeckWeight ?? null,
+    selectedHeadquartersId:
+      message.ownDeck?.headquartersId ?? currentStore.selectedHeadquartersId,
+    pvpPlayerDeckWeight:
+      message.ownDeckWeight ?? currentStore.pvpPlayerDeckWeight,
     pvpMatchPreviewLabel: null,
     pvpSearchStartedAt: null,
     pvpSearchDeadlineAt: null,
@@ -798,6 +831,7 @@ function applyGameStartedMessage(
   pvpClient.rememberRoom(message.roomId);
   startBattleAssetPreloadForState(message.battle);
   const currentTimer = useBattleStore.getState().pvpTimer;
+  const currentStore = useBattleStore.getState();
   useBattleStore.setState({
     battle: message.battle,
     mode: "pvp",
@@ -818,6 +852,10 @@ function applyGameStartedMessage(
     pvpOpponentNickname: message.opponentNickname ?? null,
     pvpOpponentCardBackId: message.opponentCardBackId ?? null,
     pvpOpponentDeckWeight: message.opponentDeckWeight ?? null,
+    selectedHeadquartersId:
+      message.ownDeck?.headquartersId ?? currentStore.selectedHeadquartersId,
+    pvpPlayerDeckWeight:
+      message.ownDeckWeight ?? currentStore.pvpPlayerDeckWeight,
     pvpMatchPreviewLabel: null,
     pvpSearchStartedAt: null,
     pvpSearchDeadlineAt: null,
@@ -866,6 +904,15 @@ function getCleanMenuState() {
     menuView: "main" as MainMenuView,
     localPlayerId: "player" as PlayerId,
     pvpRoomId: null,
+    radioDuelId: null,
+    radioOpponentNickname: null,
+    radioDeadlineAt: null,
+    radioRatingDelta: 0,
+    radioReplayActive: false,
+    radioReplayLive: false,
+    radioReplay: null,
+    radioReplayFinalBattle: null,
+    radioFinalScreenAvailableAt: null,
     pvpStatus: "idle" as PvpConnectionState,
     pvpError: null,
     sessionError: null,
@@ -966,7 +1013,7 @@ function setupPvpSubscriptions() {
           pvpOpponentHeadquartersId: null,
           pvpMatchPreviewLabel: null,
           pvpSearchStartedAt: Date.now(),
-          pvpSearchDeadlineAt: Date.now() + 30_000,
+          pvpSearchDeadlineAt: Date.now() + PVP_MATCH_SEARCH_DURATION_MS,
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
@@ -1100,6 +1147,23 @@ function setupPvpSubscriptions() {
         clearReconnectTimer();
         pvpClient.rememberRoom(message.roomId);
         startBattleAssetPreloadForState(message.battle);
+        if (message.ownDeck && !pvpClient.storedDeckMatches(message.ownDeck)) {
+          console.error(
+            "PVP reconnect deck mismatch:",
+            pvpClient.getStoredDeckSelection()?.identity,
+            message.ownDeck
+          );
+          pvpClient.disconnect();
+          useBattleStore.setState({
+            battle: null,
+            mode: "pvp",
+            menuView: "headquarters",
+            pvpStatus: "error",
+            pvpError:
+              "Восстановление остановлено: сервер вернул другую колоду. Поражение не должно быть засчитано.",
+          });
+          break;
+        }
         useBattleStore.setState({
           battle: message.battle,
           mode: "pvp",
@@ -1111,6 +1175,10 @@ function setupPvpSubscriptions() {
           pvpOpponentNickname: message.opponentNickname ?? null,
           pvpOpponentCardBackId: message.opponentCardBackId ?? null,
           pvpOpponentDeckWeight: message.opponentDeckWeight ?? null,
+          selectedHeadquartersId:
+            message.ownDeck?.headquartersId ?? store.selectedHeadquartersId,
+          pvpPlayerDeckWeight:
+            message.ownDeckWeight ?? store.pvpPlayerDeckWeight,
           matchEndReason: null,
           pvpTimer: emptyPvpTimer,
           pvpMovementIntent: null,
@@ -1168,6 +1236,21 @@ function setupPvpSubscriptions() {
         clearPendingPvpStart();
         pvpClient.clearSession();
         useBattleStore.setState(getCleanMenuState());
+        break;
+
+      case "MATCH_START_FAILED":
+        releaseGameSession();
+        clearFirstTurnRollTimers();
+        clearReconnectTimer();
+        clearPendingPvpStart();
+        pvpClient.clearSession();
+        useBattleStore.setState({
+          ...getCleanMenuState(),
+          mode: "pvp",
+          menuView: "headquarters",
+          pvpStatus: "error",
+          pvpError: message.message,
+        });
         break;
 
       case "OPPONENT_LEFT":
@@ -1303,6 +1386,15 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   menuView: "main",
   localPlayerId: "player",
   pvpRoomId: null,
+  radioDuelId: null,
+  radioOpponentNickname: null,
+  radioDeadlineAt: null,
+  radioRatingDelta: 0,
+  radioReplayActive: false,
+  radioReplayLive: false,
+  radioReplay: null,
+  radioReplayFinalBattle: null,
+  radioFinalScreenAvailableAt: null,
   pvpStatus: "idle",
   pvpError: null,
   sessionError: null,
@@ -1401,6 +1493,184 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
     set({ menuView: "main", mode: "ai", pvpError: null });
   },
 
+  openRadioDuelsMenu: () => {
+    set({ menuView: "radioDuels", mode: "radio", pvpError: null });
+  },
+
+  closeRadioDuelsMenu: () => {
+    set({ menuView: "main", mode: "ai", pvpError: null });
+  },
+
+  openRadioDuelBattle: (result) => {
+    radioLiveUpdateQueue.length = 0;
+    startBattleAssetPreloadForState(result.battle);
+    const frames = result.replay?.frames ?? [];
+    const hasReplayFrames = frames.length > 1;
+    // A replay with only its base frame contains no visible enemy action.
+    // Always open the authoritative current battle in that case; otherwise a
+    // stale pre-END_TURN frame makes both participants see "enemy turn".
+    const firstBattle = hasReplayFrames ? frames[0] : result.battle;
+    set({
+      battle: firstBattle,
+      mode: "radio",
+      menuView: "radioDuels",
+      localPlayerId: result.duel.localPlayerId,
+      radioDuelId: result.duel.id,
+      radioOpponentNickname: result.duel.opponentNickname,
+      radioDeadlineAt: result.duel.deadlineAt,
+      radioRatingDelta: result.duel.ratingDelta,
+      radioReplayActive: hasReplayFrames,
+      radioReplayLive: false,
+      radioReplay: hasReplayFrames ? result.replay : null,
+      radioReplayFinalBattle: hasReplayFrames ? result.battle : null,
+      radioFinalScreenAvailableAt: null,
+      matchEndReason: result.duel.endReason,
+      selectedCardInstanceId: null,
+      opponentSelectedCardInstanceId: null,
+      selectedAttacker: null,
+      pvpError: null,
+    });
+
+  },
+
+  receiveRadioDuelLiveUpdate: (update) => {
+    const current = get();
+    if (current.mode !== "radio" || current.radioDuelId !== update.duelId) return;
+
+    if (current.radioReplayActive) {
+      radioLiveUpdateQueue.push(update);
+      return;
+    }
+
+    set({
+      battle: update.before,
+      localPlayerId: update.duel.localPlayerId,
+      radioDeadlineAt: update.duel.deadlineAt,
+      radioRatingDelta: update.duel.ratingDelta,
+      radioReplayActive: true,
+      radioReplayLive: true,
+      radioReplay: {
+        version: 0,
+        turn: update.before.turn,
+        actions: [update.action],
+        frames: [update.before, update.after],
+      },
+      radioReplayFinalBattle: update.after,
+      radioFinalScreenAvailableAt: null,
+      matchEndReason: update.duel.endReason,
+      selectedCardInstanceId: null,
+      opponentSelectedCardInstanceId: null,
+      selectedAttacker: null,
+      pvpError: null,
+    });
+  },
+
+  completeRadioReplay: () => {
+    const current = get();
+    const finalBattle = current.radioReplayFinalBattle;
+    if (
+      !current.radioReplayLive &&
+      current.radioDuelId &&
+      current.radioReplay?.version
+    ) {
+      void profileClient
+        .markRadioDuelReplaySeen(
+          current.radioDuelId,
+          current.radioReplay.version
+        )
+        .then((result) => {
+          const latest = get();
+          if (
+            latest.mode === "radio" &&
+            latest.radioDuelId === result.duel.id
+          ) {
+            set({
+              radioDeadlineAt: result.duel.deadlineAt,
+              radioRatingDelta: result.duel.ratingDelta,
+              matchEndReason: result.duel.endReason,
+            });
+          }
+        })
+        .catch(() => undefined);
+    }
+    const nextUpdate = radioLiveUpdateQueue.shift();
+    if (
+      nextUpdate &&
+      get().mode === "radio" &&
+      get().radioDuelId === nextUpdate.duelId
+    ) {
+      set({
+        battle: nextUpdate.before,
+        localPlayerId: nextUpdate.duel.localPlayerId,
+        radioDeadlineAt: nextUpdate.duel.deadlineAt,
+        radioRatingDelta: nextUpdate.duel.ratingDelta,
+        radioReplayActive: true,
+        radioReplayLive: true,
+        radioReplay: {
+          version: 0,
+          turn: nextUpdate.before.turn,
+          actions: [nextUpdate.action],
+          frames: [nextUpdate.before, nextUpdate.after],
+        },
+        radioReplayFinalBattle: nextUpdate.after,
+        radioFinalScreenAvailableAt: null,
+        matchEndReason: nextUpdate.duel.endReason,
+      });
+      return;
+    }
+    const localPlayerWasDefeated =
+      !!finalBattle &&
+      ((current.localPlayerId === "player" && finalBattle.status === "bot_won") ||
+        (current.localPlayerId === "bot" && finalBattle.status === "player_won"));
+    set({
+      battle: finalBattle ?? get().battle,
+      radioReplayActive: false,
+      radioReplayLive: false,
+      radioReplay: null,
+      radioReplayFinalBattle: null,
+      radioFinalScreenAvailableAt: localPlayerWasDefeated
+        ? Date.now() + RADIO_DUEL_DEFEAT_RESULT_DELAY_MS
+        : null,
+    });
+  },
+
+  surrenderRadioDuel: async () => {
+    const state = get();
+    if (state.mode !== "radio" || !state.radioDuelId) return false;
+    const targetDuelId = state.radioDuelId;
+    set({ pvpError: null });
+    try {
+      const result = await profileClient.surrenderRadioDuel(targetDuelId);
+      const latest = get();
+      if (latest.mode !== "radio" || latest.radioDuelId !== targetDuelId) {
+        return false;
+      }
+      set({
+        battle: result.battle,
+        localPlayerId: result.duel.localPlayerId,
+        radioDeadlineAt: null,
+        radioRatingDelta: result.duel.ratingDelta,
+        matchEndReason: result.duel.endReason,
+        radioReplayActive: false,
+        radioReplayLive: false,
+        radioReplay: null,
+        radioReplayFinalBattle: null,
+        radioFinalScreenAvailableAt: null,
+        selectedCardInstanceId: null,
+        opponentSelectedCardInstanceId: null,
+        selectedAttacker: null,
+        pvpError: null,
+      });
+      return true;
+    } catch (error) {
+      const latest = get();
+      if (latest.mode === "radio" && latest.radioDuelId === targetDuelId) {
+        set({ pvpError: error instanceof Error ? error.message : String(error) });
+      }
+      return false;
+    }
+  },
+
   startTutorial: async (missionId: TutorialMissionId = "training") => {
     // Профиль с уже пройденным старым обучением засчитывает первую миссию.
     const completedMissionIds = hasCompletedTutorial()
@@ -1486,6 +1756,10 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   closeHeadquartersMenu: () => {
+    if (get().mode === "radio") {
+      set({ menuView: "radioDuels", pvpError: null });
+      return;
+    }
     set({
       menuView: "main",
       mode: "ai",
@@ -1627,7 +1901,17 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   exitBattleToMenu: () => {
-    const { tutorialActive, tutorialScriptId } = get();
+    const { tutorialActive, tutorialScriptId, mode, radioDuelId } = get();
+    if (mode === "radio") {
+      if (radioDuelId) profileClient.unwatchRadioDuel(radioDuelId);
+      radioLiveUpdateQueue.length = 0;
+      set({
+        ...getCleanMenuState(),
+        menuView: "radioDuels",
+        mode: "radio",
+      });
+      return;
+    }
     // Выход из обучающей миссии ведёт обратно на экран выбора миссий; победа
     // при этом засчитывается, чтобы открылась следующая миссия.
     const wasTutorialMission =
@@ -1995,7 +2279,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         pvpOpponentHeadquartersId: null,
         pvpMatchPreviewLabel: null,
         pvpSearchStartedAt: now,
-        pvpSearchDeadlineAt: now + 30_000,
+        pvpSearchDeadlineAt: now + PVP_MATCH_SEARCH_DURATION_MS,
         pvpFallbackDeckCardIds: cloneDeckCardIds(deckCardIds),
         pvpPlayerDeckWeight: deckCardIds
           ? calculateDeckWeight(selectedHeadquartersId, deckCardIds).totalWeight
@@ -2056,7 +2340,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         pvpOpponentHeadquartersId: null,
         pvpMatchPreviewLabel: null,
         pvpSearchStartedAt: now,
-        pvpSearchDeadlineAt: now + 30_000,
+        pvpSearchDeadlineAt: now + PVP_MATCH_SEARCH_DURATION_MS,
         pvpFallbackDeckCardIds: cloneDeckCardIds(deckCardIds),
         pvpPlayerDeckWeight: deckCardIds
           ? calculateDeckWeight(selectedHeadquartersId, deckCardIds).totalWeight
@@ -2117,7 +2401,7 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
         pvpOpponentHeadquartersId: null,
         pvpMatchPreviewLabel: null,
         pvpSearchStartedAt: now,
-        pvpSearchDeadlineAt: now + 30_000,
+        pvpSearchDeadlineAt: now + PVP_MATCH_SEARCH_DURATION_MS,
         pvpFallbackDeckCardIds: cloneDeckCardIds(deckCardIds),
         pvpPlayerDeckWeight: deckCardIds
           ? calculateDeckWeight(selectedHeadquartersId, deckCardIds).totalWeight
@@ -2155,6 +2439,10 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   restorePvpSession: () => {
     const roomId = pvpClient.getStoredRoomId();
     if (!roomId) return;
+    const storedDeckSelection = pvpClient.getStoredDeckSelection();
+    const restoredHeadquartersId =
+      storedDeckSelection?.headquartersId ?? get().selectedHeadquartersId;
+    const restoredDeckCardIds = storedDeckSelection?.deckCardIds ?? null;
 
     clearFirstTurnRollTimers();
     clearReconnectTimer();
@@ -2167,6 +2455,14 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       pvpRoomId: roomId,
       pvpStatus: "connecting",
       pvpError: "Восстанавливаю PVP-матч...",
+      selectedHeadquartersId: restoredHeadquartersId,
+      pvpFallbackDeckCardIds: restoredDeckCardIds
+        ? [...restoredDeckCardIds]
+        : null,
+      pvpPlayerDeckWeight: restoredDeckCardIds
+        ? calculateDeckWeight(restoredHeadquartersId, restoredDeckCardIds)
+            .totalWeight
+        : getDefaultDeckWeight(restoredHeadquartersId).totalWeight,
       matchEndReason: null,
       pvpTimer: emptyPvpTimer,
       pvpMovementIntent: null,
@@ -2332,6 +2628,11 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
       return;
     }
 
+    if (state.mode === "radio") {
+      get().surrenderRadioDuel();
+      return;
+    }
+
     if (
       !state.battle ||
       state.battle.status === "player_won" ||
@@ -2404,7 +2705,42 @@ export const useBattleStore = create<BattleStore>()((set, get) => ({
   },
 
   dispatch: (action, precomputedNext) => {
-    const { mode } = get();
+    const { mode, radioDuelId, radioReplayActive } = get();
+
+    if (mode === "radio") {
+      if (!radioDuelId || radioReplayActive || action.type === "TIMER_TICK") return;
+      const targetDuelId = radioDuelId;
+      radioActionQueue = radioActionQueue
+        .catch(() => undefined)
+        .then(async () => {
+          const current = get();
+          if (current.mode !== "radio" || current.radioDuelId !== targetDuelId) return;
+
+          const result = await profileClient.sendRadioDuelAction(targetDuelId, action);
+          const latest = get();
+          if (latest.mode !== "radio" || latest.radioDuelId !== targetDuelId) return;
+
+          set({
+            battle: result.battle,
+            localPlayerId: result.duel.localPlayerId,
+            radioDeadlineAt: result.duel.deadlineAt,
+            radioRatingDelta: result.duel.ratingDelta,
+            radioOpponentNickname: result.duel.opponentNickname,
+            matchEndReason: result.duel.endReason,
+            radioFinalScreenAvailableAt: null,
+            selectedCardInstanceId: null,
+            selectedAttacker: null,
+            pvpError: null,
+          });
+        })
+        .catch((error) => {
+          const current = get();
+          if (current.mode === "radio" && current.radioDuelId === targetDuelId) {
+            set({ pvpError: error instanceof Error ? error.message : String(error) });
+          }
+        });
+      return;
+    }
 
     if (mode === "pvp") {
       pvpClient.sendAction(action);

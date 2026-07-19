@@ -364,6 +364,18 @@ export async function claimPvpBattleRewardFromServer(input: {
   };
 }
 
+export async function claimRadioDuelRewardFromServer(input: {
+  duelId: string;
+}): Promise<{ profile: PlayerProgress; reward?: BattleReward }> {
+  const profileClient = await getProfileClient();
+  const result = await profileClient.claimRadioDuelReward(input.duelId);
+
+  return {
+    ...result,
+    profile: saveServerPlayerProgress(result.profile),
+  };
+}
+
 export async function claimTutorialRewardFromServer(input: {
   reward: BattleReward;
   localPlayerWon?: boolean;
@@ -388,8 +400,11 @@ export async function claimTutorialRewardFromServer(input: {
   }
 }
 
-function createEmptyTutorialReward(reward: BattleReward): BattleReward {
-  return createEmptyBattleReward(reward);
+function createRepeatTutorialReward(reward: BattleReward): BattleReward {
+  return {
+    ...reward,
+    goldTracks: 0,
+  };
 }
 
 function getBattleWinner(battle: ClientBattleState, localPlayerId: PlayerId) {
@@ -528,10 +543,12 @@ export function applyTutorialBattleRewardToProgress(
   localPlayerWon?: boolean
 ): PlayerProgress {
   const progress = loadPlayerProgress();
-  if (progress.tutorialCompleted) return progress;
+  const grantedReward = progress.tutorialCompleted
+    ? createRepeatTutorialReward(reward)
+    : reward;
 
   const nextProgress: PlayerProgress = {
-    ...applyRewardToProgress(progress, reward, localPlayerWon ?? true),
+    ...applyRewardToProgress(progress, grantedReward, localPlayerWon ?? true),
     tutorialCompleted: true,
     pendingRewardClaims: [
       {
@@ -550,7 +567,7 @@ export function applyTutorialBattleRewardToProgress(
 
 export function getLocalTutorialReward(reward: BattleReward): BattleReward {
   return loadPlayerProgress().tutorialCompleted
-    ? createEmptyTutorialReward(reward)
+    ? createRepeatTutorialReward(reward)
     : reward;
 }
 
@@ -617,9 +634,6 @@ function normalizePlayerProgress(
       ...(Array.isArray(progress.researchedHeadquartersIds)
         ? progress.researchedHeadquartersIds
         : []),
-      ...(Array.isArray(progress.unlockedHeadquartersIds)
-        ? progress.unlockedHeadquartersIds
-        : []),
     ])
   ).filter(isPlayerSelectableHeadquartersId);
   const unlockedHeadquartersIds = Array.from(
@@ -629,7 +643,11 @@ function normalizePlayerProgress(
         ? progress.unlockedHeadquartersIds
         : []),
     ])
-  ).filter(isPlayerSelectableHeadquartersId);
+  ).filter(
+    (headquartersId) =>
+      isPlayerSelectableHeadquartersId(headquartersId) &&
+      researchedHeadquartersIds.includes(headquartersId)
+  );
   const researchedCardIds = Array.from(
     new Set([
       ...fallback.researchedCardIds,
@@ -689,9 +707,15 @@ function normalizePlayerProgress(
       typeof progress.tutorialCompleted === "boolean"
         ? progress.tutorialCompleted
         : fallback.tutorialCompleted,
-    favoriteHeadquartersId:
-      getValidHeadquartersId(progress.favoriteHeadquartersId) ??
-      fallback.favoriteHeadquartersId,
+    favoriteHeadquartersId: (() => {
+      const favoriteHeadquartersId = getValidHeadquartersId(
+        progress.favoriteHeadquartersId
+      );
+      return favoriteHeadquartersId &&
+        unlockedHeadquartersIds.includes(favoriteHeadquartersId)
+        ? favoriteHeadquartersId
+        : null;
+    })(),
     battleStats,
     pveBattleCount,
     ironTracks: getPositiveInteger(progress.ironTracks),

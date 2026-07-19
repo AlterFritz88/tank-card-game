@@ -466,8 +466,8 @@ function getAbilityKeywords(card: TankCard, language: Language): CardKeyword[] {
       title: language === "en" ? "COUNTER-BATTERY FIRE" : "КОНТРБАТАРЕЙНЫЙ ОГОНЬ",
       body:
         language === "en"
-          ? "On deployment, all enemy SPGs and the enemy headquarters cannot attack until the end of their next turn."
-          : "При выходе на поле боя все САУ и штаб противника не могут атаковать до конца их следующего хода.",
+          ? "While this unit remains in play, all enemy SPGs and the enemy headquarters cannot attack."
+          : "Пока этот юнит находится в строю, все САУ и штаб противника не могут атаковать.",
     });
   }
 

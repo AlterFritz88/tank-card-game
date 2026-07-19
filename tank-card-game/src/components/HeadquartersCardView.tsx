@@ -93,23 +93,6 @@ function getHeadquartersClassIcon(ownerId: PlayerId): string | null {
   ]);
 }
 
-function getHeadquartersTitleFontSize(title: string): number {
-  const visualLength = Array.from(title).reduce((total, char) => {
-    if (char === " ") return total + 0.45;
-    if (".,-–—()".includes(char)) return total + 0.35;
-    if (/[A-ZА-ЯЁ]/.test(char)) return total + 1.05;
-
-    return total + 0.9;
-  }, 0);
-
-  if (visualLength <= 14) return 10;
-  if (visualLength <= 18) return 9;
-  if (visualLength <= 23) return 8;
-  if (visualLength <= 29) return 7;
-
-  return 6.5;
-}
-
 export function HeadquartersCardView({
   ownerId,
   headquartersId,
@@ -133,7 +116,6 @@ export function HeadquartersCardView({
   );
   const headquartersClassIcon = getHeadquartersClassIcon(ownerId);
   const title = headquarters?.title ?? "Штаб";
-  const titleFontSize = getHeadquartersTitleFontSize(title);
 
   return (
     <div
@@ -181,8 +163,9 @@ export function HeadquartersCardView({
           )}
 
           <FitText
-            maxFontSize={titleFontSize}
+            maxFontSize={12}
             minFontSize={6}
+            ellipsis={false}
             style={styles.title}
             title={title}
           >
@@ -198,6 +181,7 @@ export function HeadquartersCardView({
           ownerId={ownerId}
           value={attack}
           dimmed={alreadyAttacked}
+          struckThrough={alreadyAttacked}
           gainEffect={attackChangeEffect}
           title="Атака"
         />
@@ -259,17 +243,17 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 2,
     pointerEvents: "none",
     borderRadius: 0,
-    mixBlendMode: "screen",
+    mixBlendMode: "normal",
   },
 
   friendlyGradient: {
     background:
-      "linear-gradient(315deg, rgba(80, 255, 130, 0.28) 0%, rgba(80, 255, 130, 0.11) 25%, rgba(80, 255, 130, 0.025) 48%, rgba(80, 255, 130, 0) 72%), radial-gradient(circle at 100% 100%, rgba(80,255,130,0.12), transparent 48%)",
+      "linear-gradient(315deg, rgba(3, 25, 10, 0.92) 0%, rgba(8, 55, 22, 0.70) 10%, rgba(5, 25, 12, 0.65) 17%, rgba(0, 0, 0, 0) 25%)",
   },
 
   enemyGradient: {
     background:
-      "linear-gradient(315deg, rgba(255, 70, 55, 0.30) 0%, rgba(255, 70, 55, 0.12) 25%, rgba(255, 70, 55, 0.03) 48%, rgba(255, 70, 55, 0) 72%), radial-gradient(circle at 100% 100%, rgba(255,70,55,0.13), transparent 48%)",
+      "linear-gradient(315deg, rgba(45, 4, 3, 0.92) 0%, rgba(95, 14, 10, 0.70) 10%, rgba(42, 7, 5, 0.65) 17%, rgba(0, 0, 0, 0) 25%)",
   },
 
   topShade: {
@@ -286,7 +270,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   titleArea: {
     position: "absolute",
-    left: 1,
+    left: 4,
     right: 3,
     top: 3,
     zIndex: 6,
@@ -294,6 +278,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   titleRow: {
+    position: "relative",
+    zIndex: 1,
     display: "flex",
     alignItems: "center",
     gap: 3,
@@ -315,8 +301,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   classIconImage: {
-    width: 14,
-    height: 14,
+    width: 20,
+    height: 20,
     objectFit: "contain",
     display: "block",
     flex: "0 0 auto",
@@ -327,13 +313,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   fallbackClassIcon: {
-    width: 14,
-    height: 14,
+    width: 20,
+    height: 20,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     flex: "0 0 auto",
-    fontSize: 12,
+    fontSize: 16,
     lineHeight: 1,
     fontWeight: 900,
     textShadow: "0 1px 3px rgba(0,0,0,0.85)",

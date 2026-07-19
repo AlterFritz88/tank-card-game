@@ -16,6 +16,8 @@ type AdminRuntimeStats = {
   completedPvpRewardClaims: number;
   completedPvpBattles?: number;
   completedFakePvpBattles?: number;
+  activeRadioDuels?: number;
+  completedRadioDuels?: number;
 };
 
 type AdminPlayerAccount = {
@@ -49,6 +51,8 @@ type GoldProductCatalogItem = {
   id: string;
   goldTracks: number;
   amountRub: number | null;
+  title?: string | null;
+  campaignId?: string | null;
 };
 
 type AdminPayment = {
@@ -63,6 +67,8 @@ type AdminPayment = {
   createdAt: number;
   updatedAt: number;
   creditedAt: number | null;
+  productTitle?: string | null;
+  campaignId?: string | null;
 };
 
 type AdminPaymentsOverview = {
@@ -565,6 +571,14 @@ export function AdminPanel() {
                 value={overview.runtime.completedFakePvpBattles ?? 0}
               />
               <MetricCard
+                label="Активные радиодуэли"
+                value={overview.runtime.activeRadioDuels ?? 0}
+              />
+              <MetricCard
+                label="Завершённые радиодуэли"
+                value={overview.runtime.completedRadioDuels ?? 0}
+              />
+              <MetricCard
                 label="Платежи"
                 value={paymentsOverview?.payments.length ?? 0}
               />
@@ -622,7 +636,7 @@ export function AdminPanel() {
                 <div style={styles.paymentProductsRow}>
                   {paymentsOverview.config.products.map((product) => (
                     <span key={product.id} style={styles.paymentProductPill}>
-                      {product.goldTracks} золота:{" "}
+                      {product.title ?? `${product.goldTracks} золота`}:{" "}
                       {typeof product.amountRub === "number"
                         ? `${formatRub(product.amountRub)} ₽`
                         : "цена не задана"}
@@ -641,7 +655,7 @@ export function AdminPanel() {
                         <div style={styles.paymentRows}>
                           <span>Игрок: {payment.playerId}</span>
                           <span>
-                            Товар: {payment.goldTracks} золота за{" "}
+                            Товар: {payment.productTitle ?? `${payment.goldTracks} золота`} за{" "}
                             {formatRub(payment.amountRub)} ₽
                           </span>
                           <span>ЮKassa: {payment.yookassaStatus}</span>

@@ -252,8 +252,8 @@ export function playRotatingCartridgeSound(durationMs: number) {
   return stop;
 }
 
-export function createRadarScanSoundPlayer() {
+export function createRadarScanSoundPlayer(volumeMultiplier = 1) {
   const url = radarScanUrls[Math.floor(Math.random() * radarScanUrls.length)];
 
-  return () => playSoundUrl(url, RADAR_SCAN_VOLUME);
+  return () => playSoundUrl(url, RADAR_SCAN_VOLUME * volumeMultiplier);
 }

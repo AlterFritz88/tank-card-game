@@ -16,6 +16,7 @@ import { calculateDeckWeight, getDefaultDeckWeight } from "../../tank-card-game/
 import { getRandomBattleBackgroundId } from "./battleBackgrounds";
 import {
   createInitialBattleState,
+  getDeckCardIds,
   STEP_TIME_MS,
 } from "../../tank-card-game/src/game/initialState";
 import type {
@@ -39,6 +40,13 @@ import { PlayerProfileManager } from "./playerProfiles";
 import { createSessionToken, verifySessionToken } from "./authTokens";
 import { PromoRedemptionStore } from "./promoCodes";
 import { PvpStatsStore } from "./pvpStats";
+import { RadioDuelManager } from "./radioDuels";
+import { getOpponentRewardMultiplier } from "./specialBattleRewards";
+import {
+  createPvpDeckIdentity,
+  samePvpDeckIdentity,
+  type PvpDeckIdentity,
+} from "../../tank-card-game/src/game/pvpDeckIdentity";
 
 const REGISTERED_USER_PREFIX = "user:";
 
@@ -47,6 +55,7 @@ type RoomPlayer = {
   profilePlayerId: string | null;
   headquartersId: HeadquartersId;
   deckCardIds: string[] | null;
+  deckIdentity: PvpDeckIdentity;
   deckWeight: number;
   sessionId: string;
   socket: WebSocket | null;
@@ -130,7 +139,10 @@ type CompletedPvpMatch = {
   battle: BattleState;
   endReason: MatchEndReason | null;
   players: Partial<
-    Record<PlayerId, { profilePlayerId: string | null; deckWeight: number }>
+    Record<
+      PlayerId,
+      { profilePlayerId: string | null; nickname: string | null; deckWeight: number }
+    >
   >;
   timeoutId: NodeJS.Timeout;
 };
@@ -148,6 +160,8 @@ export type AdminRuntimeStats = {
   completedPvpBattles: number;
   // Subset of completedPvpBattles that were against a fake opponent.
   completedFakePvpBattles: number;
+  activeRadioDuels: number;
+  completedRadioDuels: number;
 };
 
 const START_ROLL_DURATION_MS = 2800;
@@ -218,10 +232,10 @@ const REWARD_CLAIM_REFILL_MS = Number(
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
 // Matchmaking weight band. The search starts at ±15% of the deck weight and
-// widens by +10 percentage points every 5 seconds, up to a 30-second cap (so the
-// widest band is reached at 30s and held). Comparison is relative to the average
-// of the two deck weights, so the band is symmetric regardless of which side is
-// heavier.
+// widens by +10 percentage points every 8.333 seconds, up to a 50-second cap.
+// This preserves the previous six widening steps while stretching them over the
+// longer search. Comparison is relative to the average of the two deck weights,
+// so the band is symmetric regardless of which side is heavier.
 const PVP_MATCH_BASE_TOLERANCE_PCT = Number(
   process.env.PVP_MATCH_BASE_TOLERANCE_PCT ?? 15
 );
@@ -229,10 +243,10 @@ const PVP_MATCH_TOLERANCE_STEP_PCT = Number(
   process.env.PVP_MATCH_TOLERANCE_STEP_PCT ?? 10
 );
 const PVP_MATCH_TOLERANCE_STEP_MS = Number(
-  process.env.PVP_MATCH_TOLERANCE_STEP_MS ?? 5_000
+  process.env.PVP_MATCH_TOLERANCE_STEP_MS ?? 8_333
 );
 const PVP_MATCH_TOLERANCE_MAX_MS = Number(
-  process.env.PVP_MATCH_TOLERANCE_MAX_MS ?? 30_000
+  process.env.PVP_MATCH_TOLERANCE_MAX_MS ?? 50_000
 );
 const PVP_MATCH_SWEEP_INTERVAL_MS = Number(
   process.env.PVP_MATCH_SWEEP_INTERVAL_MS ?? 1_000
@@ -242,18 +256,27 @@ const PVP_MATCH_SWEEP_INTERVAL_MS = Number(
 // quietly handed a server-driven fake opponent. Randomised per room so the wait
 // never feels like a fixed timeout.
 const FAKE_MATCH_MIN_WAIT_MS = Number(
-  process.env.PVP_FAKE_MATCH_MIN_WAIT_MS ?? 12_000
+  process.env.PVP_FAKE_MATCH_MIN_WAIT_MS ?? 30_000
 );
 const FAKE_MATCH_MAX_WAIT_MS = Number(
-  process.env.PVP_FAKE_MATCH_MAX_WAIT_MS ?? 25_000
+  process.env.PVP_FAKE_MATCH_MAX_WAIT_MS ?? 41_667
 );
 // If no human is found, most searches become disguised fake PvP matches. The
-// remaining searches keep waiting for the client's normal 30-second PvE
+// remaining searches keep waiting for the client's normal 50-second PvE
 // fallback, which starts a real local AI battle with PvE rewards.
-const FAKE_PVP_MATCH_PROBABILITY = Number(
-  process.env.PVP_FAKE_MATCH_PROBABILITY ??
-    DEFAULT_FAKE_PVP_MATCH_PROBABILITY
+const configuredFakePvpProbability = Number(
+  process.env.PVP_FAKE_MATCH_PROBABILITY ?? DEFAULT_FAKE_PVP_MATCH_PROBABILITY
 );
+// Keep an old deployment environment value (for example 0.85) from silently
+// overriding the new gameplay maximum. Operators may still lower the chance.
+const FAKE_PVP_MATCH_PROBABILITY = Number.isFinite(
+  configuredFakePvpProbability
+)
+  ? Math.min(
+      DEFAULT_FAKE_PVP_MATCH_PROBABILITY,
+      Math.max(0, configuredFakePvpProbability)
+    )
+  : DEFAULT_FAKE_PVP_MATCH_PROBABILITY;
 // Human-like "thinking" pause the fake takes between its own actions.
 const FAKE_THINK_MIN_MS = Number(process.env.PVP_FAKE_THINK_MIN_MS ?? 500);
 const FAKE_THINK_MAX_MS = Number(process.env.PVP_FAKE_THINK_MAX_MS ?? 1_700);
@@ -392,10 +415,47 @@ function createStartedBattle(
     overheatMovementDamage: true,
   });
 
+  verifyBattleDeck(
+    battle,
+    "player",
+    playerHeadquartersId,
+    playerDeckCardIds
+  );
+  verifyBattleDeck(battle, "bot", botHeadquartersId, botDeckCardIds);
+
   return applyAction(battle, {
     type: "BEGIN_BATTLE",
     startingPlayer,
   } as BattleAction);
+}
+
+function getDeckCompositionKey(cardIds: readonly string[]): string {
+  return [...cardIds].sort((left, right) => left.localeCompare(right)).join("\u001f");
+}
+
+function verifyBattleDeck(
+  battle: BattleState,
+  playerId: PlayerId,
+  headquartersId: HeadquartersId,
+  requestedDeckCardIds?: string[] | null
+) {
+  const headquarters = getHeadquartersDefinition(headquartersId);
+  const expectedCardIds =
+    requestedDeckCardIds ?? getDeckCardIds(headquarters.defaultDeckId);
+  const player = battle[playerId];
+  const actualCardIds = [...player.deck, ...player.hand, ...player.discard].map(
+    (card) => card.cardId
+  );
+
+  if (
+    expectedCardIds.length !== actualCardIds.length ||
+    getDeckCompositionKey(expectedCardIds) !== getDeckCompositionKey(actualCardIds)
+  ) {
+    throw new Error(
+      `PVP deck integrity check failed for ${playerId}: ` +
+        `expected ${createPvpDeckIdentity(headquartersId, requestedDeckCardIds).fingerprint}`
+    );
+  }
 }
 
 function normalizeHeadquartersId(
@@ -465,6 +525,7 @@ export class RoomManager {
   // match — see assertCanActAs. Guest ids are unguessable random strings and act
   // as their own bearer secret, so they do not need a binding here.
   private socketToAuthUser = new WeakMap<WebSocket, string>();
+  private authUserSockets = new Map<string, Set<WebSocket>>();
   private connectionsPerIp = new Map<string, number>();
   private ipRateLimits = new Map<string, SocketRateLimitState>();
   private loginAttempts = new Map<string, LoginAttemptState>();
@@ -474,6 +535,25 @@ export class RoomManager {
   private deployBarrageIntentSequence = 0;
   private accounts = new PlayerAccountManager();
   private profiles = new PlayerProfileManager();
+  private radioDuelWatchBySocket = new Map<WebSocket, string>();
+  private radioDuels = new RadioDuelManager(this.profiles, (accountId, event) => {
+    let delivered = false;
+    for (const socket of this.authUserSockets.get(accountId) ?? []) {
+      if (socket.readyState !== WebSocket.OPEN) continue;
+      safeSend(socket, { type: "RADIO_DUEL_EVENT", event });
+      delivered = true;
+    }
+    return delivered;
+  }, (accountId, update) => {
+    let delivered = false;
+    for (const socket of this.authUserSockets.get(accountId) ?? []) {
+      if (socket.readyState !== WebSocket.OPEN) continue;
+      if (this.radioDuelWatchBySocket.get(socket) !== update.duelId) continue;
+      safeSend(socket, { type: "RADIO_DUEL_LIVE_UPDATE", update });
+      delivered = true;
+    }
+    return delivered;
+  });
   private promoRedemptions = new PromoRedemptionStore();
   private pvpStats = new PvpStatsStore();
   // Token buckets for CLAIM_BATTLE_REWARD, keyed by profile id. See
@@ -547,6 +627,7 @@ export class RoomManager {
     const pvpStats = this.pvpStats.ensureCompletedBattlesAtLeast(
       this.profiles.countClaimedPvpBattleRooms()
     );
+    const radioDuelStats = this.radioDuels.getAdminStats();
 
     return {
       roomsTotal: this.rooms.size,
@@ -559,6 +640,8 @@ export class RoomManager {
       completedPvpRewardClaims: this.completedPvpMatches.size,
       completedPvpBattles: pvpStats.completedBattles,
       completedFakePvpBattles: pvpStats.completedFakeBattles,
+      activeRadioDuels: radioDuelStats.activeRadioDuels,
+      completedRadioDuels: radioDuelStats.completedRadioDuels,
     };
   }
 
@@ -631,7 +714,12 @@ export class RoomManager {
         );
         break;
       case "RECONNECT":
-        this.reconnect(socket, message.sessionId, message.roomId);
+        this.reconnect(
+          socket,
+          message.sessionId,
+          message.roomId,
+          message.expectedDeck
+        );
         break;
       case "GAME_ACTION":
         this.applyGameAction(socket, message.action);
@@ -701,6 +789,96 @@ export class RoomManager {
         break;
       case "DELETE_CUSTOM_DECK":
         this.deleteCustomDeck(socket, message);
+        break;
+      case "RADIO_DUEL_LIST":
+        this.handleRadioDuelRequest(socket, message.requestId, (accountId) =>
+          safeSend(socket, {
+            type: "RADIO_DUEL_LIST_RESULT",
+            requestId: message.requestId,
+            result: this.radioDuels.list(accountId),
+          })
+        );
+        break;
+      case "RADIO_DUEL_QUEUE":
+        this.handleRadioDuelRequest(socket, message.requestId, (accountId) =>
+          safeSend(socket, {
+            type: "RADIO_DUEL_LIST_RESULT",
+            requestId: message.requestId,
+            result: this.radioDuels.queue(
+              accountId,
+              message.headquartersId,
+              message.deckCardIds
+            ),
+          })
+        );
+        break;
+      case "RADIO_DUEL_CANCEL_QUEUE":
+        this.handleRadioDuelRequest(socket, message.requestId, (accountId) =>
+          safeSend(socket, {
+            type: "RADIO_DUEL_LIST_RESULT",
+            requestId: message.requestId,
+            result: this.radioDuels.cancelQueue(accountId),
+          })
+        );
+        break;
+      case "RADIO_DUEL_OPEN":
+        this.handleRadioDuelRequest(socket, message.requestId, (accountId) =>
+          safeSend(socket, {
+            type: "RADIO_DUEL_OPEN_RESULT",
+            requestId: message.requestId,
+            result: this.radioDuels.open(accountId, message.duelId),
+          })
+        );
+        break;
+      case "RADIO_DUEL_ACTION":
+        this.handleRadioDuelRequest(socket, message.requestId, (accountId) =>
+          safeSend(socket, {
+            type: "RADIO_DUEL_OPEN_RESULT",
+            requestId: message.requestId,
+            result: this.radioDuels.act(accountId, message.duelId, message.action),
+          })
+        );
+        break;
+      case "RADIO_DUEL_SURRENDER":
+        this.handleRadioDuelRequest(socket, message.requestId, (accountId) =>
+          safeSend(socket, {
+            type: "RADIO_DUEL_OPEN_RESULT",
+            requestId: message.requestId,
+            result: this.radioDuels.surrender(accountId, message.duelId),
+          })
+        );
+        break;
+      case "RADIO_DUEL_CLAIM_REWARD":
+        this.handleRadioDuelRequest(socket, message.requestId, (accountId) => {
+          const { profile, reward } = this.radioDuels.claimReward(
+            accountId,
+            message.duelId
+          );
+          safeSend(socket, {
+            type: "PROFILE_UPDATED",
+            requestId: message.requestId,
+            profile,
+            reward,
+          });
+        });
+        break;
+      case "RADIO_DUEL_REPLAY_SEEN":
+        this.handleRadioDuelRequest(socket, message.requestId, (accountId) => {
+          this.radioDuels.markReplaySeen(accountId, message.duelId, message.version);
+          safeSend(socket, {
+            type: "RADIO_DUEL_OPEN_RESULT",
+            requestId: message.requestId,
+            result: this.radioDuels.open(accountId, message.duelId),
+          });
+        });
+        break;
+      case "RADIO_DUEL_WATCH":
+        this.handleRadioDuelWatch(socket, message.duelId);
+        break;
+      case "RADIO_DUEL_UNWATCH":
+        if (this.radioDuelWatchBySocket.get(socket) === message.duelId) {
+          this.radioDuelWatchBySocket.delete(socket);
+        }
         break;
       case "ACQUIRE_SESSION":
         this.acquireGameSession(socket, message);
@@ -901,6 +1079,7 @@ export class RoomManager {
   }
 
   handleClose(socket: WebSocket) {
+    this.unbindAuthenticatedSocket(socket);
     this.releaseConnection(socket);
     this.releaseSessionForSocket(socket);
 
@@ -1144,7 +1323,7 @@ export class RoomManager {
       // is tied to a real server-tracked match. Legit clients never claim a
       // "pvp" reward here, so reject it — otherwise a fabricated PvE battle could
       // claim the richer PvP payout tier.
-      if (message.mode === "pvp") {
+      if (message.mode === "pvp" || message.mode === "radio") {
         throw new Error("Награды PvP начисляются только за завершённый матч");
       }
       if (this.isRewardClaimRateLimited(message.playerId)) {
@@ -1197,12 +1376,14 @@ export class RoomManager {
           player: currentRoom?.players.player
             ? {
                 profilePlayerId: currentRoom.players.player.profilePlayerId,
+                nickname: this.getRoomPlayerNickname(currentRoom, "player"),
                 deckWeight: currentRoom.players.player.deckWeight,
               }
             : undefined,
           bot: currentRoom?.players.bot
             ? {
                 profilePlayerId: currentRoom.players.bot.profilePlayerId,
+                nickname: this.getRoomPlayerNickname(currentRoom, "bot"),
                 deckWeight: currentRoom.players.bot.deckWeight,
               }
             : undefined,
@@ -1229,6 +1410,9 @@ export class RoomManager {
           matchEndReason: endReason,
           localDeckWeight: players[localPlayerId]?.deckWeight ?? null,
           opponentDeckWeight: players[opponentPlayerId]?.deckWeight ?? null,
+          specialRewardMultiplier: getOpponentRewardMultiplier(
+            players[opponentPlayerId]?.nickname
+          ),
         }
       );
 
@@ -1504,7 +1688,7 @@ export class RoomManager {
         }
       }
 
-      this.socketToAuthUser.set(socket, account.userId);
+      this.bindAuthenticatedSocket(socket, account.userId);
 
       safeSend(socket, {
         type: "AUTH_RESULT",
@@ -1542,7 +1726,7 @@ export class RoomManager {
           ? this.profiles.mergeGuestProgress(account.userId, message.guestPlayerId)
           : this.profiles.getProfile(account.userId);
 
-      this.socketToAuthUser.set(socket, account.userId);
+      this.bindAuthenticatedSocket(socket, account.userId);
 
       safeSend(socket, {
         type: "AUTH_RESULT",
@@ -1565,7 +1749,7 @@ export class RoomManager {
     const userId = verifySessionToken(message.token);
     if (!userId) {
       // Drop any stale binding and tell the client to discard its token.
-      this.socketToAuthUser.delete(socket);
+      this.unbindAuthenticatedSocket(socket);
       this.sendAuthError(
         socket,
         message.requestId,
@@ -1574,7 +1758,7 @@ export class RoomManager {
       return;
     }
 
-    this.socketToAuthUser.set(socket, userId);
+    this.bindAuthenticatedSocket(socket, userId);
     safeSend(socket, {
       type: "AUTHENTICATED",
       requestId: message.requestId,
@@ -1597,6 +1781,48 @@ export class RoomManager {
 
     if (this.socketToAuthUser.get(socket) !== id) {
       throw new Error("Войдите в аккаунт, чтобы изменять его данные");
+    }
+  }
+
+  private bindAuthenticatedSocket(socket: WebSocket, accountId: string) {
+    this.unbindAuthenticatedSocket(socket);
+    this.socketToAuthUser.set(socket, accountId);
+    const sockets = this.authUserSockets.get(accountId) ?? new Set<WebSocket>();
+    sockets.add(socket);
+    this.authUserSockets.set(accountId, sockets);
+  }
+
+  private unbindAuthenticatedSocket(socket: WebSocket) {
+    this.radioDuelWatchBySocket.delete(socket);
+    const accountId = this.socketToAuthUser.get(socket);
+    if (accountId) {
+      const sockets = this.authUserSockets.get(accountId);
+      sockets?.delete(socket);
+      if (sockets?.size === 0) this.authUserSockets.delete(accountId);
+    }
+    this.socketToAuthUser.delete(socket);
+  }
+
+  private handleRadioDuelWatch(socket: WebSocket, duelId: string) {
+    const accountId = this.socketToAuthUser.get(socket);
+    if (!accountId?.startsWith(REGISTERED_USER_PREFIX)) return;
+    if (!this.radioDuels.hasAccess(accountId, duelId)) return;
+    this.radioDuelWatchBySocket.set(socket, duelId);
+  }
+
+  private handleRadioDuelRequest(
+    socket: WebSocket,
+    requestId: string,
+    action: (accountId: string) => void
+  ) {
+    try {
+      const accountId = this.socketToAuthUser.get(socket);
+      if (!accountId?.startsWith(REGISTERED_USER_PREFIX)) {
+        throw new Error("Радиодуэли доступны только зарегистрированным игрокам");
+      }
+      action(accountId);
+    } catch (error) {
+      this.sendProfileError(socket, requestId, error);
     }
   }
 
@@ -1930,12 +2156,25 @@ export class RoomManager {
       excludeNicknames: this.getActiveFakeNicknames(),
       trainingHqOnly,
     });
+    if (!config) {
+      // Never start a disguised fake match with an out-of-band deck. Keep the
+      // room open for a real opponent and let the normal PvE fallback run.
+      room.fakeMatchAt = null;
+      console.warn(
+        `[PVP:${room.id}] fake skipped: no deck within 20% of player strength ${player.deckWeight}`
+      );
+      return;
+    }
 
     const botPlayer: RoomPlayer = {
       id: "bot",
       profilePlayerId: null,
       headquartersId: config.headquartersId,
       deckCardIds: config.deckCardIds,
+      deckIdentity: createPvpDeckIdentity(
+        config.headquartersId,
+        config.deckCardIds
+      ),
       deckWeight: config.deckWeight,
       sessionId: `fake:${room.id}`,
       socket: null,
@@ -2282,13 +2521,18 @@ export class RoomManager {
       `[PVP:${room.id}] match found; first turn roll: ${firstPlayer === "player" ? "player 1" : "player 2"}`,
     );
 
-    room.battle = createStartedBattle(
-      firstPlayer,
-      room.players.player.headquartersId,
-      room.players.bot.headquartersId,
-      room.players.player.deckCardIds,
-      room.players.bot.deckCardIds
-    );
+    try {
+      room.battle = createStartedBattle(
+        firstPlayer,
+        room.players.player.headquartersId,
+        room.players.bot.headquartersId,
+        room.players.player.deckCardIds,
+        room.players.bot.deckCardIds
+      );
+    } catch (error) {
+      this.failMatchStart(room, error);
+      return;
+    }
 
     room.pendingStartRoll = {
       firstPlayer,
@@ -2309,13 +2553,18 @@ export class RoomManager {
     if (!room.players.player || !room.players.bot) return;
 
     if (!room.battle) {
-      room.battle = createStartedBattle(
-        room.pendingStartRoll.firstPlayer,
-        room.players.player.headquartersId,
-        room.players.bot.headquartersId,
-        room.players.player.deckCardIds,
-        room.players.bot.deckCardIds
-      );
+      try {
+        room.battle = createStartedBattle(
+          room.pendingStartRoll.firstPlayer,
+          room.players.player.headquartersId,
+          room.players.bot.headquartersId,
+          room.players.player.deckCardIds,
+          room.players.bot.deckCardIds
+        );
+      } catch (error) {
+        this.failMatchStart(room, error);
+        return;
+      }
     }
     room.pendingStartRoll = null;
 
@@ -2819,7 +3068,12 @@ export class RoomManager {
     this.cancelWaitingRoom(room, socket);
   }
 
-  private reconnect(socket: WebSocket, sessionId: string, requestedRoomId?: string | null) {
+  private reconnect(
+    socket: WebSocket,
+    sessionId: string,
+    requestedRoomId?: string | null,
+    expectedDeck?: PvpDeckIdentity
+  ) {
     const match = this.findRoomBySession(sessionId, requestedRoomId);
 
     if (!match) {
@@ -2837,6 +3091,19 @@ export class RoomManager {
       safeSend(socket, {
         type: "RECONNECT_FAILED",
         message: "Игрок в PVP-комнате не найден",
+      });
+      return;
+    }
+
+    if (expectedDeck && !samePvpDeckIdentity(expectedDeck, player.deckIdentity)) {
+      console.error(
+        `[PVP:${room.id}] reconnect rejected: deck identity mismatch for ${playerId}; ` +
+          `expected=${expectedDeck.fingerprint}, room=${player.deckIdentity.fingerprint}`
+      );
+      safeSend(socket, {
+        type: "RECONNECT_FAILED",
+        message:
+          "Не удалось безопасно восстановить PVP-бой: сохранённая колода не совпадает с колодой комнаты",
       });
       return;
     }
@@ -2902,6 +3169,8 @@ export class RoomManager {
       opponentCardBackId: this.getOpponentCardBackId(room, playerId),
       opponentDeckWeight:
         room.players[this.getOpponent(playerId)]?.deckWeight ?? null,
+      ownDeck: player.deckIdentity,
+      ownDeckWeight: player.deckWeight,
     });
 
     this.sendTurnTimer(room, playerId);
@@ -2964,6 +3233,7 @@ export class RoomManager {
       profilePlayerId,
       headquartersId,
       deckCardIds,
+      deckIdentity: createPvpDeckIdentity(headquartersId, deckCardIds),
       deckWeight: getDeckWeight(headquartersId, deckCardIds),
       socket,
       sessionId,
@@ -2982,7 +3252,11 @@ export class RoomManager {
   }
 
   private getOpponentNickname(room: Room, playerId: PlayerId): string | null {
-    const opponent = room.players[this.getOpponent(playerId)];
+    return this.getRoomPlayerNickname(room, this.getOpponent(playerId));
+  }
+
+  private getRoomPlayerNickname(room: Room, playerId: PlayerId): string | null {
+    const opponent = room.players[playerId];
     // Fake opponents carry their own display name and have no profile.
     if (opponent?.nicknameOverride) return opponent.nicknameOverride;
     if (!opponent?.profilePlayerId) return null;
@@ -3133,6 +3407,22 @@ export class RoomManager {
     }
   }
 
+  private failMatchStart(room: Room, error: unknown) {
+    const details = error instanceof Error ? error.message : String(error);
+    const sockets = Object.values(room.players).flatMap((player) =>
+      player?.socket ? [player.socket] : []
+    );
+    const message =
+      "PVP-бой отменён: сервер не смог подтвердить выбранную колоду. Поражение не засчитано.";
+
+    console.error(`[PVP:${room.id}] ${message} ${details}`);
+    this.cancelWaitingRoom(room);
+
+    for (const socket of sockets) {
+      safeSend(socket, { type: "MATCH_START_FAILED", message });
+    }
+  }
+
   private getBattleWinnerPlayerId(battle: BattleState): PlayerId | null {
     if (battle.status === "player_won") return "player";
     if (battle.status === "bot_won") return "bot";
@@ -3167,12 +3457,14 @@ export class RoomManager {
         player: room.players.player
           ? {
               profilePlayerId: room.players.player.profilePlayerId,
+              nickname: this.getRoomPlayerNickname(room, "player"),
               deckWeight: room.players.player.deckWeight,
             }
           : undefined,
         bot: room.players.bot
           ? {
               profilePlayerId: room.players.bot.profilePlayerId,
+              nickname: this.getRoomPlayerNickname(room, "bot"),
               deckWeight: room.players.bot.deckWeight,
             }
           : undefined,
@@ -3462,6 +3754,8 @@ export class RoomManager {
       opponentCardBackId: this.getOpponentCardBackId(room, playerId),
       opponentDeckWeight:
         room.players[this.getOpponent(playerId)]?.deckWeight ?? null,
+      ownDeck: player.deckIdentity,
+      ownDeckWeight: player.deckWeight,
     });
   }
 
@@ -3478,6 +3772,8 @@ export class RoomManager {
       opponentCardBackId: this.getOpponentCardBackId(room, playerId),
       opponentDeckWeight:
         room.players[this.getOpponent(playerId)]?.deckWeight ?? null,
+      ownDeck: player.deckIdentity,
+      ownDeckWeight: player.deckWeight,
     });
   }
 

@@ -23,6 +23,7 @@ type StatBadgeProps = {
   value: React.ReactNode;
   ownerId?: PlayerId;
   dimmed?: boolean;
+  struckThrough?: boolean;
   title?: string;
   style?: React.CSSProperties;
   valueStyle?: React.CSSProperties;
@@ -79,6 +80,7 @@ export function StatBadge({
   value,
   ownerId = "player",
   dimmed = false,
+  struckThrough = false,
   title,
   style,
   valueStyle,
@@ -89,6 +91,7 @@ export function StatBadge({
 }: StatBadgeProps) {
   const size = getStatBadgeSize(type, mode);
   const showAttackTint = type === "attack";
+  const showAttackSpentSlash = type === "attack" && struckThrough;
   const showHealthDamage = type === "health" && damageEffect;
   const showStatChange =
     (type === "health" || type === "attack") && gainEffect;
@@ -171,6 +174,20 @@ export function StatBadge({
           {value}
         </motion.span>
       </strong>
+
+      <AnimatePresence>
+        {showAttackSpentSlash ? (
+          <span aria-hidden style={styles.attackSpentSlashWrap}>
+            <motion.span
+              style={styles.attackSpentSlash}
+              initial={{ opacity: 0, scaleX: 0 }}
+              animate={{ opacity: 1, scaleX: 1 }}
+              exit={{ opacity: 0, scaleX: 0 }}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            />
+          </span>
+        ) : null}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showStatChange && (
@@ -394,6 +411,30 @@ const styles: Record<string, React.CSSProperties> = {
   animatedValue: {
     display: "inline-block",
     transformOrigin: "center center",
+  },
+
+  attackSpentSlashWrap: {
+    position: "absolute",
+    left: "20%",
+    top: "49%",
+    zIndex: 4,
+    width: "62%",
+    height: 4,
+    transform: "rotate(-32deg)",
+    transformOrigin: "center",
+    pointerEvents: "none",
+  },
+
+  attackSpentSlash: {
+    display: "block",
+    width: "100%",
+    height: 2.5,
+    borderRadius: 999,
+    transformOrigin: "left center",
+    background:
+      "linear-gradient(90deg, rgba(255,206,158,0.22), #ff8b72 18%, #ffd0a9 50%, #ff6e5f 82%, rgba(120,20,16,0.18))",
+    boxShadow:
+      "0 1px 0 rgba(35,3,2,0.96), 0 0 3px rgba(255,88,68,0.94), 0 0 7px rgba(140,18,12,0.72)",
   },
 
   dimmed: {

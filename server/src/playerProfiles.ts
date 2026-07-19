@@ -39,8 +39,10 @@ import type {
 } from "../../tank-card-game/src/game/types";
 import {
   applyBattleToCombatMissions,
+  applyRadioDuelToCombatMissions,
   normalizeCombatMissionsState,
   refreshCombatMissions,
+  type RadioDuelMissionEvent,
 } from "../../tank-card-game/src/game/combatMissions";
 
 type ProfileDb = Record<string, PlayerProgress>;
@@ -65,6 +67,7 @@ type ClaimBattleRewardInput = {
   matchEndReason?: MatchEndReason | null;
   localDeckWeight?: number | null;
   opponentDeckWeight?: number | null;
+  specialRewardMultiplier?: number;
   // Campaign battles feed combat missions only on the *first* run of a mission
   // (see `claimBattleReward`). These carry the current mission and whether it
   // had already been won before this battle.
@@ -616,6 +619,64 @@ function normalizeProfileForPlayer(
 
   return mergeWithDefaultProgress(applyMasterAccountGrants(normalized));
 }
+
+const LEGACY_ERRONEOUS_HEADQUARTERS_ID: HeadquartersId =
+  "soviet_tank_brigade";
+
+/**
+ * Early builds could put the 4th Tank Brigade straight into the unlocked list
+ * without researching it. Remove that stale grant from storage so it cannot
+ * reappear after reconnecting or merging an old guest profile.
+ */
+function migrateLegacyErroneousHeadquartersGrant() {
+  const db = readDb();
+  let migratedProfiles = 0;
+
+  for (const [playerId, profile] of Object.entries(db)) {
+    if (isMasterAccount(playerId)) continue;
+
+    const researchedHeadquartersIds = normalizeHeadquartersIdList(
+      profile.researchedHeadquartersIds
+    );
+    const unlockedHeadquartersIds = normalizeHeadquartersIdList(
+      profile.unlockedHeadquartersIds
+    );
+    if (
+      researchedHeadquartersIds.includes(LEGACY_ERRONEOUS_HEADQUARTERS_ID) ||
+      !unlockedHeadquartersIds.includes(LEGACY_ERRONEOUS_HEADQUARTERS_ID)
+    ) {
+      continue;
+    }
+
+    db[playerId] = {
+      ...profile,
+      favoriteHeadquartersId:
+        profile.favoriteHeadquartersId === LEGACY_ERRONEOUS_HEADQUARTERS_ID
+          ? null
+          : profile.favoriteHeadquartersId,
+      unlockedHeadquartersIds: unlockedHeadquartersIds.filter(
+        (headquartersId) =>
+          headquartersId !== LEGACY_ERRONEOUS_HEADQUARTERS_ID
+      ),
+      savedDecks: Array.isArray(profile.savedDecks)
+        ? profile.savedDecks.filter(
+            (deck) =>
+              deck.headquartersId !== LEGACY_ERRONEOUS_HEADQUARTERS_ID
+          )
+        : [],
+    };
+    migratedProfiles += 1;
+  }
+
+  if (migratedProfiles > 0) {
+    writeDb(db);
+    console.log(
+      `Removed legacy unresearched 4th Tank Brigade grant from ${migratedProfiles} profile(s)`
+    );
+  }
+}
+
+migrateLegacyErroneousHeadquartersGrant();
 
 function normalizeSavedDecks(
   decks: unknown[],
@@ -1541,6 +1602,21 @@ export class PlayerProfileManager {
     return db[safePlayerId];
   }
 
+  applyRadioDuelMissionProgress(
+    playerId: string,
+    event: RadioDuelMissionEvent
+  ): PlayerProgress {
+    const safePlayerId = sanitizePlayerId(playerId);
+    if (!safePlayerId) throw new Error("Некорректный playerId");
+
+    const profile = this.getProfile(safePlayerId, { touchActivity: false });
+    return this.persistProfile(
+      safePlayerId,
+      applyRadioDuelToCombatMissions(profile, safePlayerId, event),
+      { touchActivity: false }
+    );
+  }
+
   listProfiles(): AdminPlayerProfileView[] {
     const db = readDb();
 
@@ -1722,6 +1798,7 @@ export class PlayerProfileManager {
           localDeckWeight: input.localDeckWeight ?? null,
           opponentDeckWeight: input.opponentDeckWeight ?? null,
           premiumActive: isPremiumAccountActive(profile),
+          specialRewardMultiplier: input.specialRewardMultiplier ?? 1,
         }),
       };
     }
@@ -1742,6 +1819,7 @@ export class PlayerProfileManager {
       localDeckWeight: input.localDeckWeight ?? null,
       opponentDeckWeight: input.opponentDeckWeight ?? null,
       premiumActive: isPremiumAccountActive(profile),
+      specialRewardMultiplier: input.specialRewardMultiplier ?? 1,
     });
     const localPlayerWon = getBattleWinner(input.battle, input.localPlayerId);
     const rewardedProfile = applyReward(profile, reward, localPlayerWon, input.mode);
@@ -1783,36 +1861,28 @@ export class PlayerProfileManager {
     localPlayerWon: boolean
   ): { profile: PlayerProgress; reward: BattleReward } {
     const profile = this.getProfile(playerId);
-    const emptyReward: BattleReward = {
-      ...reward,
-      rawHeadquartersXp: 0,
-      headquartersXp: 0,
-      freeXp: 0,
-      rawIronTracks: 0,
-      repairCost: 0,
-      ironTracks: 0,
-      goldTracks: 0,
-    };
-
-    if (profile.tutorialCompleted) {
-      return {
-        profile,
-        reward: emptyReward,
-      };
-    }
+    const firstCompletion = !profile.tutorialCompleted;
+    const grantedReward: BattleReward = firstCompletion
+      ? reward
+      : {
+          ...reward,
+          goldTracks: 0,
+        };
 
     const nextProfile = {
-      ...applyReward(profile, reward, localPlayerWon),
+      ...applyReward(profile, grantedReward, localPlayerWon),
       tutorialCompleted: true,
-      claimedBattleRewardIds: [
-        "tutorial:first-completion",
-        ...profile.claimedBattleRewardIds,
-      ].slice(0, 500),
+      claimedBattleRewardIds: firstCompletion
+        ? [
+            "tutorial:first-completion",
+            ...profile.claimedBattleRewardIds,
+          ].slice(0, 500)
+        : profile.claimedBattleRewardIds,
     };
 
     return {
       profile: this.persistProfile(playerId, nextProfile),
-      reward,
+      reward: grantedReward,
     };
   }
 
@@ -1931,6 +2001,31 @@ export class PlayerProfileManager {
     return this.persistProfile(
       playerId,
       purchaseCampaignOnProfile(profile, campaignId)
+    );
+  }
+
+  /** Permanently unlocks a premium campaign after a verified store payment. */
+  grantCampaignAccess(playerId: string, campaignId: string): PlayerProgress {
+    const campaign = CAMPAIGNS.find(
+      (item) => item.id === campaignId && item.premium
+    );
+    if (!campaign) {
+      throw new Error("Кампания недоступна для покупки");
+    }
+
+    const profile = this.getProfile(playerId, { touchActivity: false });
+    if (profile.unlockedCampaignIds.includes(campaign.id)) return profile;
+
+    return this.persistProfile(
+      playerId,
+      {
+        ...profile,
+        unlockedCampaignIds: [
+          campaign.id,
+          ...profile.unlockedCampaignIds.filter((id) => id !== campaign.id),
+        ],
+      },
+      { touchActivity: false }
     );
   }
 

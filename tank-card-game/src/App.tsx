@@ -8,6 +8,7 @@ import {
 import { SettingsControls } from "./components/SettingsControls";
 import { getConfiguredProfileHttpUrl } from "./network/webSocketUrl";
 import { useBattleStore } from "./store/battleStore";
+import { profileClient } from "./network/profileClient";
 
 const BattleScreen = lazy(() =>
   import("./components/BattleScreen").then((module) => ({
@@ -74,6 +75,51 @@ function GameApp() {
   const sessionError = useBattleStore((state) => state.sessionError);
   const clearSessionError = useBattleStore((state) => state.clearSessionError);
   const [bootReady, setBootReady] = useState(false);
+  const [radioNotice, setRadioNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    let hideTimer: number | null = null;
+    const unsubscribe = profileClient.subscribeRadioDuels((event) => {
+      setRadioNotice(`${event.title}: ${event.message}`);
+      if (event.kind === "opponent_surrendered") {
+        const state = useBattleStore.getState();
+        if (state.mode === "radio" && state.radioDuelId === event.duelId) {
+          void profileClient
+            .openRadioDuel(event.duelId)
+            .then((result) => {
+              const latest = useBattleStore.getState();
+              if (
+                latest.mode === "radio" &&
+                latest.radioDuelId === event.duelId
+              ) {
+                latest.openRadioDuelBattle(result);
+              }
+            })
+            .catch(() => undefined);
+        }
+      }
+      if (event.kind === "idle_turn_penalty") {
+        const state = useBattleStore.getState();
+        if (state.mode === "radio" && state.radioDuelId === event.duelId) {
+          state.exitBattleToMenu();
+          useBattleStore.getState().closeRadioDuelsMenu();
+        }
+      }
+      if (hideTimer !== null) window.clearTimeout(hideTimer);
+      hideTimer = window.setTimeout(() => setRadioNotice(null), 6_000);
+      if ("Notification" in window && Notification.permission === "granted") {
+        try {
+          new Notification(event.title, { body: event.message, tag: event.duelId });
+        } catch {
+          // The in-game notice below is always available as a fallback.
+        }
+      }
+    });
+    return () => {
+      unsubscribe();
+      if (hideTimer !== null) window.clearTimeout(hideTimer);
+    };
+  }, []);
 
   useEffect(() => {
     restorePvpSession();
@@ -147,6 +193,11 @@ function GameApp() {
         ) : null}
       </Suspense>
       <SettingsControls side={battle ? "left" : "right"} />
+      {radioNotice ? (
+        <div style={{ position: "fixed", right: 24, top: 24, zIndex: 12000, maxWidth: 420, padding: "16px 20px", border: "1px solid #d4b85c", borderRadius: 8, background: "rgba(20,27,27,.97)", color: "#fff0c8", boxShadow: "0 12px 35px rgba(0,0,0,.5)", fontWeight: 700 }}>
+          {radioNotice}
+        </div>
+      ) : null}
     </>
   );
 }

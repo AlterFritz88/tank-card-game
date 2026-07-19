@@ -1,7 +1,13 @@
 import type { BattleReward, BattleRewardSource } from "../game/economy";
 import type { GameMode, MatchEndReason } from "../game/modes";
 import type { PlayerProgress, PlayerSavedDeck } from "../game/playerProgress";
-import type { HeadquartersId, PlayerId } from "../game/types";
+import type { BattleAction, HeadquartersId, PlayerId } from "../game/types";
+import type {
+  RadioDuelEvent,
+  RadioDuelLiveUpdate,
+  RadioDuelListResult,
+  RadioDuelOpenResult,
+} from "../game/radioDuel";
 import {
   getConfiguredProfileHttpUrl,
   getConfiguredProfileWebSocketUrl,
@@ -119,6 +125,24 @@ type ProfileClientMessage =
       playerId: string;
       deckId: string;
     }
+  | { type: "RADIO_DUEL_LIST"; requestId: string }
+  | {
+      type: "RADIO_DUEL_QUEUE";
+      requestId: string;
+      headquartersId: HeadquartersId;
+      deckCardIds?: string[];
+    }
+  | { type: "RADIO_DUEL_CANCEL_QUEUE"; requestId: string }
+  | { type: "RADIO_DUEL_OPEN"; requestId: string; duelId: string }
+  | {
+      type: "RADIO_DUEL_ACTION";
+      requestId: string;
+      duelId: string;
+      action: BattleAction;
+    }
+  | { type: "RADIO_DUEL_SURRENDER"; requestId: string; duelId: string }
+  | { type: "RADIO_DUEL_CLAIM_REWARD"; requestId: string; duelId: string }
+  | { type: "RADIO_DUEL_REPLAY_SEEN"; requestId: string; duelId: string; version: number }
   | {
       type: "REGISTER_ACCOUNT";
       requestId: string;
@@ -193,7 +217,11 @@ type ProfileServerMessage =
       message: string;
     }
   | { type: "SESSION_GRANTED"; requestId: string }
-  | { type: "SESSION_DENIED"; requestId: string; message: string };
+  | { type: "SESSION_DENIED"; requestId: string; message: string }
+  | { type: "RADIO_DUEL_LIST_RESULT"; requestId: string; result: RadioDuelListResult }
+  | { type: "RADIO_DUEL_OPEN_RESULT"; requestId: string; result: RadioDuelOpenResult }
+  | { type: "RADIO_DUEL_EVENT"; event: RadioDuelEvent }
+  | { type: "RADIO_DUEL_LIVE_UPDATE"; update: RadioDuelLiveUpdate };
 
 export type AuthResult = Extract<ProfileServerMessage, { type: "AUTH_RESULT" }>;
 type ProfileSuccessMessage = Extract<
@@ -202,6 +230,8 @@ type ProfileSuccessMessage = Extract<
   | { type: "AUTH_RESULT" }
   | { type: "AUTHENTICATED" }
   | { type: "SESSION_GRANTED" }
+  | { type: "RADIO_DUEL_LIST_RESULT" }
+  | { type: "RADIO_DUEL_OPEN_RESULT" }
 >;
 
 /**
@@ -295,12 +325,19 @@ function createRequestId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-export type GoldProductId = "gold-100" | "gold-500" | "gold-1500" | "first-player-pack";
+export type GoldProductId =
+  | "gold-100"
+  | "gold-500"
+  | "gold-1500"
+  | "first-player-pack"
+  | "first-panthers-campaign";
 
 export type GoldProductCatalogItem = {
   id: GoldProductId;
   goldTracks: number;
   amountRub: number | null;
+  title: string | null;
+  campaignId: string | null;
 };
 
 export type SupportFeedbackInput = {
@@ -480,6 +517,11 @@ class ProfileClient {
     message: null,
   };
   private listeners = new Set<ProfileConnectionListener>();
+  private radioDuelListeners = new Set<(event: RadioDuelEvent) => void>();
+  private radioDuelLiveUpdateListeners = new Set<
+    (update: RadioDuelLiveUpdate) => void
+  >();
+  private watchedRadioDuelId: string | null = null;
   private autoReconnectAttempts = 0;
   private autoReconnectTimerId: number | null = null;
   private activeGameSession: { accountId: string; kind: GameMode } | null = null;
@@ -495,6 +537,22 @@ class ProfileClient {
 
     return () => {
       this.listeners.delete(listener);
+    };
+  }
+
+  subscribeRadioDuels(listener: (event: RadioDuelEvent) => void): () => void {
+    this.radioDuelListeners.add(listener);
+    return () => {
+      this.radioDuelListeners.delete(listener);
+    };
+  }
+
+  subscribeRadioDuelLiveUpdates(
+    listener: (update: RadioDuelLiveUpdate) => void
+  ): () => void {
+    this.radioDuelLiveUpdateListeners.add(listener);
+    return () => {
+      this.radioDuelLiveUpdateListeners.delete(listener);
     };
   }
 
@@ -791,6 +849,123 @@ class ProfileClient {
     });
 
     return response.profile;
+  }
+
+  async listRadioDuels(): Promise<RadioDuelListResult> {
+    const response = await this.request({
+      type: "RADIO_DUEL_LIST",
+      requestId: createRequestId(),
+    });
+    if (response.type !== "RADIO_DUEL_LIST_RESULT") {
+      throw new Error("Сервер вернул неверный ответ радиодуэли");
+    }
+    return response.result;
+  }
+
+  async queueRadioDuel(
+    headquartersId: HeadquartersId,
+    deckCardIds?: string[]
+  ): Promise<RadioDuelListResult> {
+    const response = await this.request({
+      type: "RADIO_DUEL_QUEUE",
+      requestId: createRequestId(),
+      headquartersId,
+      deckCardIds,
+    });
+    if (response.type !== "RADIO_DUEL_LIST_RESULT") {
+      throw new Error("Сервер вернул неверный ответ радиодуэли");
+    }
+    return response.result;
+  }
+
+  async cancelRadioDuelQueue(): Promise<RadioDuelListResult> {
+    const response = await this.request({
+      type: "RADIO_DUEL_CANCEL_QUEUE",
+      requestId: createRequestId(),
+    });
+    if (response.type !== "RADIO_DUEL_LIST_RESULT") {
+      throw new Error("Сервер вернул неверный ответ радиодуэли");
+    }
+    return response.result;
+  }
+
+  async openRadioDuel(duelId: string): Promise<RadioDuelOpenResult> {
+    const response = await this.request({
+      type: "RADIO_DUEL_OPEN",
+      requestId: createRequestId(),
+      duelId,
+    });
+    if (response.type !== "RADIO_DUEL_OPEN_RESULT") {
+      throw new Error("Сервер вернул неверный ответ радиодуэли");
+    }
+    return response.result;
+  }
+
+  async sendRadioDuelAction(
+    duelId: string,
+    action: BattleAction
+  ): Promise<RadioDuelOpenResult> {
+    const response = await this.request({
+      type: "RADIO_DUEL_ACTION",
+      requestId: createRequestId(),
+      duelId,
+      action,
+    });
+    if (response.type !== "RADIO_DUEL_OPEN_RESULT") {
+      throw new Error("Сервер вернул неверный ответ радиодуэли");
+    }
+    return response.result;
+  }
+
+  async surrenderRadioDuel(duelId: string): Promise<RadioDuelOpenResult> {
+    const response = await this.request({
+      type: "RADIO_DUEL_SURRENDER",
+      requestId: createRequestId(),
+      duelId,
+    });
+    if (response.type !== "RADIO_DUEL_OPEN_RESULT") {
+      throw new Error("Сервер вернул неверный ответ радиодуэли");
+    }
+    return response.result;
+  }
+
+  async claimRadioDuelReward(
+    duelId: string
+  ): Promise<ProfileUpdatedMessage> {
+    return this.requestProfileUpdate({
+      type: "RADIO_DUEL_CLAIM_REWARD",
+      requestId: createRequestId(),
+      duelId,
+    });
+  }
+
+  async markRadioDuelReplaySeen(
+    duelId: string,
+    version: number
+  ): Promise<RadioDuelOpenResult> {
+    const response = await this.request({
+      type: "RADIO_DUEL_REPLAY_SEEN",
+      requestId: createRequestId(),
+      duelId,
+      version,
+    });
+    if (response.type !== "RADIO_DUEL_OPEN_RESULT") {
+      throw new Error("Сервер не подтвердил просмотр повтора");
+    }
+    return response.result;
+  }
+
+  async watchRadioDuel(duelId: string): Promise<void> {
+    this.watchedRadioDuelId = duelId;
+    await this.ensureConnected();
+    if (this.watchedRadioDuelId !== duelId) return;
+    this.sendRadioDuelWatchState("RADIO_DUEL_WATCH", duelId);
+  }
+
+  unwatchRadioDuel(duelId: string): void {
+    if (this.watchedRadioDuelId !== duelId) return;
+    this.watchedRadioDuelId = null;
+    this.sendRadioDuelWatchState("RADIO_DUEL_UNWATCH", duelId);
   }
 
   /**
@@ -1142,6 +1317,18 @@ class ProfileClient {
       return;
     }
 
+    if (message.type === "RADIO_DUEL_EVENT") {
+      this.radioDuelListeners.forEach((listener) => listener(message.event));
+      return;
+    }
+
+    if (message.type === "RADIO_DUEL_LIVE_UPDATE") {
+      this.radioDuelLiveUpdateListeners.forEach((listener) =>
+        listener(message.update)
+      );
+      return;
+    }
+
     if (this.pendingAuth && message.requestId === this.pendingAuth.requestId) {
       const settle = this.pendingAuth.settle;
       this.pendingAuth = null;
@@ -1154,6 +1341,12 @@ class ProfileClient {
 
       this.setConnection("online", null);
       settle();
+      if (message.type === "AUTHENTICATED" && this.watchedRadioDuelId) {
+        this.sendRadioDuelWatchState(
+          "RADIO_DUEL_WATCH",
+          this.watchedRadioDuelId
+        );
+      }
       return;
     }
 
@@ -1176,6 +1369,18 @@ class ProfileClient {
 
     this.setConnection("online", null);
     pendingRequest.resolve(message);
+  }
+
+  private sendRadioDuelWatchState(
+    type: "RADIO_DUEL_WATCH" | "RADIO_DUEL_UNWATCH",
+    duelId: string
+  ) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+    try {
+      this.socket.send(JSON.stringify({ type, duelId }));
+    } catch {
+      // Reconnection will restore an active watch automatically.
+    }
   }
 
   private rejectPending(message: string) {

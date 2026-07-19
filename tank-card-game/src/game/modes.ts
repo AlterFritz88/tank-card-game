@@ -1,4 +1,6 @@
-export type GameMode = "ai" | "pvp" | "campaign";
+export type GameMode = "ai" | "pvp" | "campaign" | "radio";
+
+export const PVP_MATCH_SEARCH_DURATION_MS = 50_000;
 
 export type MainMenuView =
   | "main"
@@ -7,6 +9,7 @@ export type MainMenuView =
   | "missions"
   | "tutorial"
   | "combatMissions"
+  | "radioDuels"
   | "profile"
   | "research"
   | "collection"

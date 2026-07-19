@@ -12,6 +12,13 @@ import type {
   PlayerProgress,
   PlayerSavedDeck,
 } from "../../tank-card-game/src/game/playerProgress";
+import type {
+  RadioDuelEvent,
+  RadioDuelLiveUpdate,
+  RadioDuelListResult,
+  RadioDuelOpenResult,
+} from "../../tank-card-game/src/game/radioDuel";
+import type { PvpDeckIdentity } from "../../tank-card-game/src/game/pvpDeckIdentity";
 
 export type PvpClientMessage =
   | {
@@ -36,7 +43,12 @@ export type PvpClientMessage =
       headquartersId: HeadquartersId;
       deckCardIds?: string[];
     }
-  | { type: "RECONNECT"; sessionId: string; roomId?: string | null }
+  | {
+      type: "RECONNECT";
+      sessionId: string;
+      roomId?: string | null;
+      expectedDeck?: PvpDeckIdentity;
+    }
   | { type: "GAME_ACTION"; action: BattleAction }
   | { type: "SELECT_CARD"; cardInstanceId: string | null }
   | { type: "SURRENDER" }
@@ -155,6 +167,26 @@ export type PvpClientMessage =
       playerId: string;
       deckId: string;
     }
+  | { type: "RADIO_DUEL_LIST"; requestId: string }
+  | {
+      type: "RADIO_DUEL_QUEUE";
+      requestId: string;
+      headquartersId: HeadquartersId;
+      deckCardIds?: string[];
+    }
+  | { type: "RADIO_DUEL_CANCEL_QUEUE"; requestId: string }
+  | { type: "RADIO_DUEL_OPEN"; requestId: string; duelId: string }
+  | {
+      type: "RADIO_DUEL_ACTION";
+      requestId: string;
+      duelId: string;
+      action: BattleAction;
+    }
+  | { type: "RADIO_DUEL_SURRENDER"; requestId: string; duelId: string }
+  | { type: "RADIO_DUEL_CLAIM_REWARD"; requestId: string; duelId: string }
+  | { type: "RADIO_DUEL_REPLAY_SEEN"; requestId: string; duelId: string; version: number }
+  | { type: "RADIO_DUEL_WATCH"; duelId: string }
+  | { type: "RADIO_DUEL_UNWATCH"; duelId: string }
   | {
       type: "REGISTER_ACCOUNT";
       requestId: string;
@@ -258,6 +290,8 @@ export type PvpServerMessage =
       opponentNickname?: string | null;
       opponentCardBackId?: "first_player" | null;
       opponentDeckWeight?: number | null;
+      ownDeck?: PvpDeckIdentity;
+      ownDeckWeight?: number;
     }
   | { type: "RECONNECT_FAILED"; message: string }
   | { type: "WAITING_FOR_OPPONENT"; roomId: string }
@@ -272,6 +306,8 @@ export type PvpServerMessage =
       opponentNickname?: string | null;
       opponentCardBackId?: "first_player" | null;
       opponentDeckWeight?: number | null;
+      ownDeck?: PvpDeckIdentity;
+      ownDeckWeight?: number;
     }
   | {
       type: "GAME_STARTED";
@@ -281,6 +317,8 @@ export type PvpServerMessage =
       opponentNickname?: string | null;
       opponentCardBackId?: "first_player" | null;
       opponentDeckWeight?: number | null;
+      ownDeck?: PvpDeckIdentity;
+      ownDeckWeight?: number;
     }
   | { type: "GAME_STATE"; roomId: string; battle: BattleStateView }
   | PvpTurnTimerEvent
@@ -294,6 +332,7 @@ export type PvpServerMessage =
     }
   | { type: "MATCH_ENDED"; winner: PlayerId; reason: MatchEndReason }
   | { type: "MATCHMAKING_CANCELLED" }
+  | { type: "MATCH_START_FAILED"; message: string }
   | { type: "OPPONENT_LEFT"; reason: MatchEndReason }
   | { type: "OPPONENT_DISCONNECTED"; roomId: string }
   | {
@@ -328,4 +367,8 @@ export type PvpServerMessage =
     }
   | { type: "SESSION_GRANTED"; requestId: string }
   | { type: "SESSION_DENIED"; requestId: string; message: string }
+  | { type: "RADIO_DUEL_LIST_RESULT"; requestId: string; result: RadioDuelListResult }
+  | { type: "RADIO_DUEL_OPEN_RESULT"; requestId: string; result: RadioDuelOpenResult }
+  | { type: "RADIO_DUEL_EVENT"; event: RadioDuelEvent }
+  | { type: "RADIO_DUEL_LIVE_UPDATE"; update: RadioDuelLiveUpdate }
   | { type: "ERROR"; message: string };

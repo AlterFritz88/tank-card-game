@@ -41,6 +41,7 @@ import type {
 } from "../game/types";
 import { isHiddenCardInstance } from "../game/types";
 import { useBattleStore } from "../store/battleStore";
+import { profileClient } from "../network/profileClient";
 import { TankCardView } from "./TankCardView";
 import { HandCardView } from "./HandCardView";
 import { HeadquartersCardView } from "./HeadquartersCardView";
@@ -88,6 +89,7 @@ import {
   applyTutorialBattleRewardToProgress,
   claimBattleRewardFromServer,
   claimPvpBattleRewardFromServer,
+  claimRadioDuelRewardFromServer,
   claimCampaignRewardFromServer,
   claimTutorialRewardFromServer,
   getLocalTutorialReward,
@@ -317,6 +319,7 @@ type MovementUnitEffect = {
   currentHp: number;
   alreadyMoved: boolean;
   alreadyAttacked: boolean;
+  attackCountThisTurn: number;
   from: CellCenter;
   to: CellCenter;
   width: number;
@@ -347,6 +350,7 @@ type RemoteMoveStart = {
     currentHp: number;
     alreadyMoved: boolean;
     alreadyAttacked: boolean;
+    attackCountThisTurn: number;
   };
 };
 
@@ -459,6 +463,18 @@ function waitForNextFrame(): Promise<void> {
   return new Promise((resolve) => {
     window.requestAnimationFrame(() => resolve());
   });
+}
+
+type RadioReplayAction = Extract<
+  BattleAction,
+  { type: "MOVE_UNIT" | "ATTACK" | "PLAY_CARD" | "PLAY_SUPPORT_CARD" }
+>;
+
+function isRadioReplayAction(action: BattleAction): action is RadioReplayAction {
+  return action.type === "MOVE_UNIT" ||
+    action.type === "ATTACK" ||
+    action.type === "PLAY_CARD" ||
+    action.type === "PLAY_SUPPORT_CARD";
 }
 
 function SelectedCombatObjectGlow() {
@@ -676,8 +692,18 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     exitBattleToMenu,
     completeTrailerAndExit,
     surrenderBattle,
+    surrenderRadioDuel,
     leavePvpMatch,
     recordBattleForReminder,
+    radioOpponentNickname,
+    radioDuelId,
+    radioDeadlineAt,
+    radioRatingDelta,
+    radioReplayActive,
+    radioReplayLive,
+    radioReplay,
+    radioFinalScreenAvailableAt,
+    completeRadioReplay,
   } = battleStore;
 
   const firstTurnRoll = battleStore.firstTurnRoll;
@@ -953,7 +979,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     );
   }
 
-  const humanPlayerId: PlayerId = mode === "pvp" ? localPlayerId : "player";
+  const humanPlayerId: PlayerId =
+    mode === "pvp" || mode === "radio" ? localPlayerId : "player";
   const opponentPlayerId: PlayerId =
     humanPlayerId === "player" ? "bot" : "player";
 
@@ -1104,8 +1131,8 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     ).title;
     const commanderName = isFriendly
       ? missionPlayerCommanderName ?? localPlayerNickname
-      : mode === "pvp"
-        ? pvpOpponentNickname ?? enemyHeadquartersTitle
+      : mode === "pvp" || mode === "radio"
+        ? (mode === "radio" ? radioOpponentNickname : pvpOpponentNickname) ?? enemyHeadquartersTitle
         : enemyHeadquartersTitle;
 
     if (!commanderName) return null;
@@ -1399,9 +1426,66 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   const [rewardSyncPending, setRewardSyncPending] = useState(false);
   const [completedMissionCelebrations, setCompletedMissionCelebrations] =
     useState<CombatMissionDefinition[]>([]);
+  const [radioNow, setRadioNow] = useState(Date.now());
+  const [radioSurrenderConfirmVisible, setRadioSurrenderConfirmVisible] =
+    useState(false);
+  const [radioSurrenderPending, setRadioSurrenderPending] = useState(false);
+  const [radioSurrenderError, setRadioSurrenderError] = useState<string | null>(
+    null
+  );
+  const radioTimeoutRequestRef = useRef<string | null>(null);
   const debugPausedRef = useRef(false);
   const rewardedBattleKeyRef = useRef<string | null>(null);
   const reminderCountedBattleKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (mode !== "radio") return;
+    setRadioNow(Date.now());
+    const timer = window.setInterval(() => setRadioNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "radio" || radioFinalScreenAvailableAt === null) return;
+    const remainingMs = radioFinalScreenAvailableAt - Date.now();
+    if (remainingMs <= 0) {
+      setRadioNow(Date.now());
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setRadioNow(Date.now()),
+      remainingMs + 10
+    );
+    return () => window.clearTimeout(timer);
+  }, [mode, radioFinalScreenAvailableAt]);
+
+  const radioFinalScreenDelayActive =
+    mode === "radio" &&
+    radioFinalScreenAvailableAt !== null &&
+    radioNow < radioFinalScreenAvailableAt;
+
+  useEffect(() => {
+    if (mode !== "radio" || !radioDuelId || radioDeadlineAt === null) {
+      radioTimeoutRequestRef.current = null;
+      return;
+    }
+    if (radioNow < radioDeadlineAt) return;
+
+    const timeoutKey = `${radioDuelId}:${radioDeadlineAt}`;
+    if (radioTimeoutRequestRef.current === timeoutKey) return;
+    radioTimeoutRequestRef.current = timeoutKey;
+
+    void profileClient.openRadioDuel(radioDuelId)
+      .then((result) => {
+        const current = useBattleStore.getState();
+        if (current.mode === "radio" && current.radioDuelId === radioDuelId) {
+          current.openRadioDuelBattle(result);
+        }
+      })
+      .catch(() => {
+        radioTimeoutRequestRef.current = null;
+      });
+  }, [mode, radioDeadlineAt, radioDuelId, radioNow]);
 
   const handCardRefs = useRef<Record<PlayerId, Map<string, HTMLElement>>>({
     player: new Map(),
@@ -1431,6 +1515,20 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   useEffect(() => {
     void playMusic("battle");
   }, []);
+
+  useEffect(() => {
+    if (mode !== "radio" || !radioDuelId) return;
+
+    const unsubscribe = profileClient.subscribeRadioDuelLiveUpdates((update) => {
+      useBattleStore.getState().receiveRadioDuelLiveUpdate(update);
+    });
+    void profileClient.watchRadioDuel(radioDuelId);
+
+    return () => {
+      unsubscribe();
+      profileClient.unwatchRadioDuel(radioDuelId);
+    };
+  }, [mode, radioDuelId]);
   const playSpawnCardAnimationRef = useRef<
     (
       owner: PlayerId,
@@ -1459,10 +1557,12 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     (
       state: BattleState,
       action: Extract<BattleAction, { type: "MOVE_UNIT" }>,
-      options?: { preserveLaterSelection?: boolean }
+      options?: {
+        preserveLaterSelection?: boolean;
+        applyReplayStep?: (nextBattle: BattleState) => void;
+      }
     ) => Promise<void>
   >(() => Promise.resolve());
-
   const [startRollState, setStartRollState] = useState<StartRollState>({
     visible: false,
     winner: null,
@@ -1481,6 +1581,78 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     playMoveIntentAnimationRef.current = playMoveIntentAnimation;
     playAndDispatchLocalMovementRef.current = playAndDispatchLocalMovement;
   });
+
+  useEffect(() => {
+    if (mode !== "radio" || !radioReplayActive || !radioReplay) return;
+    const replay = radioReplay;
+
+    let cancelled = false;
+
+    async function playRadioReplay() {
+      try {
+        const activeSteps = replay.actions.flatMap((action, index) => {
+          if (!isRadioReplayAction(action)) return [];
+          const before = replay.frames[index] as BattleState | undefined;
+          const after = replay.frames[index + 1] as BattleState | undefined;
+          return before && after ? [{ action, before, after }] : [];
+        });
+
+        for (const { action, before, after } of activeSteps) {
+          if (cancelled) return;
+
+          useBattleStore.setState({ battle: before });
+          await waitForNextFrame();
+
+          if (action.type === "MOVE_UNIT") {
+            await playAndDispatchLocalMovementRef.current(before, action, {
+              applyReplayStep: (nextBattle) => {
+                useBattleStore.setState({ battle: nextBattle });
+              },
+            });
+          } else if (action.type === "ATTACK") {
+            const strikes = getAttackAnimationSequence(before, action);
+            await playAttackSequenceRef.current(strikes);
+          } else if (action.type === "PLAY_CARD") {
+            const deployedUnit = after.units.find(
+              (unit) => unit.instanceId === action.cardInstanceId
+            );
+            if (deployedUnit) {
+              await playSpawnCardAnimationRef.current(
+                action.playerId,
+                action.cardInstanceId,
+                deployedUnit.cardId,
+                action.position
+              );
+            }
+          } else if (action.type === "PLAY_SUPPORT_CARD") {
+            const deployedUnit = after.units.find(
+              (unit) => unit.instanceId === action.cardInstanceId
+            );
+            if (deployedUnit) {
+              await playSupportSpawnCardAnimationRef.current(
+                action.playerId,
+                action.cardInstanceId,
+                deployedUnit.cardId,
+                action.supportSlot
+              );
+            }
+          }
+
+          if (cancelled) return;
+          useBattleStore.setState({ battle: after });
+        }
+      } catch (error) {
+        console.error("Radio duel replay failed:", error);
+      } finally {
+        if (!cancelled) completeRadioReplay();
+      }
+    }
+
+    void playRadioReplay();
+    return () => {
+      cancelled = true;
+    };
+  }, [completeRadioReplay, mode, radioReplay, radioReplayActive]);
 
   useLayoutEffect(() => {
     if (mode !== "pvp") {
@@ -1509,6 +1681,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           currentHp: unit.currentHp,
           alreadyMoved: unit.alreadyMoved,
           alreadyAttacked: unit.alreadyAttacked,
+          attackCountThisTurn: unit.attackCountThisTurn ?? 0,
         },
       });
     }
@@ -1794,18 +1967,34 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   }
 
   function handleSurrenderClick() {
+    if (mode === "radio") {
+      setRadioSurrenderError(null);
+      setRadioSurrenderConfirmVisible(true);
+      return;
+    }
+
     const confirmedByPlayer = window.confirm(
       "\u0421\u0434\u0430\u0442\u044c\u0441\u044f \u0438 \u0437\u0430\u0441\u0447\u0438\u0442\u0430\u0442\u044c \u043f\u043e\u0440\u0430\u0436\u0435\u043d\u0438\u0435?"
     );
     if (!confirmedByPlayer) return;
 
     surrenderBattle();
-    return;
+  }
 
-    const confirmed = window.confirm(t("battle.surrenderConfirm"));
-    if (!confirmed) return;
-
-    surrenderBattle();
+  async function confirmRadioSurrender() {
+    if (radioSurrenderPending) return;
+    setRadioSurrenderPending(true);
+    setRadioSurrenderError(null);
+    const surrendered = await surrenderRadioDuel();
+    setRadioSurrenderPending(false);
+    if (surrendered) {
+      setRadioSurrenderConfirmVisible(false);
+      return;
+    }
+    setRadioSurrenderError(
+      useBattleStore.getState().pvpError ??
+        "Не удалось завершить радиодуэль. Проверьте соединение и попробуйте снова."
+    );
   }
 
   function getPlayerHandSafeWidth() {
@@ -1870,6 +2059,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
   async function claimCurrentBattleReward() {
     if (battle.status !== "player_won" && battle.status !== "bot_won") return;
+    if (radioFinalScreenDelayActive) return;
 
     const localPlayerWon =
       (battle.status === "player_won" && humanPlayerId === "player") ||
@@ -1931,6 +2121,32 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         ),
       ]);
     };
+
+    if (mode === "radio") {
+      if (!radioDuelId) {
+        setRewardClaimStatus("failed");
+        setRewardClaimError("Награда не начислена: радиодуэль не найдена");
+        return;
+      }
+
+      const serverResult = await claimRadioDuelRewardFromServer({
+        duelId: radioDuelId,
+      }).catch((error: unknown) => {
+        setRewardClaimStatus("failed");
+        setRewardClaimError(
+          getErrorMessage(error, "Награда за радиодуэль не начислена")
+        );
+        return null;
+      });
+
+      if (serverResult?.reward) {
+        celebrateCompletedMissions(serverResult.profile.combatMissions);
+        setBattleReward(serverResult.reward);
+        setRewardClaimStatus("claimed");
+        setRewardSyncPending(false);
+      }
+      return;
+    }
 
     if (mode === "pvp") {
       if (!pvpRoomId) {
@@ -2065,6 +2281,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     }
 
     if (battle.status !== "player_won" && battle.status !== "bot_won") return;
+    if (radioFinalScreenDelayActive) return;
 
     // NOTE: matchEndReason is deliberately NOT part of this key. On an early
     // exit (surrender/leave/disconnect) the server sends the finished battle
@@ -2090,7 +2307,15 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     rewardedBattleKeyRef.current = rewardKey;
 
     void claimCurrentBattleReward();
-  }, [battle, humanPlayerId, matchEndReason, mode, pvpRoomId, tutorialActive]);
+  }, [
+    battle,
+    humanPlayerId,
+    matchEndReason,
+    mode,
+    pvpRoomId,
+    radioFinalScreenDelayActive,
+    tutorialActive,
+  ]);
 
   // Count every finished battle (any mode) once, so an unregistered player gets
   // the «register to keep your progress» reminder every third battle. The ref
@@ -2137,7 +2362,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
 
 
   useEffect(() => {
-    if (mode === "pvp") return;
+    if (mode === "pvp" || mode === "radio") return;
 
     if (battle.status !== "starting") {
       if (battle.status === "active") {
@@ -2305,7 +2530,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   useEffect(() => {
     if (debugPaused) return;
     if (battle.status !== "active") return;
-    if (mode === "pvp") return;
+    if (mode === "pvp" || mode === "radio") return;
 
     let lastTickTime = Date.now();
 
@@ -3129,6 +3354,31 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
     return includeAuraBonuses
       ? getUnitDisplayAttackValue(sourceBattle as BattleState, unit)
       : getUnitAttackValue(sourceBattle as BattleState, unit);
+  }
+
+  function hasAvailableArmoredCarFollowUpAttack(
+    sourceBattle: ClientBattleState,
+    unit: BoardUnit
+  ): boolean {
+    if (getCard(unit.cardId).class !== "armored_car") return false;
+    if ((unit.attackCountThisTurn ?? 0) !== 1 || unit.alreadyAttacked) return false;
+    if (sourceBattle.status !== "active" || sourceBattle.activePlayer !== unit.ownerId) {
+      return false;
+    }
+
+    return getTargetsInRange(
+      sourceBattle as BattleState,
+      unit.ownerId,
+      "unit",
+      unit.instanceId
+    ).some((target) => {
+      if (target.type === "headquarters") return true;
+
+      const targetUnit = sourceBattle.units.find(
+        (candidate) => candidate.instanceId === target.id
+      );
+      return !!targetUnit && isSupportUnit(targetUnit);
+    });
   }
 
   /**
@@ -4085,7 +4335,10 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
   async function playAndDispatchLocalMovement(
     state: BattleState,
     action: Extract<BattleAction, { type: "MOVE_UNIT" }>,
-    options: { preserveLaterSelection?: boolean } = {}
+    options: {
+      preserveLaterSelection?: boolean;
+      applyReplayStep?: (nextBattle: BattleState) => void;
+    } = {}
   ): Promise<void> {
     const unit = state.units.find((item) => item.instanceId === action.unitId);
     const unitClass = unit ? getCard(unit.cardId).class : null;
@@ -4132,6 +4385,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
             currentHp: movingUnit.currentHp,
             alreadyMoved: movingUnit.alreadyMoved,
             alreadyAttacked: movingUnit.alreadyAttacked,
+            attackCountThisTurn: movingUnit.attackCountThisTurn ?? 0,
             phase: "moving",
             ...movementPath,
           });
@@ -4140,7 +4394,9 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         await waitForNextFrame();
       }
 
-      if (options.preserveLaterSelection) {
+      if (options.applyReplayStep) {
+        options.applyReplayStep(applyAction(currentBattle, stepAction));
+      } else if (options.preserveLaterSelection) {
         dispatchQueuedBattleAction(stepAction, {
           skipAttackEffects,
         });
@@ -4320,6 +4576,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
           currentHp: movingUnit.currentHp,
           alreadyMoved: movingUnit.alreadyMoved,
           alreadyAttacked: movingUnit.alreadyAttacked,
+          attackCountThisTurn: movingUnit.attackCountThisTurn ?? 0,
           from,
           to,
           width: start.width,
@@ -4430,6 +4687,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
               currentHp: movingUnit.currentHp,
               alreadyMoved: movingUnit.alreadyMoved,
               alreadyAttacked: movingUnit.alreadyAttacked,
+              attackCountThisTurn: movingUnit.attackCountThisTurn ?? 0,
             },
           }
         : null;
@@ -4444,6 +4702,7 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
               currentHp: movingUnit.currentHp,
               alreadyMoved: movingUnit.alreadyMoved,
               alreadyAttacked: movingUnit.alreadyAttacked,
+              attackCountThisTurn: movingUnit.attackCountThisTurn ?? 0,
             },
           }
         : null) ??
@@ -5339,13 +5598,17 @@ function BattleScreenContent({ battle }: BattleScreenContentProps) {
         ? pvpTimer.remainingMs
         : timer?.stepTimeLeftMs ?? null;
     const displayedTimeLeftMs =
-      mode === "pvp"
-        ? pvpTimeLeftMs ?? timer?.stepTimeLeftMs ?? 0
-        : timer?.stepTimeLeftMs ?? null;
+      mode === "radio"
+        ? radioDeadlineAt === null
+          ? null
+          : Math.max(0, radioDeadlineAt - radioNow)
+        : mode === "pvp"
+          ? pvpTimeLeftMs ?? timer?.stepTimeLeftMs ?? 0
+          : timer?.stepTimeLeftMs ?? null;
     const isLocalPlayer = activeOwner === humanPlayerId;
 
     if (displayedTimeLeftMs === null) {
-      if (mode === "pvp" && placement === "column") {
+      if ((mode === "pvp" || mode === "radio") && placement === "column") {
         return (
           <div
             aria-hidden="true"
@@ -6089,7 +6352,14 @@ function renderEnemyDeckWithTimer() {
       />
       <div style={styles.vignette} />
 
+      {mode === "radio" && radioReplayActive && !radioReplayLive ? (
+        <div style={{ position: "fixed", left: "50%", top: 22, transform: "translateX(-50%)", zIndex: 9000, padding: "10px 22px", borderRadius: 8, background: "rgba(16,23,23,.94)", color: "#f4dda0", fontWeight: 900, letterSpacing: ".06em", boxShadow: "0 10px 30px rgba(0,0,0,.45)", pointerEvents: "none" }}>
+          ПОВТОР ХОДА СОПЕРНИКА
+        </div>
+      ) : null}
+
       {!tutorialActive &&
+      mode !== "radio" &&
       battle.status !== "player_won" &&
       battle.status !== "bot_won" &&
       !missionMinimalBattleControls ? (
@@ -6100,6 +6370,73 @@ function renderEnemyDeckWithTimer() {
         >
           <span style={styles.surrenderButtonText}>{t("battle.surrender")}</span>
         </button>
+      ) : null}
+
+      {mode === "radio" && battle.status === "active" ? (
+        <div style={styles.radioBattleCornerControls}>
+          <button
+            type="button"
+            style={{ ...styles.surrenderButton, ...styles.radioBattleControlButton, ...styles.radioListButton }}
+            onClick={exitBattleToMenu}
+          >
+            <span style={styles.surrenderButtonText}>К СПИСКУ</span>
+          </button>
+          <button
+            type="button"
+            style={{ ...styles.surrenderButton, ...styles.radioBattleControlButton }}
+            onClick={handleSurrenderClick}
+          >
+            <span style={styles.surrenderButtonText}>СДАТЬСЯ</span>
+          </button>
+        </div>
+      ) : null}
+
+      {radioSurrenderConfirmVisible && mode === "radio" ? (
+        <div style={styles.radioSurrenderOverlay}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="radio-surrender-title"
+            style={styles.radioSurrenderDialog}
+          >
+            <div id="radio-surrender-title" style={styles.radioSurrenderTitle}>
+              СДАТЬСЯ?
+            </div>
+            <div style={styles.radioSurrenderMessage}>
+              Радиодуэль завершится поражением. Это действие нельзя отменить.
+            </div>
+            {radioSurrenderError ? (
+              <div style={styles.radioSurrenderError}>{radioSurrenderError}</div>
+            ) : null}
+            <div style={styles.radioSurrenderActions}>
+              <button
+                type="button"
+                style={{
+                  ...styles.surrenderButton,
+                  ...styles.radioSurrenderDialogButton,
+                  ...styles.radioCancelButton,
+                }}
+                disabled={radioSurrenderPending}
+                onClick={() => setRadioSurrenderConfirmVisible(false)}
+              >
+                <span style={styles.radioSurrenderDialogButtonText}>ОТМЕНА</span>
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...styles.surrenderButton,
+                  ...styles.radioSurrenderDialogButton,
+                }}
+                disabled={radioSurrenderPending}
+                onClick={() => void confirmRadioSurrender()}
+              >
+                <span style={styles.radioSurrenderDialogButtonText}>
+                  {radioSurrenderPending ? "ОТПРАВКА…" : "СДАТЬСЯ"}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       <AnimatePresence>
@@ -6558,6 +6895,23 @@ function renderEnemyDeckWithTimer() {
                             })()}
                             alreadyMoved={movementUnitEffect.alreadyMoved}
                             alreadyAttacked={movementUnitEffect.alreadyAttacked}
+                            attackCountThisTurn={
+                              movementUnitEffect.attackCountThisTurn
+                            }
+                            canAttackAgain={(() => {
+                              const movingUnit = battle.units.find(
+                                (item) =>
+                                  item.instanceId === movementUnitEffect.unitId
+                              );
+
+                              return (
+                                !!movingUnit &&
+                                hasAvailableArmoredCarFollowUpAttack(
+                                  battle,
+                                  movingUnit
+                                )
+                              );
+                            })()}
                             camouflaged={(() => {
                               const movingUnit = battle.units.find(
                                 (item) =>
@@ -6901,6 +7255,11 @@ function renderEnemyDeckWithTimer() {
                             selected={isSelected}
                             alreadyMoved={unit.alreadyMoved}
                             alreadyAttacked={unit.alreadyAttacked}
+                            attackCountThisTurn={unit.attackCountThisTurn ?? 0}
+                            canAttackAgain={hasAvailableArmoredCarFollowUpAttack(
+                              battle,
+                              unit
+                            )}
                             camouflaged={
                               !!card.combatAbilities?.camouflage &&
                               !unit.revealed
@@ -7324,6 +7683,8 @@ function renderEnemyDeckWithTimer() {
                       WebkitTouchCallout: "none",
                       zIndex: selected || isBeingDragged ? 120 : index + 1,
                       pointerEvents:
+                        battle.status !== "active" ||
+                        radioReplayActive ||
                         isHiddenDrawnCard ||
                         isHiddenSpawningCard ||
                         tutorialCardBlocked
@@ -7360,7 +7721,11 @@ function renderEnemyDeckWithTimer() {
                           isHiddenDrawnCard || isHiddenSpawningCard ? 0 : 0.18,
                       },
                     }}
-                    whileHover={{ y: -88, scale: 1.06 }}
+                    whileHover={
+                      battle.status === "active" && !radioReplayActive
+                        ? { y: -88, scale: 1.06 }
+                        : { y: 0, scale: 1 }
+                    }
                     whileTap={{ scale: 0.97 }}
                     aria-disabled={
                       debugPaused ||
@@ -7701,6 +8066,7 @@ function renderEnemyDeckWithTimer() {
       ) : null}
 
       {(battle.status === "player_won" || battle.status === "bot_won") &&
+        !radioFinalScreenDelayActive &&
         !missionSkipResultScreen &&
         (!tutorialActive ||
           battle.status === "bot_won" ||
@@ -7714,13 +8080,16 @@ function renderEnemyDeckWithTimer() {
             battle={battle}
             onRestart={handleResultRestart}
             localPlayerId={humanPlayerId}
-            matchEndReason={mode === "pvp" ? matchEndReason : null}
+            matchEndReason={
+              mode === "pvp" || mode === "radio" ? matchEndReason : null
+            }
             restartLabel={resultRestartLabel}
             reward={battleReward}
             rewardStatus={rewardClaimStatus}
             rewardError={rewardClaimError}
             rewardSyncPending={rewardSyncPending}
             onRetryReward={() => void claimCurrentBattleReward()}
+            ratingDelta={mode === "radio" ? radioRatingDelta : null}
           />
         )}
     </div>
@@ -9058,7 +9427,7 @@ turnCounterValue: {
   },
 
   surrenderButtonText: {
-    fontSize: 12,
+    fontSize: 13,
     lineHeight: 1,
   },
 
@@ -9071,6 +9440,99 @@ turnCounterValue: {
     left: 12,
     zIndex: 60,
     pointerEvents: "auto",
+  },
+
+  radioBattleCornerControls: {
+    position: "absolute",
+    top: 56,
+    left: 12,
+    zIndex: 60,
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "flex-start",
+    alignItems: "flex-start",
+    gap: 44,
+    pointerEvents: "none",
+  },
+
+  radioBattleControlButton: {
+    minHeight: 48,
+    padding: "13px 10px 14px",
+  },
+
+  radioListButton: {
+    backgroundImage: `linear-gradient(180deg, rgba(83, 96, 46, 0.62), rgba(25, 31, 17, 0.78)), url(${buttonImage})`,
+    color: "#f4e5b7",
+  },
+
+  radioSurrenderOverlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 12000,
+    display: "grid",
+    placeItems: "center",
+    background: "rgba(4, 5, 4, 0.72)",
+    pointerEvents: "auto",
+  },
+
+  radioSurrenderDialog: {
+    width: 520,
+    boxSizing: "border-box",
+    padding: "36px 42px 34px",
+    border: "1px solid rgba(214, 180, 102, 0.72)",
+    background:
+      "linear-gradient(180deg, rgba(48, 46, 34, 0.98), rgba(14, 16, 13, 0.99))",
+    boxShadow:
+      "0 20px 60px rgba(0,0,0,0.72), inset 0 1px 0 rgba(255,239,190,0.12)",
+    color: "#f1e5c2",
+    textAlign: "center",
+  },
+
+  radioSurrenderTitle: {
+    fontFamily: "var(--font-display)",
+    fontSize: 36,
+    fontWeight: 900,
+    letterSpacing: 2.2,
+    color: "#ffd5bd",
+    textShadow: "0 2px 5px rgba(0,0,0,0.9)",
+  },
+
+  radioSurrenderMessage: {
+    marginTop: 18,
+    fontSize: 20,
+    lineHeight: 1.45,
+    color: "#d9d1bd",
+  },
+
+  radioSurrenderError: {
+    marginTop: 16,
+    color: "#ff8b7d",
+    fontSize: 17,
+    fontWeight: 700,
+  },
+
+  radioSurrenderActions: {
+    display: "flex",
+    justifyContent: "center",
+    gap: 30,
+    marginTop: 30,
+  },
+
+  radioSurrenderDialogButton: {
+    width: 190,
+    minHeight: 58,
+    padding: "15px 16px 17px",
+  },
+
+  radioSurrenderDialogButtonText: {
+    fontSize: 20,
+    lineHeight: 1,
+    letterSpacing: 1.2,
+  },
+
+  radioCancelButton: {
+    backgroundImage: `linear-gradient(180deg, rgba(83, 96, 46, 0.62), rgba(25, 31, 17, 0.78)), url(${buttonImage})`,
+    color: "#f4e5b7",
   },
 
   // Обёртка панели топлива игрока: прижимает её ближе к колоде/штабу снизу

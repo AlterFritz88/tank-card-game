@@ -133,6 +133,7 @@ const isCorner = (p: Position) =>
       ownerId: "bot",
       position: { row: 1, col: 2 },
       moveCountThisTurn: 2,
+      alreadyAttacked: true,
     })
   );
   const action = getNextBotAction(battle);
@@ -228,6 +229,136 @@ const isCorner = (p: Position) =>
     "ПТ-САУ: атака с тыла проходит без ответного урона",
     hpBefore !== undefined && hpAfter === hpBefore,
     `hp ${hpBefore} -> ${hpAfter}`
+  );
+}
+
+// G. Counter-battery is deployed when it disables meaningful indirect fire.
+{
+  const battle = makeBotBattle();
+  battle.bot.resources = 10;
+  battle.bot.maxResources = 10;
+  battle.bot.hand = [
+    { instanceId: "counter-card", cardId: "m72_recon" },
+    { instanceId: "medic-card", cardId: "gaz_55_ambulance" },
+  ];
+  battle.units.push(
+    makeUnit({
+      instanceId: "enemy-spg",
+      cardId: "su18",
+      ownerId: "player",
+      position: { row: 1, col: 1 },
+    })
+  );
+
+  const action = getNextBotAction(battle);
+  check(
+    "Counter-battery: bot deploys M-72 against an enemy SPG",
+    action?.type === "PLAY_SUPPORT_CARD" &&
+      action.cardInstanceId === "counter-card",
+    `got ${action?.type} ${
+      action && "cardInstanceId" in action ? action.cardInstanceId : ""
+    }`
+  );
+}
+
+// H. Destroying the final enemy emitter takes priority and restores the battery.
+{
+  const battle = makeBotBattle();
+  battle.units.push(
+    makeUnit({
+      instanceId: "striker",
+      cardId: "t34_76",
+      ownerId: "bot",
+      position: { row: 1, col: 2 },
+    }),
+    makeUnit({
+      instanceId: "enemy-counter",
+      cardId: "t27",
+      ownerId: "player",
+      position: { row: 1, col: 1 },
+    }),
+    makeUnit({
+      instanceId: "enemy-tank",
+      cardId: "t34_76",
+      ownerId: "player",
+      position: { row: 0, col: 1 },
+    }),
+    makeUnit({
+      instanceId: "own-spg",
+      cardId: "su_122",
+      ownerId: "bot",
+      position: { row: 0, col: 4 },
+      alreadyAttacked: true,
+      attackSuppressed: true,
+    })
+  );
+
+  const action = getNextBotAction(battle);
+  check(
+    "Counter-battery response: bot attacks the active emitter first",
+    action?.type === "ATTACK" && action.targetId === "enemy-counter",
+    `got ${action?.type} ${
+      action && "targetId" in action ? action.targetId : ""
+    }`
+  );
+}
+
+// I. Under suppression the bot deploys a raider instead of another silent SPG.
+{
+  const battle = makeBotBattle();
+  battle.bot.resources = 10;
+  battle.bot.maxResources = 10;
+  battle.bot.hand = [
+    { instanceId: "silent-spg", cardId: "su_122" },
+    { instanceId: "raider-card", cardId: "bt_5" },
+  ];
+  battle.units.push(
+    makeUnit({
+      instanceId: "enemy-counter",
+      cardId: "m72_recon",
+      ownerId: "player",
+      zone: "support",
+      supportSlot: 1,
+    })
+  );
+
+  const action = getNextBotAction(battle);
+  check(
+    "Counter-battery response: bot chooses a mobile raider over a suppressed SPG",
+    action?.type === "PLAY_CARD" && action.cardInstanceId === "raider-card",
+    `got ${action?.type} ${
+      action && "cardInstanceId" in action ? action.cardInstanceId : ""
+    }`
+  );
+}
+
+// J. A mobile unit starts a concrete route toward a rear counter-battery source.
+{
+  const battle = makeBotBattle();
+  battle.units.push(
+    makeUnit({
+      instanceId: "raider",
+      cardId: "bt_5",
+      ownerId: "bot",
+      position: { row: 0, col: 3 },
+      deployedThisTurn: true,
+    }),
+    makeUnit({
+      instanceId: "enemy-counter",
+      cardId: "m72_recon",
+      ownerId: "player",
+      zone: "support",
+      supportSlot: 1,
+    })
+  );
+
+  const action = getNextBotAction(battle);
+  check(
+    "Counter-battery response: mobile unit starts a raid on the emitter",
+    action?.type === "MOVE_UNIT" && action.position.col < 3,
+    `got ${action?.type} ${
+      action && "position" in action ? JSON.stringify(action.position) : ""
+    }`
   );
 }
 

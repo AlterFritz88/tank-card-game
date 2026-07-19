@@ -36,9 +36,13 @@ services:
       - key: PVP_MATCH_TOLERANCE_STEP_PCT
         value: "10"
       - key: PVP_MATCH_TOLERANCE_STEP_MS
-        value: "5000"
+        value: "8333"
       - key: PVP_MATCH_TOLERANCE_MAX_MS
+        value: "50000"
+      - key: PVP_FAKE_MATCH_MIN_WAIT_MS
         value: "30000"
+      - key: PVP_FAKE_MATCH_MAX_WAIT_MS
+        value: "41667"
       - key: PVP_MATCH_SWEEP_INTERVAL_MS
         value: "1000"
       - key: WS_MAX_MESSAGE_BYTES

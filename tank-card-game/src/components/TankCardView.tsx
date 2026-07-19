@@ -33,6 +33,7 @@ import classMedicEnemyIcon from "../assets/icons/classes/class-medic-enemy.webp"
 import blitzIcon from "../assets/icons/icons-for-units/blitz.webp";
 import brokenCatIcon from "../assets/icons/icons-for-units/broken_cat.webp";
 import cardPlusIcon from "../assets/icons/icons-for-units/card_plus.webp";
+import counterBatteryIcon from "../assets/icons/icons-for-units/contr-art.webp";
 import frontArmorIcon from "../assets/icons/icons-for-units/front_armor.webp";
 import fuelPlusIcon from "../assets/icons/icons-for-units/fuel_plus.webp";
 import longShotIcon from "../assets/icons/icons-for-units/long_shot.webp";
@@ -51,6 +52,9 @@ type TankCardViewProps = {
   disabled?: boolean;
   alreadyMoved?: boolean;
   alreadyAttacked?: boolean;
+  attackCountThisTurn?: number;
+  /** An armored car has already fired once and still has a legal follow-up target. */
+  canAttackAgain?: boolean;
   borderlessBoard?: boolean;
   suppressExhaustedDim?: boolean;
   /** Board unit is currently hidden by «Маскировка» (cover not yet broken). */
@@ -133,10 +137,12 @@ function getCardClassIcon(card: TankCard, ownerId: PlayerId) {
   return getBoardClassIcon(card.class, ownerId);
 }
 
+const BOARD_ABILITY_ICON_SIZE = 30;
+
 /** Stroke eye glyph for the «Маскировка» marker, styled like the settings icons. */
 function EyeIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true">
       <path
         d="M2 12s3.6-6.8 10-6.8S22 12 22 12s-3.6 6.8-10 6.8S2 12 2 12Z"
         fill="none"
@@ -167,6 +173,8 @@ export function TankCardView({
   disabled = false,
   alreadyMoved = false,
   alreadyAttacked = false,
+  attackCountThisTurn = 0,
+  canAttackAgain = false,
   borderlessBoard = false,
   suppressExhaustedDim = false,
   camouflaged = false,
@@ -189,7 +197,11 @@ export function TankCardView({
   const effectiveAttack = attackValue ?? card.attack;
   const attackDisplayValue =
     effectiveAttack > 0 ? effectiveAttack : printedCombatDamage;
+  const boardAttackSpent =
+    alreadyAttacked || (attackCountThisTurn > 0 && !canAttackAgain);
   const isHand = variant === "hand";
+  const isRearLineUnit =
+    card.deploymentZone === "support" || card.supportRole != null;
   const isBoardExhausted =
     !isHand && alreadyMoved && alreadyAttacked && !suppressExhaustedDim;
   const tankImage = getTankImage(card.id);
@@ -205,6 +217,8 @@ export function TankCardView({
   const hasFrontalArmor = (card.combatAbilities?.frontalArmor?.amount ?? 0) > 0;
   const hasSpecialArmor = (card.combatAbilities?.armorVsClass?.amount ?? 0) > 0;
   const hasLongShot = hasRangedStrike(card);
+  const hasCounterBattery =
+    card.onPlayEffects?.suppressEnemyIndirect === true;
 
   if (!isHand) {
     return (
@@ -269,22 +283,29 @@ export function TankCardView({
           {hasLongShot && (
             <img src={longShotIcon} alt="" title={`Дальний удар ${card.range}`} style={styles.boardAbilityIconImage} />
           )}
+          {hasCounterBattery && (
+            <img
+              src={counterBatteryIcon}
+              alt=""
+              title="Контрбатарея"
+              style={styles.boardAbilityIconImage}
+            />
+          )}
           {blitzAvailable && (
             <img src={blitzIcon} alt="" title="Блиц доступен" style={styles.boardAbilityIconImage} />
           )}
           {rushAvailable && (
             <img src={rushIcon} alt="" title="Прорыв не использован" style={styles.boardAbilityIconImage} />
           )}
+          {immobilized ? (
+            <img
+              src={brokenCatIcon}
+              alt=""
+              title="Обездвижен"
+              style={styles.boardAbilityIconImage}
+            />
+          ) : null}
         </div>
-
-        {immobilized ? (
-          <img
-            src={brokenCatIcon}
-            alt=""
-            title="Обездвижен"
-            style={styles.boardImmobilizedIcon}
-          />
-        ) : null}
 
         <div style={styles.boardTitleArea}>
           <div style={styles.boardTitleRow}>
@@ -295,6 +316,9 @@ export function TankCardView({
                 title={unitClass.label}
                 style={{
                   ...styles.boardClassIconImage,
+                  ...(card.class === "armored_car"
+                    ? styles.armoredCarClassIconImage
+                    : null),
                   ...(ownerId === "player" ? null : styles.enemyClassIconImage),
                 }}
                 draggable={false}
@@ -302,7 +326,7 @@ export function TankCardView({
             ) : null}
 
             <FitText
-              maxFontSize={10}
+              maxFontSize={12}
               minFontSize={6}
               ellipsis={false}
               style={styles.boardTitle}
@@ -319,7 +343,10 @@ export function TankCardView({
             mode="board"
             ownerId={ownerId}
             value={attackDisplayValue}
-            dimmed={alreadyAttacked}
+            dimmed={boardAttackSpent && !isRearLineUnit}
+            struckThrough={
+              !isRearLineUnit && boardAttackSpent
+            }
             title="Атака"
             gainEffect={attackChangeEffect}
           />
@@ -723,7 +750,7 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 2,
     pointerEvents: "none",
     borderRadius: 0,
-    mixBlendMode: "screen",
+    mixBlendMode: "normal",
   },
 
   boardExhaustedOverlay: {
@@ -751,45 +778,32 @@ const styles: Record<string, React.CSSProperties> = {
   boardAbilityIcons: {
     position: "absolute",
     right: 3,
-    top: -1,
-    zIndex: 7,
+    bottom: 3,
+    zIndex: 9,
     display: "flex",
     flexDirection: "row-reverse",
     alignItems: "center",
     gap: 0,
-    height: 20,
+    height: BOARD_ABILITY_ICON_SIZE,
     pointerEvents: "none",
   },
 
   boardAbilityIcon: {
-    flex: "0 0 17px",
+    flex: `0 0 ${BOARD_ABILITY_ICON_SIZE}px`,
     display: "grid",
     placeItems: "center",
-    width: 17,
-    height: 17,
-    color: "#f3e6c8",
+    width: BOARD_ABILITY_ICON_SIZE,
+    height: BOARD_ABILITY_ICON_SIZE,
+    color: "#ffffff",
     filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.7))",
     pointerEvents: "none",
   },
 
   boardAbilityIconImage: {
-    flex: "0 0 17px",
+    flex: `0 0 ${BOARD_ABILITY_ICON_SIZE}px`,
     display: "block",
-    width: 17,
-    height: 17,
-    objectFit: "contain",
-    filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.78))",
-    pointerEvents: "none",
-  },
-
-  boardImmobilizedIcon: {
-    position: "absolute",
-    right: 3,
-    bottom: 3,
-    zIndex: 9,
-    display: "block",
-    width: 17,
-    height: 17,
+    width: BOARD_ABILITY_ICON_SIZE,
+    height: BOARD_ABILITY_ICON_SIZE,
     objectFit: "contain",
     filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.78))",
     pointerEvents: "none",
@@ -797,12 +811,12 @@ const styles: Record<string, React.CSSProperties> = {
 
   boardFriendlyGradient: {
     background:
-      "linear-gradient(315deg, rgba(80, 255, 130, 0.28) 0%, rgba(80, 255, 130, 0.11) 25%, rgba(80, 255, 130, 0.025) 48%, rgba(80, 255, 130, 0) 72%), radial-gradient(circle at 100% 100%, rgba(80,255,130,0.12), transparent 48%)",
+      "linear-gradient(315deg, rgba(3, 25, 10, 0.92) 0%, rgba(8, 55, 22, 0.70) 10%, rgba(5, 25, 12, 0.65) 17%, rgba(0, 0, 0, 0) 25%)",
   },
 
   boardEnemyGradient: {
     background:
-      "linear-gradient(315deg, rgba(255, 70, 55, 0.30) 0%, rgba(255, 70, 55, 0.12) 25%, rgba(255, 70, 55, 0.03) 48%, rgba(255, 70, 55, 0) 72%), radial-gradient(circle at 100% 100%, rgba(255,70,55,0.13), transparent 48%)",
+      "linear-gradient(315deg, rgba(45, 4, 3, 0.92) 0%, rgba(95, 14, 10, 0.70) 10%, rgba(42, 7, 5, 0.65) 17%, rgba(0, 0, 0, 0) 25%)",
   },
 
   boardTitleArea: {
@@ -852,8 +866,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   boardClassIconImage: {
-    width: 14,
-    height: 14,
+    width: 20,
+    height: 20,
     objectFit: "contain",
     display: "block",
     flex: "0 0 auto",
@@ -861,6 +875,11 @@ const styles: Record<string, React.CSSProperties> = {
     "brightness(1.28) saturate(1.35) contrast(1.58) drop-shadow(0 1px 3px rgba(0,0,0,0.85))",
     pointerEvents: "none",
     userSelect: "none",
+  },
+
+  armoredCarClassIconImage: {
+    width: 17,
+    height: 17,
   },
 
   enemyClassIconImage: {

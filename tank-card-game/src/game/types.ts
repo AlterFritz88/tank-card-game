@@ -234,9 +234,8 @@ export type TankCard = {
     /** Headquarters health added when this unit enters the battlefield */
     hqProtection?: number;
     /**
-     * On deploy this turn, the enemy headquarters and every enemy SPG on the
-     * battlefield cannot attack until their next turn ends («Контрбатарейный
-     * огонь»).
+     * While this unit remains in play, the enemy headquarters and every enemy
+     * battlefield SPG cannot attack («Контрбатарея»).
      */
     suppressEnemyIndirect?: boolean;
     /**
@@ -417,8 +416,8 @@ export type HeadquartersState = {
 
   alreadyAttacked: boolean;
   /**
-   * «Контрбатарейный огонь»: this headquarters cannot attack until the end of
-   * its owner's next turn.
+   * «Контрбатарея»: this headquarters cannot attack while an enemy unit with
+   * the ability remains in play.
    */
   attackSuppressed?: boolean;
 };
@@ -498,8 +497,8 @@ export type BoardUnit = {
    */
   supplyHpApplied?: number;
   /**
-   * «Контрбатарейный огонь»: this SPG cannot attack until the end of its
-   * owner's next turn.
+   * «Контрбатарея»: this SPG cannot attack while an enemy unit with the ability
+   * remains in play.
    */
   attackSuppressed?: boolean;
   /**

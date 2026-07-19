@@ -56,10 +56,10 @@ export const CARD_UI = {
       fontWeight: 700,
       modes: {
         board: {
-          width: 25,
-          height: 25,
-          fontSize: 14,
-          fontWeight: 600,
+          width: 33,
+          height: 33,
+          fontSize: 18,
+          fontWeight: 800,
         },
         hand: {
           width: 29,
@@ -84,9 +84,9 @@ export const CARD_UI = {
       fontWeight: 700,
       modes: {
         board: {
-          width: 25,
-          height: 25,
-          fontSize: 14,
+          width: 31,
+          height: 31,
+          fontSize: 18,
           fontWeight: 600,
         },
       },

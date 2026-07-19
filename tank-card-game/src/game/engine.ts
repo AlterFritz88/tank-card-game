@@ -654,9 +654,58 @@ function isArmoredCarUnit(unit: BoardUnit): boolean {
   return isBattlefieldUnit(unit) && getCard(unit.cardId).class === "armored_car";
 }
 
-function isSuppressedSpgUnit(unit: BoardUnit): boolean {
+function hasCounterBatteryUnit(state: BattleState, ownerId: PlayerId): boolean {
+  return state.units.some(
+    (unit) =>
+      unit.ownerId === ownerId &&
+      unit.currentHp > 0 &&
+      getCard(unit.cardId).onPlayEffects?.suppressEnemyIndirect === true
+  );
+}
+
+function isCounterBatterySuppressed(
+  state: BattleState,
+  ownerId: PlayerId
+): boolean {
+  return hasCounterBatteryUnit(state, getOpponent(ownerId));
+}
+
+function syncCounterBatterySuppression(state: BattleState) {
+  for (const ownerId of ["player", "bot"] as const) {
+    const suppressed = isCounterBatterySuppressed(state, ownerId);
+    const headquarters = state.headquarters[ownerId];
+    const headquartersWasSuppressed = headquarters.attackSuppressed === true;
+
+    headquarters.attackSuppressed = suppressed;
+    if (suppressed) {
+      headquarters.alreadyAttacked = true;
+    } else if (headquartersWasSuppressed) {
+      headquarters.alreadyAttacked = false;
+    }
+
+    for (const unit of state.units) {
+      if (
+        unit.ownerId !== ownerId ||
+        !isBattlefieldUnit(unit) ||
+        getCard(unit.cardId).class !== "spg"
+      ) {
+        continue;
+      }
+
+      const unitWasSuppressed = unit.attackSuppressed === true;
+      unit.attackSuppressed = suppressed;
+      if (suppressed) {
+        unit.alreadyAttacked = true;
+      } else if (unitWasSuppressed) {
+        unit.alreadyAttacked = false;
+      }
+    }
+  }
+}
+
+function isSuppressedSpgUnit(state: BattleState, unit: BoardUnit): boolean {
   return (
-    unit.attackSuppressed === true &&
+    isCounterBatterySuppressed(state, unit.ownerId) &&
     isBattlefieldUnit(unit) &&
     getCard(unit.cardId).class === "spg"
   );
@@ -1116,6 +1165,7 @@ function beginBattle(
   state.status = "active";
   state.activePlayer = startingPlayer;
   state.turn = 1;
+  syncCounterBatterySuppression(state);
 
   for (const owner of ["player", "bot"] as const) {
     const generatedFuel = calculateFuelGeneration(state, owner);
@@ -1135,7 +1185,8 @@ function beginBattle(
   }
 
   for (const unit of state.units) {
-    unit.alreadyAttacked = isSupportUnit(unit) || isSuppressedSpgUnit(unit);
+    unit.alreadyAttacked =
+      isSupportUnit(unit) || isSuppressedSpgUnit(state, unit);
     // Preplaced approach-march breakdowns start pinned in place («Первые Пантеры»).
     unit.alreadyMoved =
       isSupportUnit(unit) || !!unit.immobilized || !!unit.onFire;
@@ -1195,6 +1246,7 @@ function beginBattle(
 
 function startTurn(state: BattleState, playerId: PlayerId) {
   const player = state[playerId];
+  syncCounterBatterySuppression(state);
 
   const generatedFuel = calculateFuelGeneration(state, playerId);
 
@@ -1259,7 +1311,8 @@ function startTurn(state: BattleState, playerId: PlayerId) {
       unit.wasStationaryLastTurn =
         unit.moveCountThisTurn === 0 && !unit.deployedThisTurn;
 
-      unit.alreadyAttacked = isSupportUnit(unit) || isSuppressedSpgUnit(unit);
+      unit.alreadyAttacked =
+        isSupportUnit(unit) || isSuppressedSpgUnit(state, unit);
       unit.alreadyMoved = isSupportUnit(unit);
       unit.spawnedThisTurn = false;
       unit.deployedThisTurn = false;
@@ -1459,6 +1512,18 @@ function applyFetchToHand(
   );
 }
 
+function applySuppressEnemyIndirect(
+  state: BattleState,
+  sourceCard: TankCard
+) {
+  syncCounterBatterySuppression(state);
+
+  addLog(
+    state,
+    `${sourceCard.name}: контрбатарея — пока юнит в строю, САУ и штаб противника не могут атаковать.`
+  );
+}
+
 function playCard(
   state: BattleState,
   action: Extract<BattleAction, { type: "PLAY_CARD" }>
@@ -1525,6 +1590,7 @@ function playCard(
   };
 
   state.units.push(unit);
+  syncCounterBatterySuppression(state);
   recordPlayedCard(state, action.playerId, card.id);
   applyCornerHpBonus(unit);
 
@@ -1570,26 +1636,7 @@ function playCard(
 
     // «Контрбатарейный огонь»: silence the enemy headquarters and SPGs.
     if (effects.suppressEnemyIndirect) {
-      const opponent = getOpponent(owner);
-
-      state.headquarters[opponent].attackSuppressed = true;
-      state.headquarters[opponent].alreadyAttacked = true;
-
-      for (const enemyUnit of state.units) {
-        if (
-          enemyUnit.ownerId === opponent &&
-          isBattlefieldUnit(enemyUnit) &&
-          getCard(enemyUnit.cardId).class === "spg"
-        ) {
-          enemyUnit.attackSuppressed = true;
-          enemyUnit.alreadyAttacked = true;
-        }
-      }
-
-      addLog(
-        state,
-        `${card.name}: контрбатарейный огонь — САУ и штаб противника не могут атаковать.`
-      );
+      applySuppressEnemyIndirect(state, card);
     }
 
     // «Огневой налёт»: deal damage to enemy battlefield units on deploy.
@@ -1697,6 +1744,7 @@ function playSupportCard(
     moveCountThisTurn: 0,
     tdAmbushUsedThisTurn: false,
   });
+  syncCounterBatterySuppression(state);
   recordPlayedCard(state, action.playerId, card.id);
 
   // «Пополнение»: support units can also fetch a card into hand on deploy.
@@ -1707,6 +1755,11 @@ function playSupportCard(
   // «Огневой налёт»: a support gun can shell enemy units on deploy.
   if (card.onPlayEffects?.deployDamage && card.onPlayEffects.deployDamage.amount > 0) {
     applyDeployDamage(state, action.playerId, card, card.onPlayEffects.deployDamage);
+  }
+
+  // Counter-battery fire also triggers for units deployed to the support line.
+  if (card.onPlayEffects?.suppressEnemyIndirect) {
+    applySuppressEnemyIndirect(state, card);
   }
 
   markSuccessfulAction(state, action.playerId);
@@ -2227,19 +2280,21 @@ function canUnitAttackTarget(
 }
 
 function canAttackTarget(
-  _state: BattleState,
+  state: BattleState,
   attacker: ReturnType<typeof getAttacker>,
   target: ReturnType<typeof getTarget>
 ): boolean {
   if (!attacker || !target) return false;
   if ("cardId" in attacker && isSupportUnit(attacker)) return false;
 
-  // «Контрбатарейный огонь»: suppressed headquarters / SPG cannot attack.
-  if ("cardId" in attacker) {
-    if (getCard(attacker.cardId).class === "spg" && attacker.attackSuppressed) {
-      return false;
-    }
-  } else if (attacker.attackSuppressed) {
+  // «Контрбатарея»: while an enemy unit with this ability remains in play,
+  // headquarters and battlefield SPGs cannot attack.
+  const attackerUsesIndirectFire =
+    !("cardId" in attacker) || getCard(attacker.cardId).class === "spg";
+  if (
+    attackerUsesIndirectFire &&
+    isCounterBatterySuppressed(state, attacker.ownerId)
+  ) {
     return false;
   }
 
@@ -2692,6 +2747,7 @@ function destroyUnit(
   state.units = state.units.filter(
     (item) => item.instanceId !== unit.instanceId
   );
+  syncCounterBatterySuppression(state);
 
   addLog(state, `${card.name} ${reason}`);
 
@@ -3674,12 +3730,6 @@ function endTurn(state: BattleState, playerId: PlayerId) {
 
   state.timers[playerId].actedThisStep = true;
   state.timers[playerId].stepTimeLeftMs = STEP_TIME_MS;
-
-  // «Контрбатарейный огонь» wears off at the end of the suppressed side's turn.
-  state.headquarters[playerId].attackSuppressed = false;
-  for (const unit of state.units) {
-    if (unit.ownerId === playerId) unit.attackSuppressed = false;
-  }
 
   const nextPlayer = getOpponent(playerId);
 

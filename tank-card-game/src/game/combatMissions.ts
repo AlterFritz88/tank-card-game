@@ -16,7 +16,22 @@ export type CombatMissionMetric =
   | "played_heavy"
   | "played_support"
   | "played_transport"
-  | "wins_nation";
+  | "wins_nation"
+  | "radio_turns_completed"
+  | "radio_cards_played"
+  | "radio_units_destroyed"
+  | "radio_turns_without_timeout"
+  | "radio_duels_completed"
+  | "radio_duels_won";
+
+export type RadioDuelMissionEvent = {
+  turnsCompleted?: number;
+  cardsPlayed?: number;
+  unitsDestroyed?: number;
+  turnsWithoutTimeout?: number;
+  duelsCompleted?: number;
+  duelsWon?: number;
+};
 
 export type CombatMissionDefinition = {
   id: string;
@@ -104,6 +119,18 @@ function formatRussianMissionDescription(
       const headquarters = nation ? headquartersByNation[nation] : "выбранный штаб";
       return `Одержите ${target} ${pluralRu(target, "победу", "победы", "побед")}, играя за ${headquarters}`;
     }
+    case "radio_turns_completed":
+      return `Завершите ${target} ${pluralRu(target, "свой ход", "своих хода", "своих ходов")} в радиодуэлях`;
+    case "radio_cards_played":
+      return `Разыграйте ${target} ${pluralRu(target, "карту", "карты", "карт")} в радиодуэлях`;
+    case "radio_units_destroyed":
+      return `Уничтожьте ${target} ${pluralRu(target, "вражеский юнит", "вражеских юнита", "вражеских юнитов")} в радиодуэлях`;
+    case "radio_turns_without_timeout":
+      return `Завершите ${target} ${pluralRu(target, "ход", "хода", "ходов")} в радиодуэлях без штрафа за время`;
+    case "radio_duels_completed":
+      return `Завершите ${target} ${pluralRu(target, "радиодуэль", "радиодуэли", "радиодуэлей")}`;
+    case "radio_duels_won":
+      return `Победите в ${target} ${pluralRu(target, "радиодуэли", "радиодуэлях", "радиодуэлях")}`;
   }
 }
 
@@ -137,6 +164,12 @@ function formatEnglishMissionDescription(
       const headquarters = nation ? headquartersByNation[nation] : "selected";
       return `Win ${target} ${plural("battle")} with a ${headquarters} headquarters`;
     }
+    case "radio_turns_completed": return `Complete ${target} of your turns in radio duels`;
+    case "radio_cards_played": return `Play ${target} ${plural("card")} in radio duels`;
+    case "radio_units_destroyed": return `Destroy ${target} enemy ${plural("unit")} in radio duels`;
+    case "radio_turns_without_timeout": return `Complete ${target} ${plural("turn")} in radio duels without a timeout penalty`;
+    case "radio_duels_completed": return `Complete ${target} radio ${plural("duel")}`;
+    case "radio_duels_won": return `Win ${target} radio ${plural("duel")}`;
   }
 }
 
@@ -154,6 +187,16 @@ const definition = (
     },
   };
 };
+
+const radioDefinition = (
+  value: Omit<CombatMissionDefinition, "description">
+): CombatMissionDefinition => ({
+  ...value,
+  description: {
+    ru: formatRussianMissionDescription(value.metric, value.target, value.nation),
+    en: formatEnglishMissionDescription(value.metric, value.target, value.nation),
+  },
+});
 
 export const COMBAT_MISSION_DEFINITIONS: CombatMissionDefinition[] = [
   definition({ id: "daily_battle_shift", period: "daily", slot: "general", metric: "battles", target: 3, reward: 10, title: { ru: "Боевая смена", en: "Combat Shift" }, description: { ru: "Проведите 3 боя", en: "Play 3 battles" } }),
@@ -185,12 +228,37 @@ export const COMBAT_MISSION_DEFINITIONS: CombatMissionDefinition[] = [
   definition({ id: "weekly_heavy_echelon", period: "weekly", slot: "deployment", metric: "played_heavy", target: 20, reward: 120, title: { ru: "Тяжёлый эшелон", en: "Heavy Echelon" }, description: { ru: "Разыграйте 20 тяжёлых танков", en: "Play 20 heavy tanks" } }),
   definition({ id: "weekly_lifeline", period: "weekly", slot: "deployment", metric: "played_transport", target: 20, reward: 120, title: { ru: "Дорога жизни", en: "Lifeline" }, description: { ru: "Разыграйте 20 грузовиков снабжения", en: "Play 20 supply transports" } }),
   definition({ id: "weekly_logistics", period: "weekly", slot: "deployment", metric: "played_support", target: 30, reward: 90, title: { ru: "Военная логистика", en: "Military Logistics" }, description: { ru: "Разыграйте 30 юнитов поддержки", en: "Play 30 support units" } }),
+
+  radioDefinition({ id: "daily_radio_contact", period: "daily", slot: "general", metric: "radio_turns_completed", target: 2, reward: 150, title: { ru: "Сеанс связи", en: "Radio Contact" } }),
+  radioDefinition({ id: "daily_radio_received", period: "daily", slot: "deployment", metric: "radio_cards_played", target: 5, reward: 150, title: { ru: "Передача принята", en: "Message Received" } }),
+  radioDefinition({ id: "daily_radio_return_fire", period: "daily", slot: "destruction", metric: "radio_units_destroyed", target: 3, reward: 200, title: { ru: "Ответный огонь", en: "Return Fire" } }),
+  radioDefinition({ id: "daily_radio_clear_signal", period: "daily", slot: "general", metric: "radio_turns_without_timeout", target: 2, reward: 200, title: { ru: "Без помех", en: "Clear Signal" } }),
+
+  radioDefinition({ id: "weekly_radio_watch", period: "weekly", slot: "general", metric: "radio_turns_completed", target: 12, reward: 900, title: { ru: "Радиовахта", en: "Radio Watch" } }),
+  radioDefinition({ id: "weekly_radio_duel_complete", period: "weekly", slot: "general", metric: "radio_duels_completed", target: 2, reward: 1000, title: { ru: "Дуэль окончена", en: "Duel Complete" } }),
+  radioDefinition({ id: "weekly_radio_victory", period: "weekly", slot: "general", metric: "radio_duels_won", target: 1, reward: 1200, title: { ru: "Победа в эфире", en: "Victory on the Air" } }),
+  radioDefinition({ id: "weekly_radio_suppression", period: "weekly", slot: "destruction", metric: "radio_units_destroyed", target: 15, reward: 900, title: { ru: "Подавление противника", en: "Enemy Suppression" } }),
 ];
 
 const DEFINITIONS_BY_ID = new Map(COMBAT_MISSION_DEFINITIONS.map((item) => [item.id, item]));
 
 export function getCombatMissionDefinition(id: string): CombatMissionDefinition | null {
   return DEFINITIONS_BY_ID.get(id) ?? null;
+}
+
+function isRadioMissionDefinition(
+  mission: CombatMissionDefinition
+): boolean {
+  return mission.metric.startsWith("radio_");
+}
+
+function combatMissionSetHasRadioMission(set: CombatMissionSet | null): boolean {
+  return Boolean(
+    set?.missions.some((mission) => {
+      const definition = getCombatMissionDefinition(mission.id);
+      return definition ? isRadioMissionDefinition(definition) : false;
+    })
+  );
 }
 
 export function getCombatMissionPeriodKey(period: CombatMissionPeriod, now = Date.now()): string {
@@ -233,6 +301,7 @@ export function createCombatMissionSet(input: {
   period: CombatMissionPeriod;
   playerKey: string;
   unlockedHeadquartersIds: HeadquartersId[];
+  includeRadioMission?: boolean;
   now?: number;
 }): CombatMissionSet {
   const now = input.now ?? Date.now();
@@ -242,11 +311,34 @@ export function createCombatMissionSet(input: {
   );
   const missions = (["general", "destruction", "deployment"] as const).map((slot) => {
     const candidates = COMBAT_MISSION_DEFINITIONS.filter(
-      (item) => item.period === input.period && item.slot === slot && (!item.nation || unlockedNations.has(item.nation))
+      (item) =>
+        item.period === input.period &&
+        item.slot === slot &&
+        !isRadioMissionDefinition(item) &&
+        (!item.nation || unlockedNations.has(item.nation))
     );
     const selected = pickDefinition(candidates, `${input.playerKey}:${periodKey}:${slot}`);
     return { id: selected.id, progress: 0, completedAt: null };
   });
+
+  if (input.includeRadioMission) {
+    const radioCandidates = COMBAT_MISSION_DEFINITIONS.filter(
+      (item) => item.period === input.period && isRadioMissionDefinition(item)
+    );
+    if (radioCandidates.length > 0) {
+      const selected = pickDefinition(
+        radioCandidates,
+        `${input.playerKey}:${periodKey}:radio`
+      );
+      const slotIndex = (["general", "destruction", "deployment"] as const)
+        .indexOf(selected.slot);
+      missions[slotIndex] = {
+        id: selected.id,
+        progress: 0,
+        completedAt: null,
+      };
+    }
+  }
 
   return { periodKey, expiresAt: getCombatMissionExpiry(input.period, now), missions };
 }
@@ -291,13 +383,51 @@ export function refreshCombatMissions<T extends {
   combatMissions: CombatMissionsState;
 }>(profile: T, playerKey: string, now = Date.now()): T {
   if (!profile.tutorialCompleted) return profile;
-  let daily = profile.combatMissions.daily;
-  let weekly = profile.combatMissions.weekly;
-  if (!daily || daily.periodKey !== getCombatMissionPeriodKey("daily", now)) {
-    daily = createCombatMissionSet({ period: "daily", playerKey, unlockedHeadquartersIds: profile.unlockedHeadquartersIds, now });
+  const dailyPeriodKey = getCombatMissionPeriodKey("daily", now);
+  const weeklyPeriodKey = getCombatMissionPeriodKey("weekly", now);
+  let daily = profile.combatMissions.daily?.periodKey === dailyPeriodKey
+    ? profile.combatMissions.daily
+    : null;
+  let weekly = profile.combatMissions.weekly?.periodKey === weeklyPeriodKey
+    ? profile.combatMissions.weekly
+    : null;
+
+  const registeredPlayer = playerKey.startsWith("user:");
+  const radioMissionAlreadyActive =
+    combatMissionSetHasRadioMission(daily) ||
+    combatMissionSetHasRadioMission(weekly);
+  let radioMissionPeriod: CombatMissionPeriod | null = null;
+
+  if (registeredPlayer && !radioMissionAlreadyActive) {
+    if (!daily && !weekly) {
+      radioMissionPeriod =
+        hashText(`${playerKey}:${weeklyPeriodKey}:radio-period`) % 2 === 0
+          ? "daily"
+          : "weekly";
+    } else if (!daily) {
+      radioMissionPeriod = "daily";
+    } else if (!weekly) {
+      radioMissionPeriod = "weekly";
+    }
   }
-  if (!weekly || weekly.periodKey !== getCombatMissionPeriodKey("weekly", now)) {
-    weekly = createCombatMissionSet({ period: "weekly", playerKey, unlockedHeadquartersIds: profile.unlockedHeadquartersIds, now });
+
+  if (!daily) {
+    daily = createCombatMissionSet({
+      period: "daily",
+      playerKey,
+      unlockedHeadquartersIds: profile.unlockedHeadquartersIds,
+      includeRadioMission: radioMissionPeriod === "daily",
+      now,
+    });
+  }
+  if (!weekly) {
+    weekly = createCombatMissionSet({
+      period: "weekly",
+      playerKey,
+      unlockedHeadquartersIds: profile.unlockedHeadquartersIds,
+      includeRadioMission: radioMissionPeriod === "weekly",
+      now,
+    });
   }
   return { ...profile, combatMissions: { daily, weekly } };
 }
@@ -330,7 +460,75 @@ function missionDelta(
     case "played_heavy": return played?.heavy ?? 0;
     case "played_support": return played?.support ?? 0;
     case "played_transport": return played?.transport ?? 0;
+    case "radio_turns_completed":
+    case "radio_cards_played":
+    case "radio_units_destroyed":
+    case "radio_turns_without_timeout":
+    case "radio_duels_completed":
+    case "radio_duels_won":
+      return 0;
   }
+}
+
+function radioMissionDelta(
+  mission: CombatMissionDefinition,
+  event: RadioDuelMissionEvent
+): number {
+  switch (mission.metric) {
+    case "radio_turns_completed": return event.turnsCompleted ?? 0;
+    case "radio_cards_played": return event.cardsPlayed ?? 0;
+    case "radio_units_destroyed": return event.unitsDestroyed ?? 0;
+    case "radio_turns_without_timeout": return event.turnsWithoutTimeout ?? 0;
+    case "radio_duels_completed": return event.duelsCompleted ?? 0;
+    case "radio_duels_won": return event.duelsWon ?? 0;
+    default: return 0;
+  }
+}
+
+export function applyRadioDuelToCombatMissions<T extends {
+  tutorialCompleted: boolean;
+  unlockedHeadquartersIds: HeadquartersId[];
+  combatMissions: CombatMissionsState;
+  ironTracks: number;
+}>(
+  profile: T,
+  playerKey: string,
+  event: RadioDuelMissionEvent,
+  now = Date.now()
+): T {
+  if (!profile.tutorialCompleted || !playerKey.startsWith("user:")) {
+    return profile;
+  }
+
+  const refreshed = refreshCombatMissions(profile, playerKey, now);
+  let earnedTracks = 0;
+  const updateSet = (set: CombatMissionSet | null): CombatMissionSet | null =>
+    set
+      ? {
+          ...set,
+          missions: set.missions.map((mission) => {
+            if (mission.completedAt) return mission;
+            const task = getCombatMissionDefinition(mission.id);
+            if (!task || !isRadioMissionDefinition(task)) return mission;
+            const progress = Math.min(
+              task.target,
+              mission.progress + radioMissionDelta(task, event)
+            );
+            if (progress < task.target) return { ...mission, progress };
+            earnedTracks += task.reward;
+            return { ...mission, progress, completedAt: now };
+          }),
+        }
+      : null;
+
+  const daily = updateSet(refreshed.combatMissions.daily);
+  const weekly = updateSet(refreshed.combatMissions.weekly);
+
+  return {
+    ...refreshed,
+    ironTracks: refreshed.ironTracks + earnedTracks,
+    combatMissions: { daily, weekly },
+  };
 }
 
 export function applyBattleToCombatMissions<T extends {

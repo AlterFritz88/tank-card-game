@@ -56,7 +56,7 @@ export const TUTORIAL_BOT_DECK: string[] = [
   "leig_18",
 ];
 
-/** Fixed reward for finishing the tutorial: first XP, iron and a few gold tracks. */
+/** Tutorial reward; profile logic removes gold tracks on repeat completions. */
 export const TUTORIAL_REWARD: BattleReward = {
   headquartersId: TUTORIAL_PLAYER_HEADQUARTERS_ID,
   rawHeadquartersXp: 120,

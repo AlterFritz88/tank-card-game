@@ -66,6 +66,23 @@ function isRearAttackOnEnemyTd(
   );
 }
 
+function isFrontalArmoredCarAttack(
+  attackerPosition: Position,
+  target: BoardUnit
+): boolean {
+  if (!isBattlefieldUnit(target)) return false;
+
+  const targetClass = getCard(target.cardId).class;
+  if (targetClass === "spg" || targetClass === "armored_car") return false;
+
+  const targetFrontDirection = target.ownerId === "player" ? 1 : -1;
+  return (
+    attackerPosition.row === target.position.row &&
+    Math.sign(attackerPosition.col - target.position.col) ===
+      targetFrontDirection
+  );
+}
+
 function isBotSpawnCell(position: Position): boolean {
   return BOT_SPAWN_CELLS.some((cell) => samePosition(cell, position));
 }
@@ -103,6 +120,97 @@ function moveEnablesAttack(
       isBattlefieldUnit(unit) &&
       canCardAttackPosition(card.id, cell, unit.position)
   );
+}
+
+function isCounterBatteryCard(card: TankCard): boolean {
+  return card.onPlayEffects?.suppressEnemyIndirect === true;
+}
+
+function getCounterBatteryUnits(
+  state: BattleState,
+  ownerId: Side
+): BoardUnit[] {
+  return state.units.filter(
+    (unit) =>
+      unit.ownerId === ownerId &&
+      unit.currentHp > 0 &&
+      isCounterBatteryCard(getCard(unit.cardId))
+  );
+}
+
+/**
+ * Strategic value of the firepower disabled by enemy counter-battery. This is
+ * intentionally based on the whole surviving battery, not only attacks still
+ * unused this turn: keeping the aura alive matters on every following turn.
+ */
+function getIndirectFireStrategicValue(
+  state: BattleState,
+  ownerId: Side
+): number {
+  const headquartersValue = Math.max(0, state.headquarters[ownerId].attack) * 6;
+  const spgValue = state.units
+    .filter(
+      (unit) =>
+        unit.ownerId === ownerId &&
+        unit.currentHp > 0 &&
+        isBattlefieldSpg(getCard(unit.cardId))
+    )
+    .reduce((total, unit) => {
+      const card = getCard(unit.cardId);
+      return total + card.attack * 9 + Math.min(card.hp, unit.currentHp) * 2;
+    }, 0);
+
+  return headquartersValue + spgValue;
+}
+
+function getCounterBatteryAbilityValue(
+  state: BattleState,
+  card: TankCard
+): number {
+  if (!isCounterBatteryCard(card)) return 0;
+
+  const activeSources = getCounterBatteryUnits(state, "bot");
+
+  // The aura does not stack. A second source may still be useful for its other
+  // abilities, but the bot must not overvalue the duplicated suppression.
+  if (activeSources.length > 0) {
+    const onlySourceIsDamaged =
+      activeSources.length === 1 &&
+      activeSources[0].currentHp <= Math.ceil(getCard(activeSources[0].cardId).hp / 2);
+
+    return onlySourceIsDamaged ? 4 : -16;
+  }
+
+  const enemyIndirectValue = getIndirectFireStrategicValue(state, "player");
+  return enemyIndirectValue > 0 ? 14 + enemyIndirectValue : 4;
+}
+
+/**
+ * When the bot is suppressed, cards capable of reaching the enemy rear become
+ * more valuable, while another SPG would enter play unable to fire.
+ */
+function getCounterBatteryResponseCardBonus(
+  state: BattleState,
+  card: TankCard
+): number {
+  if (getCounterBatteryUnits(state, "player").length === 0) return 0;
+
+  if (isBattlefieldSpg(card)) {
+    return isCounterBatteryCard(card) ? -22 : -72;
+  }
+
+  if (card.deploymentZone === "support") return 0;
+
+  const rearStrikeDamage =
+    card.onPlayEffects?.deployDamage?.scope === "rear"
+      ? card.onPlayEffects.deployDamage.amount * 24
+      : 0;
+  const raiderBonus =
+    (card.class === "armored_car" ? 34 : 0) +
+    (card.class === "light" ? 16 : 0) +
+    (card.combatAbilities?.blitz ? 20 : 0);
+
+  return rearStrikeDamage + raiderBonus + card.movement * 4 + card.attack * 2;
 }
 
 /**
@@ -174,19 +282,7 @@ function getCardAbilityValue(state: BattleState, card: TankCard): number {
 
       value += 4 + deploy.amount * hitCount * 6;
     }
-    if (onPlay.suppressEnemyIndirect) {
-      const enemySpgs = state.units.filter(
-        (unit) =>
-          unit.ownerId === "player" &&
-          isBattlefieldUnit(unit) &&
-          getCard(unit.cardId).class === "spg"
-      ).length;
-
-      value +=
-        10 +
-        enemySpgs * 14 +
-        (state.headquarters.player.alreadyAttacked ? 0 : 6);
-    }
+    value += getCounterBatteryAbilityValue(state, card);
   }
 
   if (card.costModifiers) value += 4;
@@ -254,6 +350,7 @@ function getClassThreatBonus(cardId: string): number {
   if (card.class === "td") return 6;
   if (card.class === "heavy") return 5;
   if (card.class === "medium") return 3;
+  if (card.class === "armored_car") return 8;
   return 1;
 }
 
@@ -287,14 +384,33 @@ function getBotBattlefieldSpgs(state: BattleState): BoardUnit[] {
   });
 }
 
+function getCounterBatteryThreatBonus(
+  state: BattleState,
+  unit: BoardUnit
+): number {
+  if (!isCounterBatteryCard(getCard(unit.cardId))) return 0;
+
+  const sources = getCounterBatteryUnits(state, unit.ownerId);
+  const suppressedSide: Side = unit.ownerId === "player" ? "bot" : "player";
+  const disabledFirepower = getIndirectFireStrategicValue(state, suppressedSide);
+
+  // Destroying the final source immediately restores the HQ and every SPG, so
+  // the last active emitter is substantially more important than a redundant
+  // second copy.
+  return sources.length <= 1
+    ? 38 + disabledFirepower
+    : 14 + Math.round(disabledFirepower / sources.length);
+}
+
 function getUnitThreatScore(state: BattleState, unit: BoardUnit): number {
   const card = getCard(unit.cardId);
   const supportValue = getSupportUnitValue(card);
+  const counterBatteryValue = getCounterBatteryThreatBonus(state, unit);
 
   if (supportValue > 0) {
     const damagedBonus = Math.max(0, card.hp - unit.currentHp);
 
-    return supportValue + damagedBonus * 3;
+    return supportValue + damagedBonus * 3 + counterBatteryValue;
   }
 
   const distanceToBotHq = getDistance(
@@ -315,6 +431,7 @@ function getUnitThreatScore(state: BattleState, unit: BoardUnit): number {
     card.range * 2 +
     card.movement +
     getClassThreatBonus(unit.cardId) +
+    counterBatteryValue +
     distancePressure +
     damagedBonus +
     (canAttackBotHq ? 18 : 0)
@@ -496,6 +613,8 @@ function scoreCardForCurrentBattle(state: BattleState, cardId: string): number {
     return (
       scoreCardForBot(cardId) +
       getContextualSupportCardBonus(state, card) +
+      getCardAbilityValue(state, card) +
+      getCounterBatteryResponseCardBonus(state, card) +
       getSystemSupportBonus(state, getBotNationalAbility(state)) +
       (getEffectiveCardCost(state, "bot", cardId) <= state.bot.resources
         ? 3
@@ -508,6 +627,7 @@ function scoreCardForCurrentBattle(state: BattleState, cardId: string): number {
     card.fuelGeneration * economyMultiplier +
     getSpgProtectionCardBonus(state, card) +
     getCardAbilityValue(state, card) +
+    getCounterBatteryResponseCardBonus(state, card) +
     (needsBoard ? card.hp + card.attack * 2 : 0) +
     (getEffectiveCardCost(state, "bot", cardId) <= state.bot.resources ? 2 : 0)
   );
@@ -767,6 +887,7 @@ function scoreAttackAction(
 
     if (action.attackerType === "unit") {
       const attacker = getBotUnitById(state, action.attackerId);
+      const attackerDefinition = attacker ? getCard(attacker.cardId) : null;
 
       if (
         attacker &&
@@ -782,6 +903,10 @@ function scoreAttackAction(
             ? 42
             : 10;
       }
+
+      // Armored cars are raiders: reaching the headquarters is the payoff for
+      // their mobility and often preserves a second strike against the rear.
+      if (attackerDefinition?.class === "armored_car") score += 24;
     }
 
     score += 8;
@@ -832,6 +957,35 @@ function scoreAttackAction(
       }
     }
 
+    if (enemyCard.class === "armored_car") {
+      // A surviving armored car can cross several cells and attack twice in the
+      // rear. Value that operational threat instead of treating it like an
+      // ordinary low-HP light unit.
+      score += 16 + enemyCard.movement * 3;
+      if (
+        getDistance(enemyUnit.position, state.headquarters.bot.position) <= 3
+      ) {
+        score += 18;
+      }
+      if (outcome.targetDestroyed) score += 14;
+    }
+
+    if (attackerDefinition?.class === "armored_car" && attackerCard) {
+      if (isSupportUnit(enemyUnit)) {
+        score += 34;
+      } else if (enemyCard.class === "spg") {
+        score += 26;
+      } else if (enemyCard.class === "armored_car") {
+        score += 8;
+      } else if (isFrontalArmoredCarAttack(attackerCard.position, enemyUnit)) {
+        // The combat rules already reduce frontal armored-car fire. The planner
+        // should actively seek a flank instead of accepting a poor legal trade.
+        score -= 28;
+      } else {
+        score += 22;
+      }
+    }
+
     // A rear attack on a TD is materially safer than an equally damaging
     // frontal attack: it avoids both the pre-emptive ambush and return fire.
     // Keep an explicit bonus in addition to the zero attackerDamage already
@@ -850,6 +1004,85 @@ function scoreAttackAction(
   }
 
   return score;
+}
+
+/** Best currently legal strike against an enemy counter-battery source. */
+function getCounterBatteryResponseAttackAction(
+  state: BattleState
+): BattleAction | null {
+  const sourceIds = new Set(
+    getCounterBatteryUnits(state, "player").map((unit) => unit.instanceId)
+  );
+  if (sourceIds.size === 0) return null;
+
+  const candidates: { action: AttackAction; score: number }[] = [];
+  const consider = (action: AttackAction) => {
+    if (action.targetType !== "unit" || !sourceIds.has(action.targetId)) return;
+
+    const outcome = getAttackOutcome(state, action);
+    const baseScore = scoreAttackAction(state, action);
+    if (!outcome || baseScore === null) return;
+
+    const restoresAllFire = sourceIds.size === 1 && outcome.targetDestroyed;
+    candidates.push({
+      action,
+      score:
+        baseScore +
+        (outcome.targetDestroyed ? 48 : 12) +
+        (restoresAllFire
+          ? 90 + getIndirectFireStrategicValue(state, "bot")
+          : 0),
+    });
+  };
+
+  for (const unit of state.units) {
+    if (
+      unit.ownerId !== "bot" ||
+      !isBattlefieldUnit(unit) ||
+      unit.alreadyAttacked
+    ) {
+      continue;
+    }
+
+    for (const target of getTargetsInRange(
+      state,
+      "bot",
+      "unit",
+      unit.instanceId
+    )) {
+      if (target.type !== "unit") continue;
+      consider({
+        type: "ATTACK",
+        playerId: "bot",
+        attackerType: "unit",
+        attackerId: unit.instanceId,
+        targetType: "unit",
+        targetId: target.id,
+      });
+    }
+  }
+
+  if (!state.headquarters.bot.alreadyAttacked) {
+    for (const target of getTargetsInRange(
+      state,
+      "bot",
+      "headquarters",
+      "bot_hq"
+    )) {
+      if (target.type !== "unit") continue;
+      consider({
+        type: "ATTACK",
+        playerId: "bot",
+        attackerType: "headquarters",
+        attackerId: "bot_hq",
+        targetType: "unit",
+        targetId: target.id,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.action ?? null;
 }
 
 function getSpgPositionScore(state: BattleState, position: Position): number {
@@ -1343,6 +1576,27 @@ function getSystemSupportBonus(
   return 4;
 }
 
+function getCounterBatteryDeploymentSafetyBonus(
+  state: BattleState,
+  card: TankCard,
+  cell: Position
+): number {
+  if (!isCounterBatteryCard(card) || card.deploymentZone === "support") return 0;
+
+  const enemies = state.units.filter(
+    (unit) => unit.ownerId === "player" && isBattlefieldUnit(unit)
+  );
+  if (enemies.length === 0) return 0;
+
+  const nearestEnemyDistance = Math.min(
+    ...enemies.map((unit) => getChebyshevDistance(cell, unit.position))
+  );
+
+  // A battlefield emitter is more useful alive than trading immediately. Keep
+  // it on the quieter spawn flank unless that would forgo a concrete attack.
+  return nearestEnemyDistance * 9;
+}
+
 function getPlayActionForCandidate(
   state: BattleState,
   bestCard: PlayableCardCandidate
@@ -1387,6 +1641,8 @@ function getPlayActionForCandidate(
         card,
         cell
       );
+      const counterBatterySafetyBonus =
+        getCounterBatteryDeploymentSafetyBonus(state, card, cell);
       // A fresh unit can complete a «Сплочение» column / «Линия снабжения» row or
       // help man the spawn for «Глухая оборона» — value the spot accordingly.
       const formationBonus = getNationalFormationCellValue(
@@ -1401,7 +1657,8 @@ function getPlayActionForCandidate(
           : offensiveBonus +
             defensiveBonus +
             economyCardBonus +
-            spgProtectionBonus) + formationBonus;
+            spgProtectionBonus +
+            counterBatterySafetyBonus) + formationBonus;
 
       return {
         cell,
@@ -1524,6 +1781,12 @@ function getNormalAttackAction(
 }
 
 function getEasyBotAction(state: BattleState): BattleAction | null {
+  const counterBatteryAttack = getCounterBatteryResponseAttackAction(state);
+  if (counterBatteryAttack) return counterBatteryAttack;
+
+  const counterBatteryMove = getCounterBatteryResponseMoveAction(state);
+  if (counterBatteryMove) return counterBatteryMove;
+
   if (shouldPrioritizeSpawn(state)) {
     const playCardAction = getStrategicPlayCardAction(state);
     if (playCardAction) return playCardAction;
@@ -1546,6 +1809,12 @@ function getEasyBotAction(state: BattleState): BattleAction | null {
 function getMediumBotAction(state: BattleState): BattleAction | null {
   const lethalAttack = getLethalAttackAction(state);
   if (lethalAttack) return lethalAttack;
+
+  const counterBatteryAttack = getCounterBatteryResponseAttackAction(state);
+  if (counterBatteryAttack) return counterBatteryAttack;
+
+  const counterBatteryMove = getCounterBatteryResponseMoveAction(state);
+  if (counterBatteryMove) return counterBatteryMove;
 
   const killUnitAttack = getKillUnitAttackAction(state);
   if (killUnitAttack) return killUnitAttack;
@@ -1576,6 +1845,12 @@ function getHardBotAction(state: BattleState): BattleAction | null {
   const headquartersPressureAttack = getHeadquartersPressureAttackAction(state);
   if (headquartersPressureAttack) return headquartersPressureAttack;
 
+  const counterBatteryAttack = getCounterBatteryResponseAttackAction(state);
+  if (counterBatteryAttack) return counterBatteryAttack;
+
+  const counterBatteryMove = getCounterBatteryResponseMoveAction(state);
+  if (counterBatteryMove) return counterBatteryMove;
+
   const killUnitAttack = getKillUnitAttackAction(state);
   if (killUnitAttack) return killUnitAttack;
 
@@ -1599,6 +1874,7 @@ function getHardBotAction(state: BattleState): BattleAction | null {
 type TacticalMovePlan = {
   score: number;
   extraMoves: number;
+  attacksHeadquarters: boolean;
   attacksRearUnit: boolean;
   attacksTdFromRear: boolean;
 };
@@ -1606,7 +1882,8 @@ type TacticalMovePlan = {
 /** Best legal attack for one unit from its position in a simulated state. */
 function getBestPlannedUnitAttack(
   state: BattleState,
-  unitId: string
+  unitId: string,
+  options: { raidOnly?: boolean; counterBatteryOnly?: boolean } = {}
 ): Omit<TacticalMovePlan, "extraMoves"> | null {
   const attacker = getBotUnitById(state, unitId);
   if (!attacker || attacker.alreadyAttacked) return null;
@@ -1614,6 +1891,22 @@ function getBestPlannedUnitAttack(
   let best: Omit<TacticalMovePlan, "extraMoves"> | null = null;
 
   for (const target of getTargetsInRange(state, "bot", "unit", unitId)) {
+    const enemyUnit =
+      target.type === "unit" ? getEnemyUnitById(state, target.id) : undefined;
+    if (
+      options.counterBatteryOnly &&
+      (!enemyUnit || !isCounterBatteryCard(getCard(enemyUnit.cardId)))
+    ) {
+      continue;
+    }
+    if (
+      options.raidOnly &&
+      target.type !== "headquarters" &&
+      (!enemyUnit || !isSupportUnit(enemyUnit))
+    ) {
+      continue;
+    }
+
     const action: AttackAction = {
       type: "ATTACK",
       playerId: "bot",
@@ -1625,10 +1918,9 @@ function getBestPlannedUnitAttack(
     const score = scoreAttackAction(state, action);
     if (score === null) continue;
 
-    const enemyUnit =
-      target.type === "unit" ? getEnemyUnitById(state, target.id) : undefined;
     const candidate = {
       score,
+      attacksHeadquarters: target.type === "headquarters",
       attacksRearUnit: !!enemyUnit && isSupportUnit(enemyUnit),
       attacksTdFromRear:
         !!enemyUnit && isRearAttackOnEnemyTd(attacker.position, enemyUnit),
@@ -1648,7 +1940,8 @@ function getBestPlannedUnitAttack(
 function getTacticalMovePlan(
   state: BattleState,
   unit: BoardUnit,
-  firstCell: Position
+  firstCell: Position,
+  options: { raidOnly?: boolean; counterBatteryOnly?: boolean } = {}
 ): TacticalMovePlan | null {
   if (unit.alreadyAttacked) return null;
 
@@ -1679,8 +1972,16 @@ function getTacticalMovePlan(
     const currentUnit = getBotUnitById(current.state, unit.instanceId);
     if (!currentUnit) continue;
 
-    const attack = getBestPlannedUnitAttack(current.state, unit.instanceId);
-    if (attack) {
+    const attack = getBestPlannedUnitAttack(current.state, unit.instanceId, {
+      raidOnly: options.raidOnly,
+      counterBatteryOnly: options.counterBatteryOnly,
+    });
+    if (
+      attack &&
+      (!options.raidOnly ||
+        attack.attacksHeadquarters ||
+        attack.attacksRearUnit)
+    ) {
       const routeScore = attack.score - current.extraMoves * 5;
       if (!best || routeScore > best.score) {
         best = { ...attack, score: routeScore, extraMoves: current.extraMoves };
@@ -1721,10 +2022,115 @@ function getTacticalMovePlan(
     }
   }
 
-  return best && best.score >= MIN_TACTICAL_MOVE_ATTACK_SCORE ? best : null;
+  return best &&
+    (best.score >= MIN_TACTICAL_MOVE_ATTACK_SCORE ||
+      best.attacksHeadquarters ||
+      best.attacksRearUnit)
+    ? best
+    : null;
+}
+
+/**
+ * If the source is a few fast moves away, start a concrete raid on it instead
+ * of developing the board while the headquarters and battery remain silent.
+ */
+function getCounterBatteryResponseMoveAction(
+  state: BattleState
+): BattleAction | null {
+  if (getCounterBatteryUnits(state, "player").length === 0) return null;
+
+  const candidates: { action: BattleAction; score: number }[] = [];
+
+  for (const unit of state.units) {
+    if (
+      unit.ownerId !== "bot" ||
+      !isBattlefieldUnit(unit) ||
+      unit.alreadyMoved ||
+      unit.alreadyAttacked ||
+      isBattlefieldSpg(getCard(unit.cardId))
+    ) {
+      continue;
+    }
+
+    for (const cell of getAvailableMoveCells(state, "bot", unit.instanceId)) {
+      const plan = getTacticalMovePlan(state, unit, cell, {
+        counterBatteryOnly: true,
+      });
+      if (!plan) continue;
+
+      candidates.push({
+        action: {
+          type: "MOVE_UNIT",
+          playerId: "bot",
+          unitId: unit.instanceId,
+          position: cell,
+        },
+        score:
+          plan.score +
+          45 +
+          (plan.attacksRearUnit ? 28 : 0) -
+          plan.extraMoves * 3,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.action ?? null;
+}
+
+/**
+ * A freshly deployed blitz unit should immediately exploit a route to the
+ * enemy headquarters or rear line. This is intentionally checked before the
+ * general positional scorer: a small first HQ hit is still strategically much
+ * better than leaving a one-turn blitz unused on the spawn line.
+ */
+function getImmediateBlitzRaidMoveAction(
+  state: BattleState
+): BattleAction | null {
+  const candidates: { action: BattleAction; score: number }[] = [];
+
+  for (const unit of state.units) {
+    if (
+      unit.ownerId !== "bot" ||
+      !isBattlefieldUnit(unit) ||
+      unit.alreadyMoved ||
+      unit.alreadyAttacked ||
+      !unit.deployedThisTurn
+    ) {
+      continue;
+    }
+
+    const card = getCard(unit.cardId);
+    if (!card.combatAbilities?.blitz && !unit.blitzGranted) continue;
+
+    for (const cell of getAvailableMoveCells(state, "bot", unit.instanceId)) {
+      const plan = getTacticalMovePlan(state, unit, cell, { raidOnly: true });
+      if (!plan || (!plan.attacksHeadquarters && !plan.attacksRearUnit)) continue;
+
+      candidates.push({
+        action: {
+          type: "MOVE_UNIT",
+          playerId: "bot",
+          unitId: unit.instanceId,
+          position: cell,
+        },
+        score:
+          plan.score +
+          (plan.attacksHeadquarters ? 80 : 0) +
+          (plan.attacksRearUnit ? 54 : 0) -
+          plan.extraMoves * 4,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.action ?? null;
 }
 
 function getStrategicMoveAction(state: BattleState): BattleAction | null {
+  const immediateBlitzRaid = getImmediateBlitzRaidMoveAction(state);
+  if (immediateBlitzRaid) return immediateBlitzRaid;
+
   const mostDangerousEnemy = getMostDangerousEnemyUnit(state);
   const nationalAbility = getBotNationalAbility(state);
   const advancingOnHeadquarters = shouldAdvanceOnHeadquarters(state);
@@ -1744,6 +2150,23 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
   for (const unit of botUnits) {
     const card = getCard(unit.cardId);
     const moveCells = getAvailableMoveCells(state, "bot", unit.instanceId);
+    const isSoleCounterBatterySource =
+      isCounterBatteryCard(card) &&
+      getCounterBatteryUnits(state, "bot").length === 1;
+    const enemyBattlefieldUnits = isSoleCounterBatterySource
+      ? state.units.filter(
+          (enemy) =>
+            enemy.ownerId === "player" && isBattlefieldUnit(enemy)
+        )
+      : [];
+    const currentCounterBatterySafety =
+      enemyBattlefieldUnits.length > 0
+        ? Math.min(
+            ...enemyBattlefieldUnits.map((enemy) =>
+              getChebyshevDistance(unit.position, enemy.position)
+            )
+          )
+        : 0;
 
     if (moveCells.length === 0) continue;
 
@@ -1866,6 +2289,16 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
           card,
           cell
         );
+        const counterBatterySafetyDelta =
+          enemyBattlefieldUnits.length > 0
+            ? (Math.min(
+                ...enemyBattlefieldUnits.map((enemy) =>
+                  getChebyshevDistance(cell, enemy.position)
+                )
+              ) -
+                currentCounterBatterySafety) *
+              14
+            : 0;
         const raidBonus =
           raidDraw > 0 && isEnemySpawnCell(cell) ? raidDraw * 12 + 10 : 0;
         const formationDeltaRaw =
@@ -1912,6 +2345,7 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
             tacticalAttackBonus +
             headquartersPositionBonus +
             spgProtectionBonus +
+            counterBatterySafetyDelta +
             raidBonus +
             lineInitiativeBonus +
             formationDelta,
@@ -2021,6 +2455,12 @@ export function getNextBotAction(
 
   const headquartersPressureAttack = getHeadquartersPressureAttackAction(state);
   if (headquartersPressureAttack) return headquartersPressureAttack;
+
+  const counterBatteryAttack = getCounterBatteryResponseAttackAction(state);
+  if (counterBatteryAttack) return counterBatteryAttack;
+
+  const counterBatteryMove = getCounterBatteryResponseMoveAction(state);
+  if (counterBatteryMove) return counterBatteryMove;
 
   const developmentPlay = getDevelopmentPlayAction(state);
   if (developmentPlay) return developmentPlay;
@@ -2238,7 +2678,12 @@ function getRandomLegalAction(state: BattleState): BattleAction | null {
 
   const movable = state.units.filter(
     (unit) =>
-      unit.ownerId === "bot" && isBattlefieldUnit(unit) && !unit.alreadyMoved
+      unit.ownerId === "bot" &&
+      isBattlefieldUnit(unit) &&
+      !unit.alreadyMoved &&
+      // Sloppiness may choose an imperfect first move, but it must not spend
+      // every remaining movement point shuffling the same fast unit around.
+      (unit.moveCountThisTurn ?? 0) === 0
   );
 
   for (const unit of movable.slice(0, 4)) {
@@ -2375,6 +2820,16 @@ export function getFakeBotAction(
   const lethal = getLethalAttackAction(state);
   if (lethal && !(sloppiness > 0 && Math.random() < sloppiness * 0.4)) {
     return lethal;
+  }
+
+  // Every playstyle understands that removing the source restores an entire
+  // class of attacks. Sloppiness can still make a fake opponent miss the plan.
+  if (!(sloppiness > 0 && Math.random() < sloppiness * 0.35)) {
+    const counterBatteryAttack = getCounterBatteryResponseAttackAction(state);
+    if (counterBatteryAttack) return counterBatteryAttack;
+
+    const counterBatteryMove = getCounterBatteryResponseMoveAction(state);
+    if (counterBatteryMove) return counterBatteryMove;
   }
 
   if (sloppiness > 0 && Math.random() < sloppiness) {

@@ -7,6 +7,17 @@ import type {
   PlayerId,
 } from "../game/types";
 import type { AttackAnimationStrike } from "../game/engine";
+import {
+  createPvpDeckIdentity,
+  samePvpDeckIdentity,
+  type PvpDeckIdentity,
+} from "../game/pvpDeckIdentity";
+
+export type StoredPvpDeckSelection = {
+  headquartersId: HeadquartersId;
+  deckCardIds: string[] | null;
+  identity: PvpDeckIdentity;
+};
 
 export type PvpClientMessage =
   | { type: "MATCHMAKING_STARTED" }
@@ -20,6 +31,8 @@ export type PvpClientMessage =
       opponentNickname?: string | null;
       opponentCardBackId?: "first_player" | null;
       opponentDeckWeight?: number | null;
+      ownDeck?: PvpDeckIdentity;
+      ownDeckWeight?: number;
     }
   | { type: "RECONNECT_FAILED"; message: string }
   | { type: "WAITING_FOR_OPPONENT"; roomId: string }
@@ -34,6 +47,8 @@ export type PvpClientMessage =
       opponentNickname?: string | null;
       opponentCardBackId?: "first_player" | null;
       opponentDeckWeight?: number | null;
+      ownDeck?: PvpDeckIdentity;
+      ownDeckWeight?: number;
     }
   | {
       type: "GAME_STARTED";
@@ -43,6 +58,8 @@ export type PvpClientMessage =
       opponentNickname?: string | null;
       opponentCardBackId?: "first_player" | null;
       opponentDeckWeight?: number | null;
+      ownDeck?: PvpDeckIdentity;
+      ownDeckWeight?: number;
     }
   | { type: "GAME_STATE"; roomId: string; battle: BattleStateView }
   | {
@@ -86,6 +103,7 @@ export type PvpClientMessage =
     }
   | { type: "MATCH_ENDED"; winner: PlayerId; reason: MatchEndReason }
   | { type: "MATCHMAKING_CANCELLED" }
+  | { type: "MATCH_START_FAILED"; message: string }
   | { type: "OPPONENT_LEFT"; reason: MatchEndReason }
   | { type: "OPPONENT_DISCONNECTED"; roomId: string }
   | { type: "ERROR"; message: string };
@@ -113,7 +131,12 @@ export type PvpServerMessage =
       headquartersId: HeadquartersId;
       deckCardIds?: string[];
     }
-  | { type: "RECONNECT"; sessionId: string; roomId?: string | null }
+  | {
+      type: "RECONNECT";
+      sessionId: string;
+      roomId?: string | null;
+      expectedDeck?: PvpDeckIdentity;
+    }
   | { type: "GAME_ACTION"; action: BattleAction }
   | { type: "SELECT_CARD"; cardInstanceId: string | null }
   | { type: "SURRENDER" }
@@ -127,6 +150,7 @@ type PvpOpenHandler = () => void;
 
 const PVP_SESSION_ID_KEY = "tank-card-game:pvp-session-id";
 const PVP_ROOM_ID_KEY = "tank-card-game:pvp-room-id";
+const PVP_DECK_SELECTION_KEY = "tank-card-game:pvp-deck-selection";
 
 function createSessionId(): string {
   if (globalThis.crypto?.randomUUID) {
@@ -219,12 +243,67 @@ class PvpClient {
     window.localStorage.setItem(PVP_ROOM_ID_KEY, roomId);
   }
 
+  rememberDeckSelection(
+    headquartersId: HeadquartersId,
+    deckCardIds?: string[]
+  ) {
+    const selection: StoredPvpDeckSelection = {
+      headquartersId,
+      deckCardIds: deckCardIds ? [...deckCardIds] : null,
+      identity: createPvpDeckIdentity(headquartersId, deckCardIds),
+    };
+
+    window.localStorage.setItem(
+      PVP_DECK_SELECTION_KEY,
+      JSON.stringify(selection)
+    );
+  }
+
+  getStoredDeckSelection(): StoredPvpDeckSelection | null {
+    try {
+      const rawValue = window.localStorage.getItem(PVP_DECK_SELECTION_KEY);
+      if (!rawValue) return null;
+
+      const parsed = JSON.parse(rawValue) as Partial<StoredPvpDeckSelection>;
+      if (typeof parsed.headquartersId !== "string") return null;
+      if (
+        parsed.deckCardIds !== null &&
+        (!Array.isArray(parsed.deckCardIds) ||
+          !parsed.deckCardIds.every((cardId) => typeof cardId === "string"))
+      ) {
+        return null;
+      }
+
+      const headquartersId = parsed.headquartersId as HeadquartersId;
+      const deckCardIds = parsed.deckCardIds
+        ? [...parsed.deckCardIds]
+        : null;
+      return {
+        headquartersId,
+        deckCardIds,
+        identity: createPvpDeckIdentity(headquartersId, deckCardIds),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  storedDeckMatches(identity: PvpDeckIdentity): boolean {
+    const storedSelection = this.getStoredDeckSelection();
+    return (
+      !storedSelection ||
+      samePvpDeckIdentity(storedSelection.identity, identity)
+    );
+  }
+
   clearSession() {
     window.localStorage.removeItem(PVP_SESSION_ID_KEY);
     window.localStorage.removeItem(PVP_ROOM_ID_KEY);
+    window.localStorage.removeItem(PVP_DECK_SELECTION_KEY);
   }
 
   findMatch(headquartersId: HeadquartersId, deckCardIds?: string[]) {
+    this.rememberDeckSelection(headquartersId, deckCardIds);
     this.send({
       type: "FIND_MATCH",
       sessionId: this.getSessionId(),
@@ -235,6 +314,7 @@ class PvpClient {
   }
 
   createRoom(headquartersId: HeadquartersId, deckCardIds?: string[]) {
+    this.rememberDeckSelection(headquartersId, deckCardIds);
     this.send({
       type: "CREATE_ROOM",
       sessionId: this.getSessionId(),
@@ -245,6 +325,7 @@ class PvpClient {
   }
 
   joinRoom(roomId: string, headquartersId: HeadquartersId, deckCardIds?: string[]) {
+    this.rememberDeckSelection(headquartersId, deckCardIds);
     this.send({
       type: "JOIN_ROOM",
       roomId,
@@ -256,10 +337,12 @@ class PvpClient {
   }
 
   reconnect() {
+    const storedSelection = this.getStoredDeckSelection();
     this.send({
       type: "RECONNECT",
       sessionId: this.getSessionId(),
       roomId: this.getStoredRoomId(),
+      expectedDeck: storedSelection?.identity,
     });
   }
 

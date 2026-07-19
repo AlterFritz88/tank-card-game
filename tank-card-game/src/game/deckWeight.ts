@@ -280,7 +280,10 @@ function getAbilityStrength(card: TankCard): number {
   }
 
   if (card.onPlayEffects?.suppressEnemyIndirect) {
-    score += 0.65;
+    // Persistent counter-battery disables the enemy HQ and every battlefield
+    // SPG until the source unit is destroyed, so it is worth more than a
+    // one-shot deployment effect.
+    score += 1.25;
   }
 
   if (card.onPlayEffects?.fetchToHand) {

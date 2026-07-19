@@ -92,7 +92,17 @@ export type Campaign = {
   premium?: boolean;
   /** Permanent unlock price in gold tracks for a premium campaign. */
   goldCost?: number;
+  /** YooKassa product used to permanently unlock this premium campaign. */
+  paymentProductId?: CampaignPaymentProductId;
+  /** Price shown on the campaign purchase button. The server remains authoritative. */
+  priceRub?: number;
 };
+
+export type CampaignPaymentProductId = "first-panthers-campaign";
+export const FIRST_PANTHERS_CAMPAIGN_ID = "first-panthers";
+export const FIRST_PANTHERS_CAMPAIGN_PRODUCT_ID: CampaignPaymentProductId =
+  "first-panthers-campaign";
+export const FIRST_PANTHERS_CAMPAIGN_PRICE_RUB = 999;
 
 export const CAMPAIGNS: Campaign[] = [
   {
@@ -664,7 +674,7 @@ export const CAMPAIGNS: Campaign[] = [
   },
 
   {
-    id: "first-panthers",
+    id: FIRST_PANTHERS_CAMPAIGN_ID,
     title: "Первые Пантеры",
     description:
       "1942–1943 годы. От испытаний первых прототипов до боёв под Курском. Новая «Пантера» получила мощную пушку и хорошую лобовую броню, но часто страдала от пожаров и поломок.",
@@ -674,7 +684,8 @@ export const CAMPAIGNS: Campaign[] = [
     briefingAvatarId: "german_panther_regiment",
     briefingSpeaker: "Инспектор танковых войск",
     premium: true,
-    goldCost: 1499,
+    paymentProductId: FIRST_PANTHERS_CAMPAIGN_PRODUCT_ID,
+    priceRub: FIRST_PANTHERS_CAMPAIGN_PRICE_RUB,
     missions: [
       // ——— Глава I. Полигон Куммерсдорф ———
       {

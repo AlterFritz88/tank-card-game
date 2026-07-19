@@ -10,8 +10,13 @@ type BattleTimerPanelProps = {
 
 function formatTimer(ms: number): string {
   const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes % 60).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
 
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
@@ -22,6 +27,7 @@ export function BattleTimerPanel({
   timeLeftMs,
 }: BattleTimerPanelProps) {
   const isLowTime = timeLeftMs <= 4000;
+  const showsHours = Math.ceil(Math.max(0, timeLeftMs) / 1000) >= 3600;
 
   return (
     <div style={styles.timerPanel}>
@@ -40,13 +46,24 @@ export function BattleTimerPanel({
         )}
       </div>
 
-      <div style={styles.timerMainRow}>
-        <span style={styles.hourglassFrame}>
+      <div
+        style={{
+          ...styles.timerMainRow,
+          ...(showsHours ? styles.timerMainRowWithHours : {}),
+        }}
+      >
+        <span
+          style={{
+            ...styles.hourglassFrame,
+            ...(showsHours ? styles.hourglassFrameCompact : {}),
+          }}
+        >
           <motion.img
             src={hourglassWw2Image}
             alt=""
             style={{
               ...styles.hourglassImage,
+              ...(showsHours ? styles.hourglassImageCompact : {}),
               filter: isLowTime
                 ? "sepia(0.3) saturate(2) hue-rotate(-15deg) brightness(0.9)"
                 : "none",
@@ -71,10 +88,12 @@ export function BattleTimerPanel({
 
         <motion.strong
           style={{
-            fontSize: 22,
+            fontSize: showsHours ? 16 : 22,
             color: isLowTime ? "#ff6b6b" : "#e8e4d9",
             fontWeight: 600,
-            letterSpacing: "0.5px",
+            letterSpacing: showsHours ? 0 : "0.5px",
+            whiteSpace: "nowrap",
+            fontVariantNumeric: "tabular-nums",
           }}
           animate={isLowTime ? { opacity: [1, 0.4, 1] } : { opacity: 1 }}
           transition={
@@ -102,7 +121,8 @@ const styles: Record<string, React.CSSProperties> = {
     background: "transparent",
     border: "none",
     boxShadow: "none",
-    contain: "layout paint style",
+    boxSizing: "border-box",
+    contain: "layout style",
     isolation: "isolate",
   },
 
@@ -128,7 +148,14 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     lineHeight: 1,
     minHeight: 50,
-    contain: "layout paint style",
+    width: "100%",
+    justifyContent: "center",
+    contain: "layout style",
+    overflow: "visible",
+  },
+
+  timerMainRowWithHours: {
+    gap: 2,
   },
 
   hourglassFrame: {
@@ -139,8 +166,19 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     justifyContent: "flex-start",
     overflow: "visible",
-    contain: "layout paint style",
+    contain: "layout style",
     isolation: "isolate",
+  },
+
+  hourglassFrameCompact: {
+    flex: "0 0 34px",
+    width: 34,
+    height: 36,
+  },
+
+  hourglassImageCompact: {
+    width: 34,
+    height: 34,
   },
 
   hourglassImage: {
