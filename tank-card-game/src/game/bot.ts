@@ -1,4 +1,5 @@
 import { getCard } from "./cards";
+import { COUNTER_BATTERY_DURATION_TURNS } from "./types";
 import {
   BOARD_CORNER_CELLS,
   BOT_SPAWN_CELLS,
@@ -134,6 +135,8 @@ function getCounterBatteryUnits(
     (unit) =>
       unit.ownerId === ownerId &&
       unit.currentHp > 0 &&
+      (unit.counterBatteryTurnsRemaining ??
+        COUNTER_BATTERY_DURATION_TURNS) > 0 &&
       isCounterBatteryCard(getCard(unit.cardId))
   );
 }
@@ -141,7 +144,7 @@ function getCounterBatteryUnits(
 /**
  * Strategic value of the firepower disabled by enemy counter-battery. This is
  * intentionally based on the whole surviving battery, not only attacks still
- * unused this turn: keeping the aura alive matters on every following turn.
+ * unused this turn: keeping the timed suppression alive matters on later turns.
  */
 function getIndirectFireStrategicValue(
   state: BattleState,
@@ -235,7 +238,7 @@ function getCardAbilityValue(state: BattleState, card: TankCard): number {
       value += (combat.cornerBonus.attack ?? 0) * 6 + (combat.cornerBonus.hp ?? 0) * 4;
     }
     if (combat.hqProximityBonus) value += combat.hqProximityBonus.maxBonus * 6;
-    if (combat.spawnDamageReduction) value += combat.spawnDamageReduction * 5;
+    if (combat.bridgeheadDefense) value += 12;
     if (combat.raidDraw) value += combat.raidDraw * 6;
     if (combat.blitz) value += 6;
     if (combat.lightScreen) value += 6;
@@ -968,6 +971,15 @@ function scoreAttackAction(
         score += 18;
       }
       if (outcome.targetDestroyed) score += 14;
+    }
+
+    if (
+      enemyCard.combatAbilities?.bridgeheadDefense === true &&
+      isEnemySpawnCell(enemyUnit.position)
+    ) {
+      // Remove an active bridgehead defender before wasting ranged fire on HQ.
+      score += 64;
+      if (outcome.targetDestroyed) score += 36;
     }
 
     if (attackerDefinition?.class === "armored_car" && attackerCard) {
@@ -2301,6 +2313,11 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
             : 0;
         const raidBonus =
           raidDraw > 0 && isEnemySpawnCell(cell) ? raidDraw * 12 + 10 : 0;
+        const bridgeheadDefenseDelta =
+          card.combatAbilities?.bridgeheadDefense === true
+            ? (isBotSpawnCell(cell) ? 34 : 0) -
+              (isBotSpawnCell(unit.position) ? 34 : 0)
+            : 0;
         const formationDeltaRaw =
           getNationalFormationCellValue(
             state,
@@ -2347,6 +2364,7 @@ function getStrategicMoveAction(state: BattleState): BattleAction | null {
             spgProtectionBonus +
             counterBatterySafetyDelta +
             raidBonus +
+            bridgeheadDefenseDelta +
             lineInitiativeBonus +
             formationDelta,
         };

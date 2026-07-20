@@ -45,7 +45,7 @@ const testCards: TankCard[] = [
   { ...testCardBase, id: "tc_armor", name: "Спецброня", class: "medium", combatAbilities: { armorVsClass: { class: "light", amount: 2 } } },
   { ...testCardBase, id: "tc_draw", name: "Дозор", class: "medium", combatAbilities: { drawWhenAttacked: 1 } },
   { ...testCardBase, id: "tc_corner", name: "Огневая позиция", class: "spg", attack: 2, combatAbilities: { cornerBonus: { attack: 2, hp: 3 } } },
-  { ...testCardBase, id: "tc_spawn", name: "Оборона плацдарма", class: "medium", combatAbilities: { spawnDamageReduction: 2 } },
+  { ...testCardBase, id: "tc_spawn", name: "Оборона плацдарма", class: "medium", combatAbilities: { bridgeheadDefense: true } },
   { ...testCardBase, id: "tc_raid", name: "Прорыв", class: "light", attack: 1, combatAbilities: { raidDraw: 1 } },
   { ...testCardBase, id: "tc_suppress", name: "Контрбатарея", class: "medium", cost: 3, onPlayEffects: { suppressEnemyIndirect: true } },
   { ...testCardBase, id: "tc_slack", name: "Слаженность", class: "medium", cost: 4, costModifiers: { ifClassPresent: "light", discount: 2 } },
@@ -275,7 +275,7 @@ function attackAction(attackerId: string, targetId: string, playerId: "player" |
     type: "PLAY_CARD",
     playerId: "player",
     cardInstanceId: instanceId,
-    position: { row: 1, col: 1 },
+    position: { row: 1, col: 0 },
   });
 
   const botSpg = battle.units.find((u) => u.instanceId === "espg");
@@ -286,36 +286,128 @@ function attackAction(attackerId: string, targetId: string, playerId: "player" |
   check("Контрбатарея: вражеский штаб подавлен", battle.headquarters.bot.attackSuppressed === true);
   check("Контрбатарея: САУ не имеет целей", spgTargets.length === 0, `targets ${spgTargets.length}`);
   check("Контрбатарея: штаб не имеет целей", hqTargets.length === 0, `targets ${hqTargets.length}`);
+  check(
+    "Контрбатарея: после розыгрыша осталось 3 хода",
+    battle.units.find((u) => u.instanceId === instanceId)
+      ?.counterBatteryTurnsRemaining === 3
+  );
 
-  // Снимается после хода подавлённой стороны.
+  // Первый ход противника проходит под подавлением. В начале следующего хода
+  // владельца счётчик уменьшается до 2.
   battle = applyAction(battle, { type: "END_TURN", playerId: "player" });
+  check(
+    "Контрбатарея: действует в первый ход противника",
+    battle.headquarters.bot.attackSuppressed === true
+  );
   battle = applyAction(battle, { type: "END_TURN", playerId: "bot" });
-  check("Контрбатарея: подавление снято после хода бота", battle.headquarters.bot.attackSuppressed === false);
+  check(
+    "Контрбатарея: осталось 2 хода",
+    battle.units.find((u) => u.instanceId === instanceId)
+      ?.counterBatteryTurnsRemaining === 2
+  );
+
+  battle = applyAction(battle, { type: "END_TURN", playerId: "player" });
+  check(
+    "Контрбатарея: действует во второй ход противника",
+    battle.headquarters.bot.attackSuppressed === true
+  );
+  battle = applyAction(battle, { type: "END_TURN", playerId: "bot" });
+  check(
+    "Контрбатарея: остался 1 ход",
+    battle.units.find((u) => u.instanceId === instanceId)
+      ?.counterBatteryTurnsRemaining === 1
+  );
+
+  battle = applyAction(battle, { type: "END_TURN", playerId: "player" });
+  check(
+    "Контрбатарея: действует в третий ход противника",
+    battle.headquarters.bot.attackSuppressed === true
+  );
+  battle = applyAction(battle, { type: "END_TURN", playerId: "bot" });
+  check(
+    "Контрбатарея: после трёх ходов счётчик равен 0",
+    battle.units.find((u) => u.instanceId === instanceId)
+      ?.counterBatteryTurnsRemaining === 0
+  );
+  check(
+    "Контрбатарея: подавление снято после трёх ходов",
+    battle.headquarters.bot.attackSuppressed === false &&
+      battle.units.find((u) => u.instanceId === "espg")
+        ?.attackSuppressed === false
+  );
 }
 
-// 9. Оборона плацдарма: меньше урона на своём спавне.
+// 9. Оборона плацдарма: перехват дистанционного урона по штабу.
 {
-  // На плацдарме урон снижен.
-  const onSpawn = makeBattle();
-  onSpawn.units.push(
-    makeUnit({ instanceId: "atk", cardId: "t34_76", ownerId: "player", position: { row: 1, col: 2 } }),
-    makeUnit({ instanceId: "def", cardId: "tc_spawn", ownerId: "bot", position: { row: 1, col: 3 } }) // bot spawn
-  );
-  const next1 = applyAction(onSpawn, attackAction("atk", "def"));
-  const def1 = next1.units.find((u) => u.instanceId === "def");
-  const reduced = getCard("tc_spawn").hp - Math.max(0, getCard("t34_76").attack - 2);
-  check("Оборона плацдарма: урон снижен на спавне", def1?.currentHp === reduced, `hp ${def1?.currentHp}, expected ${reduced}`);
+  const hqAttack = (attackerId: string) => ({
+    type: "ATTACK" as const,
+    playerId: "player" as const,
+    attackerType: "unit" as const,
+    attackerId,
+    targetType: "headquarters" as const,
+    targetId: "bot_hq",
+  });
 
-  // Вне плацдарма — полный урон.
+  // Защитник на своём плацдарме принимает весь дальний удар вместо штаба.
+  const intercepted = makeBattle();
+  intercepted.units.push(
+    makeUnit({ instanceId: "spg", cardId: "tc_corner", ownerId: "player", position: { row: 1, col: 0 } }),
+    makeUnit({ instanceId: "def", cardId: "tc_spawn", ownerId: "bot", position: { row: 0, col: 4 } })
+  );
+  const interceptedHqHp = intercepted.headquarters.bot.hp;
+  const afterIntercept = applyAction(intercepted, hqAttack("spg"));
+  const interceptedDefender = afterIntercept.units.find((u) => u.instanceId === "def");
+  check(
+    "Оборона плацдарма: дальний урон не проходит в штаб",
+    afterIntercept.headquarters.bot.hp === interceptedHqHp
+  );
+  check(
+    "Оборона плацдарма: защитник принимает весь дальний урон",
+    interceptedDefender?.currentHp === getCard("tc_spawn").hp - getCard("tc_corner").attack,
+    `hp ${interceptedDefender?.currentHp}`
+  );
+
+  // Избыточный урон уничтожает защитника, но не переносится на штаб.
+  const lethal = makeBattle();
+  lethal.units.push(
+    makeUnit({ instanceId: "spg", cardId: "tc_corner", ownerId: "player", position: { row: 1, col: 0 } }),
+    makeUnit({ instanceId: "def", cardId: "tc_spawn", ownerId: "bot", currentHp: 1, position: { row: 0, col: 4 } })
+  );
+  const lethalHqHp = lethal.headquarters.bot.hp;
+  const afterLethal = applyAction(lethal, hqAttack("spg"));
+  check(
+    "Оборона плацдарма: избыточный урон не переходит на штаб",
+    afterLethal.headquarters.bot.hp === lethalHqHp &&
+      !afterLethal.units.some((u) => u.instanceId === "def")
+  );
+
+  // Вне своего плацдарма способность не защищает штаб.
   const offSpawn = makeBattle();
   offSpawn.units.push(
-    makeUnit({ instanceId: "atk", cardId: "t34_76", ownerId: "player", position: { row: 1, col: 1 } }),
-    makeUnit({ instanceId: "def", cardId: "tc_spawn", ownerId: "bot", position: { row: 1, col: 2 } }) // not spawn
+    makeUnit({ instanceId: "spg", cardId: "tc_corner", ownerId: "player", position: { row: 1, col: 0 } }),
+    makeUnit({ instanceId: "def", cardId: "tc_spawn", ownerId: "bot", position: { row: 0, col: 3 } })
   );
-  const next2 = applyAction(offSpawn, attackAction("atk", "def"));
-  const def2 = next2.units.find((u) => u.instanceId === "def");
-  const fullDmg = getCard("tc_spawn").hp - getCard("t34_76").attack;
-  check("Контроль: вне плацдарма полный урон", def2?.currentHp === fullDmg, `hp ${def2?.currentHp}, expected ${fullDmg}`);
+  const offSpawnHqHp = offSpawn.headquarters.bot.hp;
+  const afterOffSpawn = applyAction(offSpawn, hqAttack("spg"));
+  check(
+    "Оборона плацдарма: вне плацдарма штаб получает дальний урон",
+    afterOffSpawn.headquarters.bot.hp === offSpawnHqHp - getCard("tc_corner").attack &&
+      afterOffSpawn.units.find((u) => u.instanceId === "def")?.currentHp === getCard("tc_spawn").hp
+  );
+
+  // Ближняя атака по штабу не перехватывается другим юнитом на плацдарме.
+  const melee = makeBattle();
+  melee.units.push(
+    makeUnit({ instanceId: "tank", cardId: "t34_76", ownerId: "player", position: { row: 1, col: 4 } }),
+    makeUnit({ instanceId: "def", cardId: "tc_spawn", ownerId: "bot", position: { row: 0, col: 4 } })
+  );
+  const meleeHqHp = melee.headquarters.bot.hp;
+  const afterMelee = applyAction(melee, hqAttack("tank"));
+  check(
+    "Оборона плацдарма: ближняя атака проходит в штаб",
+    afterMelee.headquarters.bot.hp === meleeHqHp - getCard("t34_76").attack &&
+      afterMelee.units.find((u) => u.instanceId === "def")?.currentHp === getCard("tc_spawn").hp
+  );
 }
 
 // 10. Маскировка спадает после первой атаки юнита.
@@ -628,6 +720,18 @@ function attackAction(attackerId: string, targetId: string, playerId: "player" |
   });
 
   check("Пополнение: без подходящих карт колода неизменна", battle.player.deck.length === before, `${before} -> ${battle.player.deck.length}`);
+}
+
+// 21. Изменения способностей Т-27 и М-72.
+{
+  check(
+    "Т-27: способность Блиц удалена",
+    getCard("t27").combatAbilities?.blitz !== true
+  );
+  check(
+    "М-72: периодический добор карты удалён",
+    !getCard("m72_recon").supportEffects?.drawEveryTurns
+  );
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);

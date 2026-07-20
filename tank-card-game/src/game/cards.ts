@@ -1716,7 +1716,7 @@ const rawCards: TankCard[] = [
     nation: "germany",
     class: "light",
     rarity: "common",
-    cost: 1,
+    cost: 2,
     attack: 0,
     armor: 0,
     hp: 4,
@@ -1772,7 +1772,6 @@ const rawCards: TankCard[] = [
     initiative: 6,
     abilityText: "",
     onPlayEffects: { suppressEnemyIndirect: true },
-    combatAbilities: { blitz: true },
   },
   {
     id: "su18",
@@ -2710,14 +2709,13 @@ const rawCards: TankCard[] = [
     deploymentZone: "support",
     supportRole: "transport",
     supportEffects: {
-      drawEveryTurns: 2,
       returnFire: 1,
     },
     onPlayEffects: {
       suppressEnemyIndirect: true,
     },
     abilityText:
-      "Добор карты каждый второй ход и самооборона 1. Пока мотоцикл в строю, вражеские штаб и САУ не могут атаковать.",
+      "Самооборона 1. Контрбатарея на 3 хода владельца: вражеские штаб и САУ не могут атаковать, пока мотоцикл в строю.",
   },
 
   // === Кампания «Лавриненко» — Германия, 1941 ===
@@ -3386,13 +3384,13 @@ const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
   t26_1938: { combatAbilities: { armorVsClass: { class: "light", amount: 1 } } },
   t46_1: { onPlayEffects: { draw: 1 } },
   m2a4: {
-    combatAbilities: { spawnDamageReduction: 1 },
+    combatAbilities: { bridgeheadDefense: true },
     onPlayEffects: { draw: 1 },
   },
   marmon_ctls: { combatAbilities: { camouflage: true } },
-  lvt1: { combatAbilities: { spawnDamageReduction: 1 } },
+  lvt1: { combatAbilities: { bridgeheadDefense: true } },
   m5_stuart: { combatAbilities: { raidDraw: 1 } },
-  t111: { combatAbilities: { spawnDamageReduction: 1 } },
+  t111: { combatAbilities: { bridgeheadDefense: true } },
   panzer_35t: { combatAbilities: { raidDraw: 1 } },
   pzkpfw_ii_ausf_f: { combatAbilities: { camouflage: true } },
   tkf: { combatAbilities: { camouflage: true } },
@@ -3403,7 +3401,7 @@ const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
   tp9: { combatAbilities: { armorVsClass: { class: "medium", amount: 1 } } },
   vickers_e_type_a: { combatAbilities: { attackEqualsHq: true } },
   vickers_e_type_b: { combatAbilities: { raidDraw: 1 } },
-  renault_r35: { combatAbilities: { spawnDamageReduction: 1 } },
+  renault_r35: { combatAbilities: { bridgeheadDefense: true } },
   hotchkiss_h35: { combatAbilities: { armorVsClass: { class: "light", amount: 1 } } },
 
   // ===== Средние танки ===== (база: T-34/76, M4 Sherman, Panzer III A)
@@ -3420,9 +3418,9 @@ const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
   },
   tp14: { combatAbilities: { armorVsClass: { class: "medium", amount: 1 } } },
   pzkpfw_iii_ausf_d: { combatAbilities: { drawWhenAttacked: 1 } },
-  pzkpfw_iii_ausf_e: { combatAbilities: { spawnDamageReduction: 1 } },
+  pzkpfw_iii_ausf_e: { combatAbilities: { bridgeheadDefense: true } },
   pzkpfw_iii_ausf_h: { combatAbilities: { armorVsClass: { class: "td", amount: 1 } } },
-  pzkpfw_iii_ausf_j: { combatAbilities: { spawnDamageReduction: 1 } },
+  pzkpfw_iii_ausf_j: { combatAbilities: { bridgeheadDefense: true } },
   pzkpfw_iv_ausf_a: { onPlayEffects: { draw: 1 } },
   pzkpfw_iv_ausf_b: { combatAbilities: { blitz: true } },
   pzkpfw_iv_ausf_e: { costModifiers: { ifClassPresent: "light", discount: 1 } },
@@ -3448,11 +3446,11 @@ const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
     },
   },
   pociag_pancerny_danuta: { onPlayEffects: { suppressEnemyIndirect: true } },
-  pociag_pancerny_smialy: { combatAbilities: { spawnDamageReduction: 2 } },
+  pociag_pancerny_smialy: { combatAbilities: { bridgeheadDefense: true } },
   neubaufahrzeug: { combatAbilities: { drawWhenAttacked: 1 } },
   grosstraktor: { combatAbilities: { attackEqualsHq: true } },
   smk: { combatAbilities: { armorVsClass: { class: "td", amount: 2 } } },
-  t100: { combatAbilities: { spawnDamageReduction: 2 } },
+  t100: { combatAbilities: { bridgeheadDefense: true } },
   kv2: { onPlayEffects: { deployDamage: { amount: 2, scope: "random" } } },
   m6_heavy: {
     combatAbilities: {
@@ -3463,7 +3461,7 @@ const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
   t14_assault: {
     combatAbilities: {
       frontalArmor: { amount: 2 },
-      spawnDamageReduction: 1,
+      bridgeheadDefense: true,
     },
   },
   kv1_1940: { combatAbilities: { frontalArmor: { amount: 2 } } },
@@ -3504,7 +3502,7 @@ const UNIT_ABILITY_OVERRIDES: Record<string, AbilityOverride> = {
   t18_hmc: {
     combatAbilities: {
       cornerBonus: { hp: 2 },
-      spawnDamageReduction: 1,
+      bridgeheadDefense: true,
     },
   },
   t19_hmc: {

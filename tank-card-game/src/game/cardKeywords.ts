@@ -351,14 +351,14 @@ function getAbilityKeywords(card: TankCard, language: Language): CardKeyword[] {
     });
   }
 
-  if (card.combatAbilities?.spawnDamageReduction) {
+  if (card.combatAbilities?.bridgeheadDefense) {
     keywords.push({
-      id: "spawnDamageReduction",
+      id: "bridgeheadDefense",
       title: language === "en" ? "BRIDGEHEAD DEFENSE" : "ОБОРОНА ПЛАЦДАРМА",
       body:
         language === "en"
-          ? `While this unit is on your bridgehead spawn cell, each hit against it is reduced by ${card.combatAbilities.spawnDamageReduction}.`
-          : `Пока этот юнит находится на вашем плацдарме, каждый удар по нему слабее на ${card.combatAbilities.spawnDamageReduction}.`,
+          ? "While this unit is on your bridgehead, it takes all ranged damage aimed at your headquarters. Excess damage does not spill over to the headquarters."
+          : "Пока этот юнит находится на вашем плацдарме, он принимает на себя весь дистанционный урон по вашему штабу. Избыточный урон не переходит на штаб.",
     });
   }
 
@@ -466,8 +466,8 @@ function getAbilityKeywords(card: TankCard, language: Language): CardKeyword[] {
       title: language === "en" ? "COUNTER-BATTERY FIRE" : "КОНТРБАТАРЕЙНЫЙ ОГОНЬ",
       body:
         language === "en"
-          ? "While this unit remains in play, all enemy SPGs and the enemy headquarters cannot attack."
-          : "Пока этот юнит находится в строю, все САУ и штаб противника не могут атаковать.",
+          ? "For 3 owner turns, all enemy SPGs and the enemy headquarters cannot attack. The effect ends early if this unit is destroyed."
+          : "В течение 3 ходов владельца все САУ и штаб противника не могут атаковать. Если этот юнит уничтожен, эффект снимается раньше.",
     });
   }
 
@@ -813,10 +813,7 @@ export function getCardAbilityTags(
     );
   }
 
-  if (
-    card.combatAbilities?.spawnDamageReduction &&
-    card.combatAbilities.spawnDamageReduction > 0
-  ) {
+  if (card.combatAbilities?.bridgeheadDefense) {
     tags.push(language === "en" ? "Bridgehead defense" : "Оборона плацдарма");
   }
 
@@ -837,7 +834,7 @@ export function getCardAbilityTags(
   }
 
   if (card.onPlayEffects?.suppressEnemyIndirect) {
-    tags.push(language === "en" ? "Counter-battery" : "Контрбатарея");
+    tags.push(language === "en" ? "Counter-battery 3" : "Контрбатарея 3");
   }
 
   if (card.onPlayEffects?.deployDamage) {

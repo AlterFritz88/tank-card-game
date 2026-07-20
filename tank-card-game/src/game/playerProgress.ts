@@ -127,8 +127,51 @@ const STARTING_IRON_TRACKS = 0;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
+const LEGACY_CAMPAIGN_GRANTED_HEADQUARTERS_ID: HeadquartersId =
+  "soviet_tank_brigade";
+const SOVIET_TANK_HEADQUARTERS_RESEARCH_PATHS = [
+  // Original tree: T-40 -> T-34/76 -> 4th Tank Brigade.
+  ["t40", "t34_76"],
+  // Current tree: both T-40 and T-35 -> 4th Tank Brigade.
+  ["t40", "t35"],
+] as const;
 export const PLAYER_NICKNAME_MAX_LENGTH = 14;
 export const PLAYER_NICKNAME_PATTERN = /^[A-Za-z0-9_-]{3,14}$/;
+
+function hasSovietTankHeadquartersResearch(
+  researchedCardIds: readonly string[]
+): boolean {
+  return SOVIET_TANK_HEADQUARTERS_RESEARCH_PATHS.some((path) =>
+    path.every((cardId) => researchedCardIds.includes(cardId))
+  );
+}
+
+/**
+ * Single ownership check for deck selection and deck building. In addition to
+ * the normal researched + purchased flags, it rejects the legacy Lavrinenko
+ * campaign grant of the regular 4th Tank Brigade headquarters.
+ */
+export function canUseHeadquartersDeck(
+  progress: Pick<
+    PlayerProgress,
+    | "researchedHeadquartersIds"
+    | "unlockedHeadquartersIds"
+    | "researchedCardIds"
+  >,
+  headquartersId: HeadquartersId
+): boolean {
+  if (
+    !progress.researchedHeadquartersIds.includes(headquartersId) ||
+    !progress.unlockedHeadquartersIds.includes(headquartersId)
+  ) {
+    return false;
+  }
+
+  return (
+    headquartersId !== LEGACY_CAMPAIGN_GRANTED_HEADQUARTERS_ID ||
+    hasSovietTankHeadquartersResearch(progress.researchedCardIds)
+  );
+}
 
 async function getProfileClient() {
   return profileClient;
@@ -628,6 +671,19 @@ function normalizePlayerProgress(
   progress: Partial<PlayerProgress>
 ): PlayerProgress {
   const fallback = createInitialPlayerProgress();
+  const researchedCardIds = Array.from(
+    new Set([
+      ...fallback.researchedCardIds,
+      ...(Array.isArray(progress.researchedCardIds)
+        ? progress.researchedCardIds
+        : []),
+      ...(Array.isArray(progress.unlockedCardIds)
+        ? progress.unlockedCardIds
+        : []),
+    ])
+  );
+  const hasSovietTankHeadquartersResearchProof =
+    hasSovietTankHeadquartersResearch(researchedCardIds);
   const researchedHeadquartersIds = Array.from(
     new Set([
       ...fallback.researchedHeadquartersIds,
@@ -635,7 +691,12 @@ function normalizePlayerProgress(
         ? progress.researchedHeadquartersIds
         : []),
     ])
-  ).filter(isPlayerSelectableHeadquartersId);
+  ).filter(
+    (headquartersId) =>
+      isPlayerSelectableHeadquartersId(headquartersId) &&
+      (headquartersId !== LEGACY_CAMPAIGN_GRANTED_HEADQUARTERS_ID ||
+        hasSovietTankHeadquartersResearchProof)
+  );
   const unlockedHeadquartersIds = Array.from(
     new Set([
       ...fallback.unlockedHeadquartersIds,
@@ -647,17 +708,6 @@ function normalizePlayerProgress(
     (headquartersId) =>
       isPlayerSelectableHeadquartersId(headquartersId) &&
       researchedHeadquartersIds.includes(headquartersId)
-  );
-  const researchedCardIds = Array.from(
-    new Set([
-      ...fallback.researchedCardIds,
-      ...(Array.isArray(progress.researchedCardIds)
-        ? progress.researchedCardIds
-        : []),
-      ...(Array.isArray(progress.unlockedCardIds)
-        ? progress.unlockedCardIds
-        : []),
-    ])
   );
   const unlockedCardIds = Array.from(
     new Set([

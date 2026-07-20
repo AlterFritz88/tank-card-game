@@ -57,6 +57,7 @@ import {
 import { getLocalizedUnitTypeFilterLabel } from "../game/cardLocalization";
 import { calculateDeckWeight, getCardLevel } from "../game/deckWeight";
 import {
+  canUseHeadquartersDeck,
   loadPlayerProgress,
   syncPlayerProgressFromServer,
 } from "../game/playerProgress";
@@ -406,9 +407,9 @@ export function DeckBuilder({
   const headquartersList = useMemo(
     () =>
       getDeckBuildingHeadquarters().filter((headquarters) =>
-        progress.unlockedHeadquartersIds.includes(headquarters.id)
+        canUseHeadquartersDeck(progress, headquarters.id)
       ),
-    [progress.unlockedHeadquartersIds]
+    [progress]
   );
   const selectedHeadquarters = selectedHeadquartersId
     ? HEADQUARTERS[selectedHeadquartersId]

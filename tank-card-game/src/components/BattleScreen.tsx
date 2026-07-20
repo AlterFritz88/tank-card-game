@@ -6520,6 +6520,9 @@ function renderEnemyDeckWithTimer() {
                       alreadyMoved
                       alreadyAttacked
                       suppressExhaustedDim
+                      counterBatteryTurnsRemaining={
+                        unit.counterBatteryTurnsRemaining
+                      }
                       healthDamageEffect={getHealthDamageEffect(
                         unit.instanceId
                       )}
@@ -7234,6 +7237,12 @@ function renderEnemyDeckWithTimer() {
                                 (getCard(movingUnit.cardId).combatAbilities?.raidDraw ?? 0) > 0 &&
                                 !movingUnit.raidDrawUsed;
                             })()}
+                            counterBatteryTurnsRemaining={
+                              battle.units.find(
+                                (item) =>
+                                  item.instanceId === movementUnitEffect.unitId
+                              )?.counterBatteryTurnsRemaining
+                            }
                           />
                         </div>
                         {pantherObjectiveTag &&
@@ -7372,6 +7381,11 @@ function renderEnemyDeckWithTimer() {
 
                   if (unit) {
                     const card = getCard(unit.cardId);
+                    const counterattackAvailable =
+                      battle.status === "active" &&
+                      battle.activePlayer !== unit.ownerId &&
+                      card.class !== "spg" &&
+                      getVisibleUnitAttackValue(battle, unit) > 0;
                     const canBeTarget = isTarget("unit", unit.instanceId);
                     const showTargetGlow = shouldShowAttackTargetGlow(
                       "unit",
@@ -7551,6 +7565,7 @@ function renderEnemyDeckWithTimer() {
                               battle,
                               unit
                             )}
+                            counterattackAvailable={counterattackAvailable}
                             camouflaged={
                               !!card.combatAbilities?.camouflage &&
                               !unit.revealed
@@ -7566,6 +7581,9 @@ function renderEnemyDeckWithTimer() {
                               !unit.raidDrawUsed
                             }
                             immobilized={unit.immobilized === true}
+                            counterBatteryTurnsRemaining={
+                              unit.counterBatteryTurnsRemaining
+                            }
                             healthDamageEffect={getHealthDamageEffect(
                               unit.instanceId
                             )}

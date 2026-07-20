@@ -2,6 +2,7 @@ import { getCard } from "./cards";
 import { getHeadquartersAbility, getHeadquartersDefinition } from "./headquarters";
 import { getNationalAbility } from "./nationalAbilities";
 import type { NationalAbility } from "./nationalAbilities";
+import { COUNTER_BATTERY_DURATION_TURNS } from "./types";
 import type {
   AttackAction,
   BattleAction,
@@ -659,8 +660,39 @@ function hasCounterBatteryUnit(state: BattleState, ownerId: PlayerId): boolean {
     (unit) =>
       unit.ownerId === ownerId &&
       unit.currentHp > 0 &&
-      getCard(unit.cardId).onPlayEffects?.suppressEnemyIndirect === true
+      getCard(unit.cardId).onPlayEffects?.suppressEnemyIndirect === true &&
+      (unit.counterBatteryTurnsRemaining ??
+        COUNTER_BATTERY_DURATION_TURNS) > 0
   );
+}
+
+function advanceCounterBatteryDurations(
+  state: BattleState,
+  ownerId: PlayerId
+) {
+  for (const unit of state.units) {
+    if (
+      unit.ownerId !== ownerId ||
+      unit.currentHp <= 0 ||
+      getCard(unit.cardId).onPlayEffects?.suppressEnemyIndirect !== true
+    ) {
+      continue;
+    }
+
+    const currentTurns =
+      unit.counterBatteryTurnsRemaining ?? COUNTER_BATTERY_DURATION_TURNS;
+
+    if (currentTurns <= 0) continue;
+
+    unit.counterBatteryTurnsRemaining = currentTurns - 1;
+
+    if (unit.counterBatteryTurnsRemaining === 0) {
+      addLog(
+        state,
+        `${getCard(unit.cardId).name}: действие контрбатареи завершено.`
+      );
+    }
+  }
 }
 
 function isCounterBatterySuppressed(
@@ -1246,6 +1278,7 @@ function beginBattle(
 
 function startTurn(state: BattleState, playerId: PlayerId) {
   const player = state[playerId];
+  advanceCounterBatteryDurations(state, playerId);
   syncCounterBatterySuppression(state);
 
   const generatedFuel = calculateFuelGeneration(state, playerId);
@@ -1387,8 +1420,8 @@ function applyDeployDamage(
 /**
  * A single «Огневой налёт» shot, resolved exactly like indirect САУ fire: it can
  * be intercepted by an anti-tank support screen («Противотанковый заслон») or a
- * tank screen, and is softened by the target's armour (спецброня, защита
- * плацдарма, стальной клин, сплочение, оборонительные ауры) — but NOT by
+ * tank screen, and is softened by the target's armour (спецброня, стальной
+ * клин, сплочение, оборонительные ауры) — but NOT by
  * «Лобовая броня», whose plate the arcing shell flies over. Being ranged fire,
  * it never draws return fire or a counterattack.
  */
@@ -1435,7 +1468,6 @@ function applyDeployStrike(
   const reduction =
     getStationaryTankDefenseBonus(state, target) +
     getTankDefenseAuraBonus(state, target) +
-    getSpawnDamageReduction(target) +
     getArmorVsClassReduction(target, sourceCard.class) +
     getHeavyArmorReduction(state, target) +
     getCohesionDefenseBonus(state, target);
@@ -1520,7 +1552,7 @@ function applySuppressEnemyIndirect(
 
   addLog(
     state,
-    `${sourceCard.name}: контрбатарея — пока юнит в строю, САУ и штаб противника не могут атаковать.`
+    `${sourceCard.name}: контрбатарея — в течение 3 ходов владельца САУ и штаб противника не могут атаковать, пока юнит в строю.`
   );
 }
 
@@ -1587,6 +1619,10 @@ function playCard(
     tdAmbushUsedThisTurn: false,
     blitzGranted: abilityBlitz,
     blitzUsed: false,
+    counterBatteryTurnsRemaining:
+      card.onPlayEffects?.suppressEnemyIndirect === true
+        ? COUNTER_BATTERY_DURATION_TURNS
+        : undefined,
   };
 
   state.units.push(unit);
@@ -1743,6 +1779,10 @@ function playSupportCard(
     spawnedThisTurn: true,
     moveCountThisTurn: 0,
     tdAmbushUsedThisTurn: false,
+    counterBatteryTurnsRemaining:
+      card.onPlayEffects?.suppressEnemyIndirect === true
+        ? COUNTER_BATTERY_DURATION_TURNS
+        : undefined,
   });
   syncCounterBatterySuppression(state);
   recordPlayedCard(state, action.playerId, card.id);
@@ -1859,17 +1899,34 @@ function getHqProximityBonus(_state: BattleState, unit: BoardUnit): number {
   return Math.max(0, stepsTowardEnemy) * proximity.maxBonus;
 }
 
-/**
- * «Оборона плацдарма»: a battlefield unit standing on one of its own spawn
- * cells soaks part of every incoming strike (from units and the headquarters).
- */
-function getSpawnDamageReduction(unit: BoardUnit): number {
-  if (!isBattlefieldUnit(unit)) return 0;
+/** A living «Оборона плацдарма» unit currently holding its own spawn line. */
+function getBridgeheadDefenseUnit(
+  state: BattleState,
+  ownerId: PlayerId
+): BoardUnit | null {
+  return (
+    state.units.find(
+      (unit) =>
+        unit.ownerId === ownerId &&
+        unit.currentHp > 0 &&
+        isBattlefieldUnit(unit) &&
+        isSpawnCell(ownerId, unit.position) &&
+        getCard(unit.cardId).combatAbilities?.bridgeheadDefense === true
+    ) ?? null
+  );
+}
 
-  const reduction = getCard(unit.cardId).combatAbilities?.spawnDamageReduction ?? 0;
-  if (reduction <= 0) return 0;
+/** Headquarters and SPG fire is ranged; other units are ranged beyond melee. */
+function isRangedAttackAgainstPosition(
+  attacker: NonNullable<ReturnType<typeof getAttacker>>,
+  targetPosition: Position
+): boolean {
+  if (!("cardId" in attacker)) return true;
 
-  return isSpawnCell(unit.ownerId, unit.position) ? reduction : 0;
+  return (
+    getCard(attacker.cardId).class === "spg" ||
+    chebyshevDistance(attacker.position, targetPosition) > 1
+  );
 }
 
 /**
@@ -2183,7 +2240,6 @@ function getUnitCombatBonuses(
     attackerDefenseBonus:
       getStationaryTankDefenseBonus(state, attacker) +
       getTankDefenseAuraBonus(state, attacker) +
-      getSpawnDamageReduction(attacker) +
       getArmorVsClassReduction(attacker, targetClass) +
       getFrontalArmorReduction(attacker, target) +
       getFlankVulnerabilityPenalty(attacker, target) +
@@ -2195,7 +2251,6 @@ function getUnitCombatBonuses(
     targetDefenseBonus:
       getStationaryTankDefenseBonus(state, target) +
       getTankDefenseAuraBonus(state, target) +
-      getSpawnDamageReduction(target) +
       getArmorVsClassReduction(target, attackerClass) +
       getFrontalArmorReduction(target, attacker) +
       getFlankVulnerabilityPenalty(target, attacker) +
@@ -2287,7 +2342,7 @@ function canAttackTarget(
   if (!attacker || !target) return false;
   if ("cardId" in attacker && isSupportUnit(attacker)) return false;
 
-  // «Контрбатарея»: while an enemy unit with this ability remains in play,
+  // «Контрбатарея»: while an enemy unit has turns remaining for this ability,
   // headquarters and battlefield SPGs cannot attack.
   const attackerUsesIndirectFire =
     !("cardId" in attacker) || getCard(attacker.cardId).class === "spg";
@@ -2495,7 +2550,11 @@ export function getUnitCombatPreview(
 }
 
 type HeadquartersDamageDistribution = {
-  redirected: { unit: BoardUnit; damage: number }[];
+  redirected: {
+    unit: BoardUnit;
+    damage: number;
+    kind: "bridgehead" | "support";
+  }[];
   headquartersDamage: number;
 };
 
@@ -2506,21 +2565,40 @@ function getHeadquartersDamageDistribution(
   // «Противотанковый заслон» also throws itself in front of the HQ against
   // ranged fire (its supportLineCover doubles as soak). Melee raids are
   // answered with return fire instead, so they pass `false` here.
-  includeBarrierCover = false
+  isRangedAttack = false
 ): HeadquartersDamageDistribution {
   let remainingDamage = incomingDamage;
   const redirected: HeadquartersDamageDistribution["redirected"] = [];
+
+  // «Оборона плацдарма»: one living ability source on the owner's spawn line
+  // takes the complete ranged hit. Excess damage never spills into the HQ.
+  if (isRangedAttack && remainingDamage > 0) {
+    const bridgeheadDefender = getBridgeheadDefenseUnit(state, targetOwnerId);
+
+    if (bridgeheadDefender) {
+      return {
+        redirected: [
+          {
+            unit: bridgeheadDefender,
+            damage: remainingDamage,
+            kind: "bridgehead",
+          },
+        ],
+        headquartersDamage: 0,
+      };
+    }
+  }
 
   for (const unit of getSupportUnits(state, targetOwnerId)) {
     const effects = getCard(unit.cardId).supportEffects;
     const redirectLimit =
       (effects?.hqDamageRedirect ?? 0) +
-      (includeBarrierCover ? effects?.supportLineCover ?? 0 : 0);
+      (isRangedAttack ? effects?.supportLineCover ?? 0 : 0);
     const damage = Math.min(remainingDamage, redirectLimit, unit.currentHp);
 
     if (damage <= 0) continue;
 
-    redirected.push({ unit, damage });
+    redirected.push({ unit, damage, kind: "support" });
     remainingDamage -= damage;
 
     if (remainingDamage <= 0) break;
@@ -2620,13 +2698,22 @@ export function getAttackAnimationSequence(
   const attackerIsHeadquarters = !("cardId" in attacker);
 
   if (!("cardId" in target)) {
-    const attackerIsMelee = isMeleeUnitAttacker(attacker);
+    const rangedAttack = isRangedAttackAgainstPosition(
+      attacker,
+      target.position
+    );
+    const attackerIsMelee = !rangedAttack;
     const coverUnit = getSupportCoverUnit(state, target.ownerId);
 
     // «Противотанковый заслон»: a melee raider on the HQ meets preemptive fire.
     const hqCoverStrikes: AttackAnimationStrike[] = [];
 
-    if (attackerIsMelee && coverUnit && !coverUnit.coverFiredThisTurn) {
+    if (
+      attackerIsMelee &&
+      "cardId" in attacker &&
+      coverUnit &&
+      !coverUnit.coverFiredThisTurn
+    ) {
       const coverDamage =
         getCard(coverUnit.cardId).supportEffects?.supportLineCover ?? 0;
 
@@ -2664,9 +2751,7 @@ export function getAttackAnimationSequence(
             state,
             target.ownerId,
             effectiveAttackValue,
-            // Ranged fire on the HQ is partly soaked by the screen; melee raids
-            // are answered by return fire above and deal full HQ damage.
-            !attackerIsMelee
+            rangedAttack
           );
 
     const headquartersDamage =
@@ -2694,8 +2779,6 @@ export function getAttackAnimationSequence(
   }
 
   const unitTarget = "cardId" in effectiveTarget ? effectiveTarget : target;
-  const spawnReduction =
-    "cardId" in unitTarget ? getSpawnDamageReduction(unitTarget) : 0;
   const frontalReduction =
     "cardId" in unitTarget
       ? getFrontalArmorReduction(unitTarget, attacker)
@@ -2723,7 +2806,6 @@ export function getAttackAnimationSequence(
           (attackerIsHeadquarters && isSupportUnit(unitTarget)
             ? getHeadquartersRearStrikeBonus(state, attacker.ownerId)
             : 0) -
-          spawnReduction -
           frontalReduction -
           heavyReduction -
           cohesionReduction
@@ -2952,9 +3034,8 @@ function attack(state: BattleState, action: AttackAction) {
         action.playerId,
         targetUnit
       );
-      // «Оборона плацдарма» softens headquarters fire (spawn-zone protection).
-      // «Лобовая броня» does NOT — HQ shells arc over the frontal plate.
-      const spawnReduction = getSpawnDamageReduction(targetUnit);
+      // «Лобовая броня» does NOT soften headquarters fire — HQ shells arc over
+      // the frontal plate.
       const frontalReduction = getFrontalArmorReduction(targetUnit, attacker);
       // «Стальной клин» soaks part of headquarters fire against heavy/td units.
       const heavyReduction = getHeavyArmorReduction(state, targetUnit);
@@ -2969,7 +3050,6 @@ function attack(state: BattleState, action: AttackAction) {
         attackValue +
           damagedBonus +
           rearStrikeBonus -
-          spawnReduction -
           frontalReduction -
           heavyReduction -
           cohesionReduction
@@ -3033,10 +3113,19 @@ function attack(state: BattleState, action: AttackAction) {
 
     // «Противотанковый заслон»: a melee raider striking the headquarters is met
     // with preemptive return fire from the anti-tank screen on the rear line.
-    const attackerIsMelee = isMeleeUnitAttacker(attacker);
+    const rangedAttack = isRangedAttackAgainstPosition(
+      attacker,
+      targetHeadquarters.position
+    );
+    const attackerIsMelee = !rangedAttack;
     const coverUnit = getSupportCoverUnit(state, targetHeadquarters.ownerId);
 
-    if (attackerIsMelee && coverUnit && !coverUnit.coverFiredThisTurn) {
+    if (
+      attackerIsMelee &&
+      "cardId" in attacker &&
+      coverUnit &&
+      !coverUnit.coverFiredThisTurn
+    ) {
       const coverDamage =
         getCard(coverUnit.cardId).supportEffects?.supportLineCover ?? 0;
 
@@ -3080,9 +3169,7 @@ function attack(state: BattleState, action: AttackAction) {
       state,
       targetHeadquarters.ownerId,
       effectiveAttackValue,
-      // Ranged fire on the HQ is partly soaked by the anti-tank screen; melee
-      // raids are answered by return fire above, so the HQ takes full damage.
-      !attackerIsMelee
+      rangedAttack
     );
     const ignoresCover =
       !attackerIsUnit &&
@@ -3099,11 +3186,25 @@ function attack(state: BattleState, action: AttackAction) {
       );
     }
 
-    for (const { unit, damage } of distribution.redirected) {
+    for (const { unit, damage, kind } of distribution.redirected) {
+      if (kind === "bridgehead") {
+        addLog(
+          state,
+          `${getCard(unit.cardId).name}: оборона плацдарма — принимает весь дистанционный удар по штабу (${damage} урона).`
+        );
+      }
+
       unit.currentHp -= damage;
 
       if (unit.currentHp <= 0) {
-        destroyUnit(state, unit, "destroyed while covering headquarters.", action.playerId);
+        destroyUnit(
+          state,
+          unit,
+          kind === "bridgehead"
+            ? "уничтожен, защищая штаб на плацдарме."
+            : "уничтожен, прикрывая штаб.",
+          action.playerId
+        );
       }
     }
 

@@ -280,9 +280,9 @@ function getAbilityStrength(card: TankCard): number {
   }
 
   if (card.onPlayEffects?.suppressEnemyIndirect) {
-    // Persistent counter-battery disables the enemy HQ and every battlefield
-    // SPG until the source unit is destroyed, so it is worth more than a
-    // one-shot deployment effect.
+    // Counter-battery disables the enemy HQ and every battlefield SPG for three
+    // owner turns (or until the source is destroyed), so it remains worth more
+    // than a one-shot deployment effect.
     score += 1.25;
   }
 
@@ -307,8 +307,8 @@ function getAbilityStrength(card: TankCard): number {
   if (combatAbilities?.raidDraw) {
     score += combatAbilities.raidDraw * 0.55;
   }
-  if (combatAbilities?.spawnDamageReduction) {
-    score += combatAbilities.spawnDamageReduction * 0.5;
+  if (combatAbilities?.bridgeheadDefense) {
+    score += 1.35;
   }
   if (combatAbilities?.armorVsClass) {
     score += combatAbilities.armorVsClass.amount * 0.4;

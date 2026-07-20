@@ -17,7 +17,7 @@
             android:name="sdk_pay_scheme_value"
             android:value="${rustorePayScheme}" />
         <meta-data
-            android:name="panzershrek.rustore.push.project_id"
+            android:name="ru.rustore.sdk.pushclient.project_id"
             android:value="${rustorePushProjectId}" />
         <meta-data
             android:name="ru.rustore.sdk.pushclient.default_notification_channel_id"

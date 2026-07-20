@@ -1,5 +1,6 @@
 import type React from "react";
 import type { PlayerId, SupportRole, TankCard } from "../game/types";
+import { COUNTER_BATTERY_DURATION_TURNS } from "../game/types";
 import {
   getCardClassVisual,
   getCardCombatDamage,
@@ -37,6 +38,7 @@ import counterBatteryIcon from "../assets/icons/icons-for-units/contr-art.webp";
 import frontArmorIcon from "../assets/icons/icons-for-units/front_armor.webp";
 import fuelPlusIcon from "../assets/icons/icons-for-units/fuel_plus.webp";
 import longShotIcon from "../assets/icons/icons-for-units/long_shot.webp";
+import bridgeheadDefenseIcon from "../assets/icons/icons-for-units/plazdarm-defence.webp";
 import rushIcon from "../assets/icons/icons-for-units/rush.webp";
 import specialArmorIcon from "../assets/icons/icons-for-units/special_armor.webp";
 
@@ -55,6 +57,8 @@ type TankCardViewProps = {
   attackCountThisTurn?: number;
   /** An armored car has already fired once and still has a legal follow-up target. */
   canAttackAgain?: boolean;
+  /** The enemy unit can still answer an attack during the viewer's turn. */
+  counterattackAvailable?: boolean;
   borderlessBoard?: boolean;
   suppressExhaustedDim?: boolean;
   /** Board unit is currently hidden by «Маскировка» (cover not yet broken). */
@@ -65,6 +69,8 @@ type TankCardViewProps = {
   rushAvailable?: boolean;
   /** The unit cannot move until its scripted breakdown is repaired. */
   immobilized?: boolean;
+  /** Owner turns left before the unit's counter-battery effect expires. */
+  counterBatteryTurnsRemaining?: number;
   healthDamageEffect?: {
     id: number;
     amount: number;
@@ -206,12 +212,14 @@ export function TankCardView({
   alreadyAttacked = false,
   attackCountThisTurn = 0,
   canAttackAgain = false,
+  counterattackAvailable = false,
   borderlessBoard = false,
   suppressExhaustedDim = false,
   camouflaged = false,
   blitzAvailable = false,
   rushAvailable = false,
   immobilized = false,
+  counterBatteryTurnsRemaining,
   healthDamageEffect,
   healthGainEffect,
   attackChangeEffect,
@@ -229,7 +237,8 @@ export function TankCardView({
   const attackDisplayValue =
     effectiveAttack > 0 ? effectiveAttack : printedCombatDamage;
   const boardAttackSpent =
-    alreadyAttacked || (attackCountThisTurn > 0 && !canAttackAgain);
+    !counterattackAvailable &&
+    (alreadyAttacked || (attackCountThisTurn > 0 && !canAttackAgain));
   const isHand = variant === "hand";
   const isRearLineUnit =
     card.deploymentZone === "support" || card.supportRole != null;
@@ -247,9 +256,15 @@ export function TankCardView({
     (card.combatAbilities?.drawWhenAttacked ?? 0) > 0;
   const hasFrontalArmor = (card.combatAbilities?.frontalArmor?.amount ?? 0) > 0;
   const hasSpecialArmor = (card.combatAbilities?.armorVsClass?.amount ?? 0) > 0;
+  const hasBridgeheadDefense =
+    card.combatAbilities?.bridgeheadDefense === true;
   const hasLongShot = hasRangedStrike(card);
   const hasCounterBattery =
     card.onPlayEffects?.suppressEnemyIndirect === true;
+  const counterBatteryTurns = Math.max(
+    0,
+    counterBatteryTurnsRemaining ?? COUNTER_BATTERY_DURATION_TURNS
+  );
   const hasOverheat = card.combatAbilities?.overheat != null;
 
   if (!isHand) {
@@ -312,16 +327,31 @@ export function TankCardView({
           {hasSpecialArmor && (
             <img src={specialArmorIcon} alt="" title="Специальная броня" style={styles.boardAbilityIconImage} />
           )}
+          {hasBridgeheadDefense && (
+            <img
+              src={bridgeheadDefenseIcon}
+              alt=""
+              title="Оборона плацдарма"
+              style={styles.boardAbilityIconImage}
+            />
+          )}
           {hasLongShot && (
             <img src={longShotIcon} alt="" title={`Дальний удар ${card.range}`} style={styles.boardAbilityIconImage} />
           )}
-          {hasCounterBattery && (
-            <img
-              src={counterBatteryIcon}
-              alt=""
-              title="Контрбатарея"
-              style={styles.boardAbilityIconImage}
-            />
+          {hasCounterBattery && counterBatteryTurns > 0 && (
+            <span
+              style={styles.boardCounterBatteryAbility}
+              title={`Контрбатарея: осталось ${counterBatteryTurns}`}
+            >
+              <img
+                src={counterBatteryIcon}
+                alt=""
+                style={styles.boardAbilityIconImage}
+              />
+              <span style={styles.boardCounterBatteryTurns}>
+                {counterBatteryTurns}
+              </span>
+            </span>
           )}
           {hasOverheat && (
             <span style={styles.boardAbilityIcon} title="Перегрев">
@@ -843,6 +873,35 @@ const styles: Record<string, React.CSSProperties> = {
     height: BOARD_ABILITY_ICON_SIZE,
     objectFit: "contain",
     filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.78))",
+    pointerEvents: "none",
+  },
+
+  boardCounterBatteryAbility: {
+    flex: "0 0 auto",
+    display: "flex",
+    alignItems: "center",
+    gap: 1,
+    height: BOARD_ABILITY_ICON_SIZE,
+    pointerEvents: "none",
+  },
+
+  boardCounterBatteryTurns: {
+    flex: `0 0 ${BOARD_ABILITY_ICON_SIZE}px`,
+    display: "grid",
+    placeItems: "center",
+    width: BOARD_ABILITY_ICON_SIZE,
+    height: BOARD_ABILITY_ICON_SIZE,
+    boxSizing: "border-box",
+    border: "2px solid rgba(255, 255, 255, 0.98)",
+    borderRadius: "50%",
+    background: "rgba(0, 0, 0, 0.48)",
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: 900,
+    lineHeight: 1,
+    textAlign: "center",
+    textShadow: "0 1px 2px rgba(0, 0, 0, 0.95)",
+    filter: "drop-shadow(0 2px 3px rgba(0, 0, 0, 0.78))",
     pointerEvents: "none",
   },
 

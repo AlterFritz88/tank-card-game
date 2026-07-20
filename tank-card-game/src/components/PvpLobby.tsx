@@ -82,6 +82,7 @@ import {
 } from "../game/tutorial";
 import {
   claimCampaignRewardFromServer,
+  canUseHeadquartersDeck,
   createGoldTracksPaymentOnServer,
   exchangeGoldForIronOnServer,
   GOLD_TO_IRON_RATE,
@@ -3362,9 +3363,9 @@ export function PvpLobby() {
   const headquartersList = useMemo(
     () =>
       getDeckBuildingHeadquarters().filter((headquarters) =>
-        playerProgress.unlockedHeadquartersIds.includes(headquarters.id)
+        canUseHeadquartersDeck(playerProgress, headquarters.id)
       ),
-    [playerProgress.unlockedHeadquartersIds]
+    [playerProgress]
   );
   // Campaigns shown in the selection menu (the auto-launched welcome trailer is
   // hidden from the list).

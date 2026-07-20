@@ -2,6 +2,8 @@ import type { BattleBackgroundId } from "./battleBackgrounds";
 
 export type PlayerId = "player" | "bot";
 
+export const COUNTER_BATTERY_DURATION_TURNS = 3;
+
 export type HeadquartersId =
   | "training_unit"
   | "trainingslager"
@@ -234,8 +236,9 @@ export type TankCard = {
     /** Headquarters health added when this unit enters the battlefield */
     hqProtection?: number;
     /**
-     * While this unit remains in play, the enemy headquarters and every enemy
-     * battlefield SPG cannot attack («Контрбатарея»).
+     * For three owner turns after deployment, the enemy headquarters and every
+     * enemy battlefield SPG cannot attack («Контрбатарея»). The effect also ends
+     * immediately if the source unit is destroyed.
      */
     suppressEnemyIndirect?: boolean;
     /**
@@ -332,9 +335,9 @@ export type TankCard = {
     cornerBonus?: { attack?: number; hp?: number };
     /**
      * «Оборона плацдарма»: while standing on one of its own spawn cells, this
-     * unit reduces each incoming strike by this much.
+     * unit intercepts all ranged damage aimed at its headquarters.
      */
-    spawnDamageReduction?: number;
+    bridgeheadDefense?: boolean;
     /**
      * «Прорыв»: the first time this unit moves onto an enemy spawn cell, its
      * owner draws this many cards.
@@ -416,8 +419,8 @@ export type HeadquartersState = {
 
   alreadyAttacked: boolean;
   /**
-   * «Контрбатарея»: this headquarters cannot attack while an enemy unit with
-   * the ability remains in play.
+   * «Контрбатарея»: this headquarters cannot attack while an enemy unit has an
+   * active counter-battery duration.
    */
   attackSuppressed?: boolean;
 };
@@ -497,8 +500,14 @@ export type BoardUnit = {
    */
   supplyHpApplied?: number;
   /**
-   * «Контрбатарея»: this SPG cannot attack while an enemy unit with the ability
-   * remains in play.
+   * Owner turns remaining for «Контрбатарея». The value starts at 3, decreases
+   * at the beginning of each subsequent owner turn, and stops suppressing at 0.
+   * Missing values in battles created by older versions are treated as 3.
+   */
+  counterBatteryTurnsRemaining?: number;
+  /**
+   * «Контрбатарея»: this SPG cannot attack while an enemy unit has an active
+   * counter-battery duration.
    */
   attackSuppressed?: boolean;
   /**

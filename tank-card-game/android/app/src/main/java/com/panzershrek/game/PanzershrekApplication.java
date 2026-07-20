@@ -14,7 +14,8 @@ import ru.rustore.sdk.pushclient.common.logger.DefaultLogger;
 
 public final class PanzershrekApplication extends Application {
     private static final String TAG = "PanzershrekPush";
-    private static final String PROJECT_ID_META = "panzershrek.rustore.push.project_id";
+    private static final String PROJECT_ID_META =
+        "ru.rustore.sdk.pushclient.project_id";
 
     @Override
     public void onCreate() {

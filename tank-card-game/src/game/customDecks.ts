@@ -1,6 +1,11 @@
 import { cards, getCardOrNull, normalizeCardId } from "./cards";
 import { HEADQUARTERS, isPlayerSelectableHeadquartersId } from "./headquarters";
-import { loadPlayerProgress, savePlayerProgress, type PlayerProgress } from "./playerProgress";
+import {
+  canUseHeadquartersDeck,
+  loadPlayerProgress,
+  savePlayerProgress,
+  type PlayerProgress,
+} from "./playerProgress";
 import { getCurrentUserId } from "./playerIdentity";
 import { profileClient } from "../network/profileClient";
 import type { HeadquartersId, Nation, TankCard, TankClass } from "./types";
@@ -207,7 +212,7 @@ export function validateDeck(
     return { valid: false, message: "Выберите штаб" };
   }
 
-  if (progress && !progress.unlockedHeadquartersIds.includes(headquartersId)) {
+  if (progress && !canUseHeadquartersDeck(progress, headquartersId)) {
     return { valid: false, message: "Этот штаб еще не куплен" };
   }
 
