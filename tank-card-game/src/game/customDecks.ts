@@ -1,7 +1,9 @@
 import { cards, getCardOrNull, normalizeCardId } from "./cards";
 import { HEADQUARTERS, isPlayerSelectableHeadquartersId } from "./headquarters";
+import { getDeckCardIds } from "./initialState";
 import {
   canUseHeadquartersDeck,
+  getStockDeckId,
   loadPlayerProgress,
   savePlayerProgress,
   type PlayerProgress,
@@ -28,6 +30,7 @@ export type SavedDeck = {
   cardIds: string[];
   createdAt: number;
   updatedAt: number;
+  deleted?: boolean;
 };
 
 export type RecentDeckSelection = {
@@ -112,6 +115,7 @@ function parseSavedDecks(value: string | null): SavedDeck[] {
             typeof item.createdAt === "number" ? item.createdAt : Date.now(),
           updatedAt:
             typeof item.updatedAt === "number" ? item.updatedAt : Date.now(),
+          deleted: item.deleted === true,
         };
       })
       .filter((deck): deck is SavedDeck => Boolean(deck));
@@ -263,9 +267,9 @@ export function validateDeck(
 }
 
 export function loadSavedDecks(): SavedDeck[] {
-  return loadPlayerProgress().savedDecks.sort(
-    (left, right) => right.updatedAt - left.updatedAt
-  );
+  return loadPlayerProgress().savedDecks
+    .filter((deck) => deck.deleted !== true)
+    .sort((left, right) => right.updatedAt - left.updatedAt);
 }
 
 export function saveDecks(decks: SavedDeck[]) {
@@ -286,7 +290,9 @@ export function clearLocalDeckStorage() {
 export async function syncSavedDecksFromServer(): Promise<SavedDeck[]> {
   const profileClient = await getProfileClient();
   const playerId = getCurrentUserId();
-  const legacyDecks = loadLegacySavedDecks();
+  const legacyDecks = loadLegacySavedDecks().filter(
+    (deck) => deck.deleted !== true
+  );
   let profile = await profileClient.getProfile(playerId);
   const failedMigrationDecks: SavedDeck[] = [];
 
@@ -338,6 +344,41 @@ export async function deleteCustomDeckFromServer(deckId: string): Promise<void> 
 
 export function loadSavedDecksForHeadquarters(headquartersId: HeadquartersId): SavedDeck[] {
   return loadSavedDecks().filter((deck) => deck.headquartersId === headquartersId);
+}
+
+export function createStockDeckDraft(
+  headquartersId: HeadquartersId,
+  name = "Stock deck"
+): SavedDeck {
+  const now = Date.now();
+  const headquarters = HEADQUARTERS[headquartersId];
+
+  return {
+    id: getStockDeckId(headquartersId),
+    name,
+    headquartersId,
+    cardIds: getDeckCardIds(headquarters.defaultDeckId),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function loadStockDeckForHeadquarters(
+  headquartersId: HeadquartersId
+): SavedDeck | null {
+  const stockDeckId = getStockDeckId(headquartersId);
+  return (
+    loadPlayerProgress().savedDecks.find(
+      (deck) => deck.id === stockDeckId && deck.deleted !== true
+    ) ?? null
+  );
+}
+
+export function isStockDeckDeleted(headquartersId: HeadquartersId): boolean {
+  const stockDeckId = getStockDeckId(headquartersId);
+  return loadPlayerProgress().savedDecks.some(
+    (deck) => deck.id === stockDeckId && deck.deleted === true
+  );
 }
 
 export function getNextDefaultDeckName(headquartersId: HeadquartersId): string {

@@ -134,6 +134,11 @@ async function handleHttpRequest(
     return;
   }
 
+  if (requestUrl.pathname === "/api/vkplay/config") {
+    handleVkPlayConfig(request, response, corsHeaders);
+    return;
+  }
+
   if (requestUrl.pathname.startsWith("/api/legal/")) {
     await handleLegalDocumentApi(requestUrl.pathname, response, corsHeaders);
     return;
@@ -261,6 +266,30 @@ function writeJson(
     "Content-Type": "application/json; charset=utf-8",
   });
   response.end(JSON.stringify(value));
+}
+
+function handleVkPlayConfig(
+  request: IncomingMessage,
+  response: ServerResponse,
+  corsHeaders: Record<string, string>
+) {
+  if (request.method !== "GET") {
+    response.writeHead(405, { ...corsHeaders, Allow: "GET" });
+    response.end();
+    return;
+  }
+
+  const appId = process.env.VK_PLAY_APP_ID?.trim() ?? "";
+  writeJson(
+    response,
+    200,
+    {
+      ok: true,
+      enabled: Boolean(appId),
+      appId,
+    },
+    corsHeaders
+  );
 }
 
 function getPublicReturnUrl(request: IncomingMessage): string {

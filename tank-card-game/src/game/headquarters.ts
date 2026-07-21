@@ -39,6 +39,9 @@ export function getDeckBuildingHeadquarters(): HeadquartersDefinition[] {
 }
 
 const PLAYER_LOCKED_HEADQUARTERS_IDS = new Set<HeadquartersId>([
+  // Campaign-only version of the 4th Tank Brigade. The regular playable
+  // headquarters is `soviet_tank_brigade` and must be unlocked via research.
+  "lavrinenko_tank_brigade",
   "soviet_central_front",
 ]);
 

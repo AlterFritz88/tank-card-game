@@ -16,6 +16,7 @@ import {
   canSpendResearchExperience,
   addPremiumDaysToProgress,
   createInitialPlayerProgress,
+  getStockDeckHeadquartersId,
   isHeadquartersFullyResearched,
   isPremiumAccountActive,
   mergeOwnedCardCopiesWithFloor,
@@ -677,6 +678,60 @@ function removeErroneousSovietTankHeadquartersGrant(
   };
 }
 
+function removeNonSelectableHeadquartersReferences(
+  profile: Partial<PlayerProgress>
+): Partial<PlayerProgress> {
+  const researchedHeadquartersIds = Array.isArray(profile.researchedHeadquartersIds)
+    ? profile.researchedHeadquartersIds
+    : [];
+  const unlockedHeadquartersIds = Array.isArray(profile.unlockedHeadquartersIds)
+    ? profile.unlockedHeadquartersIds
+    : [];
+  const savedDecks = Array.isArray(profile.savedDecks) ? profile.savedDecks : [];
+  const hasNonSelectableReference =
+    researchedHeadquartersIds.some(
+      (headquartersId) => !isPlayerSelectableHeadquartersId(headquartersId)
+    ) ||
+    unlockedHeadquartersIds.some(
+      (headquartersId) => !isPlayerSelectableHeadquartersId(headquartersId)
+    ) ||
+    (profile.favoriteHeadquartersId != null &&
+      !isPlayerSelectableHeadquartersId(profile.favoriteHeadquartersId)) ||
+    savedDecks.some(
+      (deck) =>
+        deck &&
+        typeof deck === "object" &&
+        !isPlayerSelectableHeadquartersId(
+          (deck as Partial<PlayerSavedDeck>).headquartersId
+        )
+    );
+
+  if (!hasNonSelectableReference) return profile;
+
+  return {
+    ...profile,
+    favoriteHeadquartersId:
+      profile.favoriteHeadquartersId != null &&
+      !isPlayerSelectableHeadquartersId(profile.favoriteHeadquartersId)
+        ? null
+        : profile.favoriteHeadquartersId,
+    researchedHeadquartersIds: researchedHeadquartersIds.filter(
+      isPlayerSelectableHeadquartersId
+    ),
+    unlockedHeadquartersIds: unlockedHeadquartersIds.filter(
+      isPlayerSelectableHeadquartersId
+    ),
+    savedDecks: savedDecks.filter(
+      (deck) =>
+        !deck ||
+        typeof deck !== "object" ||
+        isPlayerSelectableHeadquartersId(
+          (deck as Partial<PlayerSavedDeck>).headquartersId
+        )
+    ),
+  };
+}
+
 /**
  * Normalizes a stored profile and, for master accounts, grants every
  * headquarters and the full card collection. Grants are re-normalized so the
@@ -687,10 +742,13 @@ function normalizeProfileForPlayer(
   playerId: string,
   profile?: Partial<PlayerProgress>
 ): PlayerProgress {
+  const selectableProfile = removeNonSelectableHeadquartersReferences(
+    profile ?? {}
+  );
   const normalized = mergeWithDefaultProgress(
     isMasterAccount(playerId)
-      ? profile
-      : removeErroneousSovietTankHeadquartersGrant(profile ?? {})
+      ? selectableProfile
+      : removeErroneousSovietTankHeadquartersGrant(selectableProfile)
   );
   if (!isMasterAccount(playerId)) return normalized;
 
@@ -702,13 +760,15 @@ function normalizeProfileForPlayer(
  * access. The startup pass fixes inactive accounts immediately; the normalizer
  * prevents an old guest profile or client cache from reintroducing the grant.
  */
-function migrateLegacyErroneousHeadquartersGrant() {
+function migrateLegacyInvalidHeadquartersGrants() {
   const db = readDb();
   let migratedProfiles = 0;
 
   for (const [playerId, profile] of Object.entries(db)) {
     if (isMasterAccount(playerId)) continue;
-    const migratedProfile = removeErroneousSovietTankHeadquartersGrant(profile);
+    const migratedProfile = removeErroneousSovietTankHeadquartersGrant(
+      removeNonSelectableHeadquartersReferences(profile)
+    );
     if (migratedProfile === profile) continue;
 
     db[playerId] = migratedProfile as PlayerProgress;
@@ -718,12 +778,12 @@ function migrateLegacyErroneousHeadquartersGrant() {
   if (migratedProfiles > 0) {
     writeDb(db);
     console.log(
-      `Removed legacy unresearched 4th Tank Brigade grant from ${migratedProfiles} profile(s)`
+      `Removed legacy invalid headquarters grants from ${migratedProfiles} profile(s)`
     );
   }
 }
 
-migrateLegacyErroneousHeadquartersGrant();
+migrateLegacyInvalidHeadquartersGrants();
 
 function normalizeSavedDecks(
   decks: unknown[],
@@ -737,14 +797,34 @@ function normalizeSavedDecks(
       typeof candidate.id !== "string" ||
       typeof candidate.name !== "string" ||
       typeof candidate.headquartersId !== "string" ||
-      !(candidate.headquartersId in HEADQUARTERS) ||
-      !Array.isArray(candidate.cardIds)
+      !(candidate.headquartersId in HEADQUARTERS)
     ) {
       return [];
     }
 
+    const id = candidate.id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
+    if (!id) return [];
+
     const headquartersId = candidate.headquartersId as HeadquartersId;
     if (!progress.unlockedHeadquartersIds.includes(headquartersId)) return [];
+
+    if (candidate.deleted === true) {
+      if (getStockDeckHeadquartersId(id) !== headquartersId) return [];
+
+      return [
+        {
+          id,
+          name: candidate.name.trim().slice(0, 40) || "Stock deck",
+          headquartersId,
+          cardIds: [],
+          createdAt: getPositiveInteger(candidate.createdAt),
+          updatedAt: getPositiveInteger(candidate.updatedAt),
+          deleted: true,
+        },
+      ];
+    }
+
+    if (!Array.isArray(candidate.cardIds)) return [];
 
     const cardIds = normalizeSavedDeckCardIds(
       headquartersId,
@@ -752,8 +832,6 @@ function normalizeSavedDecks(
       progress.ownedCardCopies
     );
     if (!cardIds) return [];
-    const id = candidate.id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
-    if (!id) return [];
 
     return [
       {
@@ -1980,6 +2058,31 @@ export class PlayerProfileManager {
   deleteCustomDeck(playerId: string, deckId: string): PlayerProgress {
     const profile = this.getProfile(playerId);
     const safeDeckId = deckId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
+    const stockHeadquartersId = getStockDeckHeadquartersId(safeDeckId);
+
+    if (stockHeadquartersId) {
+      const now = Date.now();
+      const existingDeck = profile.savedDecks.find(
+        (deck) => deck.id === safeDeckId
+      );
+      const deletedDeck: PlayerSavedDeck = {
+        id: safeDeckId,
+        name: existingDeck?.name ?? "Stock deck",
+        headquartersId: stockHeadquartersId,
+        cardIds: [],
+        createdAt: existingDeck?.createdAt ?? now,
+        updatedAt: now,
+        deleted: true,
+      };
+
+      return this.persistProfile(playerId, {
+        ...profile,
+        savedDecks: [
+          deletedDeck,
+          ...profile.savedDecks.filter((deck) => deck.id !== safeDeckId),
+        ].slice(0, MAX_SAVED_DECKS),
+      });
+    }
 
     return this.persistProfile(playerId, {
       ...profile,

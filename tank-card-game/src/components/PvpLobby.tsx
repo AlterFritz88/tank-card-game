@@ -59,12 +59,15 @@ import {
 import { getCardOrNull } from "../game/cards";
 import {
   DECK_UNIT_LIMIT,
+  createStockDeckDraft,
   deleteCustomDeck,
   deleteCustomDeckFromServer,
   getGroupedDeckCards,
+  isStockDeckDeleted,
   loadMostRecentDeckSelection,
   loadRecentDeckSelectionForHeadquarters,
   loadSavedDecksForHeadquarters,
+  loadStockDeckForHeadquarters,
   markRecentDeckSelection,
   syncSavedDecksFromServer,
   validateDeck,
@@ -87,6 +90,7 @@ import {
   exchangeGoldForIronOnServer,
   GOLD_TO_IRON_RATE,
   getFavoriteHeadquartersId,
+  getStockDeckId,
   isPremiumAccountActive,
   isValidPlayerNickname,
   loadShopCatalogFromServer,
@@ -202,9 +206,11 @@ type BattleDeckOption = {
   id: string | null;
   name: string;
   cardIds?: string[];
+  previewCardIds?: string[];
   countLabel: string;
   weightLabel: string;
   savedDeck?: SavedDeck;
+  isStockDeck?: boolean;
 };
 
 type DeckPreviewState = {
@@ -3453,17 +3459,34 @@ export function PvpLobby() {
   const buttonsDisabled = pvpBusy || battleStarting;
 
   function getDeckOptionsForHeadquarters(headquartersId: HeadquartersId) {
-    const savedDecks = loadSavedDecksForHeadquarters(headquartersId);
+    const stockDeckId = getStockDeckId(headquartersId);
+    const savedDecks = loadSavedDecksForHeadquarters(headquartersId).filter(
+      (deck) => deck.id !== stockDeckId
+    );
     const recentSelection = loadRecentDeckSelectionForHeadquarters(headquartersId);
     const headquarters = HEADQUARTERS[headquartersId];
     const defaultDeckCardIds = getDeckCardIds(headquarters.defaultDeckId);
-    const defaultOption: BattleDeckOption = {
-      id: null,
-      name: t("battle.stockDeck"),
-      cardIds: undefined,
-      countLabel: `${defaultDeckCardIds.length}/${DECK_UNIT_LIMIT}`,
-      weightLabel: `${getDefaultDeckWeight(headquartersId).totalWeight}`,
-    };
+    const stockDeckOverride = loadStockDeckForHeadquarters(headquartersId);
+    const stockDeck = stockDeckOverride ??
+      createStockDeckDraft(headquartersId, t("battle.stockDeck"));
+    const stockDeckCardIds = stockDeckOverride?.cardIds ?? defaultDeckCardIds;
+    const stockOption: BattleDeckOption | null = isStockDeckDeleted(headquartersId)
+      ? null
+      : {
+          id: stockDeckId,
+          name: stockDeckOverride?.name ?? t("battle.stockDeck"),
+          cardIds: stockDeckOverride?.cardIds,
+          previewCardIds: stockDeckCardIds,
+          countLabel: `${stockDeckCardIds.length}/${DECK_UNIT_LIMIT}`,
+          weightLabel: `${
+            stockDeckOverride
+              ? calculateDeckWeight(headquartersId, stockDeckOverride.cardIds)
+                  .totalWeight
+              : getDefaultDeckWeight(headquartersId).totalWeight
+          }`,
+          savedDeck: stockDeck,
+          isStockDeck: true,
+        };
     const customOptions = savedDecks.map((deck) => ({
       id: deck.id,
       name: deck.name,
@@ -3472,28 +3495,21 @@ export function PvpLobby() {
       weightLabel: `${calculateDeckWeight(headquartersId, deck.cardIds).totalWeight}`,
       savedDeck: deck,
     }));
+    const deckOptions = [
+      ...(stockOption ? [stockOption] : []),
+      ...customOptions,
+    ];
 
-    if (!recentSelection || recentSelection.deckId === null) {
-      return [
-        defaultOption,
-        ...customOptions,
-      ];
-    }
+    if (!recentSelection || recentSelection.deckId === null) return deckOptions;
 
-    const recentDeck = customOptions.find(
+    const recentDeck = deckOptions.find(
       (option) => option.id === recentSelection.deckId
     );
-    if (!recentDeck) {
-      return [
-        defaultOption,
-        ...customOptions,
-      ];
-    }
+    if (!recentDeck) return deckOptions;
 
     return [
       recentDeck,
-      defaultOption,
-      ...customOptions.filter((option) => option.id !== recentDeck.id),
+      ...deckOptions.filter((option) => option.id !== recentDeck.id),
     ];
   }
 
@@ -3867,8 +3883,10 @@ export function PvpLobby() {
     : previewHeadquartersId
       ? HEADQUARTERS[previewHeadquartersId]
       : null;
-  const previewDeckCards = previewDeck?.deck.cardIds
-    ? getGroupedDeckCards(previewDeck.deck.cardIds)
+  const previewDeckCardIds =
+    previewDeck?.deck.previewCardIds ?? previewDeck?.deck.cardIds;
+  const previewDeckCards = previewDeckCardIds
+    ? getGroupedDeckCards(previewDeckCardIds)
     : [];
   const previewDeckIsCustom = Boolean(previewDeck?.deck.savedDeck);
 

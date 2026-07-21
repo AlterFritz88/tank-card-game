@@ -54,7 +54,27 @@ export type PlayerSavedDeck = {
   cardIds: string[];
   createdAt: number;
   updatedAt: number;
+  deleted?: boolean;
 };
+
+export const STOCK_DECK_ID_PREFIX = "stock_";
+
+export function getStockDeckId(headquartersId: HeadquartersId): string {
+  return `${STOCK_DECK_ID_PREFIX}${headquartersId}`;
+}
+
+export function getStockDeckHeadquartersId(deckId: unknown): HeadquartersId | null {
+  if (typeof deckId !== "string" || !deckId.startsWith(STOCK_DECK_ID_PREFIX)) {
+    return null;
+  }
+
+  const headquartersId = deckId.slice(STOCK_DECK_ID_PREFIX.length);
+  return headquartersId in HEADQUARTERS ? (headquartersId as HeadquartersId) : null;
+}
+
+export function isStockDeckId(deckId: unknown): boolean {
+  return getStockDeckHeadquartersId(deckId) !== null;
+}
 
 export type DailyLoginRewardKind =
   | "ironTracks"
@@ -1509,14 +1529,32 @@ function normalizeSavedDecks(
       typeof candidate.id !== "string" ||
       typeof candidate.name !== "string" ||
       typeof candidate.headquartersId !== "string" ||
-      !(candidate.headquartersId in HEADQUARTERS) ||
-      !Array.isArray(candidate.cardIds)
+      !(candidate.headquartersId in HEADQUARTERS)
     ) {
       return [];
     }
 
+    const id = candidate.id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
     const headquartersId = candidate.headquartersId as HeadquartersId;
     if (!progress.unlockedHeadquartersIds.includes(headquartersId)) return [];
+
+    if (candidate.deleted === true) {
+      if (!id || getStockDeckHeadquartersId(id) !== headquartersId) return [];
+
+      return [
+        {
+          id,
+          name: candidate.name.trim().slice(0, 40) || "Stock deck",
+          headquartersId,
+          cardIds: [],
+          createdAt: getPositiveInteger(candidate.createdAt),
+          updatedAt: getPositiveInteger(candidate.updatedAt),
+          deleted: true,
+        },
+      ];
+    }
+
+    if (!Array.isArray(candidate.cardIds)) return [];
 
     const normalizedCardIds = normalizeSavedDeckCardIds(
       headquartersId,
@@ -1527,7 +1565,7 @@ function normalizeSavedDecks(
 
     return [
       {
-        id: candidate.id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80),
+        id,
         name: candidate.name.trim().slice(0, 40) || "Deck",
         headquartersId,
         cardIds: normalizedCardIds,

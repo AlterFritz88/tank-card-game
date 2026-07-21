@@ -69,11 +69,52 @@ function getConfiguredAppId(): string {
   return env.VITE_VK_PLAY_APP_ID?.trim() ?? "";
 }
 
+function getVkPlayReferrer(): URL | null {
+  try {
+    const referrer = new URL(document.referrer);
+    return referrer.hostname === "vkplay.ru" ||
+      referrer.hostname.endsWith(".vkplay.ru")
+      ? referrer
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function getReferrerAppId(): string {
+  const referrer = getVkPlayReferrer();
+  if (!referrer) return "";
+
+  const match = referrer.pathname.match(/^\/app\/([^/]+)/i);
+  return match?.[1] ? decodeURIComponent(match[1]).trim() : "";
+}
+
 function getLaunchAppId(): string {
   const queryAppId = new URLSearchParams(window.location.search)
     .get("appid")
     ?.trim();
-  return queryAppId || getConfiguredAppId();
+  return queryAppId || getReferrerAppId() || getConfiguredAppId();
+}
+
+async function getRuntimeAppId(): Promise<string> {
+  try {
+    const response = await fetch("/api/vkplay/config", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!response.ok) return "";
+
+    const payload = (await response.json()) as {
+      ok?: unknown;
+      appId?: unknown;
+    };
+    return payload.ok === true && typeof payload.appId === "string"
+      ? payload.appId.trim()
+      : "";
+  } catch {
+    return "";
+  }
 }
 
 function isEmbedded(): boolean {
@@ -91,15 +132,11 @@ export function isVkPlayLaunch(): boolean {
   const query = new URLSearchParams(window.location.search);
   if (query.has("appid")) return true;
 
-  try {
-    const referrer = new URL(document.referrer);
-    return (
-      (referrer.hostname === "vkplay.ru" || referrer.hostname.endsWith(".vkplay.ru")) &&
-      Boolean(getLaunchAppId())
-    );
-  } catch {
-    return false;
-  }
+  // VK Play may apply an origin-only referrer policy and omit both the parent
+  // path and iframe query parameters. PanzerShrek is not embedded by its normal
+  // web or Android entry points, so an iframe launch is treated as VK Play and
+  // the authoritative GMRID is then fetched from our server at runtime.
+  return true;
 }
 
 function formatVkPlayError(value: unknown, fallback: string): Error {
@@ -181,7 +218,7 @@ async function authorizeWithVkPlay(): Promise<VkPlayAuthorization> {
     throw new Error("The game was not launched from VK Play");
   }
 
-  const appId = getLaunchAppId();
+  const appId = getLaunchAppId() || (await getRuntimeAppId());
   if (!appId) {
     throw new Error("VK Play app ID is missing");
   }
