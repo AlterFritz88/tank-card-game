@@ -1086,6 +1086,57 @@ export async function loginPlayerAccount(input: {
   );
 }
 
+let vkPlayLoginPromise: Promise<PlayerProgress> | null = null;
+
+export function loginPlayerWithVkPlay(input: {
+  uid: string;
+  hash: string;
+  nickname?: string;
+}): Promise<PlayerProgress> {
+  vkPlayLoginPromise ??= (async () => {
+    const profileClient = await getProfileClient();
+    const currentUserId = getCurrentUserId();
+    const mergeGuestProgress = currentUserId.startsWith("guest:");
+    const pendingRewardClaims = mergeGuestProgress
+      ? loadPlayerProgress().pendingRewardClaims
+      : [];
+    const authResult = await profileClient.loginVkPlay({
+      ...input,
+      guestPlayerId: mergeGuestProgress ? currentUserId : undefined,
+      mergeGuestProgress,
+    });
+
+    setCurrentUserId(authResult.userId);
+    const savedProfile = saveServerPlayerProgress(
+      authResult.profile,
+      pendingRewardClaims
+    );
+
+    if (savedProfile.nickname !== "Commander") return savedProfile;
+
+    const vkPlayNickname = normalizePlayerNickname(
+      authResult.username,
+      savedProfile.nickname
+    );
+    if (vkPlayNickname === savedProfile.nickname) return savedProfile;
+
+    try {
+      const profile = await profileClient.updateNickname(
+        authResult.userId,
+        vkPlayNickname
+      );
+      return saveServerPlayerProgress(profile, pendingRewardClaims);
+    } catch {
+      return savedProfile;
+    }
+  })().catch((error) => {
+    vkPlayLoginPromise = null;
+    throw error;
+  });
+
+  return vkPlayLoginPromise;
+}
+
 /**
  * Wipes the guest's progress on this device/browser and mints a fresh guest
  * identity. Used by the settings "sign out" action for guest profiles — the old

@@ -17,6 +17,8 @@ type PlayerAccount = {
   legalVersion: string;
   createdAt: number;
   lastLoginAt: number;
+  provider?: "password" | "vkplay";
+  providerUserId?: string;
 };
 
 type AccountDb = Record<string, PlayerAccount>;
@@ -182,6 +184,7 @@ export class PlayerAccountManager {
       legalVersion: LEGAL_VERSION,
       createdAt: now,
       lastLoginAt: now,
+      provider: "password",
     };
 
     db[validatedUsername.key] = account;
@@ -217,6 +220,60 @@ export class PlayerAccountManager {
     return nextAccount;
   }
 
+  loginVkPlay(uid: string, nickname: string): PlayerAccount {
+    const safeUid = uid.trim();
+    if (!/^\d{1,24}$/.test(safeUid)) {
+      throw new Error("VK Play returned an invalid user identifier");
+    }
+
+    const db = readDb();
+    const accountKey = `vkplay:${safeUid}`;
+    const existing = db[accountKey] ?? Object.values(db).find(
+      (account) =>
+        account.provider === "vkplay" && account.providerUserId === safeUid
+    );
+    const fallbackUsername = `VK${safeUid}`.slice(0, 14);
+    const normalizedNickname = normalizeUsername(nickname)
+      .replace(/[^A-Za-z0-9_-]/g, "")
+      .slice(0, 14);
+    const username = normalizedNickname || fallbackUsername;
+    const now = Date.now();
+
+    if (existing) {
+      const nextAccount: PlayerAccount = {
+        ...existing,
+        username,
+        lastLoginAt: now,
+        provider: "vkplay",
+        providerUserId: safeUid,
+      };
+      db[accountKey] = nextAccount;
+      if (existing.usernameKey !== accountKey) delete db[existing.usernameKey];
+      writeDb(db);
+      return nextAccount;
+    }
+
+    const account: PlayerAccount = {
+      userId: `user:vkplay_${safeUid}`,
+      username,
+      usernameKey: accountKey,
+      email: "",
+      emailKey: "",
+      passwordHash: "",
+      salt: "",
+      legalAcceptedAt: now,
+      legalVersion: LEGAL_VERSION,
+      createdAt: now,
+      lastLoginAt: now,
+      provider: "vkplay",
+      providerUserId: safeUid,
+    };
+
+    db[accountKey] = account;
+    writeDb(db);
+    return account;
+  }
+
   getEmailByUserId(userId: string): string | null {
     const safeUserId = userId.trim();
     if (!safeUserId) return null;
@@ -224,7 +281,7 @@ export class PlayerAccountManager {
     const account = Object.values(readDb()).find(
       (entry) => entry.userId === safeUserId
     );
-    return account?.email ?? null;
+    return account?.email || null;
   }
 
   listAccounts(): AdminPlayerAccountView[] {

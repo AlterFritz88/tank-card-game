@@ -1,4 +1,11 @@
-import { Suspense, lazy, useEffect, useState, type CSSProperties } from "react";
+import {
+  Suspense,
+  lazy,
+  useEffect,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -10,6 +17,12 @@ import { getConfiguredProfileHttpUrl } from "./network/webSocketUrl";
 import { useBattleStore } from "./store/battleStore";
 import { profileClient } from "./network/profileClient";
 import { restoreRadioDuelPushNotifications } from "./nativePushNotifications";
+import { loginPlayerWithVkPlay } from "./game/playerProgress";
+import { GUEST_SESSION_READY_STORAGE_KEY } from "./game/playerIdentity";
+import {
+  getVkPlayAuthorization,
+  isVkPlayLaunch,
+} from "./network/vkPlayAuth";
 
 const BattleScreen = lazy(() =>
   import("./components/BattleScreen").then((module) => ({
@@ -59,7 +72,87 @@ export default function App() {
     );
   }
 
-  return <GameApp />;
+  return (
+    <VkPlayAuthGate>
+      <GameApp />
+    </VkPlayAuthGate>
+  );
+}
+
+let vkPlayAutomaticLoginPromise: Promise<void> | null = null;
+
+function startVkPlayAutomaticLogin(forceRefresh: boolean): Promise<void> {
+  if (forceRefresh) vkPlayAutomaticLoginPromise = null;
+  vkPlayAutomaticLoginPromise ??= getVkPlayAuthorization({ forceRefresh })
+    .then((authorization) => loginPlayerWithVkPlay(authorization))
+    .then(() => {
+      window.localStorage.setItem(GUEST_SESSION_READY_STORAGE_KEY, "true");
+    })
+    .catch((error) => {
+      vkPlayAutomaticLoginPromise = null;
+      throw error;
+    });
+  return vkPlayAutomaticLoginPromise;
+}
+
+function VkPlayAuthGate({ children }: { children: ReactNode }) {
+  const [vkPlayLaunch] = useState(() => isVkPlayLaunch());
+  const [attempt, setAttempt] = useState(0);
+  const [state, setState] = useState<{
+    status: "loading" | "ready" | "error";
+    message: string | null;
+  }>(() => ({
+    status: vkPlayLaunch ? "loading" : "ready",
+    message: null,
+  }));
+
+  useEffect(() => {
+    if (!vkPlayLaunch) return;
+
+    let cancelled = false;
+    void startVkPlayAutomaticLogin(attempt > 0)
+      .then(() => {
+        if (!cancelled) setState({ status: "ready", message: null });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setState({
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Не удалось выполнить вход через VK Play",
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt, vkPlayLaunch]);
+
+  if (state.status === "loading") return <LoadingScreen />;
+  if (state.status === "error") {
+    return (
+      <main style={vkPlayAuthStyles.page}>
+        <section style={vkPlayAuthStyles.panel}>
+          <h1 style={vkPlayAuthStyles.title}>Вход через VK Play</h1>
+          <p style={vkPlayAuthStyles.message}>{state.message}</p>
+          <button
+            type="button"
+            style={vkPlayAuthStyles.button}
+            onClick={() => {
+              setState({ status: "loading", message: null });
+              setAttempt((value) => value + 1);
+            }}
+          >
+            Повторить
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  return children;
 }
 
 function GameApp() {
@@ -313,6 +406,59 @@ function SessionErrorNotice({
     document.body
   );
 }
+
+const vkPlayAuthStyles: Record<string, CSSProperties> = {
+  page: {
+    minHeight: "100vh",
+    display: "grid",
+    placeItems: "center",
+    padding: 24,
+    background:
+      "radial-gradient(circle at 50% 20%, rgba(151, 130, 72, 0.2), transparent 36%), linear-gradient(180deg, #1c2019, #080a08)",
+    color: "#f4e5bf",
+    fontFamily: "var(--font-body)",
+  },
+  panel: {
+    width: "min(520px, 100%)",
+    padding: "30px 34px",
+    border: "1px solid rgba(214, 173, 83, 0.42)",
+    borderRadius: 8,
+    background:
+      "linear-gradient(180deg, rgba(38, 41, 31, 0.98), rgba(14, 16, 13, 0.98))",
+    boxShadow: "0 24px 60px rgba(0,0,0,0.68)",
+    textAlign: "center",
+  },
+  title: {
+    margin: 0,
+    color: "#e2c777",
+    fontFamily: "var(--font-display)",
+    fontSize: 30,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+  },
+  message: {
+    margin: "16px 0 0",
+    color: "#eadfca",
+    fontSize: 16,
+    lineHeight: 1.45,
+  },
+  button: {
+    minWidth: 190,
+    minHeight: 48,
+    marginTop: 24,
+    border: "1px solid rgba(232, 205, 126, 0.58)",
+    borderRadius: 5,
+    background:
+      "linear-gradient(180deg, rgba(103, 105, 68, 0.98), rgba(48, 52, 33, 0.98))",
+    color: "#fff0c4",
+    fontFamily: "var(--font-display)",
+    fontSize: 17,
+    fontWeight: 800,
+    letterSpacing: "0.05em",
+    textTransform: "uppercase",
+    cursor: "pointer",
+  },
+};
 
 const sessionNoticeStyles: Record<string, CSSProperties> = {
   overlay: {

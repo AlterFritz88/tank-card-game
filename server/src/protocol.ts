@@ -213,6 +213,15 @@ export type PvpClientMessage =
       mergeGuestProgress?: boolean;
     }
   | {
+      type: "VK_PLAY_LOGIN";
+      requestId: string;
+      uid: string;
+      hash: string;
+      nickname?: string;
+      guestPlayerId?: string;
+      mergeGuestProgress?: boolean;
+    }
+  | {
       // Re-binds a reconnecting socket to a registered account using the session
       // token issued at login/registration, without re-sending the password.
       type: "AUTHENTICATE";

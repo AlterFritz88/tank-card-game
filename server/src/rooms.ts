@@ -38,6 +38,7 @@ import {
 import { PlayerAccountManager } from "./playerAccounts";
 import { PlayerProfileManager } from "./playerProfiles";
 import { createSessionToken, verifySessionToken } from "./authTokens";
+import { verifyVkPlayAuthToken } from "./vkPlayAuth";
 import { PromoRedemptionStore } from "./promoCodes";
 import { PvpStatsStore } from "./pvpStats";
 import { RadioDuelManager } from "./radioDuels";
@@ -268,8 +269,8 @@ const FAKE_MATCH_MAX_WAIT_MS = Number(
 const configuredFakePvpProbability = Number(
   process.env.PVP_FAKE_MATCH_PROBABILITY ?? DEFAULT_FAKE_PVP_MATCH_PROBABILITY
 );
-// Keep an old deployment environment value (for example 0.85) from silently
-// overriding the new gameplay maximum. Operators may still lower the chance.
+// Keep deployment environment values above the gameplay default from silently
+// overriding the current maximum. Operators may still lower the chance.
 const FAKE_PVP_MATCH_PROBABILITY = Number.isFinite(
   configuredFakePvpProbability
 )
@@ -904,6 +905,9 @@ export class RoomManager {
         break;
       case "LOGIN_ACCOUNT":
         this.loginAccount(socket, message);
+        break;
+      case "VK_PLAY_LOGIN":
+        void this.loginVkPlay(socket, message);
         break;
       case "AUTHENTICATE":
         this.authenticateSession(socket, message);
@@ -1748,6 +1752,43 @@ export class RoomManager {
       });
     } catch (error) {
       this.recordFailedLogin(ip);
+      this.sendAuthError(socket, message.requestId, error);
+    }
+  }
+
+  private async loginVkPlay(
+    socket: WebSocket,
+    message: Extract<PvpClientMessage, { type: "VK_PLAY_LOGIN" }>
+  ) {
+    try {
+      const ip = this.socketToIp.get(socket) ?? "unknown";
+      await verifyVkPlayAuthToken({
+        uid: message.uid,
+        hash: message.hash,
+        ip,
+      });
+
+      const account = this.accounts.loginVkPlay(
+        message.uid,
+        message.nickname ?? ""
+      );
+      const canMergeGuestProgress =
+        message.mergeGuestProgress === true &&
+        message.guestPlayerId?.startsWith("guest:") === true;
+      const profile = canMergeGuestProgress && message.guestPlayerId
+        ? this.profiles.mergeGuestProgress(account.userId, message.guestPlayerId)
+        : this.profiles.getProfile(account.userId);
+
+      this.bindAuthenticatedSocket(socket, account.userId);
+      safeSend(socket, {
+        type: "AUTH_RESULT",
+        requestId: message.requestId,
+        userId: account.userId,
+        username: account.username,
+        profile,
+        sessionToken: createSessionToken(account.userId),
+      });
+    } catch (error) {
       this.sendAuthError(socket, message.requestId, error);
     }
   }

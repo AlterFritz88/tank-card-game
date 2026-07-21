@@ -169,6 +169,15 @@ type ProfileClientMessage =
       mergeGuestProgress?: boolean;
     }
   | {
+      type: "VK_PLAY_LOGIN";
+      requestId: string;
+      uid: string;
+      hash: string;
+      nickname?: string;
+      guestPlayerId?: string;
+      mergeGuestProgress?: boolean;
+    }
+  | {
       type: "AUTHENTICATE";
       requestId: string;
       token: string;
@@ -1147,6 +1156,27 @@ class ProfileClient {
 
     writeSessionToken(response.sessionToken);
     this.sendRuStorePushToken(true);
+    return response;
+  }
+
+  async loginVkPlay(input: {
+    uid: string;
+    hash: string;
+    nickname?: string;
+    guestPlayerId?: string;
+    mergeGuestProgress?: boolean;
+  }): Promise<AuthResult> {
+    const response = await this.request({
+      type: "VK_PLAY_LOGIN",
+      requestId: createRequestId(),
+      ...input,
+    });
+
+    if (response.type !== "AUTH_RESULT") {
+      throw new Error("VK Play auth server returned an unexpected response");
+    }
+
+    writeSessionToken(response.sessionToken);
     return response;
   }
 

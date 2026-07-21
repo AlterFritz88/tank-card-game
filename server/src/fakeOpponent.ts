@@ -25,7 +25,7 @@ import type { HeadquartersId } from "../../tank-card-game/src/game/types";
 
 const CUSTOM_DECK_CARD_LIMIT = 40;
 const CUSTOM_DECK_COPY_LIMIT = 4;
-export const DEFAULT_FAKE_PVP_MATCH_PROBABILITY = 0.55;
+export const DEFAULT_FAKE_PVP_MATCH_PROBABILITY = 0.85;
 export const DEFAULT_COMMANDER_NICKNAME_PROBABILITY = 0.15;
 const DEFAULT_UNREGISTERED_NICKNAME = "Commander";
 
